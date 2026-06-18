@@ -41,4 +41,4 @@ export interface Feedback {
   postponeToOn?: string; payload?: Record<string, unknown>;
 }
 
-export interface PlantViability { plantId: string; nickname: string | null; level: ViabilityLevel; reasons: string[] }
+export interface PlantViability { plantId: string; nickname: string | null; speciesSlug: string; level: ViabilityLevel; reasons: string[] }

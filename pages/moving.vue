@@ -24,7 +24,7 @@ async function simulate() {
     <div v-if="results" class="grid gap-2">
       <UCard v-for="r in results" :key="r.plantId">
         <div class="flex items-center justify-between">
-          <span class="font-medium">{{ r.nickname ?? r.plantId }}</span>
+          <span class="font-medium">{{ r.nickname ?? r.speciesSlug }}</span>
           <ViabilityBadge :level="r.level" :reasons="r.reasons" />
         </div>
       </UCard>

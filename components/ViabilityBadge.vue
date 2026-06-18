@@ -3,7 +3,7 @@ import type { ViabilityLevel } from '../types/api.js';
 
 const props = defineProps<{ level: ViabilityLevel; reasons?: string[] }>();
 
-const color = computed(() => ({ good: 'green', caution: 'amber', poor: 'red' }[props.level]));
+const color = computed(() => ({ good: 'green', caution: 'amber', poor: 'red' } as const)[props.level]);
 const label = computed(() => ({ good: 'Good fit', caution: 'Caution', poor: 'Poor fit' }[props.level]));
 </script>
 

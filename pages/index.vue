@@ -1,0 +1,51 @@
+<script setup lang="ts">
+import { groupByPlant, type DueTask } from '../utils/tasks.js';
+import type { Plant } from '../types/api.js';
+
+const api = useApi();
+const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
+const { data: plants } = await useAsyncData('plants', () => api.listPlants());
+
+const plantName = (id: string): string => {
+  const p = (plants.value ?? []).find((x: Plant) => x.id === id);
+  return p?.nickname ?? p?.speciesSlug ?? id;
+};
+
+const grouped = computed(() => groupByPlant((tasks.value ?? []) as DueTask[]));
+
+const today = new Date().toISOString().slice(0, 10);
+
+async function markDone(plantId: string, task: DueTask['task']) {
+  await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: today });
+  await refresh();
+}
+
+async function postpone(plantId: string, task: DueTask['task']) {
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today, postponeToOn: tomorrow });
+  await refresh();
+}
+</script>
+
+<template>
+  <div>
+    <h2 class="text-lg font-semibold mb-3">Today's care</h2>
+    <p v-if="!grouped.size" class="text-gray-500">Nothing due today. 🌿</p>
+    <div v-for="[plantId, plantTasks] in grouped" :key="plantId" class="mb-4">
+      <UCard>
+        <template #header>
+          <NuxtLink :to="`/plants/${plantId}`" class="font-medium hover:underline">{{ plantName(plantId) }}</NuxtLink>
+        </template>
+        <TaskCard
+          v-for="t in plantTasks"
+          :key="t.task"
+          :plant-id="plantId"
+          :task="t.task"
+          :next-due-on="t.nextDueOn"
+          @done="markDone(plantId, $event)"
+          @postpone="postpone(plantId, $event)"
+        />
+      </UCard>
+    </div>
+  </div>
+</template>

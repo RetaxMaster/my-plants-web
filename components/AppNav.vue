@@ -5,6 +5,7 @@ const links = [
   { label: 'Places', to: '/places', icon: 'i-heroicons-home' },
   { label: 'Cities', to: '/cities', icon: 'i-heroicons-map-pin' },
   { label: 'Moving', to: '/moving', icon: 'i-heroicons-truck' },
+  { label: 'Blog', to: '/blog', icon: 'i-heroicons-book-open' },
 ];
 </script>
 

@@ -1,4 +1,4 @@
-export type TaskCode = 'WATER' | 'FERTILIZE' | 'REPOT' | 'ROTATE' | 'CLEAN_LEAVES';
+export type TaskCode = 'WATER' | 'FERTILIZE' | 'REPOT' | 'ROTATE' | 'CLEAN_LEAVES' | 'MIST';
 
 export interface DueTask {
   plantId: string;
@@ -12,6 +12,7 @@ export const TASK_LABELS: Record<TaskCode, string> = {
   REPOT: 'Repot',
   ROTATE: 'Rotate',
   CLEAN_LEAVES: 'Clean leaves',
+  MIST: 'Mist leaves',
 };
 
 const MS_DAY = 86_400_000;

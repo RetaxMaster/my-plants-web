@@ -9,6 +9,10 @@ describe('task presentation helpers', () => {
     expect(TASK_LABELS.CLEAN_LEAVES).toBe('Clean leaves');
   });
 
+  it('has a label for the MIST task', () => {
+    expect(TASK_LABELS.MIST).toBe('Mist leaves');
+  });
+
   it('labels due dates relative to today', () => {
     expect(dueLabel(new Date('2026-06-18'), today)).toBe('Today');
     expect(dueLabel(new Date('2026-06-17'), today)).toBe('Overdue');

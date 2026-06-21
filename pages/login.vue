@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// The login wall renders without the app navigation (see layouts/auth.vue).
+definePageMeta({ layout: 'auth' });
+
 const username = ref('');
 const password = ref('');
 const error = ref('');
@@ -21,7 +24,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="max-w-sm mx-auto mt-16">
+  <div>
     <h2 class="text-lg font-semibold mb-4">Sign in</h2>
     <UForm :state="{ username, password }" class="grid gap-3" @submit="submit">
       <UFormGroup label="Username"><UInput v-model="username" autocomplete="username" /></UFormGroup>

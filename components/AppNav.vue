@@ -1,14 +1,18 @@
 <script setup lang="ts">
-const links = [
-  { label: 'Today', to: '/', icon: 'i-heroicons-sun' },
-  { label: 'Plants', to: '/plants', icon: 'i-heroicons-sparkles' },
-  { label: 'Places', to: '/places', icon: 'i-heroicons-home' },
-  { label: 'Cities', to: '/cities', icon: 'i-heroicons-map-pin' },
-  { label: 'Moving', to: '/moving', icon: 'i-heroicons-truck' },
-  { label: 'Blog', to: '/blog', icon: 'i-heroicons-book-open' },
-];
-
 const { loggedIn, user, clear } = useUserSession();
+
+// Protected destinations require a session; only the blog is public. When logged
+// out we hide the protected links so a visitor never clicks a link that just
+// bounces them back to /login.
+const allLinks = [
+  { label: 'Today', to: '/', icon: 'i-heroicons-sun', public: false },
+  { label: 'Plants', to: '/plants', icon: 'i-heroicons-sparkles', public: false },
+  { label: 'Places', to: '/places', icon: 'i-heroicons-home', public: false },
+  { label: 'Cities', to: '/cities', icon: 'i-heroicons-map-pin', public: false },
+  { label: 'Moving', to: '/moving', icon: 'i-heroicons-truck', public: false },
+  { label: 'Blog', to: '/blog', icon: 'i-heroicons-book-open', public: true },
+];
+const links = computed(() => (loggedIn.value ? allLinks : allLinks.filter((l) => l.public)));
 
 async function logout() {
   await $fetch('/api/auth/logout', { method: 'POST' });
@@ -24,5 +28,6 @@ async function logout() {
       <span class="text-gray-500">{{ user?.username }}</span>
       <UButton size="xs" variant="ghost" color="gray" @click="logout">Log out</UButton>
     </span>
+    <UButton v-else class="ml-auto" size="xs" to="/login" icon="i-heroicons-arrow-right-on-rectangle" variant="ghost" color="gray">Sign in</UButton>
   </nav>
 </template>

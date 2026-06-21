@@ -24,6 +24,10 @@ async function schedule() {
       { name: friendlyCityLabel(sel), latitude: sel.latitude, longitude: sel.longitude, timezone: sel.timezone },
       moveOn.value,
     );
+    // Clear the what-if state so the scheduled move can't be re-submitted by a second click.
+    selection.value = null;
+    results.value = null;
+    moveOn.value = '';
     scheduled.value = true;
   } finally {
     scheduling.value = false;

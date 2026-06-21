@@ -25,14 +25,18 @@ const cityOptions = computed(() => (cities.value ?? []).map((c) => ({ label: c.n
 
 // UInput's v-model is `string | number | undefined`; the DTO field is `number | null`.
 // Bridge the two so an empty input reads/writes as the contract's `null` without leaking
-// `null` into the component's typed model.
+// `null` into the component's typed model. `v-model.number` yields the empty string ''
+// (not undefined) when the user clears a typed value, so coerce anything that is not a
+// finite number to `null` — otherwise '' would reach the `number | null` DTO and 400.
+const toNullableNumber = (v: number | undefined): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
 const indoorTempMinC = computed<number | undefined>({
   get: () => form.indoorTempMinC ?? undefined,
-  set: (v) => { form.indoorTempMinC = v ?? null; },
+  set: (v) => { form.indoorTempMinC = toNullableNumber(v); },
 });
 const indoorTempMaxC = computed<number | undefined>({
   get: () => form.indoorTempMaxC ?? undefined,
-  set: (v) => { form.indoorTempMaxC = v ?? null; },
+  set: (v) => { form.indoorTempMaxC = toNullableNumber(v); },
 });
 
 async function submit() {

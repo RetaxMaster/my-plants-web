@@ -10,6 +10,9 @@ export interface City {
 export interface CreateCity {
   name: string; latitude: number; longitude: number; timezone: string; isPrimary?: boolean;
 }
+export interface CitySearchResult {
+  name: string; country: string; admin1: string; latitude: number; longitude: number; timezone: string;
+}
 
 export type LightType = 'DIRECT' | 'BRIGHT_INDIRECT' | 'MEDIUM' | 'LOW';
 export type HumidityCharacter = 'DRY' | 'NORMAL' | 'HUMID';

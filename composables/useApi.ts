@@ -1,5 +1,5 @@
 import type {
-  City, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, Place, Plant,
+  City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, Place, Plant,
   PlantCare, PlantViability, SpeciesSummary,
 } from '../types/api.js';
 
@@ -14,6 +14,8 @@ export function useApi() {
     listCities: () => api<City[]>('/cities'),
     createCity: (body: CreateCity) => api<City>('/cities', { method: 'POST', body }),
     makePrimaryCity: (id: string) => api<City>(`/cities/${id}/make-primary`, { method: 'POST' }),
+    searchCities: (q: string) =>
+      api<CitySearchResult[]>(`/cities/search?q=${encodeURIComponent(q)}`),
 
     listPlaces: () => api<Place[]>('/places'),
     createPlace: (body: CreatePlace) => api<Place>('/places', { method: 'POST', body }),
@@ -29,9 +31,9 @@ export function useApi() {
     sendFeedback: (plantId: string, body: Feedback) =>
       api<{ ok: true }>(`/plants/${plantId}/feedback`, { method: 'POST', body }),
 
-    simulateMove: (targetCityId: string) =>
-      api<PlantViability[]>('/moving/simulate', { method: 'POST', body: { targetCityId } }),
-    scheduleMove: (targetCityId: string, moveOn: string) =>
-      api<{ id: string }>('/moving/schedule', { method: 'POST', body: { targetCityId, moveOn } }),
+    simulateMove: (latitude: number, longitude: number) =>
+      api<PlantViability[]>('/moving/simulate', { method: 'POST', body: { latitude, longitude } }),
+    scheduleMove: (sel: { name: string; latitude: number; longitude: number; timezone: string }, moveOn: string) =>
+      api<{ id: string }>('/moving/schedule', { method: 'POST', body: { ...sel, moveOn } }),
   };
 }

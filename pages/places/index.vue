@@ -11,15 +11,21 @@ const lightOptions: { label: string; value: LightType }[] = [
   { label: 'Medium', value: 'MEDIUM' },
   { label: 'Low', value: 'LOW' },
 ];
-const humidityOptions: { label: string; value: HumidityCharacter }[] = [
+// The create form needs to represent "not specified" for humidity, which the API stores
+// as null. The CreatePlace DTO type cannot hold the '' sentinel, so the form uses a local
+// type with humidityCharacter widened to include '', and submit() maps '' -> omitted.
+type PlaceForm = Omit<CreatePlace, 'humidityCharacter'> & { humidityCharacter: HumidityCharacter | '' };
+
+const humidityOptions: { label: string; value: HumidityCharacter | '' }[] = [
+  { label: 'Not specified', value: '' },
   { label: 'Dry', value: 'DRY' },
   { label: 'Normal', value: 'NORMAL' },
   { label: 'Humid', value: 'HUMID' },
 ];
 
-const form = reactive<CreatePlace>({
+const form = reactive<PlaceForm>({
   cityId: '', name: '', indoor: true, lightType: 'BRIGHT_INDIRECT',
-  climateControlled: false, humidityCharacter: 'NORMAL', indoorTempMinC: null, indoorTempMaxC: null,
+  climateControlled: false, humidityCharacter: '', indoorTempMinC: null, indoorTempMaxC: null,
 });
 const cityOptions = computed(() => (cities.value ?? []).map((c) => ({ label: c.name, value: c.id })));
 
@@ -40,13 +46,19 @@ const indoorTempMaxC = computed<number | undefined>({
 });
 
 async function submit() {
-  // Outdoor places ignore the indoor-only fields; send only what applies.
+  // Outdoor places ignore the indoor-only fields; send only what applies. For indoor
+  // places, an unspecified humidity ('') is dropped so the API stores null.
   const payload: CreatePlace = form.indoor
-    ? { ...form }
+    ? {
+        cityId: form.cityId, name: form.name, indoor: true, lightType: form.lightType,
+        climateControlled: form.climateControlled,
+        ...(form.humidityCharacter ? { humidityCharacter: form.humidityCharacter } : {}),
+        indoorTempMinC: form.indoorTempMinC, indoorTempMaxC: form.indoorTempMaxC,
+      }
     : { cityId: form.cityId, name: form.name, indoor: false, lightType: form.lightType };
   await api.createPlace(payload);
   Object.assign(form, {
-    name: '', climateControlled: false, humidityCharacter: 'NORMAL', indoorTempMinC: null, indoorTempMaxC: null,
+    name: '', climateControlled: false, humidityCharacter: '', indoorTempMinC: null, indoorTempMaxC: null,
   });
   await refresh();
 }
@@ -70,6 +82,13 @@ async function submit() {
       <UFormGroup label="Light" required><USelect v-model="form.lightType" :options="lightOptions" /></UFormGroup>
 
       <template v-if="form.indoor">
+        <UAlert
+          v-if="!form.humidityCharacter || form.indoorTempMinC === null || form.indoorTempMaxC === null"
+          color="amber"
+          variant="subtle"
+          title="Optional, but recommended"
+          description="Add this room's humidity and temperature range for more accurate care. Without them we estimate from your local outdoor weather."
+        />
         <UFormGroup label="Climate controlled"><UToggle v-model="form.climateControlled" /></UFormGroup>
         <UFormGroup label="Humidity character">
           <USelect v-model="form.humidityCharacter" :options="humidityOptions" />

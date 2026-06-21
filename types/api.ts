@@ -27,7 +27,7 @@ export type HumidityCharacter = 'DRY' | 'NORMAL' | 'HUMID';
 
 export interface Place {
   id: string; cityId: string; name: string; indoor: boolean; lightType: LightType;
-  climateControlled: boolean; humidityCharacter: HumidityCharacter;
+  climateControlled: boolean; humidityCharacter: HumidityCharacter | null;
   indoorTempMinC: number | null; indoorTempMaxC: number | null;
 }
 export interface CreatePlace {

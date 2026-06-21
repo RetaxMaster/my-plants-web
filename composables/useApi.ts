@@ -1,6 +1,6 @@
 import type {
   City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, Place, Plant,
-  PlantCare, PlantViability, SpeciesSummary,
+  PlantCare, PlantViability, SpeciesBrief, SpeciesSummary,
 } from '../types/api.js';
 
 export function useApi() {
@@ -10,6 +10,7 @@ export function useApi() {
 
   return {
     listSpecies: () => api<SpeciesSummary[]>('/species'),
+    getSpeciesBrief: (slug: string) => api<SpeciesBrief>(`/species/${slug}/brief`),
 
     listCities: () => api<City[]>('/cities'),
     createCity: (body: CreateCity) => api<City>('/cities', { method: 'POST', body }),

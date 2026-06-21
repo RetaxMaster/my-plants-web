@@ -44,7 +44,12 @@ async function postpone(task: TaskCode) {
     <p class="text-gray-500">{{ plant.speciesSlug }}</p>
     <p class="text-sm text-gray-500 mt-1">Acquired {{ plant.acquiredOn.slice(0, 10) }}</p>
 
-    <!-- Phase C will render a ViabilityBadge here from care.viability. -->
+    <ViabilityBadge
+      v-if="care"
+      class="mt-3"
+      :level="care.viability.level"
+      :reasons="care.viability.reasons"
+    />
 
     <h3 class="text-lg font-semibold mt-6 mb-2">Care</h3>
     <p v-if="!care || !care.tasks.length" class="text-gray-500">Nothing to do right now. 🌿</p>

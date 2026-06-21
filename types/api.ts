@@ -56,5 +56,5 @@ export interface PlantCare {
   plantId: string;
   tasks: PlantCareTask[];
   // Added in Phase C — the per-plant viability semaphore for its current place.
-  viability?: { level: ViabilityLevel; reasons: string[] };
+  viability: { level: ViabilityLevel; reasons: string[] };
 }

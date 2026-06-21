@@ -10,7 +10,9 @@ async function submit() {
   try {
     await $fetch('/api/auth/login', { method: 'POST', body: { username: username.value, password: password.value } });
     await refreshSession();
-    const redirect = (route.query.redirect as string) || '/';
+    // Only honor an INTERNAL redirect path (defend against open-redirect via ?redirect=//evil.com).
+    const raw = (route.query.redirect as string) || '/';
+    const redirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
     await navigateTo(redirect);
   } catch {
     error.value = 'Invalid username or password.';

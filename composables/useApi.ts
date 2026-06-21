@@ -18,9 +18,10 @@ export function useApi() {
       return await fetcher<T>(`/api${path}`, opts as any);
     } catch (e: any) {
       // A mid-session 401 means the bearer was revoked/expired: drop the stale
-      // session and bounce to /login. Client-side only — SSR has no navigation
-      // surface here, and public blog calls never carry a session to revoke.
-      if (import.meta.client && (e?.statusCode === 401 || e?.response?.status === 401)) {
+      // session and bounce to /login. Client-side only, and ONLY when we actually
+      // had a session — so a public page (blog) that ever sees a 401 from a public
+      // endpoint is never bounced to login for a logged-out visitor.
+      if (import.meta.client && session.loggedIn.value && (e?.statusCode === 401 || e?.response?.status === 401)) {
         await session.clear();
         await navigateTo('/login');
       }

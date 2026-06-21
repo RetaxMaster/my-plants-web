@@ -2,7 +2,7 @@ import type { TaskCode } from '../utils/tasks.js';
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
-export interface SpeciesSummary { slug: string; scientificName: string }
+export interface SpeciesSummary { slug: string; scientificName: string; commonName: string }
 
 export interface SpeciesBrief {
   slug: string;
@@ -38,6 +38,7 @@ export interface CreatePlace {
 
 export interface Plant {
   id: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
+  speciesScientificName: string; speciesCommonName: string;
 }
 export interface CreatePlant {
   placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;
@@ -52,7 +53,11 @@ export interface Feedback {
   postponeToOn?: string; payload?: Record<string, unknown>;
 }
 
-export interface PlantViability { plantId: string; nickname: string | null; speciesSlug: string; level: ViabilityLevel; reasons: string[] }
+export interface PlantViability {
+  plantId: string; nickname: string | null; speciesSlug: string;
+  speciesScientificName: string; speciesCommonName: string;
+  level: ViabilityLevel; reasons: string[];
+}
 
 export interface PlantCareTask {
   task: TaskCode;

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { TASK_LABELS, type TaskCode } from '../../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../../utils/localDate.js';
+import { plantTitle } from '../../utils/displayName.js';
 
 const route = useRoute();
 const api = useApi();
@@ -40,8 +41,10 @@ async function postpone(task: TaskCode) {
 <template>
   <div v-if="plant">
     <NuxtLink to="/plants" class="text-sm text-gray-500 hover:underline">← All plants</NuxtLink>
-    <h2 class="text-xl font-bold mt-2">{{ plant.nickname ?? plant.speciesSlug }}</h2>
-    <p class="text-gray-500">{{ plant.speciesSlug }}</p>
+    <h2 class="text-xl font-bold mt-2">
+      {{ plantTitle(plant) }}
+      <span v-if="plant.speciesScientificName && plant.speciesScientificName !== plantTitle(plant)" class="text-base font-normal text-gray-500 italic">({{ plant.speciesScientificName }})</span>
+    </h2>
     <p class="text-sm text-gray-500 mt-1">Acquired {{ plant.acquiredOn.slice(0, 10) }}</p>
 
     <ViabilityBadge

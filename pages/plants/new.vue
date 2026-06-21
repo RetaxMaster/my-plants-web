@@ -15,7 +15,9 @@ const form = reactive<CreatePlant>({
 });
 const error = ref('');
 
-const speciesOptions = computed(() => (species.value ?? []).map((s) => ({ label: s.scientificName, value: s.slug })));
+const speciesOptions = computed(() =>
+  (species.value ?? []).map((s) => ({ label: `${s.commonName} (${s.scientificName})`, value: s.slug })),
+);
 const placeOptions = computed(() => (places.value ?? []).map((p) => ({ label: p.name, value: p.id })));
 
 async function submit() {

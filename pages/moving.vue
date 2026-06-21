@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CitySearchResult, PlantViability } from '../types/api.js';
 import { friendlyCityLabel } from '../utils/cityLabel.js';
+import { speciesPrimaryName } from '../utils/displayName.js';
 
 const api = useApi();
 const selection = ref<CitySearchResult | null>(null);
@@ -50,7 +51,10 @@ async function schedule() {
     <div v-if="results" class="grid gap-2 mb-6">
       <UCard v-for="r in results" :key="r.plantId">
         <div class="flex items-center justify-between">
-          <span class="font-medium">{{ r.nickname ?? r.speciesSlug }}</span>
+          <div>
+            <span class="font-medium">{{ r.nickname || speciesPrimaryName(r) }}</span>
+            <span v-if="r.speciesScientificName && r.speciesScientificName !== (r.nickname || speciesPrimaryName(r))" class="text-xs text-gray-500 italic"> ({{ r.speciesScientificName }})</span>
+          </div>
           <ViabilityBadge :level="r.level" :reasons="r.reasons" />
         </div>
       </UCard>

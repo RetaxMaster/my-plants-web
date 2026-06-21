@@ -1,16 +1,32 @@
 <script setup lang="ts">
-import type { CreateCity } from '../../types/api.js';
+import type { CitySearchResult } from '../../types/api.js';
+import { friendlyCityLabel } from '../../utils/cityLabel.js';
 
 const api = useApi();
 const { data: cities, refresh } = await useAsyncData('cities', () => api.listCities());
 
-const form = reactive<CreateCity>({ name: '', latitude: 0, longitude: 0, timezone: 'America/Mexico_City', isPrimary: false });
+const selection = ref<CitySearchResult | null>(null);
+const isPrimary = ref(false);
+
+function onSelect(sel: CitySearchResult) {
+  selection.value = sel;
+}
 
 async function submit() {
-  await api.createCity({ ...form });
-  Object.assign(form, { name: '' });
+  if (!selection.value) return;
+  const sel = selection.value;
+  await api.createCity({
+    name: friendlyCityLabel(sel),
+    latitude: sel.latitude,
+    longitude: sel.longitude,
+    timezone: sel.timezone,
+    isPrimary: isPrimary.value,
+  });
+  selection.value = null;
+  isPrimary.value = false;
   await refresh();
 }
+
 async function makePrimary(id: string) {
   await api.makePrimaryCity(id);
   await refresh();
@@ -29,13 +45,17 @@ async function makePrimary(id: string) {
         <span class="text-xs text-gray-500">{{ c.timezone }}</span>
       </UCard>
     </div>
-    <UForm :state="form" class="grid gap-3 max-w-md" @submit="submit">
-      <UFormGroup label="Name" required><UInput v-model="form.name" /></UFormGroup>
-      <UFormGroup label="Latitude" required><UInput v-model.number="form.latitude" type="number" step="0.0001" /></UFormGroup>
-      <UFormGroup label="Longitude" required><UInput v-model.number="form.longitude" type="number" step="0.0001" /></UFormGroup>
-      <UFormGroup label="Timezone" required><UInput v-model="form.timezone" /></UFormGroup>
-      <UFormGroup label="Primary"><UToggle v-model="form.isPrimary" /></UFormGroup>
-      <UButton type="submit" :disabled="!form.name">Add city</UButton>
-    </UForm>
+
+    <div class="grid gap-3 max-w-md">
+      <UFormGroup label="Find a city" required>
+        <CitySearch placeholder="e.g. Guadalajara" @select="onSelect" />
+      </UFormGroup>
+      <p v-if="selection" class="text-sm">
+        Will add: <span class="font-medium">{{ friendlyCityLabel(selection) }}</span>
+        <span class="text-xs text-gray-500"> · {{ selection.timezone }}</span>
+      </p>
+      <UFormGroup label="Primary"><UToggle v-model="isPrimary" /></UFormGroup>
+      <UButton :disabled="!selection" @click="submit">Add city</UButton>
+    </div>
   </div>
 </template>

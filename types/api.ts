@@ -42,3 +42,16 @@ export interface Feedback {
 }
 
 export interface PlantViability { plantId: string; nickname: string | null; speciesSlug: string; level: ViabilityLevel; reasons: string[] }
+
+export interface PlantCareTask {
+  task: TaskCode;
+  nextDueOn: string;        // YYYY-MM-DD
+  daysUntilDue: number;     // <0 overdue, 0 today, >0 upcoming
+  status: 'overdue' | 'today' | 'upcoming';
+}
+export interface PlantCare {
+  plantId: string;
+  tasks: PlantCareTask[];
+  // Added in Phase C — the per-plant viability semaphore for its current place.
+  viability?: { level: ViabilityLevel; reasons: string[] };
+}

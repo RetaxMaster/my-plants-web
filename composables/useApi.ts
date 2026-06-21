@@ -1,6 +1,6 @@
 import type {
   City, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, Place, Plant,
-  PlantViability, SpeciesSummary,
+  PlantCare, PlantViability, SpeciesSummary,
 } from '../types/api.js';
 
 export function useApi() {
@@ -20,6 +20,7 @@ export function useApi() {
 
     listPlants: () => api<Plant[]>('/plants'),
     getPlant: (id: string) => api<Plant>(`/plants/${id}`),
+    getPlantCare: (id: string) => api<PlantCare>(`/plants/${id}/care`),
     createPlant: (body: CreatePlant) => api<Plant>('/plants', { method: 'POST', body }),
 
     todaysTasks: () => api<DueTaskResponse[]>('/care-plan/today'),

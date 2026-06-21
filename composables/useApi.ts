@@ -10,8 +10,23 @@ export function useApi() {
   // the proxy. Capture the fetcher in setup scope — useRequestFetch() must not be
   // called lazily inside a handler after an await.
   const fetcher = import.meta.server ? useRequestFetch() : $fetch;
-  const api = <T>(path: string, opts?: Parameters<typeof $fetch>[1]) =>
-    fetcher<T>(`/api${path}`, opts as any);
+  // Capture the session in setup scope so the 401 handler below never calls a
+  // composable after an await (which would trigger a composable-scope warning).
+  const session = useUserSession();
+  const api = async <T>(path: string, opts?: Parameters<typeof $fetch>[1]) => {
+    try {
+      return await fetcher<T>(`/api${path}`, opts as any);
+    } catch (e: any) {
+      // A mid-session 401 means the bearer was revoked/expired: drop the stale
+      // session and bounce to /login. Client-side only — SSR has no navigation
+      // surface here, and public blog calls never carry a session to revoke.
+      if (import.meta.client && (e?.statusCode === 401 || e?.response?.status === 401)) {
+        await session.clear();
+        await navigateTo('/login');
+      }
+      throw e;
+    }
+  };
 
   return {
     listSpecies: () => api<SpeciesSummary[]>('/species'),

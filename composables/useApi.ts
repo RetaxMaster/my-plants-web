@@ -4,9 +4,14 @@ import type {
 } from '../types/api.js';
 
 export function useApi() {
-  const base = useRuntimeConfig().public.apiBase;
+  // The browser only ever talks to the same-origin Nitro proxy at /api; the proxy
+  // attaches the bearer from the sealed session. During SSR we clone the incoming
+  // request (cookies/headers) with useRequestFetch() so the session cookie reaches
+  // the proxy. Capture the fetcher in setup scope — useRequestFetch() must not be
+  // called lazily inside a handler after an await.
+  const fetcher = import.meta.server ? useRequestFetch() : $fetch;
   const api = <T>(path: string, opts?: Parameters<typeof $fetch>[1]) =>
-    $fetch<T>(`${base}${path}`, opts);
+    fetcher<T>(`/api${path}`, opts as any);
 
   return {
     listSpecies: () => api<SpeciesSummary[]>('/species'),

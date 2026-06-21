@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CreatePlant } from '../../types/api.js';
+import { todayYmd } from '../../utils/localDate.js';
 
 const api = useApi();
 const router = useRouter();
@@ -10,7 +11,7 @@ const form = reactive<CreatePlant>({
   speciesSlug: '',
   placeId: '',
   nickname: '',
-  acquiredOn: new Date().toISOString().slice(0, 10),
+  acquiredOn: todayYmd(),
 });
 const error = ref('');
 

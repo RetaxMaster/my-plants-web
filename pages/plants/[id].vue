@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { TASK_LABELS, type TaskCode } from '../../utils/tasks.js';
+import { todayYmd, addDaysYmd } from '../../utils/localDate.js';
 
 const route = useRoute();
 const api = useApi();
@@ -8,7 +9,7 @@ const id = route.params.id as string;
 const { data: plant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
 const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPlantCare(id));
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayYmd();
 
 // Per-task optional back-date for Done. Empty string = use today.
 const doneDate = reactive<Record<string, string>>({});
@@ -31,8 +32,7 @@ async function markDone(task: TaskCode) {
 }
 
 async function postpone(task: TaskCode) {
-  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-  await api.sendFeedback(id, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: tomorrow });
+  await api.sendFeedback(id, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1) });
   await refresh();
 }
 </script>

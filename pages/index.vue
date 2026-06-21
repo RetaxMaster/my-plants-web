@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { groupByPlant, type DueTask } from '../utils/tasks.js';
+import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import type { Plant } from '../types/api.js';
 
 const api = useApi();
@@ -13,7 +14,7 @@ const plantName = (id: string): string => {
 
 const grouped = computed(() => groupByPlant((tasks.value ?? []) as DueTask[]));
 
-const today = new Date().toISOString().slice(0, 10);
+const today = todayYmd();
 
 async function markDone(plantId: string, task: DueTask['task']) {
   await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: today });
@@ -21,8 +22,7 @@ async function markDone(plantId: string, task: DueTask['task']) {
 }
 
 async function postpone(plantId: string, task: DueTask['task']) {
-  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today, postponeToOn: tomorrow });
+  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today, postponeToOn: addDaysYmd(1) });
   await refresh();
 }
 </script>

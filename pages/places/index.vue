@@ -29,6 +29,28 @@ const form = reactive<PlaceForm>({
 });
 const cityOptions = computed(() => (cities.value ?? []).map((c) => ({ label: c.name, value: c.id })));
 
+const editing = ref(false);
+const editId = ref('');
+const editName = ref('');
+const editClimate = ref(false);
+const savingEdit = ref(false);
+
+function openEdit(p: { id: string; name: string; climateControlled: boolean }) {
+  editId.value = p.id;
+  editName.value = p.name;
+  editClimate.value = p.climateControlled;
+  editing.value = true;
+}
+
+async function saveEdit() {
+  savingEdit.value = true;
+  try {
+    await api.updatePlace(editId.value, { name: editName.value, climateControlled: editClimate.value });
+    editing.value = false;
+    await refresh();
+  } finally { savingEdit.value = false; }
+}
+
 // UInput's v-model is `string | number | undefined`; the DTO field is `number | null`.
 // Bridge the two so an empty input reads/writes as the contract's `null` without leaking
 // `null` into the component's typed model. `v-model.number` yields the empty string ''
@@ -69,8 +91,13 @@ async function submit() {
     <h2 class="text-lg font-semibold mb-3">Places</h2>
     <div class="grid gap-2 mb-6">
       <UCard v-for="p in places" :key="p.id">
-        <span class="font-medium">{{ p.name }}</span>
-        <span class="text-xs text-gray-500"> · {{ p.indoor ? 'Indoor' : 'Outdoor' }} · {{ p.lightType }}</span>
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <span class="font-medium">{{ p.name }}</span>
+            <span class="text-xs text-gray-500"> · {{ p.indoor ? 'Indoor' : 'Outdoor' }} · {{ p.lightType }}</span>
+          </div>
+          <UButton size="xs" color="gray" variant="soft" icon="i-heroicons-pencil-square" @click="openEdit(p)">Edit</UButton>
+        </div>
       </UCard>
     </div>
     <UForm :state="form" class="grid gap-3 max-w-md" @submit="submit">
@@ -103,5 +130,21 @@ async function submit() {
 
       <UButton type="submit" :disabled="!form.cityId || !form.name">Add place</UButton>
     </UForm>
+
+    <UModal v-model="editing">
+      <UCard>
+        <template #header><h3 class="font-semibold">Edit place</h3></template>
+        <div class="grid gap-3">
+          <UFormGroup label="Name"><UInput v-model="editName" /></UFormGroup>
+          <UFormGroup label="Climate controlled"><UToggle v-model="editClimate" /></UFormGroup>
+        </div>
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" variant="ghost" @click="editing = false">Cancel</UButton>
+            <UButton color="green" :loading="savingEdit" @click="saveEdit">Save</UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
   </div>
 </template>

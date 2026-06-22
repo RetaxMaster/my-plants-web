@@ -2,13 +2,53 @@
 import { TASK_LABELS, type TaskCode } from '../../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../../utils/localDate.js';
 import { plantTitle } from '../../utils/displayName.js';
+import type { Viability } from '../../types/api.js';
 
 const route = useRoute();
 const api = useApi();
 const id = route.params.id as string;
 
-const { data: plant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
+const { data: plant, refresh: refreshPlant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
 const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPlantCare(id));
+
+const { data: places } = await useAsyncData('places-for-edit', () => api.listPlaces());
+
+const editing = ref(false);
+const editNickname = ref('');
+const editPlaceId = ref('');
+const preview = ref<Viability | null>(null);
+const savingEdit = ref(false);
+
+const placeOptions = computed(() =>
+  (places.value ?? [])
+    .filter((p) => plant.value && p.ownerId === plant.value.ownerId)
+    .map((p) => ({ label: `${p.name} (${p.indoor ? 'Indoor' : 'Outdoor'})`, value: p.id })),
+);
+
+function openEdit() {
+  if (!plant.value) return;
+  editNickname.value = plant.value.nickname ?? '';
+  editPlaceId.value = plant.value.placeId;
+  preview.value = null;
+  editing.value = true;
+}
+
+watch(editPlaceId, async (pid) => {
+  preview.value =
+    plant.value && pid && pid !== plant.value.placeId
+      ? await api.previewPlantViability(plant.value.id, pid)
+      : null;
+});
+
+async function saveEdit() {
+  if (!plant.value) return;
+  savingEdit.value = true;
+  try {
+    await api.updatePlant(plant.value.id, { nickname: editNickname.value, placeId: editPlaceId.value });
+    await Promise.all([refreshPlant(), refresh()]); // title/place AND care
+    editing.value = false;
+  } finally { savingEdit.value = false; }
+}
 
 const today = () => todayYmd();
 
@@ -45,6 +85,7 @@ async function postpone(task: TaskCode) {
       {{ plantTitle(plant) }}
       <span v-if="plant.speciesScientificName && plant.speciesScientificName !== plantTitle(plant)" class="text-base font-normal text-gray-500 italic">({{ plant.speciesScientificName }})</span>
     </h2>
+    <UButton class="mt-2" size="xs" color="gray" variant="soft" icon="i-heroicons-pencil-square" @click="openEdit">Edit</UButton>
     <p class="text-sm text-gray-500 mt-1">Acquired {{ plant.acquiredOn.slice(0, 10) }}</p>
 
     <ViabilityBadge
@@ -81,6 +122,26 @@ async function postpone(task: TaskCode) {
         </div>
       </div>
     </UCard>
+
+    <UModal v-model="editing">
+      <UCard>
+        <template #header><h3 class="font-semibold">Edit plant</h3></template>
+        <div class="grid gap-3">
+          <UFormGroup label="Nickname"><UInput v-model="editNickname" /></UFormGroup>
+          <UFormGroup label="Place"><USelect v-model="editPlaceId" :options="placeOptions" /></UFormGroup>
+          <div v-if="preview">
+            <p class="text-xs text-gray-500 mb-1">Projected viability in the new place:</p>
+            <ViabilityBadge :level="preview.level" :reasons="preview.reasons" />
+          </div>
+        </div>
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" variant="ghost" @click="editing = false">Cancel</UButton>
+            <UButton color="green" :loading="savingEdit" @click="saveEdit">Save</UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
   </div>
   <p v-else class="text-gray-500">Loading…</p>
 </template>

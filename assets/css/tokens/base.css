@@ -1,0 +1,141 @@
+/* ============================================================
+   My Plants — Base element defaults & prose
+   Light-touch resets + markdown ("prose") styling for the blog.
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-body);
+  background: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+  color: var(--text-strong);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-bold);
+  margin: 0;
+}
+
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ------------------------------------------------------------
+   .mp-prose — styled markdown for the blog (marked output).
+   Covers headings, lists, tables, images, blockquotes, code.
+   ------------------------------------------------------------ */
+.mp-prose {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  line-height: var(--leading-relaxed);
+  color: var(--text-body);
+  font-optical-sizing: auto;
+}
+.mp-prose > :first-child { margin-top: 0; }
+.mp-prose > :last-child { margin-bottom: 0; }
+
+.mp-prose h1, .mp-prose h2, .mp-prose h3, .mp-prose h4 {
+  font-family: var(--font-serif);
+  color: var(--text-strong);
+}
+.mp-prose h1 { font-size: var(--text-3xl); font-weight: var(--weight-bold); margin: 0 0 var(--space-4); letter-spacing: -0.025em; }
+.mp-prose h2 { font-size: var(--text-2xl); font-weight: var(--weight-semibold); margin: var(--space-10) 0 var(--space-3); }
+.mp-prose h3 { font-size: var(--text-xl); font-weight: var(--weight-semibold); margin: var(--space-8) 0 var(--space-2); }
+.mp-prose h4 { font-size: var(--text-lg); font-weight: var(--weight-semibold); margin: var(--space-6) 0 var(--space-2); }
+
+.mp-prose p { margin: var(--space-4) 0; }
+.mp-prose a { color: var(--text-link); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.mp-prose strong { font-weight: var(--weight-bold); color: var(--text-strong); }
+.mp-prose em { font-style: italic; }
+
+.mp-prose ul, .mp-prose ol { margin: var(--space-4) 0; padding-left: var(--space-6); }
+.mp-prose ul { list-style: none; }
+.mp-prose ul > li { position: relative; padding-left: var(--space-4); margin: var(--space-2) 0; }
+.mp-prose ul > li::before {
+  content: ""; position: absolute; left: 0; top: 0.62em;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--prose-bullet);
+}
+.mp-prose ol { list-style: decimal; }
+.mp-prose ol > li { margin: var(--space-2) 0; padding-left: var(--space-1); }
+.mp-prose li::marker { color: var(--text-muted); }
+
+.mp-prose blockquote {
+  margin: var(--space-6) 0;
+  padding: var(--space-2) var(--space-5);
+  border-left: 3px solid var(--prose-quote-border);
+  background: var(--prose-quote-bg);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  color: var(--text-body);
+  font-style: italic;
+}
+.mp-prose blockquote p { margin: var(--space-2) 0; }
+
+.mp-prose img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  margin: var(--space-6) 0;
+  box-shadow: var(--shadow-sm);
+}
+.mp-prose figure { margin: var(--space-6) 0; }
+.mp-prose figcaption {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: var(--space-2);
+}
+
+.mp-prose hr { border: none; border-top: 1px solid var(--border-subtle); margin: var(--space-10) 0; }
+
+/* Inline + block code */
+.mp-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--prose-code-bg);
+  color: var(--prose-code-text);
+  padding: 0.15em 0.4em;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--prose-code-border);
+}
+.mp-prose pre {
+  font-family: var(--font-mono);
+  background: var(--prose-pre-bg);
+  color: var(--prose-pre-text);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+  margin: var(--space-6) 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.mp-prose pre code { background: none; border: none; color: inherit; padding: 0; font-size: inherit; }
+
+/* Tables */
+.mp-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-6) 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+}
+.mp-prose thead { background: var(--prose-thead-bg); }
+.mp-prose th {
+  text-align: left;
+  font-weight: var(--weight-semibold);
+  color: var(--prose-thead-text);
+  padding: var(--space-3) var(--space-4);
+}
+.mp-prose td { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-subtle); }
+.mp-prose tbody tr:nth-child(even) { background: var(--prose-stripe); }

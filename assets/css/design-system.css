@@ -1,0 +1,10 @@
+/* ============================================================
+   My Plants — Design system entry
+   Imports the token layers + app chrome. Font families come
+   from @nuxt/fonts (no Google Fonts @import here).
+   ============================================================ */
+@import './tokens/colors.css';
+@import './tokens/typography.css';
+@import './tokens/spacing.css';
+@import './tokens/base.css';
+@import './chrome.css';

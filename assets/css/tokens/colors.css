@@ -1,0 +1,210 @@
+/* ============================================================
+   My Plants — Color tokens
+   Earthy palette: leaf greens (primary) + warm café/clay
+   browns (accent) over warm stone neutrals.
+   Base scales mirror the app's Nuxt UI config (primary: green,
+   gray: stone) and add a café-brown accent for the plant theme.
+   ============================================================ */
+:root {
+  /* ---- Green (primary / leaf) ---- */
+  --green-50:  #f0fdf4;
+  --green-100: #dcfce7;
+  --green-200: #bbf7d0;
+  --green-300: #86efac;
+  --green-400: #4ade80;
+  --green-500: #22c55e;
+  --green-600: #16a34a;
+  --green-700: #15803d;
+  --green-800: #166534;
+  --green-900: #14532d;
+  --green-950: #052e16;
+
+  /* ---- Café / clay (warm brown accent) ---- */
+  --cafe-50:  #faf6f1;
+  --cafe-100: #f1e7da;
+  --cafe-200: #e3cdb4;
+  --cafe-300: #cfac84;
+  --cafe-400: #bb8b5c;
+  --cafe-500: #a87045;
+  --cafe-600: #8f5a39;
+  --cafe-700: #73462f;
+  --cafe-800: #5d3a2a;
+  --cafe-900: #4c3024;
+  --cafe-950: #2a1a12;
+
+  /* ---- Stone (warm neutral / gray) ---- */
+  --stone-50:  #fafaf9;
+  --stone-100: #f5f5f4;
+  --stone-200: #e7e5e4;
+  --stone-300: #d6d3d1;
+  --stone-400: #a8a29e;
+  --stone-500: #78716c;
+  --stone-600: #57534e;
+  --stone-700: #44403c;
+  --stone-800: #292524;
+  --stone-900: #1c1917;
+  --stone-950: #0c0a09;
+
+  /* ---- Semantic raw (care states) ---- */
+  --amber-50:  #fffbeb;
+  --amber-100: #fef3c7;
+  --amber-500: #f59e0b;
+  --amber-600: #d97706;
+  --amber-700: #b45309;
+
+  --red-50:  #fef2f2;
+  --red-100: #fee2e2;
+  --red-500: #ef4444;
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+
+  /* ============================================================
+     Semantic aliases — use THESE in components, not raw scales
+     ============================================================ */
+
+  /* Brand */
+  --brand-primary:        var(--green-600);
+  --brand-primary-hover:  var(--green-700);
+  --brand-primary-active: var(--green-800);
+  --brand-primary-subtle: var(--green-100);
+  --brand-accent:         var(--cafe-600);
+  --brand-accent-subtle:  var(--cafe-100);
+
+  /* Surfaces */
+  --surface-page:    #faf8f5;            /* warm off-white app background */
+  --surface-card:    #ffffff;
+  --surface-sunken:  var(--stone-100);
+  --surface-raised:  #ffffff;
+  --surface-inverse: var(--stone-900);
+
+  /* Text */
+  --text-strong:     var(--stone-900);   /* headings */
+  --text-body:       var(--stone-700);   /* body copy */
+  --text-muted:      var(--stone-500);   /* secondary / captions */
+  --text-faint:      var(--stone-400);   /* placeholders */
+  --text-on-brand:   #ffffff;
+  --text-link:       var(--green-700);
+  --text-brand:      var(--green-800);   /* wordmark / brand ink on page */
+
+  /* Borders */
+  --border-subtle:   var(--stone-200);
+  --border-default:  var(--stone-300);
+  --border-strong:   var(--stone-400);
+  --border-brand:    var(--green-600);
+
+  /* Navigation (theme-adaptive) */
+  --nav-active-bg:   var(--green-100);
+  --nav-active-text: var(--green-800);
+  --nav-idle:        var(--text-faint);
+
+  /* Accent surfaces — soft tinted tiles/avatars (theme-adaptive) */
+  --accent-green-surface: var(--green-100);
+  --accent-green-ink:     var(--green-700);
+  --accent-cafe-surface:  var(--cafe-100);
+  --accent-cafe-ink:      var(--cafe-700);
+
+  /* Care / viability semaphore */
+  --care-good:        var(--green-600);
+  --care-good-bg:     var(--green-100);
+  --care-good-text:   var(--green-800);
+  --care-caution:     var(--amber-600);
+  --care-caution-bg:  var(--amber-100);
+  --care-caution-text:var(--amber-700);
+  --care-poor:        var(--red-600);
+  --care-poor-bg:     var(--red-100);
+  --care-poor-text:   var(--red-700);
+
+  /* Prose / markdown (theme-adaptive) */
+  --prose-quote-bg:     var(--green-50);
+  --prose-quote-border: var(--green-500);
+  --prose-code-bg:      var(--cafe-50);
+  --prose-code-text:    var(--cafe-800);
+  --prose-code-border:  var(--cafe-100);
+  --prose-pre-bg:       var(--stone-900);
+  --prose-pre-text:     var(--stone-100);
+  --prose-thead-bg:     var(--green-50);
+  --prose-thead-text:   var(--green-800);
+  --prose-stripe:       var(--stone-50);
+  --prose-bullet:       var(--green-500);
+
+  /* Focus ring */
+  --ring-brand: color-mix(in oklch, var(--green-500) 45%, transparent);
+}
+
+/* ============================================================
+   DARK THEME
+   Apply with [data-theme="dark"] on <html> (or any wrapper).
+   Raw scales are unchanged; only semantic aliases are remapped
+   to a warm, earthy dark — soil-dark surfaces, leafy accents.
+   ============================================================ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Brand — keep green vivid against dark; soften the subtle tint */
+  --brand-primary:        var(--green-500);
+  --brand-primary-hover:  var(--green-400);
+  --brand-primary-active: var(--green-300);
+  --brand-primary-subtle: #16301f;          /* deep leaf */
+  --brand-accent:         var(--cafe-400);
+  --brand-accent-subtle:  #33241a;          /* deep clay */
+
+  /* Surfaces — warm near-black soil tones */
+  --surface-page:    #15120f;
+  --surface-card:    #201b16;
+  --surface-sunken:  #1a1511;
+  --surface-raised:  #272019;
+  --surface-inverse: var(--stone-50);
+
+  /* Text — warm off-whites */
+  --text-strong:     #f6f3ef;
+  --text-body:       #d8d1c8;
+  --text-muted:      #a89f93;
+  --text-faint:      #7b7165;
+  --text-on-brand:   #0c0a09;
+  --text-link:       var(--green-400);
+  --text-brand:      var(--green-300);
+
+  /* Borders — warm low-contrast */
+  --border-subtle:   #322a22;
+  --border-default:  #40362c;
+  --border-strong:   #524636;
+  --border-brand:    var(--green-500);
+
+  /* Navigation */
+  --nav-active-bg:   #16301f;
+  --nav-active-text: var(--green-300);
+  --nav-idle:        #6f655a;
+
+  /* Accent surfaces */
+  --accent-green-surface: #16301f;
+  --accent-green-ink:     var(--green-300);
+  --accent-cafe-surface:  #33241a;
+  --accent-cafe-ink:      var(--cafe-300);
+
+  /* Care semaphore — dark tinted backgrounds, bright ink */
+  --care-good:        var(--green-400);
+  --care-good-bg:     #16301f;
+  --care-good-text:   var(--green-300);
+  --care-caution:     var(--amber-500);
+  --care-caution-bg:  #352a12;
+  --care-caution-text:#fcd34d;
+  --care-poor:        var(--red-500);
+  --care-poor-bg:     #3a1d1d;
+  --care-poor-text:   #fca5a5;
+
+  /* Prose / markdown */
+  --prose-quote-bg:     #16271d;
+  --prose-quote-border: var(--green-500);
+  --prose-code-bg:      #2a201a;
+  --prose-code-text:    var(--cafe-200);
+  --prose-code-border:  #3b2c22;
+  --prose-pre-bg:       #100d0b;
+  --prose-pre-text:     var(--stone-200);
+  --prose-thead-bg:     #16271d;
+  --prose-thead-text:   var(--green-300);
+  --prose-stripe:       #1a1511;
+  --prose-bullet:       var(--green-400);
+
+  /* Focus ring */
+  --ring-brand: color-mix(in oklch, var(--green-400) 50%, transparent);
+}

@@ -1,0 +1,33 @@
+/* ============================================================
+   My Plants — App chrome
+   The .mp-* classes for the app shell (topbar, bottom nav,
+   icon button, menus, screen pieces, city-search popover).
+   Extracted from the design kit's HTML <style> block.
+   ============================================================ */
+
+body { background: var(--surface-page); }
+
+/* ---- app chrome ---- */
+.mp-topbar { position: sticky; top: 0; z-index: 30; background: var(--surface-page); border-bottom: 1px solid var(--border-subtle); }
+.mp-topbar-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 22px; box-sizing: border-box; }
+.mp-bottomnav { position: sticky; bottom: 0; z-index: 30; }
+
+.mp-iconbtn { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; padding: 0; transition: filter var(--dur-fast) var(--ease-out); }
+.mp-iconbtn:hover { filter: brightness(0.96); }
+
+.mp-menu { position: absolute; right: 0; top: calc(100% + 8px); background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); box-shadow: var(--shadow-lg, 0 14px 34px rgba(41,37,36,0.18)); padding: 6px; min-width: 210px; z-index: 50; }
+.mp-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; background: none; border: none; cursor: pointer; border-radius: var(--radius-md); color: var(--text-body); font: 600 14px var(--font-sans); text-align: left; }
+.mp-menu-item:hover { background: var(--surface-sunken); }
+
+/* ---- screen pieces ---- */
+.mp-backlink { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; cursor: pointer; color: var(--text-muted); font: 500 13px var(--font-sans); padding: 0; margin-bottom: 14px; }
+.mp-backlink:hover { color: var(--text-strong); }
+.mp-eyebrow { font: 700 12px var(--font-sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 8px; }
+.mp-form { display: grid; gap: 16px; max-width: 460px; }
+.mp-login { width: 100%; max-width: 380px; }
+.mp-clickable { cursor: pointer; }
+
+/* ---- city search popover ---- */
+.mp-search-pop { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); box-shadow: var(--shadow-lg, 0 14px 34px rgba(41,37,36,0.18)); z-index: 40; overflow: hidden; padding: 4px; }
+.mp-search-opt { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; background: none; border: none; cursor: pointer; border-radius: var(--radius-md); }
+.mp-search-opt:hover { background: var(--surface-sunken); }

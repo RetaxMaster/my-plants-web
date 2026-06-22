@@ -34,10 +34,10 @@ function openEdit() {
 }
 
 watch(editPlaceId, async (pid) => {
-  preview.value =
-    plant.value && pid && pid !== plant.value.placeId
-      ? await api.previewPlantViability(plant.value.id, pid)
-      : null;
+  if (!plant.value || !pid || pid === plant.value.placeId) { preview.value = null; return; }
+  const result = await api.previewPlantViability(plant.value.id, pid);
+  // Ignore an out-of-order response: only apply it if this is still the selected place.
+  if (editPlaceId.value === pid) preview.value = result;
 });
 
 async function saveEdit() {

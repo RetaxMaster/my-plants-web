@@ -1,5 +1,5 @@
 export default defineNuxtConfig({
-  modules: ['@nuxt/ui', 'nuxt-auth-utils', '@nuxt/fonts', '@nuxt/icon', '@nuxtjs/color-mode'],
+  modules: ['nuxt-auth-utils', '@nuxt/fonts', '@nuxt/icon', '@nuxtjs/color-mode'],
   css: ['~/assets/css/design-system.css'],
   colorMode: { classSuffix: '', dataValue: 'theme', preference: 'light', fallback: 'light' },
   typescript: { strict: true, typeCheck: false, tsConfig: { compilerOptions: { types: ['node'] } } },

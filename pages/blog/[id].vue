@@ -16,29 +16,54 @@ const articleHtml = computed(() =>
 
 <template>
   <div v-if="brief">
-    <NuxtLink to="/blog" class="text-sm text-gray-500 hover:underline">← All articles</NuxtLink>
-    <h2 class="text-xl font-bold mt-2">
-      {{ brief.commonNames[0] ?? brief.scientificName }}
-      <span v-if="brief.commonNames.length" class="text-base font-normal text-gray-500 italic">({{ brief.scientificName }})</span>
-    </h2>
+    <button type="button" class="mp-backlink" @click="navigateTo('/blog')">
+      <UiAppIcon name="chevron-left" :size="16" color="currentColor" />
+      All articles
+    </button>
 
-    <p v-if="!brief.briefEs" class="text-gray-500 mt-4">No article available yet.</p>
-    <article v-else class="blog-prose mt-4 leading-relaxed" v-html="articleHtml" />
+    <article class="mp-article">
+      <div class="mp-article__badges">
+        <UiBadge color="green" size="sm" dot>Care guide</UiBadge>
+      </div>
+      <h1 class="mp-article__title">
+        {{ brief.commonNames[0] ?? brief.scientificName }}
+        <span v-if="brief.commonNames.length" class="mp-article__sci">({{ brief.scientificName }})</span>
+      </h1>
+
+      <p v-if="!brief.briefEs" class="mp-article__empty">No article available yet.</p>
+      <UiProse v-else :html="articleHtml" />
+    </article>
   </div>
-  <p v-else class="text-gray-500">Loading…</p>
+  <UiEmptyState v-else>Loading…</UiEmptyState>
 </template>
 
 <style scoped>
-/* Tailwind's preflight strips default heading/list styling, so the rendered Markdown needs explicit
-   typography. :deep() is required because the v-html content is not scoped to this component. */
-.blog-prose :deep(h1) { font-size: 1.5rem; font-weight: 700; margin: 1.25rem 0 0.5rem; }
-.blog-prose :deep(h2) { font-size: 1.25rem; font-weight: 700; margin: 1.25rem 0 0.5rem; }
-.blog-prose :deep(h3) { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.4rem; }
-.blog-prose :deep(p) { margin: 0.6rem 0; }
-.blog-prose :deep(ul) { list-style: disc; padding-left: 1.5rem; margin: 0.6rem 0; }
-.blog-prose :deep(ol) { list-style: decimal; padding-left: 1.5rem; margin: 0.6rem 0; }
-.blog-prose :deep(li) { margin: 0.25rem 0; }
-.blog-prose :deep(strong) { font-weight: 700; }
-.blog-prose :deep(em) { font-style: italic; }
-.blog-prose :deep(a) { color: #16a34a; text-decoration: underline; }
+.mp-article {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.mp-article__badges {
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mp-article__title {
+  font: 800 clamp(22px, 3.5vw, 28px) var(--font-sans);
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+  margin: 0 0 18px;
+}
+
+.mp-article__sci {
+  font: italic var(--weight-normal) 18px var(--font-sans);
+  color: var(--text-muted);
+}
+
+.mp-article__empty {
+  color: var(--text-muted);
+  margin-top: 16px;
+}
 </style>

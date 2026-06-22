@@ -2,6 +2,7 @@
 import type { CreatePlace, HumidityCharacter, LightType } from '../../types/api.js';
 
 const api = useApi();
+const isDesktop = useIsDesktop();
 const { data: places, refresh } = await useAsyncData('places', () => api.listPlaces());
 const { data: cities } = await useAsyncData('cities', () => api.listCities());
 
@@ -29,41 +30,19 @@ const form = reactive<PlaceForm>({
 });
 const cityOptions = computed(() => (cities.value ?? []).map((c) => ({ label: c.name, value: c.id })));
 
-const editing = ref(false);
-const editId = ref('');
-const editName = ref('');
-const editClimate = ref(false);
-const savingEdit = ref(false);
-
-function openEdit(p: { id: string; name: string; climateControlled: boolean }) {
-  editId.value = p.id;
-  editName.value = p.name;
-  editClimate.value = p.climateControlled;
-  editing.value = true;
-}
-
-async function saveEdit() {
-  savingEdit.value = true;
-  try {
-    await api.updatePlace(editId.value, { name: editName.value, climateControlled: editClimate.value });
-    editing.value = false;
-    await refresh();
-  } finally { savingEdit.value = false; }
-}
-
-// UInput's v-model is `string | number | undefined`; the DTO field is `number | null`.
+// UInput's v-model is `string | number`; the DTO field is `number | null`.
 // Bridge the two so an empty input reads/writes as the contract's `null` without leaking
 // `null` into the component's typed model. `v-model.number` yields the empty string ''
 // (not undefined) when the user clears a typed value, so coerce anything that is not a
 // finite number to `null` — otherwise '' would reach the `number | null` DTO and 400.
-const toNullableNumber = (v: number | undefined): number | null =>
+const toNullableNumber = (v: number | string): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
-const indoorTempMinC = computed<number | undefined>({
-  get: () => form.indoorTempMinC ?? undefined,
+const indoorTempMinC = computed<number | string>({
+  get: () => form.indoorTempMinC ?? '',
   set: (v) => { form.indoorTempMinC = toNullableNumber(v); },
 });
-const indoorTempMaxC = computed<number | undefined>({
-  get: () => form.indoorTempMaxC ?? undefined,
+const indoorTempMaxC = computed<number | string>({
+  get: () => form.indoorTempMaxC ?? '',
   set: (v) => { form.indoorTempMaxC = toNullableNumber(v); },
 });
 
@@ -84,67 +63,150 @@ async function submit() {
   });
   await refresh();
 }
+
+const editing = ref(false);
+const editPlace = ref<{ id: string; name: string; climateControlled: boolean } | null>(null);
+
+function openEdit(p: { id: string; name: string; climateControlled: boolean }) {
+  editPlace.value = { id: p.id, name: p.name, climateControlled: p.climateControlled };
+  editing.value = true;
+}
+
+async function onEdited() {
+  await refresh();
+}
+
+const valid = computed(() => !!form.cityId && !!form.name);
+const indoorIncomplete = computed(
+  () => !form.humidityCharacter || form.indoorTempMinC === null || form.indoorTempMaxC === null,
+);
 </script>
 
 <template>
   <div>
-    <h2 class="text-lg font-semibold mb-3">Places</h2>
-    <div class="grid gap-2 mb-6">
-      <UCard v-for="p in places" :key="p.id">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <span class="font-medium">{{ p.name }}</span>
-            <span class="text-xs text-gray-500"> · {{ p.indoor ? 'Indoor' : 'Outdoor' }} · {{ p.lightType }}</span>
-          </div>
-          <UButton size="xs" color="gray" variant="soft" icon="i-heroicons-pencil-square" @click="openEdit(p)">Edit</UButton>
-        </div>
-      </UCard>
+    <UiScreenHeader title="Places" subtitle="Where your plants live." />
+
+    <div :class="isDesktop ? 'mp-places mp-places--desktop' : 'mp-places'">
+      <div>
+        <UiCard v-if="!places?.length" padded>
+          <UiEmptyState>No places yet.</UiEmptyState>
+        </UiCard>
+        <UiCardGrid v-else :desktop="isDesktop" :min="260" :gap="12">
+          <UiCard v-for="p in places" :key="p.id" padded>
+            <div class="mp-place-row">
+              <UiIconTile :icon="p.indoor ? 'home' : 'sun'" :tone="p.indoor ? 'green' : 'cafe'" :size="40" />
+              <div class="mp-place-row__info">
+                <div class="mp-place-row__name">{{ p.name }}</div>
+                <div class="mp-place-row__meta">{{ p.indoor ? 'Indoor' : 'Outdoor' }} · {{ p.lightType }}</div>
+              </div>
+              <UiBadge v-if="p.humidityCharacter" color="neutral" size="xs">{{ p.humidityCharacter }}</UiBadge>
+              <UiButton size="xs" variant="ghost" color="neutral" icon="pencil-square" @click="openEdit(p)">Edit</UiButton>
+            </div>
+          </UiCard>
+        </UiCardGrid>
+      </div>
+
+      <div>
+        <UiSectionTitle>Add a place</UiSectionTitle>
+        <form class="mp-form" @submit.prevent="submit">
+          <UiFormGroup label="City" required>
+            <UiSelectField v-model="form.cityId" :options="cityOptions" placeholder="Pick a city" />
+          </UiFormGroup>
+          <UiFormGroup label="Name" required>
+            <UiInput v-model="form.name" placeholder="e.g. Living room window" />
+          </UiFormGroup>
+          <UiFormGroup label="Light" required>
+            <UiSelectField v-model="form.lightType" :options="lightOptions" />
+          </UiFormGroup>
+          <UiFormGroup label="Indoor">
+            <div class="mp-place-switch">
+              <UiSwitch v-model="form.indoor" />
+              <span class="mp-place-switch__text">{{ form.indoor ? 'Indoor' : 'Outdoor' }}</span>
+            </div>
+          </UiFormGroup>
+
+          <template v-if="form.indoor">
+            <UiAlert
+              v-if="indoorIncomplete"
+              color="amber"
+              title="Optional, but recommended"
+              description="Add this room's humidity and temperature range for more accurate care. Without them we estimate from your local outdoor weather."
+            />
+            <UiFormGroup label="Climate controlled">
+              <div class="mp-place-switch">
+                <UiSwitch v-model="form.climateControlled" />
+                <span class="mp-place-switch__text">{{ form.climateControlled ? 'Yes' : 'No' }}</span>
+              </div>
+            </UiFormGroup>
+            <UiFormGroup label="Humidity character">
+              <UiSelectField v-model="form.humidityCharacter" :options="humidityOptions" />
+            </UiFormGroup>
+            <div class="mp-place-temps">
+              <UiFormGroup label="Temp min (°C)">
+                <UiInput v-model.number="indoorTempMinC" type="number" step="0.5" />
+              </UiFormGroup>
+              <UiFormGroup label="Temp max (°C)">
+                <UiInput v-model.number="indoorTempMaxC" type="number" step="0.5" />
+              </UiFormGroup>
+            </div>
+          </template>
+
+          <UiButton type="submit" block :disabled="!valid">Add place</UiButton>
+        </form>
+      </div>
     </div>
-    <UForm :state="form" class="grid gap-3 max-w-md" @submit="submit">
-      <UFormGroup label="City" required>
-        <USelect v-model="form.cityId" :options="cityOptions" placeholder="Pick a city" />
-      </UFormGroup>
-      <UFormGroup label="Name" required><UInput v-model="form.name" placeholder="e.g. Living room window" /></UFormGroup>
-      <UFormGroup label="Indoor"><UToggle v-model="form.indoor" /></UFormGroup>
-      <UFormGroup label="Light" required><USelect v-model="form.lightType" :options="lightOptions" /></UFormGroup>
 
-      <template v-if="form.indoor">
-        <UAlert
-          v-if="!form.humidityCharacter || form.indoorTempMinC === null || form.indoorTempMaxC === null"
-          color="amber"
-          variant="subtle"
-          title="Optional, but recommended"
-          description="Add this room's humidity and temperature range for more accurate care. Without them we estimate from your local outdoor weather."
-        />
-        <UFormGroup label="Climate controlled"><UToggle v-model="form.climateControlled" /></UFormGroup>
-        <UFormGroup label="Humidity character">
-          <USelect v-model="form.humidityCharacter" :options="humidityOptions" />
-        </UFormGroup>
-        <UFormGroup label="Indoor temp min (°C)">
-          <UInput v-model.number="indoorTempMinC" type="number" step="0.5" />
-        </UFormGroup>
-        <UFormGroup label="Indoor temp max (°C)">
-          <UInput v-model.number="indoorTempMaxC" type="number" step="0.5" />
-        </UFormGroup>
-      </template>
-
-      <UButton type="submit" :disabled="!form.cityId || !form.name">Add place</UButton>
-    </UForm>
-
-    <UModal v-model="editing">
-      <UCard>
-        <template #header><h3 class="font-semibold">Edit place</h3></template>
-        <div class="grid gap-3">
-          <UFormGroup label="Name"><UInput v-model="editName" /></UFormGroup>
-          <UFormGroup label="Climate controlled"><UToggle v-model="editClimate" /></UFormGroup>
-        </div>
-        <template #footer>
-          <div class="flex justify-end gap-2">
-            <UButton color="gray" variant="ghost" @click="editing = false">Cancel</UButton>
-            <UButton color="green" :loading="savingEdit" @click="saveEdit">Save</UButton>
-          </div>
-        </template>
-      </UCard>
-    </UModal>
+    <PlaceEditModal v-model="editing" :place="editPlace" @saved="onEdited" />
   </div>
 </template>
+
+<style scoped>
+.mp-places {
+  display: grid;
+  gap: 26px;
+}
+
+.mp-places--desktop {
+  grid-template-columns: 1fr 380px;
+  gap: 28px;
+  align-items: start;
+}
+
+.mp-place-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mp-place-row__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-place-row__name {
+  font: 700 15px var(--font-sans);
+  color: var(--text-strong);
+}
+
+.mp-place-row__meta {
+  font: 13px var(--font-sans);
+  color: var(--text-muted);
+}
+
+.mp-place-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mp-place-switch__text {
+  font: 14px var(--font-sans);
+  color: var(--text-muted);
+}
+
+.mp-place-temps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+</style>

@@ -2,7 +2,7 @@
 defineOptions({ inheritAttrs: false });
 
 type Color = 'green' | 'amber' | 'red' | 'cafe' | 'neutral';
-type Size = 'xs' | 'sm';
+type Size = 'xs' | 'sm' | 'md';
 
 const props = withDefaults(
   defineProps<{
@@ -45,6 +45,10 @@ const props = withDefaults(
 .mp-badge--sm {
   font-size: var(--text-xs);
   padding: 3px 9px;
+}
+.mp-badge--md {
+  font-size: var(--text-sm);
+  padding: 4px 11px;
 }
 
 .mp-badge--green {

@@ -31,7 +31,7 @@ const meta = computed(() => {
 
 <template>
   <div :class="['mp-viability', props.class]" v-bind="$attrs">
-    <Badge :color="meta.color" size="sm" dot>{{ meta.label }}</Badge>
+    <Badge :color="meta.color" size="md" dot>{{ meta.label }}</Badge>
     <ul v-if="showReasons && reasons.length > 0" class="mp-viability__reasons">
       <li v-for="(reason, i) in reasons" :key="i" class="mp-viability__reason">
         <span class="mp-viability__bullet">·</span>

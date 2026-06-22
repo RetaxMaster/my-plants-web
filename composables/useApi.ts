@@ -1,6 +1,6 @@
 import type {
   City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, Place, Plant,
-  PlantCare, PlantViability, SpeciesBrief, SpeciesSummary,
+  PlantCare, PlantViability, SpeciesBrief, SpeciesSummary, UpdatePlace, UpdatePlant, Viability,
 } from '../types/api.js';
 
 export function useApi() {
@@ -41,11 +41,15 @@ export function useApi() {
 
     listPlaces: () => api<Place[]>('/places'),
     createPlace: (body: CreatePlace) => api<Place>('/places', { method: 'POST', body }),
+    updatePlace: (id: string, body: UpdatePlace) => api<Place>(`/places/${id}`, { method: 'PATCH', body }),
 
     listPlants: () => api<Plant[]>('/plants'),
     getPlant: (id: string) => api<Plant>(`/plants/${id}`),
     getPlantCare: (id: string) => api<PlantCare>(`/plants/${id}/care`),
     createPlant: (body: CreatePlant) => api<Plant>('/plants', { method: 'POST', body }),
+    updatePlant: (id: string, body: UpdatePlant) => api<Plant>(`/plants/${id}`, { method: 'PATCH', body }),
+    previewPlantViability: (id: string, placeId: string) =>
+      api<Viability>(`/plants/${id}/viability-preview?placeId=${encodeURIComponent(placeId)}`),
 
     todaysTasks: () => api<DueTaskResponse[]>('/care-plan/today'),
     recompute: () => api<{ ok: true }>('/care-plan/recompute', { method: 'POST' }),

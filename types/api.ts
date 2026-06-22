@@ -26,7 +26,7 @@ export type LightType = 'DIRECT' | 'BRIGHT_INDIRECT' | 'MEDIUM' | 'LOW';
 export type HumidityCharacter = 'DRY' | 'NORMAL' | 'HUMID';
 
 export interface Place {
-  id: string; cityId: string; name: string; indoor: boolean; lightType: LightType;
+  id: string; ownerId: string; cityId: string; name: string; indoor: boolean; lightType: LightType;
   climateControlled: boolean; humidityCharacter: HumidityCharacter | null;
   indoorTempMinC: number | null; indoorTempMaxC: number | null;
 }
@@ -37,9 +37,13 @@ export interface CreatePlace {
 }
 
 export interface Plant {
-  id: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
+  id: string; ownerId: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
   speciesScientificName: string; speciesCommonName: string;
 }
+
+export interface Viability { level: ViabilityLevel; reasons: string[] }
+export interface UpdatePlant { nickname?: string; placeId?: string }
+export interface UpdatePlace { name?: string; climateControlled?: boolean }
 export interface CreatePlant {
   placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;
   lastDone?: { task: TaskCode; doneOn: string }[];

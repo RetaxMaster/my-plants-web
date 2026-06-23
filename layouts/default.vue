@@ -10,14 +10,8 @@ import NavTabs from '../components/ui/NavTabs.vue';
 import AppIcon from '../components/ui/AppIcon.vue';
 import AccountMenu from '../components/AccountMenu.vue';
 
-const { loggedIn, session } = useUserSession();
-const api = useApi();
-const actingAs = computed(() => session.value?.actingAs ?? null);
-
-async function stopActingAs() {
-  await api.stopActingAs();
-  reloadNuxtApp({ path: '/' });
-}
+const { loggedIn } = useUserSession();
+const { actingAs, stop: stopActingAs } = useActingAs();
 
 const route = useRoute();
 

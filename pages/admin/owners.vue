@@ -10,11 +10,7 @@ if (user.value?.role !== 'ADMIN') {
 const api = useApi();
 const { data: owners } = await useAsyncData('admin-owners', () => api.listOwners(), { default: () => [] });
 
-async function act(ownerId: string) {
-  await api.actAs(ownerId);
-  // Hard reload so every owner-scoped page refetches as the target owner.
-  reloadNuxtApp({ path: '/' });
-}
+const { start, pending } = useActingAs();
 </script>
 
 <template>
@@ -40,7 +36,7 @@ async function act(ownerId: string) {
             </div>
           </div>
           <UiBadge v-if="o.username === user?.username" color="green" size="xs">You</UiBadge>
-          <UiButton v-else size="xs" variant="ghost" color="neutral" @click="act(o.ownerId)">
+          <UiButton v-else size="xs" variant="ghost" color="neutral" :disabled="pending" @click="start(o.ownerId)">
             Act as
           </UiButton>
         </div>

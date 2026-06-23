@@ -3,11 +3,11 @@ import AppIcon from './ui/AppIcon.vue';
 
 // AccountMenu is rendered only when there is a session (the layout guards this),
 // so the dropdown always has a username to show.
-const { user, session, clear } = useUserSession();
+const { user, clear } = useUserSession();
 const api = useApi();
+const { actingAs, stop: stopActingAsCore } = useActingAs();
 
 const isAdmin = computed(() => user.value?.role === 'ADMIN');
-const actingAs = computed(() => session.value?.actingAs ?? null);
 
 const { data: cities } = await useAsyncData('account-cities', () => api.listCities(), {
   default: () => [],
@@ -41,10 +41,9 @@ async function logout() {
   await navigateTo('/login');
 }
 
-async function stopActingAs() {
+function stopActingAs() {
   open.value = false;
-  await api.stopActingAs();
-  reloadNuxtApp({ path: '/' });
+  stopActingAsCore();
 }
 </script>
 

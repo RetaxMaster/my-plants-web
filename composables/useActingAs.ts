@@ -13,12 +13,16 @@ export function useActingAs() {
   const pending = ref(false);
 
   // Hard reload so every owner-scoped page refetches under the new effective owner.
+  // `force: true` is REQUIRED: reloadNuxtApp keeps a per-path anti-loop guard in sessionStorage and
+  // skips a reload to the same path within ~10s. Start (→ '/') then Stop (→ '/') happen in quick
+  // succession, so without force the second call silently no-ops — the banner would stay and `pending`
+  // would never reset (button stuck disabled). force bypasses the guard so every transition reloads.
   async function run(action: () => Promise<unknown>, failure: string) {
     if (pending.value) return;
     pending.value = true;
     try {
       await action();
-      reloadNuxtApp({ path: '/' });
+      reloadNuxtApp({ path: '/', force: true });
     } catch (e) {
       pending.value = false;
       console.error(failure, e);

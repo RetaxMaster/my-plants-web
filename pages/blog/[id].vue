@@ -43,6 +43,13 @@ const articleHtml = computed(() =>
   margin: 0 auto;
 }
 
+/* Wider article column on desktop only; mobile keeps the readable base width. */
+@media (min-width: 880px) {
+  .mp-article {
+    max-width: 1500px;
+  }
+}
+
 .mp-article__badges {
   margin-bottom: 18px;
   display: flex;

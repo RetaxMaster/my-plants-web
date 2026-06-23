@@ -173,5 +173,10 @@ const bottomActive = computed(() => {
   .mp-shell__bottomnav {
     display: none;
   }
+
+  /* Wider content column on desktop only; mobile/tablet keep the base width. */
+  .mp-shell__main {
+    max-width: 2000px;
+  }
 }
 </style>

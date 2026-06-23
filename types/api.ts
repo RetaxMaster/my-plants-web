@@ -57,10 +57,18 @@ export interface Feedback {
   postponeToOn?: string; payload?: Record<string, unknown>;
 }
 
+export interface OwnerSummary {
+  ownerId: string;
+  username: string;
+  role: 'USER' | 'ADMIN' | null;
+}
+
 export interface PlantViability {
   plantId: string; nickname: string | null; speciesSlug: string;
   speciesScientificName: string; speciesCommonName: string;
   level: ViabilityLevel; reasons: string[];
+  placeCityName: string;
+  inPrimaryCity: boolean;
 }
 
 export interface PlantCareTask {

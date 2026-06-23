@@ -1,5 +1,5 @@
 import type {
-  City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, Place, Plant,
+  City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, OwnerSummary, Place, Plant,
   PlantCare, PlantViability, SpeciesBrief, SpeciesSummary, UpdatePlace, UpdatePlant, Viability,
 } from '../types/api.js';
 
@@ -61,5 +61,11 @@ export function useApi() {
       api<PlantViability[]>('/moving/simulate', { method: 'POST', body: { latitude, longitude } }),
     scheduleMove: (sel: { name: string; latitude: number; longitude: number; timezone: string }, moveOn: string) =>
       api<{ id: string }>('/moving/schedule', { method: 'POST', body: { ...sel, moveOn } }),
+
+    listOwners: () => api<OwnerSummary[]>('/owners'),
+    actAs: (ownerId: string) =>
+      $fetch<{ actingAs: { ownerId: string; label: string } }>('/api/acting-as', { method: 'POST', body: { ownerId } }),
+    stopActingAs: () =>
+      $fetch<{ actingAs: null }>('/api/acting-as', { method: 'DELETE' }),
   };
 }

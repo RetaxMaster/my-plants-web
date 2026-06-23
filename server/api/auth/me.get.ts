@@ -3,5 +3,5 @@ export default defineEventHandler(async (event) => {
   if (!session.user) {
     throw createError({ statusCode: 401, statusMessage: 'Not authenticated' });
   }
-  return { user: session.user };
+  return { user: session.user, actingAs: session.actingAs ?? null };
 });

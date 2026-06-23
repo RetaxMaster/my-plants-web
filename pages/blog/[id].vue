@@ -43,10 +43,10 @@ const articleHtml = computed(() =>
   margin: 0 auto;
 }
 
-/* Wider article column on desktop only; mobile keeps the readable base width. */
+/* Comfortable reading measure on desktop; mobile keeps the base width. */
 @media (min-width: 880px) {
   .mp-article {
-    max-width: 1500px;
+    max-width: 720px;
   }
 }
 

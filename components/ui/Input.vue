@@ -17,7 +17,30 @@ const props = withDefaults(
   },
 );
 
-const model = defineModel<string | number>();
+// Support v-model modifiers (notably `.number`). Vue's plain v-model on a native
+// <input> always emits a string; `.number` only coerces when applied to the
+// *outer* binding, which a wrapper component must opt into. By destructuring the
+// modifiers we can honor `.number` ourselves: on each input event we coerce the
+// raw string to a finite number (or keep '' when the field is empty/non-numeric),
+// so the parent's v-model.number receives a real `number` — not the string "22".
+const [model, modifiers] = defineModel<string | number>();
+
+function onInput(event: Event) {
+  const raw = (event.target as HTMLInputElement).value;
+  if (modifiers.number) {
+    if (raw === '') {
+      model.value = '';
+      return;
+    }
+    const n = Number.parseFloat(raw);
+    model.value = Number.isNaN(n) ? raw : n;
+    return;
+  }
+  model.value = raw;
+}
+
+// A FormGroup may provide an id so its <label for> targets this control.
+const fieldId = inject<string | undefined>('mpFieldId', undefined);
 
 const focused = ref(false);
 const invalid = computed(() => !!props.error);
@@ -33,13 +56,15 @@ const invalid = computed(() => !!props.error);
       :class="{ 'mp-input__icon--focus': focused }"
     />
     <input
-      v-model="model"
+      :id="fieldId"
+      :value="model"
       :type="type"
       :placeholder="placeholder"
       :disabled="disabled"
       :class="['mp-input__field', { 'mp-input__field--has-icon': icon, 'mp-input__field--invalid': invalid }]"
       :aria-invalid="invalid || undefined"
       v-bind="$attrs"
+      @input="onInput"
       @focus="focused = true"
       @blur="focused = false"
     />

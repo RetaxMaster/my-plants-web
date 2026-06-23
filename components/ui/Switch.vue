@@ -12,6 +12,10 @@ const props = withDefaults(
 
 const model = defineModel<boolean>({ default: false });
 
+// A FormGroup may provide an id so its <label for> targets this control. The label
+// then focuses the switch button on click (and ties them for screen readers).
+const fieldId = inject<string | undefined>('mpFieldId', undefined);
+
 function toggle() {
   if (props.disabled) return;
   model.value = !model.value;
@@ -20,6 +24,7 @@ function toggle() {
 
 <template>
   <button
+    :id="fieldId"
     type="button"
     role="switch"
     :aria-checked="model"

@@ -12,11 +12,18 @@ withDefaults(
     required: false,
   },
 );
+
+// Generate one stable id (SSR-safe via useId) and both (a) target it from our
+// <label for> and (b) provide it so the slotted control (Input/SelectField/Switch)
+// injects it as its own id. This wires the visual label to the real control, so
+// clicking the label focuses/toggles it and screen readers announce them together.
+const fieldId = useId();
+provide('mpFieldId', fieldId);
 </script>
 
 <template>
   <div class="mp-form-group" v-bind="$attrs">
-    <label v-if="label" class="mp-form-group__label">
+    <label v-if="label" :for="fieldId" class="mp-form-group__label">
       {{ label }}
       <span v-if="required" class="mp-form-group__required">*</span>
     </label>

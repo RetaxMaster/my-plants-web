@@ -22,12 +22,16 @@ const props = withDefaults(
 
 const model = defineModel<string>();
 
+// A FormGroup may provide an id so its <label for> targets this control.
+const fieldId = inject<string | undefined>('mpFieldId', undefined);
+
 const hasValue = computed(() => model.value !== undefined && model.value !== '');
 </script>
 
 <template>
   <div class="mp-select">
     <select
+      :id="fieldId"
       v-model="model"
       :disabled="disabled"
       :class="['mp-select__field', { 'mp-select__field--placeholder': !hasValue }]"

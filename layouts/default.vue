@@ -10,7 +10,15 @@ import NavTabs from '../components/ui/NavTabs.vue';
 import AppIcon from '../components/ui/AppIcon.vue';
 import AccountMenu from '../components/AccountMenu.vue';
 
-const { loggedIn } = useUserSession();
+const { loggedIn, session } = useUserSession();
+const api = useApi();
+const actingAs = computed(() => session.value?.actingAs ?? null);
+
+async function stopActingAs() {
+  await api.stopActingAs();
+  reloadNuxtApp({ path: '/' });
+}
+
 const route = useRoute();
 
 // Every nav item carries the destination route + which protected/public bucket
@@ -99,6 +107,12 @@ const bottomActive = computed(() => {
       </div>
     </header>
 
+    <div v-if="actingAs" class="mp-actingas" role="status">
+      <AppIcon name="user" :size="16" color="currentColor" />
+      <span class="mp-actingas__text">Acting as <strong>{{ actingAs.label }}</strong></span>
+      <button type="button" class="mp-actingas__stop" @click="stopActingAs">Stop acting as</button>
+    </div>
+
     <!-- content -->
     <main class="mp-shell__main">
       <slot />
@@ -121,6 +135,30 @@ const bottomActive = computed(() => {
   display: flex;
   flex-direction: column;
   background: var(--surface-page);
+}
+
+.mp-actingas {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 22px;
+  background: var(--care-caution-bg);
+  border-bottom: 1px solid color-mix(in oklch, var(--care-caution) 35%, transparent);
+  color: var(--care-caution-text);
+  font: 13px var(--font-sans);
+}
+.mp-actingas__text strong {
+  font-weight: var(--weight-semibold);
+}
+.mp-actingas__stop {
+  margin-left: auto;
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font: 600 12px var(--font-sans);
+  color: inherit;
+  cursor: pointer;
 }
 
 .mp-shell__topnav {

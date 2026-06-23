@@ -3,11 +3,12 @@ import AppIcon from './ui/AppIcon.vue';
 
 // AccountMenu is rendered only when there is a session (the layout guards this),
 // so the dropdown always has a username to show.
-const { user, clear } = useUserSession();
-
-// The session carries only identity. The primary city is derived from the API —
-// never assumed to live in auth state, never raw-fetched outside useApi.
+const { user, session, clear } = useUserSession();
 const api = useApi();
+
+const isAdmin = computed(() => user.value?.role === 'ADMIN');
+const actingAs = computed(() => session.value?.actingAs ?? null);
+
 const { data: cities } = await useAsyncData('account-cities', () => api.listCities(), {
   default: () => [],
 });
@@ -39,6 +40,12 @@ async function logout() {
   await clear();
   await navigateTo('/login');
 }
+
+async function stopActingAs() {
+  open.value = false;
+  await api.stopActingAs();
+  reloadNuxtApp({ path: '/' });
+}
 </script>
 
 <template>
@@ -59,6 +66,14 @@ async function logout() {
         <div class="mp-account__name">{{ user?.username }}</div>
         <div class="mp-account__city">{{ primaryCity }}</div>
       </div>
+      <NuxtLink v-if="isAdmin" to="/admin/owners" class="mp-menu-item" @click="open = false">
+        <AppIcon name="user-group" :size="16" color="currentColor" />
+        Switch user
+      </NuxtLink>
+      <button v-if="actingAs" type="button" class="mp-menu-item" @click="stopActingAs">
+        <AppIcon name="arrow-uturn-left" :size="16" color="currentColor" />
+        Stop acting as {{ actingAs.label }}
+      </button>
       <button type="button" class="mp-menu-item" @click="logout">
         <AppIcon name="arrow-right-on-rectangle" :size="16" color="currentColor" />
         Sign out

@@ -35,7 +35,7 @@ const { start, pending } = useActingAs();
               <UiBadge v-if="o.role" color="green" size="xs">{{ o.role }}</UiBadge>
             </div>
           </div>
-          <UiBadge v-if="o.username === user?.username" color="green" size="xs">You</UiBadge>
+          <UiBadge v-if="o.ownerId === user?.ownerId" color="green" size="xs">You</UiBadge>
           <UiButton v-else size="xs" variant="ghost" color="neutral" :disabled="pending" @click="start(o.ownerId)">
             Act as
           </UiButton>

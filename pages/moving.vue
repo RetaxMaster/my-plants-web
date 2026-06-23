@@ -18,7 +18,8 @@ async function onSelect(sel: CitySearchResult) {
 }
 
 async function schedule() {
-  if (!selection.value || !moveOn.value) return;
+  // Guard: never schedule without a city, a date, or with an empty simulation.
+  if (!selection.value || !moveOn.value || !results.value?.length) return;
   const sel = selection.value;
   scheduling.value = true;
   try {
@@ -65,23 +66,33 @@ async function schedule() {
 
     <div v-if="results" class="mp-moving__results">
       <UiSectionTitle>How your plants would fare</UiSectionTitle>
-      <UiCardGrid :desktop="isDesktop" :min="300" :gap="12">
-        <UiCard v-for="r in results" :key="r.plantId" padded>
-          <UiPlantName :title="r.nickname || speciesPrimaryName(r)" :scientific="r.speciesScientificName ?? undefined" />
-          <div class="mp-moving__viability">
-            <UiViabilityBadge :level="r.level" :reasons="r.reasons" />
-          </div>
-        </UiCard>
-      </UiCardGrid>
 
-      <div class="mp-moving__schedule">
-        <UiFormGroup label="Move on" class="mp-moving__date">
-          <UiInput v-model="moveOn" type="date" />
-        </UiFormGroup>
-        <UiButton icon="truck" :disabled="!moveOn || scheduling" :loading="scheduling" @click="schedule">
-          Schedule move
-        </UiButton>
-      </div>
+      <!-- No plant-fit results means there is nothing to schedule against. Show an
+           empty state and keep the schedule controls hidden so a user can't book a
+           move with zero results on screen. -->
+      <UiCard v-if="!results.length" padded>
+        <UiEmptyState>No plant-fit results to show for this city, so there's nothing to schedule yet.</UiEmptyState>
+      </UiCard>
+
+      <template v-else>
+        <UiCardGrid :desktop="isDesktop" :min="300" :gap="12">
+          <UiCard v-for="r in results" :key="r.plantId" padded>
+            <UiPlantName :title="r.nickname || speciesPrimaryName(r)" :scientific="r.speciesScientificName ?? undefined" />
+            <div class="mp-moving__viability">
+              <UiViabilityBadge :level="r.level" :reasons="r.reasons" />
+            </div>
+          </UiCard>
+        </UiCardGrid>
+
+        <div class="mp-moving__schedule">
+          <UiFormGroup label="Move on" class="mp-moving__date">
+            <UiInput v-model="moveOn" type="date" />
+          </UiFormGroup>
+          <UiButton icon="truck" :disabled="!moveOn || !results.length || scheduling" :loading="scheduling" @click="schedule">
+            Schedule move
+          </UiButton>
+        </div>
+      </template>
     </div>
   </div>
 </template>

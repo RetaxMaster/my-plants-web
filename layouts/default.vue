@@ -70,11 +70,6 @@ const bottomActive = computed(() => {
   const key = tabForPath(route.path);
   return key === 'cities' || key === 'moving' || key === 'more' ? 'more' : key;
 });
-
-function navigate(items: NavItem[], key: string) {
-  const item = items.find((i) => i.key === key);
-  if (item) navigateTo(item.to);
-}
 </script>
 
 <template>
@@ -90,7 +85,6 @@ function navigate(items: NavItem[], key: string) {
             :active="topActive"
             variant="top"
             class="mp-shell__topnav-tabs"
-            @select="navigate(topItems, $event)"
           />
         </div>
 
@@ -116,7 +110,6 @@ function navigate(items: NavItem[], key: string) {
         :items="bottomItems"
         :active="bottomActive"
         variant="bottom"
-        @select="navigate(bottomItems, $event)"
       />
     </div>
   </div>

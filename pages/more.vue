@@ -28,18 +28,16 @@ async function logout() {
     <ScreenHeader title="More" :subtitle="`Signed in as ${user?.username ?? ''}`" />
 
     <div class="mp-more">
-      <NuxtLink v-for="row in rows" :key="row.to" :to="row.to" class="mp-more__link">
-        <Card clickable>
-          <div class="mp-more__row">
-            <IconTile :icon="row.icon" tone="cafe" :size="44" />
-            <div class="mp-more__text">
-              <div class="mp-more__label">{{ row.label }}</div>
-              <div class="mp-more__sub">{{ row.sub }}</div>
-            </div>
-            <AppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
+      <Card v-for="row in rows" :key="row.to" :to="row.to">
+        <div class="mp-more__row">
+          <IconTile :icon="row.icon" tone="cafe" :size="44" />
+          <div class="mp-more__text">
+            <div class="mp-more__label">{{ row.label }}</div>
+            <div class="mp-more__sub">{{ row.sub }}</div>
           </div>
-        </Card>
-      </NuxtLink>
+          <AppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
+        </div>
+      </Card>
 
       <Card clickable @click="logout">
         <div class="mp-more__row">
@@ -55,10 +53,6 @@ async function logout() {
 .mp-more {
   display: grid;
   gap: 12px;
-}
-
-.mp-more__link {
-  text-decoration: none;
 }
 
 .mp-more__row {

@@ -20,9 +20,8 @@ const { data: species } = await useAsyncData('blog-species-list', () => api.list
       <UiCard
         v-for="s in species"
         :key="s.slug"
-        clickable
+        :to="`/blog/${s.slug}`"
         padded
-        @click="navigateTo(`/blog/${s.slug}`)"
       >
         <div class="mp-blog-row">
           <UiIconTile icon="book-open" tone="green" :size="48" />

@@ -37,9 +37,8 @@ const subtitle = computed(() => `${count.value} ${count.value === 1 ? 'plant' : 
       <UiCard
         v-for="p in plants"
         :key="p.id"
-        clickable
+        :to="`/plants/${p.id}`"
         padded
-        @click="navigateTo(`/plants/${p.id}`)"
       >
         <div class="mp-plant-row">
           <UiPlantAvatar :size="48" />

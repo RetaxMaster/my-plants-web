@@ -7,6 +7,7 @@ interface Item {
   key: string;
   label: string;
   icon: string;
+  to: string;
 }
 
 const props = withDefaults(
@@ -31,10 +32,14 @@ function iconFor(item: Item, on: boolean): string {
 
 <template>
   <nav :class="['mp-navtabs', `mp-navtabs--${variant}`]" v-bind="$attrs">
-    <button
+    <!-- Real links (NuxtLink → <a href>) restore href semantics: Cmd/Ctrl-click,
+         context-menu "open in new tab", and screen-reader link behavior. We keep
+         the `select` event so existing parents can still react, but navigation now
+         comes from the href, not JS. -->
+    <NuxtLink
       v-for="item in props.items"
       :key="item.key"
-      type="button"
+      :to="item.to"
       :class="['mp-navtabs__item', { 'mp-navtabs__item--active': item.key === active }]"
       :aria-current="item.key === active ? 'page' : undefined"
       @click="emit('select', item.key)"
@@ -44,13 +49,19 @@ function iconFor(item: Item, on: boolean): string {
         :size="variant === 'bottom' ? 22 : 18"
       />
       <span class="mp-navtabs__label">{{ item.label }}</span>
-    </button>
+    </NuxtLink>
   </nav>
 </template>
 
 <style scoped>
 .mp-navtabs {
   display: flex;
+}
+
+/* Items are now <a> (NuxtLink); strip the default link underline/color so they
+   keep the ghost-tab look. Per-variant rules below set color/layout. */
+.mp-navtabs__item {
+  text-decoration: none;
 }
 
 /* top: horizontal ghost-button row */

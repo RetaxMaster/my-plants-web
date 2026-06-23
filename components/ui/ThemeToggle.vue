@@ -10,6 +10,25 @@ const colorMode = useColorMode();
 
 const isDark = computed(() => colorMode.value === 'dark');
 
+// Hydration safety. The server never knows the user's persisted theme, so SSR
+// always renders the default (light) markup; the client resolves the real theme
+// BEFORE Vue hydrates, so any theme-dependent markup outside <ClientOnly> differs
+// between the two and Vue logs a hydration mismatch on every page. The icon is
+// already shielded by <ClientOnly> (a server fallback that only swaps in after
+// mount). The button's title/aria-label live on the outer <button>, which can't
+// go inside <ClientOnly>, so we apply the SAME idea by hand: a `mounted` flag that
+// is false during SSR AND the first client render (so both sides match: the
+// neutral "Switch to dark theme") and flips to true in onMounted, after which the
+// label reflects the real theme. This is deterministic and independent of when
+// color-mode resolves, so hydration stays clean with no FOUC.
+const mounted = ref(false);
+onMounted(() => {
+  mounted.value = true;
+});
+const label = computed(() =>
+  mounted.value && isDark.value ? 'Switch to light theme' : 'Switch to dark theme',
+);
+
 function toggle() {
   colorMode.preference = isDark.value ? 'light' : 'dark';
 }
@@ -19,8 +38,8 @@ function toggle() {
   <button
     type="button"
     class="mp-iconbtn mp-theme-toggle"
-    :title="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
-    :aria-label="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
+    :title="label"
+    :aria-label="label"
     v-bind="$attrs"
     @click="toggle"
   >

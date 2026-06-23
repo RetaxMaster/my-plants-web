@@ -46,7 +46,7 @@ const articleHtml = computed(() =>
 /* Reading measure on desktop; mobile keeps the base width. */
 @media (min-width: 880px) {
   .mp-article {
-    max-width: 1000px;
+    max-width: 900px;
   }
 }
 

@@ -20,6 +20,11 @@ const props = withDefaults(
 const slots = useSlots();
 const emit = defineEmits<{ click: [MouseEvent | KeyboardEvent] }>();
 
+// Resolve the real NuxtLink component. `<component :is="'NuxtLink'">` (a string)
+// does NOT resolve the auto-imported component — it renders a dead literal
+// <nuxtlink> element that never navigates. Bind the resolved component instead.
+const NuxtLink = resolveComponent('NuxtLink');
+
 // A `to` link is inherently interactive; `clickable` is the action-card path.
 const isLink = computed(() => !!props.to);
 const isInteractive = computed(() => props.clickable && !isLink.value);
@@ -41,7 +46,7 @@ function onKeydown(event: KeyboardEvent) {
 
 <template>
   <component
-    :is="isLink ? 'NuxtLink' : 'div'"
+    :is="isLink ? NuxtLink : 'div'"
     :to="isLink ? to : undefined"
     :class="['mp-card', { 'mp-card--clickable': isInteractive || isLink, 'mp-card--link': isLink }, props.class]"
     :role="isInteractive ? 'button' : undefined"

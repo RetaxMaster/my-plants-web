@@ -1,3 +1,5 @@
+import type { OwnerSummary } from '~/types/api';
+
 export default defineEventHandler(async (event) => {
   const session = await getUserSession(event);
   if (session.user?.role !== 'ADMIN') {
@@ -9,8 +11,9 @@ export default defineEventHandler(async (event) => {
 
   const { apiBase } = useRuntimeConfig(event);
   const token = session.secure?.token;
+  if (!token) throw createError({ statusCode: 401, statusMessage: 'Not authenticated' });
   // Resolve the display label server-side; this also validates the owner exists & is admin-visible.
-  const owners = await $fetch<{ ownerId: string; username: string; role: 'USER' | 'ADMIN' | null }[]>(
+  const owners = await $fetch<OwnerSummary[]>(
     `${apiBase}/owners`,
     { headers: { Authorization: `Bearer ${token}` } },
   );

@@ -10,6 +10,12 @@ declare module '#auth-utils' {
   interface SecureSessionData {
     token: string;
   }
+
+  // The admin impersonation target. Top-level (not secure) so the client banner can read it via
+  // useUserSession().session. Absent/null = not impersonating.
+  interface UserSession {
+    actingAs?: { ownerId: string; label: string } | null;
+  }
 }
 
 export {};

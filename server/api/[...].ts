@@ -10,6 +10,7 @@ export default defineEventHandler(async (event) => {
   // Build a clean header set: never forward the incoming Host/Cookie to NestJS.
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (session.actingAs?.ownerId) headers['x-act-as-owner'] = session.actingAs.ownerId;
   const contentType = getRequestHeader(event, 'content-type');
   if (contentType) headers['content-type'] = contentType;
 

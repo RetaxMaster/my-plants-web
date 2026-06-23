@@ -81,6 +81,12 @@ async function schedule() {
             <div class="mp-moving__viability">
               <UiViabilityBadge :level="r.level" :reasons="r.reasons" />
             </div>
+            <UiAlert
+              v-if="!r.inPrimaryCity"
+              color="amber"
+              class="mp-moving__warning"
+              :description="`This plant is not in your current city — it is in ${r.placeCityName}.`"
+            />
           </UiCard>
         </UiCardGrid>
 
@@ -117,6 +123,10 @@ async function schedule() {
 
 .mp-moving__viability {
   margin-top: 12px;
+}
+
+.mp-moving__warning {
+  margin-top: 10px;
 }
 
 .mp-moving__schedule {

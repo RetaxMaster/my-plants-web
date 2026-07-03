@@ -2,7 +2,7 @@ import type {
   City, CitySearchResult, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
   DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
   KnowledgeSocketTicketResponse, OwnerSummary, Place, Plant, PlantCare, PlantViability,
-  ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesBrief, SpeciesSummary,
+  ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesSummary,
   UpdatePlace, UpdatePlant, Viability,
   BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
@@ -36,7 +36,6 @@ export function useApi() {
 
   return {
     listSpecies: () => api<SpeciesSummary[]>('/species'),
-    getSpeciesBrief: (slug: string) => api<SpeciesBrief>(`/species/${slug}/brief`),
 
     // --- Blog (public: no session; @Public on the API) ---
     listBlog: (page = 1, pageSize = 10) =>

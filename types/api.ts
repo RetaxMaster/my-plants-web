@@ -4,14 +4,6 @@ export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
 export interface SpeciesSummary { slug: string; scientificName: string; commonName: string }
 
-export interface SpeciesBrief {
-  slug: string;
-  scientificName: string;
-  commonNames: string[];
-  briefEs: string | null;
-  briefEn: string | null;
-}
-
 export interface City {
   id: string; name: string; latitude: number; longitude: number; timezone: string; isPrimary: boolean;
 }

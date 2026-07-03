@@ -53,6 +53,18 @@ async function postpone(plantId: string, task: DueTask['task']) {
   await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today, postponeToOn: addDaysYmd(1) });
   await refresh();
 }
+
+const progressPlantId = ref<string | null>(null);
+const progressOpen = ref(false);
+
+function openProgress(plantId: string) {
+  progressPlantId.value = plantId;
+  progressOpen.value = true;
+}
+
+async function onProgressSaved() {
+  await refresh(); // Progress re-anchors to next Monday and drops off Today
+}
 </script>
 
 <template>
@@ -87,10 +99,18 @@ async function postpone(plantId: string, task: DueTask['task']) {
             :due-label="fmtDueLabel(new Date(t.nextDueOn), new Date())"
             @done="e => markDone(plantId, e.task, e.occurredOn)"
             @postpone="e => postpone(plantId, e.task)"
+            @log-progress="() => openProgress(plantId)"
           />
         </div>
       </UiCard>
     </UiCardGrid>
+
+    <ProgressLogModal
+      v-if="progressPlantId"
+      v-model="progressOpen"
+      :plant-id="progressPlantId"
+      @saved="onProgressSaved"
+    />
   </div>
 </template>
 

@@ -1,6 +1,7 @@
 import type {
-  City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, OwnerSummary, Place, Plant,
-  PlantCare, PlantViability, SpeciesBrief, SpeciesSummary, UpdatePlace, UpdatePlant, Viability,
+  City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, HistoryItem,
+  OwnerSummary, Place, Plant, PlantCare, PlantViability, ProgressEntryDetail, ProgressTag, SpeciesBrief,
+  SpeciesSummary, UpdatePlace, UpdatePlant, Viability,
 } from '../types/api.js';
 
 export function useApi() {
@@ -56,6 +57,14 @@ export function useApi() {
 
     sendFeedback: (plantId: string, body: Feedback) =>
       api<{ ok: true }>(`/plants/${plantId}/feedback`, { method: 'POST', body }),
+
+    // Care History
+    getProgressCatalog: () => api<ProgressTag[]>('/progress/catalog'),
+    logProgress: (plantId: string, form: FormData) =>
+      api<ProgressEntryDetail>(`/plants/${plantId}/progress`, { method: 'POST', body: form }),
+    getProgressEntry: (plantId: string, entryId: string) =>
+      api<ProgressEntryDetail>(`/plants/${plantId}/progress/${entryId}`),
+    getPlantHistory: (plantId: string) => api<HistoryItem[]>(`/plants/${plantId}/history`),
 
     simulateMove: (latitude: number, longitude: number) =>
       api<PlantViability[]>('/moving/simulate', { method: 'POST', body: { latitude, longitude } }),

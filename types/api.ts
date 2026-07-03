@@ -46,7 +46,7 @@ export interface UpdatePlant { nickname?: string; placeId?: string }
 export interface UpdatePlace { name?: string; climateControlled?: boolean }
 export interface CreatePlant {
   placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;
-  lastDone?: { task: TaskCode; doneOn: string }[];
+  lastDone?: { task: CareActionTask; doneOn: string }[]; // PROGRESS excluded — journaled, never seeded
 }
 
 export interface DueTaskResponse { plantId: string; task: TaskCode; nextDueOn: string }
@@ -83,3 +83,29 @@ export interface PlantCare {
   // Added in Phase C — the per-plant viability semaphore for its current place.
   viability: { level: ViabilityLevel; reasons: string[] };
 }
+
+// --- Care History ---
+export type ProgressHealth = 'SICK' | 'POOR' | 'GOOD' | 'EXCELLENT';
+export type ProgressTagGroup = 'positive' | 'negative';
+export interface ProgressTag { key: string; label: string; group: ProgressTagGroup }
+// Only the KEY type lives on the web; label/group data comes from GET /progress/catalog (not duplicated).
+export type ProgressTagKey = string;
+
+export interface ProgressPhoto { id: string; imageUrl: string; sortOrder: number }
+export interface ProgressEntryDetail {
+  id: string;
+  plantId: string;
+  occurredOn: string;          // YYYY-MM-DD
+  health: ProgressHealth;
+  observations: string | null;
+  sizeCm: number | null;
+  tags: ProgressTag[];         // resolved key+label+group
+  photos: ProgressPhoto[];
+}
+
+// The six species-scheduled care tasks (PROGRESS excluded — it is the richer 'progress' item).
+export type CareActionTask = Exclude<TaskCode, 'PROGRESS'>;
+
+export type HistoryItem =
+  | { kind: 'progress'; entryId: string; occurredOn: string; health: ProgressHealth; photoCount: number; tagCount: number }
+  | { kind: 'action'; task: CareActionTask; type: 'DONE'; occurredOn: string };

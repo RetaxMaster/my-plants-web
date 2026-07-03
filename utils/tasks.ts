@@ -1,4 +1,7 @@
-export type TaskCode = 'WATER' | 'FERTILIZE' | 'REPOT' | 'ROTATE' | 'CLEAN_LEAVES' | 'MIST';
+export type TaskCode = 'WATER' | 'FERTILIZE' | 'REPOT' | 'ROTATE' | 'CLEAN_LEAVES' | 'MIST' | 'PROGRESS';
+
+// The six species-scheduled tasks that appear as read-only action notes in the history timeline.
+export type CareActionTask = Exclude<TaskCode, 'PROGRESS'>;
 
 export interface DueTask {
   plantId: string;
@@ -13,6 +16,17 @@ export const TASK_LABELS: Record<TaskCode, string> = {
   ROTATE: 'Rotate',
   CLEAN_LEAVES: 'Clean leaves',
   MIST: 'Mist leaves',
+  PROGRESS: 'Log progress',
+};
+
+// Past-tense phrasing for completed actions in the history timeline ("Watered 3 days ago").
+export const TASK_PAST_LABELS: Record<CareActionTask, string> = {
+  WATER: 'Watered',
+  FERTILIZE: 'Fertilized',
+  REPOT: 'Repotted',
+  ROTATE: 'Rotated',
+  CLEAN_LEAVES: 'Cleaned leaves',
+  MIST: 'Misted',
 };
 
 const MS_DAY = 86_400_000;

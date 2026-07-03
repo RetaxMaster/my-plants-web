@@ -13,6 +13,7 @@ export const TASK_ICONS: Record<TaskCode, string> = {
   ROTATE: 'arrow-path',
   CLEAN_LEAVES: 'sun',
   MIST: 'cloud',
+  PROGRESS: 'camera',
 };
 
 export function useTaskMeta() {

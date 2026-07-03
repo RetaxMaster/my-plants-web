@@ -12,7 +12,11 @@ const ALLOWED_TAGS = [
   'strong', 'em', 'del', 'code', 'pre', 'hr', 'br', 'img', 'figure', 'figcaption',
   'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span',
 ];
-const ALLOWED_ATTR = ['href', 'title', 'src', 'alt', 'colspan', 'rowspan', 'align', 'class'];
+// `class` is intentionally NOT allowed: the app's global classes (e.g. `.mp-savebar` is `position:
+// fixed`, `.mp-pagenum` etc. in chrome.css) would let body content pick up fixed/overlay styling and
+// visually hijack the page. UiProse styles the article via its own `.mp-prose` wrapper, so inner
+// class hooks are never needed.
+const ALLOWED_ATTR = ['href', 'title', 'src', 'alt', 'colspan', 'rowspan', 'align'];
 
 export function renderMarkdown(md: string): string {
   const rawHtml = marked.parse(md, { async: false }) as string;

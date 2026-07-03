@@ -3,6 +3,7 @@ import { pickLocalized } from '../../utils/localizedField.js';
 import { renderMarkdown } from '../../utils/renderMarkdown.js';
 import { youtubeEmbedUrl } from '../../utils/youtube.js';
 import { formatBlogDate } from '../../utils/blogDate.js';
+import { safeHttpUrl } from '../../utils/safeUrl.js';
 
 const route = useRoute();
 const api = useApi();
@@ -28,6 +29,9 @@ const embedUrl = computed(() => youtubeEmbedUrl(post.value?.youtubeUrl));
 const ctaLabel = computed(() =>
   post.value ? pickLocalized(locale.value, post.value.ctaLabelEs, post.value.ctaLabelEn) : null,
 );
+// Author-supplied link — guard the scheme (only http(s)/relative) so a stored `javascript:` CTA can
+// never become a clickable XSS vector. Same sanitization intent as the Markdown body.
+const ctaHref = computed(() => safeHttpUrl(post.value?.ctaLink));
 const dateLabel = computed(() => (post.value ? formatBlogDate(locale.value, post.value.publishedAt) : ''));
 </script>
 
@@ -65,8 +69,8 @@ const dateLabel = computed(() => (post.value ? formatBlogDate(locale.value, post
         />
       </div>
 
-      <div v-if="post.ctaLink && ctaLabel" class="mp-article__cta">
-        <a :href="post.ctaLink" target="_blank" rel="noopener noreferrer" class="mp-article__ctabtn">
+      <div v-if="ctaHref && ctaLabel" class="mp-article__cta">
+        <a :href="ctaHref" target="_blank" rel="noopener noreferrer" class="mp-article__ctabtn">
           {{ ctaLabel }}
           <UiAppIcon name="arrow-right" :size="16" color="currentColor" />
         </a>

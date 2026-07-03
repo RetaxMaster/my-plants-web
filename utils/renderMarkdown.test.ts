@@ -25,6 +25,12 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('javascript:');
   });
 
+  it('strips class attributes so body content cannot pick up global app styles', () => {
+    const html = renderMarkdown('<span class="mp-savebar">overlay</span>');
+    expect(html).not.toContain('class=');
+    expect(html).toContain('overlay');
+  });
+
   it('keeps tables, code blocks and images', () => {
     const md = '| a | b |\n| - | - |\n| 1 | 2 |\n\n```js\nconst x = 1;\n```\n\n![alt](https://example.com/i.png)';
     const html = renderMarkdown(md);

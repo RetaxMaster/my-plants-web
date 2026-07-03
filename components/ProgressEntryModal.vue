@@ -10,13 +10,19 @@ const loading = ref(false);
 
 const HEALTH_LABELS: Record<string, string> = { SICK: 'Sick', POOR: 'Poor', GOOD: 'Good', EXCELLENT: 'Excellent' };
 
+// Request token: opening entry A then quickly switching to entry B must not let A's slower response
+// overwrite B. Each fetch stamps a token; a response only lands if it is still the latest request.
+let requestToken = 0;
 watch([open, () => props.entryId], async ([isOpen, id]) => {
   if (!isOpen || !id) { entry.value = null; return; }
+  const token = ++requestToken;
   loading.value = true;
+  entry.value = null;
   try {
-    entry.value = await api.getProgressEntry(props.plantId, id);
+    const result = await api.getProgressEntry(props.plantId, id);
+    if (token === requestToken) entry.value = result;
   } finally {
-    loading.value = false;
+    if (token === requestToken) loading.value = false;
   }
 });
 </script>

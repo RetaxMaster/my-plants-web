@@ -85,7 +85,16 @@ async function save() {
     emit('saved');
     open.value = false;
   } catch (e: any) {
-    error.value = e?.data?.message ?? 'Could not save progress. Please try again.';
+    // Map ONLY the R2-unconfigured case to a friendly, actionable message (the generic "Service
+    // Unavailable" hides that removing the photo lets the user save). Key on the API's STABLE code
+    // `r2_not_configured` — never on a bare 503, which would also swallow a genuinely-down backend.
+    // The BFF proxy re-wraps the upstream error as an H3Error, so the API body (with its `code`) can
+    // arrive one level deeper (`e.data.data`) as well as at `e.data`; check both depths.
+    const isR2Unconfigured =
+      e?.data?.code === 'r2_not_configured' || e?.data?.data?.code === 'r2_not_configured';
+    error.value = isR2Unconfigured
+      ? "Photos can't be uploaded right now — you can save without a photo."
+      : (e?.data?.message ?? 'Could not save progress. Please try again.');
   } finally {
     saving.value = false;
   }

@@ -57,7 +57,9 @@ function dueLabel(t: { daysUntilDue: number; status: string }): string {
 
 async function markDone(task: TaskCode, occurredOn?: string) {
   await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today() });
-  await refresh();
+  // A completed action becomes a history item (kind:'action', e.g. "Watered today"), so refresh the
+  // timeline in place too — not just the care rows — consistent with the progress-log path.
+  await Promise.all([refresh(), refreshHistory()]);
 }
 
 async function postpone(task: TaskCode) {

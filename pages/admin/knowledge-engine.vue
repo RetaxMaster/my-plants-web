@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { KnowledgeChatSessionDetail } from '../../types/api';
 
+const { t } = useI18n();
 const { user } = useUserSession();
 if (user.value?.role !== 'ADMIN') {
-  throw createError({ statusCode: 404, statusMessage: 'Page not found' });
+  throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
 }
 
 const sessionsApi = useKnowledgeChatSessions();
@@ -53,7 +54,7 @@ async function removeSession(id: string) {
   try {
     await sessionsApi.remove(id);
   } catch {
-    if (import.meta.client) alert('Could not delete — a run may still be active.');
+    if (import.meta.client) alert(t('admin.deleteError'));
     return;
   }
   // Deleting the selected conversation resets to a fresh new chat — bump the nonce so KnowledgeChat
@@ -74,12 +75,12 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
 
 <template>
   <div>
-    <UiScreenHeader eyebrow="Admin" title="Knowledge Engine" subtitle="Research a species with the knowledge-engine assistant." />
+    <UiScreenHeader :eyebrow="$t('admin.eyebrow')" :title="$t('admin.keTitle')" :subtitle="$t('admin.keSubtitle')" />
     <div class="mp-kchat-layout">
       <aside class="mp-kchat-list">
-        <UiButton size="sm" variant="solid" color="neutral" block @click="newChat">New chat</UiButton>
+        <UiButton size="sm" variant="solid" color="neutral" block @click="newChat">{{ $t('admin.newChat') }}</UiButton>
         <UiCard v-if="!sessions?.length" padded>
-          <UiEmptyState>No conversations yet.</UiEmptyState>
+          <UiEmptyState>{{ $t('admin.noConversations') }}</UiEmptyState>
         </UiCard>
         <ul v-else class="mp-kchat-list__items">
           <li v-for="s in sessions" :key="s.id" class="mp-kchat-list__item" :class="{ 'is-active': s.id === selected }">
@@ -87,14 +88,14 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
               <span class="mp-kchat-list__title">{{ s.title }}</span>
               <span class="mp-kchat-list__meta">
                 <UiBadge v-if="s.status" :color="s.status === 'RUNNING' ? 'green' : 'neutral'" size="xs">{{ s.status }}</UiBadge>
-                <span class="mp-kchat-list__turns">{{ s.turns }} turns</span>
+                <span class="mp-kchat-list__turns">{{ $t('admin.turns', { n: s.turns }, s.turns) }}</span>
               </span>
             </button>
             <button
               type="button"
               class="mp-kchat-list__del"
               :disabled="s.status === 'RUNNING' || s.status === 'QUEUED'"
-              title="Delete conversation"
+              :title="$t('admin.deleteConversation')"
               @click="removeSession(s.id)"
             >
               <UiAppIcon name="trash" :size="15" color="currentColor" />
@@ -106,7 +107,7 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
       <section class="mp-kchat-main">
         <UiCard padded class="mp-kchat-panel">
           <ClientOnly>
-            <div v-if="loadingDetail" class="mp-kchat-main__loading">Loading…</div>
+            <div v-if="loadingDetail" class="mp-kchat-main__loading">{{ $t('common.loading') }}</div>
             <KnowledgeChat
               v-else
               :key="chatKey"
@@ -117,7 +118,7 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
               @changed="onChanged"
             />
             <template #fallback>
-              <div class="mp-kchat-main__loading">Loading chat…</div>
+              <div class="mp-kchat-main__loading">{{ $t('admin.loadingChat') }}</div>
             </template>
           </ClientOnly>
         </UiCard>

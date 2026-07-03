@@ -18,12 +18,12 @@ const articleHtml = computed(() =>
   <div v-if="brief">
     <button type="button" class="mp-backlink" @click="navigateTo('/blog')">
       <UiAppIcon name="chevron-left" :size="16" color="currentColor" />
-      All articles
+      {{ $t('blog.allArticles') }}
     </button>
 
     <article class="mp-article">
       <div class="mp-article__badges">
-        <UiBadge color="green" size="sm" dot>Care guide</UiBadge>
+        <UiBadge color="green" size="sm" dot>{{ $t('blog.careGuide') }}</UiBadge>
       </div>
       <h1 class="mp-article__title">
         {{ brief.commonNames[0] ?? brief.scientificName }}
@@ -34,7 +34,7 @@ const articleHtml = computed(() =>
       <UiProse v-else :html="articleHtml" />
     </article>
   </div>
-  <UiEmptyState v-else>Loading…</UiEmptyState>
+  <UiEmptyState v-else>{{ $t('common.loading') }}</UiEmptyState>
 </template>
 
 <style scoped>

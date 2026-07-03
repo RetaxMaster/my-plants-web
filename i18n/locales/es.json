@@ -95,6 +95,18 @@
     "empty": "Aún no hay plantas.",
     "countSub": "{n} planta a tu cuidado | {n} plantas a tu cuidado"
   },
+  "plantsNew": {
+    "title": "Agregar una planta",
+    "subtitle": "Dinos la especie y dónde vive.",
+    "species": "Especie",
+    "pickSpecies": "Elige una especie",
+    "place": "Lugar",
+    "pickPlace": "Elige un lugar",
+    "nickname": "Apodo",
+    "nicknameHint": "Opcional — cómo le llamas a esta planta.",
+    "nicknamePlaceholder": "ej. Monty",
+    "acquiredOn": "Adquirida el"
+  },
   "plantDetail": {
     "backAll": "Todas las plantas",
     "acquired": "Adquirida {date}",

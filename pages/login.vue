@@ -2,6 +2,7 @@
 // The login wall renders without the app navigation (see layouts/auth.vue).
 definePageMeta({ layout: 'auth' });
 
+const { t } = useI18n();
 const username = ref('');
 const password = ref('');
 const error = ref('');
@@ -18,7 +19,7 @@ async function submit() {
     const redirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
     await navigateTo(redirect);
   } catch {
-    error.value = 'Invalid username or password.';
+    error.value = t('login.invalid');
   }
 }
 </script>
@@ -26,18 +27,18 @@ async function submit() {
 <template>
   <div>
     <div class="mp-login__intro">
-      <h1 class="mp-login__title">Welcome back</h1>
-      <p class="mp-login__subtitle">Sign in to tend your plants.</p>
+      <h1 class="mp-login__title">{{ $t('login.welcome') }}</h1>
+      <p class="mp-login__subtitle">{{ $t('login.subtitle') }}</p>
     </div>
 
     <form class="mp-form" @submit.prevent="submit">
-      <UiFormGroup label="Username">
-        <UiInput v-model="username" icon="user" autocomplete="username" placeholder="sofia" />
+      <UiFormGroup :label="$t('login.username')">
+        <UiInput v-model="username" icon="user" autocomplete="username" :placeholder="$t('login.usernamePlaceholder')" />
       </UiFormGroup>
-      <UiFormGroup label="Password" :error="error || undefined">
-        <UiInput v-model="password" type="password" autocomplete="current-password" placeholder="••••••••" />
+      <UiFormGroup :label="$t('login.password')" :error="error || undefined">
+        <UiInput v-model="password" type="password" autocomplete="current-password" :placeholder="$t('login.passwordPlaceholder')" />
       </UiFormGroup>
-      <UiButton type="submit" block :disabled="!username || !password">Sign in</UiButton>
+      <UiButton type="submit" block :disabled="!username || !password">{{ $t('login.signIn') }}</UiButton>
     </form>
   </div>
 </template>

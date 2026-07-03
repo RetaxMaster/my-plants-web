@@ -2,6 +2,8 @@
 import type { ProgressHealth } from '../../../types/api.js';
 import { plantTitle } from '../../../utils/displayName.js';
 
+const { t } = useI18n();
+const { healthLabel } = useTaskMeta();
 const route = useRoute();
 const api = useApi();
 const id = route.params.id as string;
@@ -13,11 +15,13 @@ const { data: catalog } = await useAsyncData('progress-catalog', () => api.getPr
 const positiveTags = computed(() => (catalog.value ?? []).filter((t) => t.group === 'positive'));
 const negativeTags = computed(() => (catalog.value ?? []).filter((t) => t.group === 'negative'));
 
-const HEALTH_OPTIONS: { value: ProgressHealth; label: string; icon: string }[] = [
-  { value: 'SICK', label: 'Sick', icon: 'face-frown' },
-  { value: 'POOR', label: 'Poor', icon: 'minus-circle' },
-  { value: 'GOOD', label: 'Good', icon: 'face-smile' },
-  { value: 'EXCELLENT', label: 'Excellent', icon: 'sparkles' },
+// Labels are rendered via the shared healthLabel() composable (the single health.* key
+// set), so this list carries only the value + icon — no fork of the health wording.
+const HEALTH_OPTIONS: { value: ProgressHealth; icon: string }[] = [
+  { value: 'SICK', icon: 'face-frown' },
+  { value: 'POOR', icon: 'minus-circle' },
+  { value: 'GOOD', icon: 'face-smile' },
+  { value: 'EXCELLENT', icon: 'sparkles' },
 ];
 
 // Size bounds — cm. Only sent when the "Record size" toggle is on (preserves the backend's optional
@@ -48,7 +52,7 @@ function goBack() {
 }
 
 async function save() {
-  if (!health.value) { error.value = 'Please select how the plant is doing.'; return; }
+  if (!health.value) { error.value = t('progress.errorSelectHealth'); return; }
   saving.value = true;
   error.value = '';
   try {
@@ -76,11 +80,11 @@ async function save() {
       code === 'image_unsupported_format' ||
       code === 'image_animated';
     if (code === 'r2_not_configured') {
-      error.value = "Photos can't be uploaded right now — you can save without a photo.";
+      error.value = t('progress.errorPhotosUnavailable');
     } else if (isImageError) {
-      error.value = 'We could not process one of your photos. Please try a different image.';
+      error.value = t('progress.errorPhotoProcess');
     } else {
-      error.value = e?.data?.message ?? 'Could not save progress. Please try again.';
+      error.value = e?.data?.message ?? t('progress.errorSave');
     }
   } finally {
     saving.value = false;
@@ -91,8 +95,8 @@ async function save() {
 <template>
   <div>
     <UiScreenHeader
-      back="Back to plant"
-      title="Log progress"
+      :back="$t('progress.back')"
+      :title="$t('progress.title')"
       :subtitle="subtitle"
       @back="goBack"
     />
@@ -100,7 +104,7 @@ async function save() {
     <form class="mp-progress" @submit.prevent="save">
       <UiCard padded class="mp-progress__card">
         <!-- Health (required) -->
-        <UiFormGroup label="How is your plant doing?" required>
+        <UiFormGroup :label="$t('progress.healthQuestion')" required>
           <div class="mp-progress__health">
             <button
               v-for="opt in HEALTH_OPTIONS"
@@ -112,34 +116,34 @@ async function save() {
               @click="health = opt.value"
             >
               <UiAppIcon :name="opt.icon" :size="22" />
-              <span>{{ opt.label }}</span>
+              <span>{{ healthLabel(opt.value) }}</span>
             </button>
           </div>
         </UiFormGroup>
 
         <!-- Photos (optional) -->
-        <UiFormGroup label="Photos" hint="Optional — up to 8 images.">
+        <UiFormGroup :label="$t('progress.photos')" :hint="$t('progress.photosHint')">
           <UiImageDropzone v-model="files" :max="8" />
         </UiFormGroup>
 
         <!-- Observations (optional) -->
-        <UiFormGroup label="Observations" hint="Optional — anything worth remembering.">
+        <UiFormGroup :label="$t('progress.observations')" :hint="$t('progress.observationsHint')">
           <textarea
             v-model="observations"
             class="mp-progress__textarea"
             rows="4"
             maxlength="2000"
-            placeholder="New leaf unfurling, moved closer to the window…"
+            :placeholder="$t('progress.observationsPlaceholder')"
           />
         </UiFormGroup>
 
         <!-- Size (optional, gated behind a toggle so sizeCm stays optional) -->
         <div class="mp-progress__size">
           <div class="mp-progress__size-head">
-            <span class="mp-progress__size-label">Size</span>
+            <span class="mp-progress__size-label">{{ $t('progress.size') }}</span>
             <label class="mp-progress__size-switch">
-              <UiSwitch v-model="recordSize" aria-label="Record size" />
-              <span>Record size</span>
+              <UiSwitch v-model="recordSize" :aria-label="$t('progress.recordSizeAria')" />
+              <span>{{ $t('progress.recordSize') }}</span>
             </label>
           </div>
           <UiSlider
@@ -148,13 +152,13 @@ async function save() {
             :min="SIZE_MIN"
             :max="SIZE_MAX"
             :step="SIZE_STEP"
-            suffix="cm"
-            aria-label="Plant size in centimeters"
+            :suffix="$t('progress.sizeSuffix')"
+            :aria-label="$t('progress.sizeAria')"
           />
         </div>
 
         <!-- Tags (optional) -->
-        <UiFormGroup label="Worth noting" hint="Optional — tap any that apply.">
+        <UiFormGroup :label="$t('progress.worthNoting')" :hint="$t('progress.worthNotingHint')">
           <div class="mp-progress__chips">
             <UiTagChip
               v-for="t in positiveTags"
@@ -179,8 +183,8 @@ async function save() {
       </UiCard>
 
       <div class="mp-progress__actions">
-        <UiButton type="button" color="neutral" variant="ghost" @click="goBack">Cancel</UiButton>
-        <UiButton type="submit" color="primary" block :loading="saving" :disabled="saving">Save progress</UiButton>
+        <UiButton type="button" color="neutral" variant="ghost" @click="goBack">{{ $t('common.cancel') }}</UiButton>
+        <UiButton type="submit" color="primary" block :loading="saving" :disabled="saving">{{ $t('progress.saveProgress') }}</UiButton>
       </div>
     </form>
   </div>

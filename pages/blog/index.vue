@@ -7,13 +7,13 @@ const { data: species } = await useAsyncData('blog-species-list', () => api.list
 <template>
   <div>
     <UiScreenHeader
-      eyebrow="Care guides"
-      title="Blog"
-      subtitle="Species guides, written by the My Plants team."
+      :eyebrow="$t('blog.eyebrow')"
+      :title="$t('blog.title')"
+      :subtitle="$t('blog.subtitle')"
     />
 
     <UiCard v-if="!species?.length" padded>
-      <UiEmptyState>No species yet.</UiEmptyState>
+      <UiEmptyState>{{ $t('blog.empty') }}</UiEmptyState>
     </UiCard>
 
     <UiCardGrid v-else :desktop="isDesktop" :min="300" :gap="14">

@@ -1,28 +1,31 @@
 <script setup lang="ts">
 import type { CreatePlace, HumidityCharacter, LightType } from '../../types/api.js';
 
+const { t } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
 const { data: places, refresh } = await useAsyncData('places', () => api.listPlaces());
 const { data: cities } = await useAsyncData('cities', () => api.listCities());
 
-const lightOptions: { label: string; value: LightType }[] = [
-  { label: 'Direct sun', value: 'DIRECT' },
-  { label: 'Bright indirect', value: 'BRIGHT_INDIRECT' },
-  { label: 'Medium', value: 'MEDIUM' },
-  { label: 'Low', value: 'LOW' },
-];
+// Option labels come from the SAME places.light_*/humidity_* keys the cards use, so the
+// form wording and the card wording share one key set (no fork). Values stay as the enum.
+const lightOptions = computed<{ label: string; value: LightType }[]>(() => [
+  { label: t('places.light_DIRECT'), value: 'DIRECT' },
+  { label: t('places.light_BRIGHT_INDIRECT'), value: 'BRIGHT_INDIRECT' },
+  { label: t('places.light_MEDIUM'), value: 'MEDIUM' },
+  { label: t('places.light_LOW'), value: 'LOW' },
+]);
 // The create form needs to represent "not specified" for humidity, which the API stores
 // as null. The CreatePlace DTO type cannot hold the '' sentinel, so the form uses a local
 // type with humidityCharacter widened to include '', and submit() maps '' -> omitted.
 type PlaceForm = Omit<CreatePlace, 'humidityCharacter'> & { humidityCharacter: HumidityCharacter | '' };
 
-const humidityOptions: { label: string; value: HumidityCharacter | '' }[] = [
-  { label: 'Not specified', value: '' },
-  { label: 'Dry', value: 'DRY' },
-  { label: 'Normal', value: 'NORMAL' },
-  { label: 'Humid', value: 'HUMID' },
-];
+const humidityOptions = computed<{ label: string; value: HumidityCharacter | '' }[]>(() => [
+  { label: t('places.humidity_NONE'), value: '' },
+  { label: t('places.humidity_DRY'), value: 'DRY' },
+  { label: t('places.humidity_NORMAL'), value: 'NORMAL' },
+  { label: t('places.humidity_HUMID'), value: 'HUMID' },
+]);
 
 const form = reactive<PlaceForm>({
   cityId: '', name: '', indoor: true, lightType: 'BRIGHT_INDIRECT',
@@ -84,12 +87,12 @@ const indoorIncomplete = computed(
 
 <template>
   <div>
-    <UiScreenHeader title="Places" subtitle="Where your plants live." />
+    <UiScreenHeader :title="$t('places.title')" :subtitle="$t('places.subtitle')" />
 
     <div :class="isDesktop ? 'mp-places mp-places--desktop' : 'mp-places'">
       <div>
         <UiCard v-if="!places?.length" padded>
-          <UiEmptyState>No places yet.</UiEmptyState>
+          <UiEmptyState>{{ $t('places.empty') }}</UiEmptyState>
         </UiCard>
         <UiCardGrid v-else :desktop="isDesktop" :min="260" :gap="12">
           <UiCard v-for="p in places" :key="p.id" padded>
@@ -97,31 +100,31 @@ const indoorIncomplete = computed(
               <UiIconTile :icon="p.indoor ? 'home' : 'sun'" :tone="p.indoor ? 'green' : 'cafe'" :size="40" />
               <div class="mp-place-row__info">
                 <div class="mp-place-row__name">{{ p.name }}</div>
-                <div class="mp-place-row__meta">{{ p.indoor ? 'Indoor' : 'Outdoor' }} · {{ p.lightType }}</div>
+                <div class="mp-place-row__meta">{{ p.indoor ? $t('places.indoor') : $t('places.outdoor') }} · {{ $t('places.light_' + p.lightType) }}</div>
               </div>
-              <UiBadge v-if="p.humidityCharacter" color="neutral" size="xs">{{ p.humidityCharacter }}</UiBadge>
-              <UiButton size="xs" variant="ghost" color="neutral" icon="pencil-square" @click="openEdit(p)">Edit</UiButton>
+              <UiBadge v-if="p.humidityCharacter" color="neutral" size="xs">{{ $t('places.humidity_' + p.humidityCharacter) }}</UiBadge>
+              <UiButton size="xs" variant="ghost" color="neutral" icon="pencil-square" @click="openEdit(p)">{{ $t('common.edit') }}</UiButton>
             </div>
           </UiCard>
         </UiCardGrid>
       </div>
 
       <div>
-        <UiSectionTitle>Add a place</UiSectionTitle>
+        <UiSectionTitle>{{ $t('places.addTitle') }}</UiSectionTitle>
         <form class="mp-form" @submit.prevent="submit">
-          <UiFormGroup label="City" required>
-            <UiSelectField v-model="form.cityId" :options="cityOptions" placeholder="Pick a city" />
+          <UiFormGroup :label="$t('places.city')" required>
+            <UiSelectField v-model="form.cityId" :options="cityOptions" :placeholder="$t('places.pickCity')" />
           </UiFormGroup>
-          <UiFormGroup label="Name" required>
-            <UiInput v-model="form.name" placeholder="e.g. Living room window" />
+          <UiFormGroup :label="$t('places.name')" required>
+            <UiInput v-model="form.name" :placeholder="$t('places.namePlaceholder')" />
           </UiFormGroup>
-          <UiFormGroup label="Light" required>
+          <UiFormGroup :label="$t('places.light')" required>
             <UiSelectField v-model="form.lightType" :options="lightOptions" />
           </UiFormGroup>
-          <UiFormGroup label="Indoor">
+          <UiFormGroup :label="$t('places.indoorLabel')">
             <div class="mp-place-switch">
               <UiSwitch v-model="form.indoor" />
-              <span class="mp-place-switch__text">{{ form.indoor ? 'Indoor' : 'Outdoor' }}</span>
+              <span class="mp-place-switch__text">{{ form.indoor ? $t('places.indoor') : $t('places.outdoor') }}</span>
             </div>
           </UiFormGroup>
 
@@ -129,29 +132,29 @@ const indoorIncomplete = computed(
             <UiAlert
               v-if="indoorIncomplete"
               color="amber"
-              title="Optional, but recommended"
-              description="Add this room's humidity and temperature range for more accurate care. Without them we estimate from your local outdoor weather."
+              :title="$t('places.optionalTitle')"
+              :description="$t('places.optionalDesc')"
             />
-            <UiFormGroup label="Climate controlled">
+            <UiFormGroup :label="$t('places.climateControlled')">
               <div class="mp-place-switch">
                 <UiSwitch v-model="form.climateControlled" />
-                <span class="mp-place-switch__text">{{ form.climateControlled ? 'Yes' : 'No' }}</span>
+                <span class="mp-place-switch__text">{{ form.climateControlled ? $t('common.yes') : $t('common.no') }}</span>
               </div>
             </UiFormGroup>
-            <UiFormGroup label="Humidity character">
+            <UiFormGroup :label="$t('places.humidityCharacter')">
               <UiSelectField v-model="form.humidityCharacter" :options="humidityOptions" />
             </UiFormGroup>
             <div class="mp-place-temps">
-              <UiFormGroup label="Temp min (°C)">
+              <UiFormGroup :label="$t('places.tempMin')">
                 <UiInput v-model.number="indoorTempMinC" type="number" step="0.5" />
               </UiFormGroup>
-              <UiFormGroup label="Temp max (°C)">
+              <UiFormGroup :label="$t('places.tempMax')">
                 <UiInput v-model.number="indoorTempMaxC" type="number" step="0.5" />
               </UiFormGroup>
             </div>
           </template>
 
-          <UiButton type="submit" block :disabled="!valid">Add place</UiButton>
+          <UiButton type="submit" block :disabled="!valid">{{ $t('places.addPlace') }}</UiButton>
         </form>
       </div>
     </div>

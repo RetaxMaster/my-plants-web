@@ -43,26 +43,26 @@ async function submit() {
 <template>
   <div>
     <UiScreenHeader
-      back="Plants"
-      title="Add a plant"
-      subtitle="Tell us the species and where it lives."
+      :back="$t('nav.plants')"
+      :title="$t('plantsNew.title')"
+      :subtitle="$t('plantsNew.subtitle')"
       @back="navigateTo('/plants')"
     />
     <form class="mp-form" @submit.prevent="submit">
-      <UiFormGroup label="Species" required>
-        <UiSelectField v-model="form.speciesSlug" :options="speciesOptions" placeholder="Pick a species" />
+      <UiFormGroup :label="$t('plantsNew.species')" required>
+        <UiSelectField v-model="form.speciesSlug" :options="speciesOptions" :placeholder="$t('plantsNew.pickSpecies')" />
       </UiFormGroup>
-      <UiFormGroup label="Place" required>
-        <UiSelectField v-model="form.placeId" :options="placeOptions" placeholder="Pick a place" />
+      <UiFormGroup :label="$t('plantsNew.place')" required>
+        <UiSelectField v-model="form.placeId" :options="placeOptions" :placeholder="$t('plantsNew.pickPlace')" />
       </UiFormGroup>
-      <UiFormGroup label="Nickname" hint="Optional — what you call this plant.">
-        <UiInput v-model="form.nickname" icon="sparkles" placeholder="e.g. Monty" />
+      <UiFormGroup :label="$t('plantsNew.nickname')" :hint="$t('plantsNew.nicknameHint')">
+        <UiInput v-model="form.nickname" icon="sparkles" :placeholder="$t('plantsNew.nicknamePlaceholder')" />
       </UiFormGroup>
-      <UiFormGroup label="Acquired on" required>
+      <UiFormGroup :label="$t('plantsNew.acquiredOn')" required>
         <UiInput v-model="form.acquiredOn" type="date" />
       </UiFormGroup>
       <UiFormGroup v-if="error" :error="error" />
-      <UiButton type="submit" block :disabled="!valid">Add plant</UiButton>
+      <UiButton type="submit" block :disabled="!valid">{{ $t('plants.add') }}</UiButton>
     </form>
   </div>
 </template>

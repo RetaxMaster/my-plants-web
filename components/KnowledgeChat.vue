@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (e: 'changed'): void;
 }>();
 
+const { t } = useI18n();
 const sessions = useKnowledgeChatSessions();
 const runs = useKnowledgeChatRuns();
 const socketUrl = useRuntimeConfig().public.knowledgeChatSocketUrl;
@@ -168,10 +169,10 @@ async function submit() {
     const status = (e as { statusCode?: number; response?: { status?: number } })?.statusCode
       ?? (e as { response?: { status?: number } })?.response?.status;
     error.value = status === 409
-      ? 'A run is already in progress for this conversation.'
+      ? t('knowledgeEngine.runInProgress')
       : status === 422 || status === 400
-        ? 'That message could not be sent (too long or not resumable).'
-        : 'Could not send your message. Please try again.';
+        ? t('knowledgeEngine.sendNotResumable')
+        : t('knowledgeEngine.sendError');
   }
 }
 
@@ -188,16 +189,16 @@ onBeforeUnmount(() => closeStream());
     <div class="mp-kchat__toolbar">
       <ThemeSelector :model-value="theme" @update:model-value="setTheme" />
     </div>
-    <Console :entries="transcriptEntries" claude-label="Knowledge Engine" :busy="streaming" />
+    <Console :entries="transcriptEntries" :claude-label="$t('knowledgeEngine.claudeLabel')" :busy="streaming" />
     <p v-if="notResumable" class="mp-kchat__note">
-      This conversation can't be continued — its first turn ended before a session was established.
+      {{ $t('knowledgeEngine.cantContinue') }}
     </p>
     <Composer
       v-model="draft"
       :running="streaming"
       :can-send="canSend"
       :error="error ?? undefined"
-      placeholder="Ask the knowledge engine to research a species…"
+      :placeholder="$t('knowledgeEngine.composerPlaceholder')"
       @submit="submit"
       @stop="stop"
     />

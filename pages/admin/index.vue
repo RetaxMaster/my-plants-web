@@ -1,32 +1,33 @@
 <script setup lang="ts">
+const { t } = useI18n();
 const { user } = useUserSession();
 if (user.value?.role !== 'ADMIN') {
-  throw createError({ statusCode: 404, statusMessage: 'Page not found' });
+  throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
 }
 </script>
 
 <template>
   <div>
-    <UiScreenHeader eyebrow="Admin" title="Admin tools" subtitle="Tools available to administrators." />
+    <UiScreenHeader :eyebrow="$t('admin.eyebrow')" :title="$t('admin.toolsTitle')" :subtitle="$t('admin.toolsSubtitle')" />
     <UiCardGrid :min="260" :gap="12">
       <UiCard padded>
         <div class="mp-admin-tile">
           <UiIconTile icon="sparkles" tone="cafe" :size="40" />
           <div class="mp-admin-tile__info">
-            <div class="mp-admin-tile__title">Knowledge Engine</div>
-            <p class="mp-admin-tile__desc">Chat with the research assistant to curate species records.</p>
+            <div class="mp-admin-tile__title">{{ $t('admin.keTitle') }}</div>
+            <p class="mp-admin-tile__desc">{{ $t('admin.keDesc') }}</p>
           </div>
-          <NuxtLink to="/admin/knowledge-engine" class="mp-admin-tile__cta">Open</NuxtLink>
+          <NuxtLink to="/admin/knowledge-engine" class="mp-admin-tile__cta">{{ $t('common.open') }}</NuxtLink>
         </div>
       </UiCard>
       <UiCard padded>
         <div class="mp-admin-tile">
           <UiIconTile icon="user-group" tone="cafe" :size="40" />
           <div class="mp-admin-tile__info">
-            <div class="mp-admin-tile__title">Switch user</div>
-            <p class="mp-admin-tile__desc">Act on behalf of another owner.</p>
+            <div class="mp-admin-tile__title">{{ $t('admin.switchTitle') }}</div>
+            <p class="mp-admin-tile__desc">{{ $t('admin.switchDesc') }}</p>
           </div>
-          <NuxtLink to="/admin/owners" class="mp-admin-tile__cta mp-admin-tile__cta--ghost">Open</NuxtLink>
+          <NuxtLink to="/admin/owners" class="mp-admin-tile__cta mp-admin-tile__cta--ghost">{{ $t('common.open') }}</NuxtLink>
         </div>
       </UiCard>
     </UiCardGrid>

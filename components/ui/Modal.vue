@@ -114,7 +114,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="mp-modal__close"
-              aria-label="Close"
+              :aria-label="$t('common.close')"
               @click="close"
             >
               <AppIcon name="x-mark" :size="20" />

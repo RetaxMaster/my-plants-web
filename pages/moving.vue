@@ -3,6 +3,7 @@ import type { CitySearchResult, PlantViability } from '../types/api.js';
 import { friendlyCityLabel } from '../utils/cityLabel.js';
 import { speciesPrimaryName } from '../utils/displayName.js';
 
+const { t } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
 const selection = ref<CitySearchResult | null>(null);
@@ -41,9 +42,9 @@ async function schedule() {
 <template>
   <div>
     <UiScreenHeader
-      eyebrow="What-if"
-      title="Moving"
-      subtitle="Simulate a move and check each plant's fit."
+      :eyebrow="$t('moving.eyebrow')"
+      :title="$t('moving.title')"
+      :subtitle="$t('moving.subtitle')"
     />
 
     <UiAlert
@@ -51,27 +52,29 @@ async function schedule() {
       color="green"
       class="mp-moving__scheduled"
       icon="check-circle"
-      title="Move scheduled"
-      description="We'll recompute every plant's care for the new city on your move date."
+      :title="$t('moving.scheduledTitle')"
+      :description="$t('moving.scheduledDesc')"
     />
 
     <div class="mp-form">
-      <UiFormGroup label="Target city" hint="See how your plants would fare before you commit.">
-        <CitySearch placeholder="Search where you'd move them" @select="onSelect" />
+      <UiFormGroup :label="$t('moving.targetCity')" :hint="$t('moving.targetHint')">
+        <CitySearch :placeholder="$t('moving.searchPlaceholder')" @select="onSelect" />
       </UiFormGroup>
       <div v-if="selection" class="mp-moving__sim">
-        Simulating against <strong>{{ friendlyCityLabel(selection) }}</strong>
+        <i18n-t keypath="moving.simulatingAgainst" tag="span">
+          <template #city><strong>{{ friendlyCityLabel(selection) }}</strong></template>
+        </i18n-t>
       </div>
     </div>
 
     <div v-if="results" class="mp-moving__results">
-      <UiSectionTitle>How your plants would fare</UiSectionTitle>
+      <UiSectionTitle>{{ $t('moving.howFare') }}</UiSectionTitle>
 
       <!-- No plant-fit results means there is nothing to schedule against. Show an
            empty state and keep the schedule controls hidden so a user can't book a
            move with zero results on screen. -->
       <UiCard v-if="!results.length" padded>
-        <UiEmptyState>No plant-fit results to show for this city, so there's nothing to schedule yet.</UiEmptyState>
+        <UiEmptyState>{{ $t('moving.noResults') }}</UiEmptyState>
       </UiCard>
 
       <template v-else>
@@ -85,17 +88,17 @@ async function schedule() {
               v-if="!r.inPrimaryCity"
               color="amber"
               class="mp-moving__warning"
-              :description="`This plant is not in your current city — it is in ${r.placeCityName}.`"
+              :description="t('moving.notInCity', { city: r.placeCityName })"
             />
           </UiCard>
         </UiCardGrid>
 
         <div class="mp-moving__schedule">
-          <UiFormGroup label="Move on" class="mp-moving__date">
+          <UiFormGroup :label="$t('moving.moveOn')" class="mp-moving__date">
             <UiInput v-model="moveOn" type="date" />
           </UiFormGroup>
           <UiButton icon="truck" :disabled="!moveOn || !results.length || scheduling" :loading="scheduling" @click="schedule">
-            Schedule move
+            {{ $t('moving.scheduleMove') }}
           </UiButton>
         </div>
       </template>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
+const { t } = useI18n();
 const { user } = useUserSession();
 
 // Admin-only: a non-admin session 404s, so the view never renders for a USER (the global auth
 // middleware already requires a session). GET /owners is the hard backend gate (403).
 if (user.value?.role !== 'ADMIN') {
-  throw createError({ statusCode: 404, statusMessage: 'Page not found' });
+  throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
 }
 
 const api = useApi();
@@ -16,13 +17,13 @@ const { start, pending } = useActingAs();
 <template>
   <div>
     <UiScreenHeader
-      eyebrow="Admin"
-      title="Switch user"
-      subtitle="Act on behalf of another owner. You can stop at any time."
+      :eyebrow="$t('admin.eyebrow')"
+      :title="$t('admin.ownersTitle')"
+      :subtitle="$t('admin.ownersSubtitle')"
     />
 
     <UiCard v-if="!owners?.length" padded>
-      <UiEmptyState>No owners found.</UiEmptyState>
+      <UiEmptyState>{{ $t('admin.noOwners') }}</UiEmptyState>
     </UiCard>
 
     <UiCardGrid v-else :min="260" :gap="12">
@@ -35,9 +36,9 @@ const { start, pending } = useActingAs();
               <UiBadge v-if="o.role" color="green" size="xs">{{ o.role }}</UiBadge>
             </div>
           </div>
-          <UiBadge v-if="o.ownerId === user?.ownerId" color="green" size="xs">You</UiBadge>
+          <UiBadge v-if="o.ownerId === user?.ownerId" color="green" size="xs">{{ $t('admin.you') }}</UiBadge>
           <UiButton v-else size="xs" variant="ghost" color="neutral" :disabled="pending" @click="start(o.ownerId)">
-            Act as
+            {{ $t('admin.actAs') }}
           </UiButton>
         </div>
       </UiCard>

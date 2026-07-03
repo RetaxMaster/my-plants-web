@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ saved: [] }>();
 
+const { t } = useI18n();
 const api = useApi();
 
 const open = defineModel<boolean>({ default: false });
@@ -20,7 +21,10 @@ const savingEdit = ref(false);
 const placeOptions = computed(() =>
   (props.places ?? [])
     .filter((p) => p.ownerId === props.plant.ownerId)
-    .map((p) => ({ label: `${p.name} (${p.indoor ? 'Indoor' : 'Outdoor'})`, value: p.id })),
+    .map((p) => ({
+      label: t('plantEdit.placeOption', { name: p.name, kind: p.indoor ? t('places.indoor') : t('places.outdoor') }),
+      value: p.id,
+    })),
 );
 
 // Whenever the modal opens, seed the fields from the current plant.
@@ -50,22 +54,22 @@ async function saveEdit() {
 </script>
 
 <template>
-  <UiModal v-model="open" title="Edit plant">
+  <UiModal v-model="open" :title="$t('plantEdit.title')">
     <div class="mp-edit-form">
-      <UiFormGroup label="Nickname">
+      <UiFormGroup :label="$t('plantEdit.nickname')">
         <UiInput v-model="editNickname" />
       </UiFormGroup>
-      <UiFormGroup label="Place">
+      <UiFormGroup :label="$t('plantEdit.place')">
         <UiSelectField v-model="editPlaceId" :options="placeOptions" />
       </UiFormGroup>
       <div v-if="preview">
-        <p class="mp-edit-form__preview-label">Projected viability in the new place:</p>
+        <p class="mp-edit-form__preview-label">{{ $t('plantEdit.projectedViability') }}</p>
         <UiViabilityBadge :level="preview.level" :reasons="preview.reasons" />
       </div>
     </div>
     <template #footer>
-      <UiButton color="neutral" variant="ghost" @click="open = false">Cancel</UiButton>
-      <UiButton color="primary" :loading="savingEdit" @click="saveEdit">Save</UiButton>
+      <UiButton color="neutral" variant="ghost" @click="open = false">{{ $t('common.cancel') }}</UiButton>
+      <UiButton color="primary" :loading="savingEdit" @click="saveEdit">{{ $t('common.save') }}</UiButton>
     </template>
   </UiModal>
 </template>

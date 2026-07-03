@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { plantTitle } from '../../utils/displayName.js';
 
+const { t } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
 const { data: plants } = await useAsyncData('plants-list', () => api.listPlants());
@@ -18,19 +19,19 @@ const placeName = (id: string): string =>
   (places.value ?? []).find((pl) => pl.id === id)?.name ?? '';
 
 const count = computed(() => plants.value?.length ?? 0);
-const subtitle = computed(() => `${count.value} ${count.value === 1 ? 'plant' : 'plants'} in your care`);
+const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.value));
 </script>
 
 <template>
   <div>
-    <UiScreenHeader title="Your plants" :subtitle="subtitle">
+    <UiScreenHeader :title="$t('plants.title')" :subtitle="subtitle">
       <template #action>
-        <UiButton icon="plus" @click="navigateTo('/plants/new')">Add plant</UiButton>
+        <UiButton icon="plus" @click="navigateTo('/plants/new')">{{ $t('plants.add') }}</UiButton>
       </template>
     </UiScreenHeader>
 
     <UiCard v-if="!plants?.length" padded>
-      <UiEmptyState>No plants yet.</UiEmptyState>
+      <UiEmptyState>{{ $t('plants.empty') }}</UiEmptyState>
     </UiCard>
 
     <UiCardGrid v-else :desktop="isDesktop" :min="300" :gap="12">

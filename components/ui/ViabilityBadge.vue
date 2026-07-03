@@ -19,11 +19,13 @@ const props = withDefaults(
   },
 );
 
+const { t } = useI18n();
+
 const meta = computed(() => {
   const map = {
-    good: { color: 'green' as const, label: 'Good fit' },
-    caution: { color: 'amber' as const, label: 'Caution' },
-    poor: { color: 'red' as const, label: 'Poor fit' },
+    good: { color: 'green' as const, label: t('viability.good') },
+    caution: { color: 'amber' as const, label: t('viability.caution') },
+    poor: { color: 'red' as const, label: t('viability.poor') },
   };
   return map[props.level] ?? map.good;
 });

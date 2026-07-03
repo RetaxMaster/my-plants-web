@@ -7,6 +7,7 @@
 // low-frequency, admin-only control); a future toast layer would replace that one line.
 export function useActingAs() {
   const { session } = useUserSession();
+  const { t } = useI18n();
   const api = useApi();
 
   const actingAs = computed(() => session.value?.actingAs ?? null);
@@ -30,8 +31,8 @@ export function useActingAs() {
     }
   }
 
-  const start = (ownerId: string) => run(() => api.actAs(ownerId), 'Could not switch user. Please try again.');
-  const stop = () => run(() => api.stopActingAs(), 'Could not stop acting as. Please try again.');
+  const start = (ownerId: string) => run(() => api.actAs(ownerId), t('actingAs.switchError'));
+  const stop = () => run(() => api.stopActingAs(), t('actingAs.stopError'));
 
   return { actingAs, pending, start, stop };
 }

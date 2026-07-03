@@ -95,6 +95,18 @@
     "empty": "No plants yet.",
     "countSub": "{n} plant in your care | {n} plants in your care"
   },
+  "plantsNew": {
+    "title": "Add a plant",
+    "subtitle": "Tell us the species and where it lives.",
+    "species": "Species",
+    "pickSpecies": "Pick a species",
+    "place": "Place",
+    "pickPlace": "Pick a place",
+    "nickname": "Nickname",
+    "nicknameHint": "Optional — what you call this plant.",
+    "nicknamePlaceholder": "e.g. Monty",
+    "acquiredOn": "Acquired on"
+  },
   "plantDetail": {
     "backAll": "All plants",
     "acquired": "Acquired {date}",

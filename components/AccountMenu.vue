@@ -4,6 +4,7 @@ import AppIcon from './ui/AppIcon.vue';
 // AccountMenu is rendered only when there is a session (the layout guards this),
 // so the dropdown always has a username to show.
 const { user, clear } = useUserSession();
+const { t } = useI18n();
 const api = useApi();
 const { actingAs, stop: stopActingAsCore } = useActingAs();
 
@@ -15,7 +16,7 @@ const { data: cities } = await useAsyncData('account-cities', () => api.listCiti
 
 const primaryCity = computed(() => {
   const primary = cities.value?.find((c) => c.isPrimary);
-  return primary ? primary.name : 'No primary city';
+  return primary ? primary.name : t('account.noPrimaryCity');
 });
 
 const open = ref(false);
@@ -52,8 +53,8 @@ function stopActingAs() {
     <button
       type="button"
       class="mp-iconbtn mp-account__trigger"
-      title="Account"
-      aria-label="Account"
+      :title="$t('account.account')"
+      :aria-label="$t('account.account')"
       :aria-expanded="open"
       @click="toggle"
     >
@@ -67,19 +68,21 @@ function stopActingAs() {
       </div>
       <NuxtLink v-if="isAdmin" to="/admin" class="mp-menu-item" @click="open = false">
         <AppIcon name="sparkles" :size="16" color="currentColor" />
-        Admin tools
+        {{ $t('account.adminTools') }}
       </NuxtLink>
       <NuxtLink v-if="isAdmin" to="/admin/owners" class="mp-menu-item" @click="open = false">
         <AppIcon name="user-group" :size="16" color="currentColor" />
-        Switch user
+        {{ $t('account.switchUser') }}
       </NuxtLink>
       <button v-if="actingAs" type="button" class="mp-menu-item" @click="stopActingAs">
         <AppIcon name="arrow-uturn-left" :size="16" color="currentColor" />
-        Stop acting as {{ actingAs.label }}
+        <i18n-t keypath="actingAs.stopNamed" tag="span">
+          <template #label>{{ actingAs.label }}</template>
+        </i18n-t>
       </button>
       <button type="button" class="mp-menu-item" @click="logout">
         <AppIcon name="arrow-right-on-rectangle" :size="16" color="currentColor" />
-        Sign out
+        {{ $t('account.signOut') }}
       </button>
     </div>
   </div>

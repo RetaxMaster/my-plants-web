@@ -23,6 +23,7 @@ const props = withDefaults(
 
 const model = defineModel<File[]>({ default: () => [] });
 
+const { t } = useI18n();
 const inputRef = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
 
@@ -104,7 +105,7 @@ function onDragLeave() {
       class="mp-dropzone__drop"
       :class="{ 'is-dragging': dragging, 'is-disabled': disabled || atLimit }"
       :disabled="disabled || atLimit"
-      :aria-label="atLimit ? `Maximum of ${max} photos reached` : 'Add photos'"
+      :aria-label="atLimit ? t('dropzone.limitReachedAria', { max }) : t('dropzone.addPhotos')"
       @click="openPicker"
       @dragover.prevent="onDragOver"
       @dragenter.prevent="onDragOver"
@@ -113,9 +114,9 @@ function onDragLeave() {
     >
       <UiAppIcon name="camera" :size="22" class="mp-dropzone__icon" />
       <span class="mp-dropzone__title">
-        {{ atLimit ? `Photo limit reached (${max})` : 'Drop photos here or click to browse' }}
+        {{ atLimit ? t('dropzone.limitReached', { max }) : t('dropzone.dropOrBrowse') }}
       </span>
-      <span v-if="!atLimit" class="mp-dropzone__hint">Up to {{ max }} images</span>
+      <span v-if="!atLimit" class="mp-dropzone__hint">{{ t('dropzone.upTo', { max }) }}</span>
     </button>
 
     <input
@@ -129,11 +130,11 @@ function onDragLeave() {
 
     <ul v-if="previews.length" class="mp-dropzone__thumbs">
       <li v-for="(p, i) in previews" :key="p.url" class="mp-dropzone__thumb">
-        <img :src="p.url" alt="Selected photo preview" />
+        <img :src="p.url" :alt="t('dropzone.photoPreviewAlt')" />
         <button
           type="button"
           class="mp-dropzone__remove"
-          aria-label="Remove photo"
+          :aria-label="t('dropzone.removePhoto')"
           @click="removeAt(i)"
         >
           <UiAppIcon name="x-mark" :size="14" color="currentColor" />

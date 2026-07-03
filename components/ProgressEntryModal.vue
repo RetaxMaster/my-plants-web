@@ -5,10 +5,9 @@ const props = defineProps<{ plantId: string; entryId: string | null }>();
 const open = defineModel<boolean>({ default: false });
 
 const api = useApi();
+const { healthLabel } = useTaskMeta();
 const entry = ref<ProgressEntryDetail | null>(null);
 const loading = ref(false);
-
-const HEALTH_LABELS: Record<string, string> = { SICK: 'Sick', POOR: 'Poor', GOOD: 'Good', EXCELLENT: 'Excellent' };
 
 // Request token: opening entry A then quickly switching to entry B must not let A's slower response
 // overwrite B. Each fetch stamps a token; a response only lands if it is still the latest request.
@@ -28,20 +27,20 @@ watch([open, () => props.entryId], async ([isOpen, id]) => {
 </script>
 
 <template>
-  <UiModal v-model="open" title="Progress entry">
-    <div v-if="loading" class="mp-entry__loading">Loading…</div>
+  <UiModal v-model="open" :title="$t('progress.entryTitle')">
+    <div v-if="loading" class="mp-entry__loading">{{ $t('common.loading') }}</div>
     <div v-else-if="entry" class="mp-entry">
       <div class="mp-entry__head">
-        <strong>{{ HEALTH_LABELS[entry.health] }}</strong>
+        <strong>{{ healthLabel(entry.health) }}</strong>
         <span class="mp-entry__date">{{ entry.occurredOn }}</span>
       </div>
 
       <div v-if="entry.photos.length" class="mp-entry__photos">
-        <img v-for="p in entry.photos" :key="p.id" :src="p.imageUrl" alt="Progress photo" />
+        <img v-for="p in entry.photos" :key="p.id" :src="p.imageUrl" :alt="$t('progress.photoAlt')" />
       </div>
 
       <p v-if="entry.observations" class="mp-entry__obs">{{ entry.observations }}</p>
-      <p v-if="entry.sizeCm != null" class="mp-entry__size">Size: {{ entry.sizeCm }} cm</p>
+      <p v-if="entry.sizeCm != null" class="mp-entry__size">{{ $t('progress.sizeValue', { n: entry.sizeCm }) }}</p>
 
       <div v-if="entry.tags.length" class="mp-entry__chips">
         <UiTagChip v-for="t in entry.tags" :key="t.key" :label="t.label" :group="t.group" :active="true" readonly />

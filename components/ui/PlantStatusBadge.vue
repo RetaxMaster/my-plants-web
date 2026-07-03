@@ -24,9 +24,9 @@ const hasDue = computed(() => props.dueCount > 0);
 
 <template>
   <Badge v-if="hasDue" color="amber" size="xs" :class="props.class" v-bind="$attrs">
-    {{ dueCount }} due
+    {{ $t('plantStatus.due', { n: dueCount }, dueCount) }}
   </Badge>
   <Badge v-else color="green" size="xs" dot :class="props.class" v-bind="$attrs">
-    All good
+    {{ $t('plantStatus.allGood') }}
   </Badge>
 </template>

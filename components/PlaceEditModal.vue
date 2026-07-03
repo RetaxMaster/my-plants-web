@@ -39,21 +39,21 @@ async function saveEdit() {
 </script>
 
 <template>
-  <UiModal v-model="open" title="Edit place">
+  <UiModal v-model="open" :title="$t('placeEdit.title')">
     <div class="mp-edit-form">
-      <UiFormGroup label="Name">
+      <UiFormGroup :label="$t('placeEdit.name')">
         <UiInput v-model="editName" />
       </UiFormGroup>
-      <UiFormGroup label="Climate controlled">
+      <UiFormGroup :label="$t('placeEdit.climateControlled')">
         <div class="mp-edit-form__switch">
           <UiSwitch v-model="editClimate" />
-          <span class="mp-edit-form__switch-text">{{ editClimate ? 'Yes' : 'No' }}</span>
+          <span class="mp-edit-form__switch-text">{{ editClimate ? $t('common.yes') : $t('common.no') }}</span>
         </div>
       </UiFormGroup>
     </div>
     <template #footer>
-      <UiButton color="neutral" variant="ghost" @click="open = false">Cancel</UiButton>
-      <UiButton color="primary" :loading="savingEdit" @click="saveEdit">Save</UiButton>
+      <UiButton color="neutral" variant="ghost" @click="open = false">{{ $t('common.cancel') }}</UiButton>
+      <UiButton color="primary" :loading="savingEdit" @click="saveEdit">{{ $t('common.save') }}</UiButton>
     </template>
   </UiModal>
 </template>

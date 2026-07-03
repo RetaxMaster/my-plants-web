@@ -36,12 +36,12 @@ async function makePrimary(id: string) {
 
 <template>
   <div>
-    <UiScreenHeader title="Cities" subtitle="We use your city's weather to time care." />
+    <UiScreenHeader :title="$t('cities.title')" :subtitle="$t('cities.subtitle')" />
 
     <div :class="isDesktop ? 'mp-cities mp-cities--desktop' : 'mp-cities'">
       <div>
         <UiCard v-if="!cities?.length" padded>
-          <UiEmptyState>No cities yet.</UiEmptyState>
+          <UiEmptyState>{{ $t('cities.empty') }}</UiEmptyState>
         </UiCard>
         <UiCardGrid v-else :desktop="isDesktop" :min="260" :gap="12">
           <UiCard v-for="c in cities" :key="c.id" padded>
@@ -50,12 +50,12 @@ async function makePrimary(id: string) {
               <div class="mp-city-row__info">
                 <div class="mp-city-row__name-line">
                   <span class="mp-city-row__name">{{ c.name }}</span>
-                  <UiBadge v-if="c.isPrimary" color="green" size="xs" dot>Primary</UiBadge>
+                  <UiBadge v-if="c.isPrimary" color="green" size="xs" dot>{{ $t('cities.primary') }}</UiBadge>
                 </div>
                 <div class="mp-city-row__meta">{{ c.timezone }}</div>
               </div>
               <UiButton v-if="!c.isPrimary" size="xs" variant="ghost" color="neutral" @click="makePrimary(c.id)">
-                Make primary
+                {{ $t('cities.makePrimary') }}
               </UiButton>
             </div>
           </UiCard>
@@ -63,22 +63,24 @@ async function makePrimary(id: string) {
       </div>
 
       <div>
-        <UiSectionTitle>Add a city</UiSectionTitle>
+        <UiSectionTitle>{{ $t('cities.addTitle') }}</UiSectionTitle>
         <form class="mp-form" @submit.prevent="submit">
-          <UiFormGroup label="Find a city" required>
-            <CitySearch placeholder="e.g. Guadalajara" @select="onSelect" />
+          <UiFormGroup :label="$t('cities.findCity')" required>
+            <CitySearch :placeholder="$t('cities.cityPlaceholder')" @select="onSelect" />
           </UiFormGroup>
           <div v-if="selection" class="mp-city-preview">
-            Will add <strong>{{ friendlyCityLabel(selection) }}</strong>
+            <i18n-t keypath="cities.willAdd" tag="span">
+              <template #city><strong>{{ friendlyCityLabel(selection) }}</strong></template>
+            </i18n-t>
             <span class="mp-city-preview__tz"> · {{ selection.timezone }}</span>
           </div>
-          <UiFormGroup label="Primary">
+          <UiFormGroup :label="$t('cities.primaryLabel')">
             <div class="mp-city-switch">
               <UiSwitch v-model="isPrimary" />
-              <span class="mp-city-switch__text">Use as my home city</span>
+              <span class="mp-city-switch__text">{{ $t('cities.useAsHome') }}</span>
             </div>
           </UiFormGroup>
-          <UiButton type="submit" block :disabled="!selection">Add city</UiButton>
+          <UiButton type="submit" block :disabled="!selection">{{ $t('cities.addCity') }}</UiButton>
         </form>
       </div>
     </div>

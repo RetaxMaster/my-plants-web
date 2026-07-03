@@ -9,11 +9,13 @@ import ScreenHeader from '../components/ui/ScreenHeader.vue';
 import AppIcon from '../components/ui/AppIcon.vue';
 
 const { user, clear } = useUserSession();
+const { t } = useI18n();
 
-const rows = [
-  { to: '/cities', icon: 'map-pin', label: 'Cities', sub: 'Your home & saved cities' },
-  { to: '/moving', icon: 'truck', label: 'Moving', sub: 'Simulate a move' },
-];
+// Reactive so a locale switch re-renders the rows live (spec §6.3); to/icon stay as-is.
+const rows = computed(() => [
+  { to: '/cities', icon: 'map-pin', label: t('more.citiesLabel'), sub: t('more.citiesSub') },
+  { to: '/moving', icon: 'truck', label: t('more.movingLabel'), sub: t('more.movingSub') },
+]);
 
 // Mirror AccountMenu / AppNav logout exactly.
 async function logout() {
@@ -25,7 +27,7 @@ async function logout() {
 
 <template>
   <div>
-    <ScreenHeader title="More" :subtitle="`Signed in as ${user?.username ?? ''}`" />
+    <ScreenHeader :title="$t('more.title')" :subtitle="$t('more.signedInAs', { username: user?.username ?? '' })" />
 
     <div class="mp-more">
       <Card v-for="row in rows" :key="row.to" :to="row.to">
@@ -42,7 +44,7 @@ async function logout() {
       <Card clickable @click="logout">
         <div class="mp-more__row">
           <IconTile icon="arrow-right-on-rectangle" tone="green" :size="44" />
-          <div class="mp-more__text mp-more__label">Sign out</div>
+          <div class="mp-more__text mp-more__label">{{ $t('more.signOut') }}</div>
         </div>
       </Card>
     </div>

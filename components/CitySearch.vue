@@ -2,11 +2,12 @@
 import type { CitySearchResult } from '../types/api.js';
 import { friendlyCityLabel } from '../utils/cityLabel.js';
 
-const props = withDefaults(defineProps<{ placeholder?: string }>(), {
-  placeholder: 'Search a city…',
-});
+const props = defineProps<{ placeholder?: string }>();
 const emit = defineEmits<{ (e: 'select', value: CitySearchResult): void }>();
 
+const { t } = useI18n();
+// Fall back to the translated default when a caller doesn't pass its own placeholder.
+const placeholder = computed(() => props.placeholder ?? t('citySearch.placeholder'));
 const api = useApi();
 const query = ref('');
 const results = ref<CitySearchResult[]>([]);
@@ -47,14 +48,14 @@ function choose(c: CitySearchResult) {
 
 <template>
   <div class="mp-citysearch">
-    <UiInput v-model="query" :placeholder="props.placeholder" icon="magnifying-glass" />
-    <p v-if="selectedLabel" class="mp-citysearch__note">Selected: {{ selectedLabel }}</p>
-    <p v-else-if="loading" class="mp-citysearch__note mp-citysearch__note--faint">Searching…</p>
+    <UiInput v-model="query" :placeholder="placeholder" icon="magnifying-glass" />
+    <p v-if="selectedLabel" class="mp-citysearch__note">{{ $t('citySearch.selected', { label: selectedLabel }) }}</p>
+    <p v-else-if="loading" class="mp-citysearch__note mp-citysearch__note--faint">{{ $t('citySearch.searching') }}</p>
     <p
       v-else-if="query.trim().length >= 2 && results.length === 0"
       class="mp-citysearch__note mp-citysearch__note--faint"
     >
-      No matches.
+      {{ $t('citySearch.noMatches') }}
     </p>
     <div v-if="results.length" class="mp-search-pop">
       <button

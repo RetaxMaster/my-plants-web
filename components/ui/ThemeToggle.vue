@@ -7,6 +7,7 @@ defineOptions({ inheritAttrs: false });
 // preference between 'light' and 'dark'; @nuxtjs/color-mode persists it and
 // applies the data-theme attribute for us.
 const colorMode = useColorMode();
+const { t } = useI18n();
 
 const isDark = computed(() => colorMode.value === 'dark');
 
@@ -26,7 +27,7 @@ onMounted(() => {
   mounted.value = true;
 });
 const label = computed(() =>
-  mounted.value && isDark.value ? 'Switch to light theme' : 'Switch to dark theme',
+  mounted.value && isDark.value ? t('theme.toLight') : t('theme.toDark'),
 );
 
 function toggle() {

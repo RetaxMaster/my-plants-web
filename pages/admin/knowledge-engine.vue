@@ -151,10 +151,26 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
 .mp-kchat-list__turns { font: 12px var(--font-sans); color: var(--text-muted); }
 .mp-kchat-list__del { background: none; border: none; padding: 0 8px; color: var(--text-muted); cursor: pointer; }
 .mp-kchat-list__del:disabled { opacity: 0.4; cursor: not-allowed; }
-.mp-kchat-panel { min-height: 60vh; display: flex; min-width: 0; overflow: hidden; }
+/* A DEFINITE, viewport-anchored height (not just a min-height): the package console sizes with
+   height:100% down the chain, so an indefinite-height panel would let it grow with the transcript and
+   never trigger its own overflow — the whole page grew instead. Bounding the panel here makes the chain
+   definite so the console scrolls INTERNALLY. min-height floors it on short viewports. */
+.mp-kchat-panel {
+  height: calc(100vh - 12rem);
+  min-height: 30rem;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+/* Let the card body fill the panel and lay out the chat as a column, so KnowledgeChat (and the package
+   console inside it) can grow to the full card height instead of floating at a fixed 60vh. */
+.mp-kchat-panel :deep(.mp-card__body) { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .mp-kchat-main__loading { font: 14px var(--font-sans); color: var(--text-muted); }
 
 @media (max-width: 720px) {
   .mp-kchat-layout { grid-template-columns: 1fr; }
+  /* Stacked layout: the session list sits above the panel and the app nav is a bottom bar, so give the
+     chat a shorter bounded height that still scrolls internally. */
+  .mp-kchat-panel { height: 70vh; }
 }
 </style>

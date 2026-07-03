@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createChatClient, createTranscript, type ChatClient, type ConsoleEntry } from '@retaxmaster/claude-realtime-client';
-import { Console, Composer } from '@retaxmaster/claude-realtime-client/vue';
+import { Console, Composer, ThemeSelector, useTheme } from '@retaxmaster/claude-realtime-client/vue';
 import type { KnowledgeChatTurn } from '../types/api';
 
 const props = defineProps<{
@@ -21,13 +21,38 @@ const sessions = useKnowledgeChatSessions();
 const runs = useKnowledgeChatRuns();
 const socketUrl = useRuntimeConfig().public.knowledgeChatSocketUrl;
 
+// Chat theming (claude-realtime-client). The package paints ALL its color from a namespaced --crt-*
+// custom-property set that a "theme" maps over; style.css only ships structure. We render our OWN shell
+// (Console + Composer, not the package's ChatPanel), so we must apply a theme ourselves or every
+// --crt-* resolves to nothing and the chat renders unstyled. `useTheme` writes the tokens onto our root
+// element (themeRoot), follows the OS light/dark while on `auto`, and persists the user's pick. The
+// ThemeSelector in the toolbar is bound to it.
+const themeRoot = ref<HTMLElement | null>(null);
+const { theme, setTheme } = useTheme({
+  target: themeRoot,
+  defaultTheme: 'auto',
+  persist: true,
+  storageKey: 'crt-theme-knowledge',
+});
+
+// Benign rate-limit notice suppression. The package maps any stream-json `rate_limit_event` line to a
+// system entry `"· <rateLimitNotice>"`. The real claude CLI emits those lines as rolling-window STATUS
+// (not an actual limit hit), so the label is misleading noise. There is no stable kind/marker on the
+// entry to key off — only its text — so we set a UNIQUE sentinel as the notice and filter system
+// entries whose text is that sentinel (defensively also matching the package default text, in case the
+// option is ever ignored). Genuine run failures never come through here — they surface via the stream's
+// terminal `done`/failure path — so nothing real is hidden.
+const RATE_LIMIT_MARKER = '__mp_rate_limit_event__';
+const RATE_LIMIT_TEXTS = new Set([`· ${RATE_LIMIT_MARKER}`, '· rate limit reached']);
+const isRateLimitNotice = (e: ConsoleEntry) => e.kind === 'system' && RATE_LIMIT_TEXTS.has(e.text);
+
 const currentSessionId = ref<string | null>(props.sessionId);
 const claudeSessionId = ref<string | null>(props.initialClaudeSessionId);
 const draft = ref('');
 const streaming = ref(false);
 const error = ref<string | null>(null);
 
-const transcript = createTranscript();
+const transcript = createTranscript({ rateLimitNotice: RATE_LIMIT_MARKER });
 const transcriptEntries = ref<ConsoleEntry[]>([]);
 let activeStream: ChatClient | null = null;
 
@@ -39,8 +64,11 @@ const notResumable = computed(
 const canSend = computed(() => !streaming.value && !notResumable.value);
 
 function sync() {
-  // Shallow-clone each entry so Vue sees new identity on in-place merges (tool-result updates).
-  transcriptEntries.value = transcript.entries.map((e) => ({ ...e }));
+  // Shallow-clone each entry so Vue sees new identity on in-place merges (tool-result updates), and drop
+  // the benign rate-limit system notices so they never render.
+  transcriptEntries.value = transcript.entries
+    .filter((e) => !isRateLimitNotice(e))
+    .map((e) => ({ ...e }));
 }
 
 // Settle the session UUID once, from ANY line carrying session_id (stable across all lines,
@@ -156,7 +184,10 @@ onBeforeUnmount(() => closeStream());
 </script>
 
 <template>
-  <div class="mp-kchat">
+  <div ref="themeRoot" class="mp-kchat">
+    <div class="mp-kchat__toolbar">
+      <ThemeSelector :model-value="theme" @update:model-value="setTheme" />
+    </div>
     <Console :entries="transcriptEntries" claude-label="Knowledge Engine" :busy="streaming" />
     <p v-if="notResumable" class="mp-kchat__note">
       This conversation can't be continued — its first turn ended before a session was established.
@@ -183,13 +214,30 @@ onBeforeUnmount(() => closeStream());
      column wider than the viewport (mobile horizontal overflow). */
   min-width: 0;
   width: 100%;
+  /* Fill the parent card. flex:1 makes us take the card body's height; --crt-height:100% lets the
+     package console grow to fill the column (its default is a fixed 60vh, which floated inside the
+     taller card). The console still scrolls internally thanks to the min-height:0 chain below. */
+  flex: 1 1 auto;
   height: 100%;
+  --crt-height: 100%;
 }
-/* Belt-and-suspenders: never let the embedded console establish a min-content wider than its column. */
-.mp-kchat :deep(.crt-console) {
+.mp-kchat__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  flex: none;
+}
+/* Let the embedded console take the remaining height and scroll internally. */
+.mp-kchat :deep(.crt-console-wrap) {
+  flex: 1 1 auto;
+  min-height: 0;
   min-width: 0;
 }
+.mp-kchat :deep(.crt-console) {
+  height: 100%;
+  min-height: 0;
+}
 .mp-kchat__note {
+  flex: none;
   font: 13px var(--font-sans);
   color: var(--care-caution-text);
 }

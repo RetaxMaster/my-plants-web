@@ -54,7 +54,7 @@ function goToPage(p: number) {
         </h1>
         <NuxtLink v-if="isAdmin" to="/admin/blog" class="mp-bloghero__desk">
           <UiAppIcon name="pencil-square" :size="16" color="currentColor" />
-          {{ $t('blog.writingDesk') }}
+          {{ $t('blog.writingDesk.eyebrow') }}
         </NuxtLink>
       </div>
       <p class="mp-bloghero__lead">{{ $t('blog.heroLead') }}</p>

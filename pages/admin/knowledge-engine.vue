@@ -56,7 +56,13 @@ async function removeSession(id: string) {
     if (import.meta.client) alert('Could not delete — a run may still be active.');
     return;
   }
-  if (selected.value === id) await openSession(null);
+  // Deleting the selected conversation resets to a fresh new chat — bump the nonce so KnowledgeChat
+  // remounts clean (otherwise, if its detail was never loaded, the stale instance would keep the now
+  // deleted session id and the next send would try to resume it).
+  if (selected.value === id) {
+    newChatSeq.value += 1;
+    await openSession(null);
+  }
   await refresh();
 }
 

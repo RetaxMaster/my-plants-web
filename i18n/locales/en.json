@@ -1,1 +1,294 @@
-{}
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "done": "Done",
+    "postpone": "Postpone",
+    "edit": "Edit",
+    "open": "Open",
+    "loading": "Loading…",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "nav": {
+    "today": "Today",
+    "plants": "Plants",
+    "places": "Places",
+    "cities": "Cities",
+    "moving": "Moving",
+    "blog": "Blog",
+    "more": "More",
+    "admin": "Admin",
+    "signIn": "Sign in"
+  },
+  "actingAs": {
+    "banner": "Acting as {label}",
+    "stop": "Stop acting as",
+    "stopNamed": "Stop acting as {label}",
+    "switchError": "Could not switch user. Please try again.",
+    "stopError": "Could not stop acting as. Please try again."
+  },
+  "account": {
+    "account": "Account",
+    "noPrimaryCity": "No primary city",
+    "adminTools": "Admin tools",
+    "switchUser": "Switch user",
+    "signOut": "Sign out"
+  },
+  "tasks": {
+    "labels": {
+      "WATER": "Water",
+      "FERTILIZE": "Fertilize",
+      "REPOT": "Repot",
+      "ROTATE": "Rotate",
+      "CLEAN_LEAVES": "Clean leaves",
+      "MIST": "Mist leaves",
+      "PROGRESS": "Log progress"
+    },
+    "past": {
+      "WATER": "Watered",
+      "FERTILIZE": "Fertilized",
+      "REPOT": "Repotted",
+      "ROTATE": "Rotated",
+      "CLEAN_LEAVES": "Cleaned leaves",
+      "MIST": "Misted"
+    }
+  },
+  "health": {
+    "SICK": "Sick",
+    "POOR": "Poor",
+    "GOOD": "Good",
+    "EXCELLENT": "Excellent"
+  },
+  "due": {
+    "short": {
+      "overdue": "Overdue",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "inDays": "In {n} day | In {n} days"
+    },
+    "long": {
+      "overdue": "Overdue by {n} day | Overdue by {n} days",
+      "today": "Due today",
+      "tomorrow": "Due tomorrow",
+      "inDays": "Due in {n} day | Due in {n} days"
+    }
+  },
+  "history": {
+    "today": "today",
+    "yesterday": "yesterday",
+    "daysAgo": "{n} day ago | {n} days ago",
+    "progressLogged": "Progress logged",
+    "photoCount": "{n} photo | {n} photos",
+    "tagCount": "{n} tag | {n} tags"
+  },
+  "today": {
+    "eyebrow": "Today",
+    "title": "Today's care",
+    "empty": "Nothing due today. 🌿",
+    "tasksDue": "{n} task due | {n} tasks due"
+  },
+  "plants": {
+    "title": "Your plants",
+    "add": "Add plant",
+    "empty": "No plants yet.",
+    "countSub": "{n} plant in your care | {n} plants in your care"
+  },
+  "plantDetail": {
+    "backAll": "All plants",
+    "acquired": "Acquired {date}",
+    "readGuide": "Read the care guide",
+    "cautionTitle": "Could be a better spot",
+    "cautionDesc": "Light and humidity here are a little low for this plant. Try a brighter window, or mist more often.",
+    "poorTitle": "This spot isn't a good fit",
+    "poorDesc": "Consider moving this plant somewhere with gentler light and more humidity.",
+    "care": "Care",
+    "careEmpty": "Nothing to do right now. 🌿",
+    "history": "History",
+    "historyEmpty": "No history yet. Log progress to start the journal. 🌱"
+  },
+  "progress": {
+    "back": "Back to plant",
+    "title": "Log progress",
+    "healthQuestion": "How is your plant doing?",
+    "photos": "Photos",
+    "photosHint": "Optional — up to 8 images.",
+    "observations": "Observations",
+    "observationsHint": "Optional — anything worth remembering.",
+    "observationsPlaceholder": "New leaf unfurling, moved closer to the window…",
+    "size": "Size",
+    "recordSize": "Record size",
+    "recordSizeAria": "Record size",
+    "sizeSuffix": "cm",
+    "sizeAria": "Plant size in centimeters",
+    "worthNoting": "Worth noting",
+    "worthNotingHint": "Optional — tap any that apply.",
+    "saveProgress": "Save progress",
+    "doneDateAria": "Date the task was done",
+    "sizeValue": "Size: {n} cm",
+    "photoAlt": "Progress photo",
+    "entryTitle": "Progress entry",
+    "errorSelectHealth": "Please select how the plant is doing.",
+    "errorPhotosUnavailable": "Photos can't be uploaded right now — you can save without a photo.",
+    "errorPhotoProcess": "We could not process one of your photos. Please try a different image.",
+    "errorSave": "Could not save progress. Please try again."
+  },
+  "places": {
+    "title": "Places",
+    "subtitle": "Where your plants live.",
+    "empty": "No places yet.",
+    "indoor": "Indoor",
+    "outdoor": "Outdoor",
+    "addTitle": "Add a place",
+    "city": "City",
+    "pickCity": "Pick a city",
+    "name": "Name",
+    "namePlaceholder": "e.g. Living room window",
+    "light": "Light",
+    "indoorLabel": "Indoor",
+    "optionalTitle": "Optional, but recommended",
+    "optionalDesc": "Add this room's humidity and temperature range for more accurate care. Without them we estimate from your local outdoor weather.",
+    "climateControlled": "Climate controlled",
+    "humidityCharacter": "Humidity character",
+    "tempMin": "Temp min (°C)",
+    "tempMax": "Temp max (°C)",
+    "addPlace": "Add place",
+    "light_DIRECT": "Direct sun",
+    "light_BRIGHT_INDIRECT": "Bright indirect",
+    "light_MEDIUM": "Medium",
+    "light_LOW": "Low",
+    "humidity_NONE": "Not specified",
+    "humidity_DRY": "Dry",
+    "humidity_NORMAL": "Normal",
+    "humidity_HUMID": "Humid"
+  },
+  "cities": {
+    "title": "Cities",
+    "subtitle": "We use your city's weather to time care.",
+    "empty": "No cities yet.",
+    "primary": "Primary",
+    "makePrimary": "Make primary",
+    "addTitle": "Add a city",
+    "findCity": "Find a city",
+    "cityPlaceholder": "e.g. Guadalajara",
+    "willAdd": "Will add {city}",
+    "primaryLabel": "Primary",
+    "useAsHome": "Use as my home city",
+    "addCity": "Add city"
+  },
+  "moving": {
+    "eyebrow": "What-if",
+    "title": "Moving",
+    "subtitle": "Simulate a move and check each plant's fit.",
+    "scheduledTitle": "Move scheduled",
+    "scheduledDesc": "We'll recompute every plant's care for the new city on your move date.",
+    "targetCity": "Target city",
+    "targetHint": "See how your plants would fare before you commit.",
+    "searchPlaceholder": "Search where you'd move them",
+    "simulatingAgainst": "Simulating against {city}",
+    "howFare": "How your plants would fare",
+    "noResults": "No plant-fit results to show for this city, so there's nothing to schedule yet.",
+    "notInCity": "This plant is not in your current city — it is in {city}.",
+    "moveOn": "Move on",
+    "scheduleMove": "Schedule move"
+  },
+  "more": {
+    "title": "More",
+    "signedInAs": "Signed in as {username}",
+    "citiesLabel": "Cities",
+    "citiesSub": "Your home & saved cities",
+    "movingLabel": "Moving",
+    "movingSub": "Simulate a move",
+    "signOut": "Sign out"
+  },
+  "login": {
+    "welcome": "Welcome back",
+    "subtitle": "Sign in to tend your plants.",
+    "username": "Username",
+    "usernamePlaceholder": "sofia",
+    "password": "Password",
+    "passwordPlaceholder": "••••••••",
+    "signIn": "Sign in",
+    "invalid": "Invalid username or password."
+  },
+  "blog": {
+    "eyebrow": "Care guides",
+    "title": "Blog",
+    "subtitle": "Species guides, written by the My Plants team.",
+    "empty": "No species yet.",
+    "allArticles": "All articles",
+    "careGuide": "Care guide",
+    "noArticle": "No article available yet."
+  },
+  "admin": {
+    "pageNotFound": "Page not found",
+    "eyebrow": "Admin",
+    "toolsTitle": "Admin tools",
+    "toolsSubtitle": "Tools available to administrators.",
+    "keTitle": "Knowledge Engine",
+    "keDesc": "Chat with the research assistant to curate species records.",
+    "switchTitle": "Switch user",
+    "switchDesc": "Act on behalf of another owner.",
+    "ownersTitle": "Switch user",
+    "ownersSubtitle": "Act on behalf of another owner. You can stop at any time.",
+    "noOwners": "No owners found.",
+    "you": "You",
+    "actAs": "Act as",
+    "keSubtitle": "Research a species with the knowledge-engine assistant.",
+    "newChat": "New chat",
+    "noConversations": "No conversations yet.",
+    "turns": "{n} turn | {n} turns",
+    "deleteConversation": "Delete conversation",
+    "loadingChat": "Loading chat…",
+    "deleteError": "Could not delete — a run may still be active."
+  },
+  "knowledgeEngine": {
+    "claudeLabel": "Knowledge Engine",
+    "composerPlaceholder": "Ask the knowledge engine to research a species…",
+    "cantContinue": "This conversation can't be continued — its first turn ended before a session was established.",
+    "runInProgress": "A run is already in progress for this conversation.",
+    "sendNotResumable": "That message could not be sent (too long or not resumable).",
+    "sendError": "Could not send your message. Please try again."
+  },
+  "citySearch": {
+    "placeholder": "Search a city…",
+    "selected": "Selected: {label}",
+    "searching": "Searching…",
+    "noMatches": "No matches."
+  },
+  "dropzone": {
+    "addPhotos": "Add photos",
+    "limitReachedAria": "Maximum of {max} photos reached",
+    "dropOrBrowse": "Drop photos here or click to browse",
+    "limitReached": "Photo limit reached ({max})",
+    "upTo": "Up to {max} images",
+    "photoPreviewAlt": "Selected photo preview",
+    "removePhoto": "Remove photo"
+  },
+  "plantEdit": {
+    "title": "Edit plant",
+    "nickname": "Nickname",
+    "place": "Place",
+    "placeOption": "{name} ({kind})",
+    "projectedViability": "Projected viability in the new place:"
+  },
+  "placeEdit": {
+    "title": "Edit place",
+    "name": "Name",
+    "climateControlled": "Climate controlled"
+  },
+  "viability": {
+    "good": "Good fit",
+    "caution": "Caution",
+    "poor": "Poor fit"
+  },
+  "plantStatus": {
+    "due": "{n} due",
+    "allGood": "All good"
+  },
+  "theme": {
+    "toLight": "Switch to light theme",
+    "toDark": "Switch to dark theme"
+  }
+}

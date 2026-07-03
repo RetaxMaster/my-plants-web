@@ -45,6 +45,18 @@ export function dueLabel(due: Date, today: Date = new Date()): string {
   return `In ${diff} days`;
 }
 
+// Pure, language-free due classification consumed by useTaskMeta (wording lives in i18n).
+export type DueKind = 'overdue' | 'today' | 'tomorrow' | 'inDays';
+export interface DueState { kind: DueKind; days: number }
+
+export function dueState(due: Date, today: Date = new Date()): DueState {
+  const diff = dayDiff(due, today);
+  if (diff < 0) return { kind: 'overdue', days: Math.abs(diff) };
+  if (diff === 0) return { kind: 'today', days: 0 };
+  if (diff === 1) return { kind: 'tomorrow', days: 1 };
+  return { kind: 'inDays', days: diff };
+}
+
 export function groupByPlant(tasks: DueTask[]): Map<string, DueTask[]> {
   const grouped = new Map<string, DueTask[]>();
   for (const t of tasks) {

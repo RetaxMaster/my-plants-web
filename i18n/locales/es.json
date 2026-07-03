@@ -1,1 +1,294 @@
-{}
+{
+  "common": {
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "close": "Cerrar",
+    "done": "Hecho",
+    "postpone": "Posponer",
+    "edit": "Editar",
+    "open": "Abrir",
+    "loading": "Cargando…",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "nav": {
+    "today": "Hoy",
+    "plants": "Plantas",
+    "places": "Lugares",
+    "cities": "Ciudades",
+    "moving": "Mudanza",
+    "blog": "Blog",
+    "more": "Más",
+    "admin": "Admin",
+    "signIn": "Iniciar sesión"
+  },
+  "actingAs": {
+    "banner": "Actuando como {label}",
+    "stop": "Dejar de actuar como",
+    "stopNamed": "Dejar de actuar como {label}",
+    "switchError": "No se pudo cambiar de usuario. Inténtalo de nuevo.",
+    "stopError": "No se pudo dejar de actuar como. Inténtalo de nuevo."
+  },
+  "account": {
+    "account": "Cuenta",
+    "noPrimaryCity": "Sin ciudad principal",
+    "adminTools": "Herramientas de admin",
+    "switchUser": "Cambiar de usuario",
+    "signOut": "Cerrar sesión"
+  },
+  "tasks": {
+    "labels": {
+      "WATER": "Regar",
+      "FERTILIZE": "Fertilizar",
+      "REPOT": "Trasplantar",
+      "ROTATE": "Rotar",
+      "CLEAN_LEAVES": "Limpiar hojas",
+      "MIST": "Rociar hojas",
+      "PROGRESS": "Registrar progreso"
+    },
+    "past": {
+      "WATER": "Regada",
+      "FERTILIZE": "Fertilizada",
+      "REPOT": "Trasplantada",
+      "ROTATE": "Rotada",
+      "CLEAN_LEAVES": "Hojas limpiadas",
+      "MIST": "Rociada"
+    }
+  },
+  "health": {
+    "SICK": "Enferma",
+    "POOR": "Regular",
+    "GOOD": "Bien",
+    "EXCELLENT": "Excelente"
+  },
+  "due": {
+    "short": {
+      "overdue": "Atrasada",
+      "today": "Hoy",
+      "tomorrow": "Mañana",
+      "inDays": "En {n} día | En {n} días"
+    },
+    "long": {
+      "overdue": "Atrasada por {n} día | Atrasada por {n} días",
+      "today": "Para hoy",
+      "tomorrow": "Para mañana",
+      "inDays": "En {n} día | En {n} días"
+    }
+  },
+  "history": {
+    "today": "hoy",
+    "yesterday": "ayer",
+    "daysAgo": "hace {n} día | hace {n} días",
+    "progressLogged": "Progreso registrado",
+    "photoCount": "{n} foto | {n} fotos",
+    "tagCount": "{n} etiqueta | {n} etiquetas"
+  },
+  "today": {
+    "eyebrow": "Hoy",
+    "title": "Cuidados de hoy",
+    "empty": "Nada pendiente hoy. 🌿",
+    "tasksDue": "{n} tarea pendiente | {n} tareas pendientes"
+  },
+  "plants": {
+    "title": "Tus plantas",
+    "add": "Agregar planta",
+    "empty": "Aún no hay plantas.",
+    "countSub": "{n} planta a tu cuidado | {n} plantas a tu cuidado"
+  },
+  "plantDetail": {
+    "backAll": "Todas las plantas",
+    "acquired": "Adquirida {date}",
+    "readGuide": "Leer la guía de cuidados",
+    "cautionTitle": "Podría estar en un mejor lugar",
+    "cautionDesc": "Aquí la luz y la humedad son un poco bajas para esta planta. Prueba una ventana con más luz o rocíala con más frecuencia.",
+    "poorTitle": "Este lugar no le queda bien",
+    "poorDesc": "Considera mover esta planta a un lugar con luz más suave y más humedad.",
+    "care": "Cuidados",
+    "careEmpty": "Nada por hacer por ahora. 🌿",
+    "history": "Historial",
+    "historyEmpty": "Aún no hay historial. Registra el progreso para empezar el diario. 🌱"
+  },
+  "progress": {
+    "back": "Volver a la planta",
+    "title": "Registrar progreso",
+    "healthQuestion": "¿Cómo está tu planta?",
+    "photos": "Fotos",
+    "photosHint": "Opcional — hasta 8 imágenes.",
+    "observations": "Observaciones",
+    "observationsHint": "Opcional — cualquier cosa que valga la pena recordar.",
+    "observationsPlaceholder": "Nueva hoja abriéndose, la acerqué a la ventana…",
+    "size": "Tamaño",
+    "recordSize": "Registrar tamaño",
+    "recordSizeAria": "Registrar tamaño",
+    "sizeSuffix": "cm",
+    "sizeAria": "Tamaño de la planta en centímetros",
+    "worthNoting": "Vale la pena anotar",
+    "worthNotingHint": "Opcional — toca las que apliquen.",
+    "saveProgress": "Guardar progreso",
+    "doneDateAria": "Fecha en que se hizo la tarea",
+    "sizeValue": "Tamaño: {n} cm",
+    "photoAlt": "Foto de progreso",
+    "entryTitle": "Registro de progreso",
+    "errorSelectHealth": "Selecciona cómo está la planta.",
+    "errorPhotosUnavailable": "Ahora no se pueden subir fotos — puedes guardar sin foto.",
+    "errorPhotoProcess": "No pudimos procesar una de tus fotos. Prueba con otra imagen.",
+    "errorSave": "No se pudo guardar el progreso. Inténtalo de nuevo."
+  },
+  "places": {
+    "title": "Lugares",
+    "subtitle": "Dónde viven tus plantas.",
+    "empty": "Aún no hay lugares.",
+    "indoor": "Interior",
+    "outdoor": "Exterior",
+    "addTitle": "Agregar un lugar",
+    "city": "Ciudad",
+    "pickCity": "Elige una ciudad",
+    "name": "Nombre",
+    "namePlaceholder": "ej. Ventana de la sala",
+    "light": "Luz",
+    "indoorLabel": "Interior",
+    "optionalTitle": "Opcional, pero recomendado",
+    "optionalDesc": "Agrega la humedad y el rango de temperatura de este cuarto para cuidados más precisos. Sin ellos, los estimamos a partir del clima exterior de tu zona.",
+    "climateControlled": "Con clima controlado",
+    "humidityCharacter": "Tipo de humedad",
+    "tempMin": "Temp mín (°C)",
+    "tempMax": "Temp máx (°C)",
+    "addPlace": "Agregar lugar",
+    "light_DIRECT": "Sol directo",
+    "light_BRIGHT_INDIRECT": "Indirecta brillante",
+    "light_MEDIUM": "Media",
+    "light_LOW": "Baja",
+    "humidity_NONE": "Sin especificar",
+    "humidity_DRY": "Seca",
+    "humidity_NORMAL": "Normal",
+    "humidity_HUMID": "Húmeda"
+  },
+  "cities": {
+    "title": "Ciudades",
+    "subtitle": "Usamos el clima de tu ciudad para programar los cuidados.",
+    "empty": "Aún no hay ciudades.",
+    "primary": "Principal",
+    "makePrimary": "Hacer principal",
+    "addTitle": "Agregar una ciudad",
+    "findCity": "Buscar una ciudad",
+    "cityPlaceholder": "ej. Guadalajara",
+    "willAdd": "Se agregará {city}",
+    "primaryLabel": "Principal",
+    "useAsHome": "Usar como mi ciudad de origen",
+    "addCity": "Agregar ciudad"
+  },
+  "moving": {
+    "eyebrow": "Simulación",
+    "title": "Mudanza",
+    "subtitle": "Simula una mudanza y revisa qué tan bien le va a cada planta.",
+    "scheduledTitle": "Mudanza programada",
+    "scheduledDesc": "Recalcularemos los cuidados de cada planta para la nueva ciudad en tu fecha de mudanza.",
+    "targetCity": "Ciudad destino",
+    "targetHint": "Mira cómo les iría a tus plantas antes de decidir.",
+    "searchPlaceholder": "Busca a dónde las mudarías",
+    "simulatingAgainst": "Simulando contra {city}",
+    "howFare": "Cómo les iría a tus plantas",
+    "noResults": "No hay resultados de compatibilidad para esta ciudad, así que no hay nada que programar todavía.",
+    "notInCity": "Esta planta no está en tu ciudad actual — está en {city}.",
+    "moveOn": "Mudarse el",
+    "scheduleMove": "Programar mudanza"
+  },
+  "more": {
+    "title": "Más",
+    "signedInAs": "Sesión iniciada como {username}",
+    "citiesLabel": "Ciudades",
+    "citiesSub": "Tu hogar y ciudades guardadas",
+    "movingLabel": "Mudanza",
+    "movingSub": "Simular una mudanza",
+    "signOut": "Cerrar sesión"
+  },
+  "login": {
+    "welcome": "Bienvenida de nuevo",
+    "subtitle": "Inicia sesión para cuidar tus plantas.",
+    "username": "Usuario",
+    "usernamePlaceholder": "sofia",
+    "password": "Contraseña",
+    "passwordPlaceholder": "••••••••",
+    "signIn": "Iniciar sesión",
+    "invalid": "Usuario o contraseña inválidos."
+  },
+  "blog": {
+    "eyebrow": "Guías de cuidado",
+    "title": "Blog",
+    "subtitle": "Guías de especies, escritas por el equipo de My Plants.",
+    "empty": "Aún no hay especies.",
+    "allArticles": "Todos los artículos",
+    "careGuide": "Guía de cuidado",
+    "noArticle": "Aún no hay artículo disponible."
+  },
+  "admin": {
+    "pageNotFound": "Página no encontrada",
+    "eyebrow": "Admin",
+    "toolsTitle": "Herramientas de admin",
+    "toolsSubtitle": "Herramientas disponibles para administradores.",
+    "keTitle": "Knowledge Engine",
+    "keDesc": "Chatea con el asistente de investigación para curar registros de especies.",
+    "switchTitle": "Cambiar de usuario",
+    "switchDesc": "Actúa en nombre de otro propietario.",
+    "ownersTitle": "Cambiar de usuario",
+    "ownersSubtitle": "Actúa en nombre de otro propietario. Puedes detenerte en cualquier momento.",
+    "noOwners": "No se encontraron propietarios.",
+    "you": "Tú",
+    "actAs": "Actuar como",
+    "keSubtitle": "Investiga una especie con el asistente del knowledge-engine.",
+    "newChat": "Nuevo chat",
+    "noConversations": "Aún no hay conversaciones.",
+    "turns": "{n} turno | {n} turnos",
+    "deleteConversation": "Eliminar conversación",
+    "loadingChat": "Cargando chat…",
+    "deleteError": "No se pudo eliminar — puede haber una ejecución activa."
+  },
+  "knowledgeEngine": {
+    "claudeLabel": "Knowledge Engine",
+    "composerPlaceholder": "Pídele al knowledge engine que investigue una especie…",
+    "cantContinue": "Esta conversación no puede continuar — su primer turno terminó antes de establecer una sesión.",
+    "runInProgress": "Ya hay una ejecución en curso para esta conversación.",
+    "sendNotResumable": "Ese mensaje no se pudo enviar (demasiado largo o no se puede reanudar).",
+    "sendError": "No se pudo enviar tu mensaje. Inténtalo de nuevo."
+  },
+  "citySearch": {
+    "placeholder": "Busca una ciudad…",
+    "selected": "Seleccionada: {label}",
+    "searching": "Buscando…",
+    "noMatches": "Sin coincidencias."
+  },
+  "dropzone": {
+    "addPhotos": "Agregar fotos",
+    "limitReachedAria": "Se alcanzó el máximo de {max} fotos",
+    "dropOrBrowse": "Suelta fotos aquí o haz clic para explorar",
+    "limitReached": "Límite de fotos alcanzado ({max})",
+    "upTo": "Hasta {max} imágenes",
+    "photoPreviewAlt": "Vista previa de foto seleccionada",
+    "removePhoto": "Quitar foto"
+  },
+  "plantEdit": {
+    "title": "Editar planta",
+    "nickname": "Apodo",
+    "place": "Lugar",
+    "placeOption": "{name} ({kind})",
+    "projectedViability": "Viabilidad proyectada en el nuevo lugar:"
+  },
+  "placeEdit": {
+    "title": "Editar lugar",
+    "name": "Nombre",
+    "climateControlled": "Con clima controlado"
+  },
+  "viability": {
+    "good": "Buen ajuste",
+    "caution": "Precaución",
+    "poor": "Mal ajuste"
+  },
+  "plantStatus": {
+    "due": "{n} pendiente | {n} pendientes",
+    "allGood": "Todo bien"
+  },
+  "theme": {
+    "toLight": "Cambiar a tema claro",
+    "toDark": "Cambiar a tema oscuro"
+  }
+}

@@ -161,20 +161,20 @@ async function save() {
         <UiFormGroup :label="$t('progress.worthNoting')" :hint="$t('progress.worthNotingHint')">
           <div class="mp-progress__chips">
             <UiTagChip
-              v-for="t in positiveTags"
-              :key="t.key"
-              :label="t.label"
+              v-for="tag in positiveTags"
+              :key="tag.key"
+              :label="tag.label"
               group="positive"
-              :active="selectedTags.includes(t.key)"
-              @toggle="toggleTag(t.key)"
+              :active="selectedTags.includes(tag.key)"
+              @toggle="toggleTag(tag.key)"
             />
             <UiTagChip
-              v-for="t in negativeTags"
-              :key="t.key"
-              :label="t.label"
+              v-for="tag in negativeTags"
+              :key="tag.key"
+              :label="tag.label"
               group="negative"
-              :active="selectedTags.includes(t.key)"
-              @toggle="toggleTag(t.key)"
+              :active="selectedTags.includes(tag.key)"
+              @toggle="toggleTag(tag.key)"
             />
           </div>
         </UiFormGroup>

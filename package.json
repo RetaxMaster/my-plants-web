@@ -14,6 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@retaxmaster/claude-realtime-client": "github:RetaxMaster/claude-realtime-client#v0.5.0",
     "marked": "^18.0.5",
     "nuxt": "^3.13.2",
     "nuxt-auth-utils": "^0.5.29",

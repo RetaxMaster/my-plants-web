@@ -12,6 +12,7 @@ import AccountMenu from '../components/AccountMenu.vue';
 
 const { loggedIn, user } = useUserSession();
 const { actingAs, stop: stopActingAs } = useActingAs();
+const { t } = useI18n();
 
 const route = useRoute();
 
@@ -26,37 +27,38 @@ interface NavItem {
   public: boolean;
 }
 
-// Top row (desktop): Today/Plants/Places/Cities/Moving/Blog.
-const topItemsAll: NavItem[] = [
-  { key: 'today', label: 'Today', icon: 'sun', to: '/', public: false },
-  { key: 'plants', label: 'Plants', icon: 'sparkles', to: '/plants', public: false },
-  { key: 'places', label: 'Places', icon: 'home', to: '/places', public: false },
-  { key: 'cities', label: 'Cities', icon: 'map-pin', to: '/cities', public: false },
-  { key: 'moving', label: 'Moving', icon: 'truck', to: '/moving', public: false },
-  { key: 'blog', label: 'Blog', icon: 'book-open', to: '/blog', public: true },
-];
+// Top row (desktop): Today/Plants/Places/Cities/Moving/Blog. Labels are reactive
+// translations so a locale switch re-renders the nav without a reload (spec §6.3).
+const topItemsAll = computed<NavItem[]>(() => [
+  { key: 'today', label: t('nav.today'), icon: 'sun', to: '/', public: false },
+  { key: 'plants', label: t('nav.plants'), icon: 'sparkles', to: '/plants', public: false },
+  { key: 'places', label: t('nav.places'), icon: 'home', to: '/places', public: false },
+  { key: 'cities', label: t('nav.cities'), icon: 'map-pin', to: '/cities', public: false },
+  { key: 'moving', label: t('nav.moving'), icon: 'truck', to: '/moving', public: false },
+  { key: 'blog', label: t('nav.blog'), icon: 'book-open', to: '/blog', public: true },
+]);
 
 // Bottom bar (mobile): Today/Plants/Places/Blog/More. Cities & Moving fold into
 // the More page on mobile; on desktop they live in the top row.
-const bottomItemsAll: NavItem[] = [
-  { key: 'today', label: 'Today', icon: 'sun', to: '/', public: false },
-  { key: 'plants', label: 'Plants', icon: 'sparkles', to: '/plants', public: false },
-  { key: 'places', label: 'Places', icon: 'home', to: '/places', public: false },
-  { key: 'blog', label: 'Blog', icon: 'book-open', to: '/blog', public: true },
-  { key: 'more', label: 'More', icon: 'ellipsis-horizontal', to: '/more', public: false },
-];
+const bottomItemsAll = computed<NavItem[]>(() => [
+  { key: 'today', label: t('nav.today'), icon: 'sun', to: '/', public: false },
+  { key: 'plants', label: t('nav.plants'), icon: 'sparkles', to: '/plants', public: false },
+  { key: 'places', label: t('nav.places'), icon: 'home', to: '/places', public: false },
+  { key: 'blog', label: t('nav.blog'), icon: 'book-open', to: '/blog', public: true },
+  { key: 'more', label: t('nav.more'), icon: 'ellipsis-horizontal', to: '/more', public: false },
+]);
 
 const topItems = computed(() => {
-  const base = loggedIn.value ? topItemsAll : topItemsAll.filter((i) => i.public);
+  const base = loggedIn.value ? topItemsAll.value : topItemsAll.value.filter((i) => i.public);
   // Admins get an extra desktop tab to the admin area. Role-gating a nav item is display-only; the
   // hard gate is each admin page's createError(404) + the API RolesGuard (403).
   if (loggedIn.value && user.value?.role === 'ADMIN') {
-    return [...base, { key: 'admin', label: 'Admin', icon: 'sparkles', to: '/admin', public: false }];
+    return [...base, { key: 'admin', label: t('nav.admin'), icon: 'sparkles', to: '/admin', public: false }];
   }
   return base;
 });
 const bottomItems = computed(() =>
-  loggedIn.value ? bottomItemsAll : bottomItemsAll.filter((i) => i.public),
+  loggedIn.value ? bottomItemsAll.value : bottomItemsAll.value.filter((i) => i.public),
 );
 
 // Map the current route path → the active nav key. Detail/sub routes resolve to
@@ -101,7 +103,7 @@ const bottomActive = computed(() => {
           <ThemeToggle />
           <NuxtLink v-if="!loggedIn" to="/login" class="mp-menu-item mp-shell__signin">
             <AppIcon name="arrow-right-on-rectangle" :size="16" color="currentColor" />
-            Sign in
+            {{ $t('nav.signIn') }}
           </NuxtLink>
           <AccountMenu v-else />
         </div>
@@ -110,8 +112,12 @@ const bottomActive = computed(() => {
 
     <div v-if="actingAs" class="mp-actingas" role="status">
       <AppIcon name="user" :size="16" color="currentColor" />
-      <span class="mp-actingas__text">Acting as <strong>{{ actingAs.label }}</strong></span>
-      <button type="button" class="mp-actingas__stop" @click="stopActingAs">Stop acting as</button>
+      <span class="mp-actingas__text">
+        <i18n-t keypath="actingAs.banner" tag="span">
+          <template #label><strong>{{ actingAs.label }}</strong></template>
+        </i18n-t>
+      </span>
+      <button type="button" class="mp-actingas__stop" @click="stopActingAs">{{ $t('actingAs.stop') }}</button>
     </div>
 
     <!-- content -->

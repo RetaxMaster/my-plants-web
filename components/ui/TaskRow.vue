@@ -2,10 +2,13 @@
 import AppIcon from './AppIcon.vue';
 import Badge from './Badge.vue';
 import Button from './Button.vue';
-import { TASK_LABELS, type TaskCode } from '~/utils/tasks';
-import { TASK_ICONS } from '~/composables/useTaskMeta';
+import type { TaskCode } from '~/utils/tasks';
+import { useTaskMeta } from '~/composables/useTaskMeta';
 
 defineOptions({ inheritAttrs: false });
+
+const { TASK_ICONS, taskLabel } = useTaskMeta();
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -38,12 +41,12 @@ const onLogProgress = () => emit('logProgress', { task: props.task });
   <div class="mp-taskrow" v-bind="$attrs">
     <div class="mp-taskrow__meta">
       <AppIcon :name="TASK_ICONS[task]" :size="18" class="mp-taskrow__icon" />
-      <span class="mp-taskrow__label">{{ TASK_LABELS[task] }}</span>
+      <span class="mp-taskrow__label">{{ taskLabel(task) }}</span>
       <Badge :color="badgeColor" size="xs">{{ dueLabel }}</Badge>
     </div>
     <div class="mp-taskrow__actions">
       <template v-if="task === 'PROGRESS'">
-        <Button size="xs" color="primary" icon="camera" @click="onLogProgress">Log progress</Button>
+        <Button size="xs" color="primary" icon="camera" @click="onLogProgress">{{ taskLabel(task) }}</Button>
       </template>
       <template v-else>
         <input
@@ -51,11 +54,11 @@ const onLogProgress = () => emit('logProgress', { task: props.task });
           v-model="doneDate"
           type="date"
           class="mp-taskrow__date"
-          aria-label="Date the task was done"
+          :aria-label="t('progress.doneDateAria')"
         />
-        <Button size="xs" color="primary" icon="check" @click="onDone">Done</Button>
+        <Button size="xs" color="primary" icon="check" @click="onDone">{{ t('common.done') }}</Button>
         <Button size="xs" color="neutral" variant="ghost" icon="clock" @click="onPostpone">
-          Postpone
+          {{ t('common.postpone') }}
         </Button>
       </template>
     </div>

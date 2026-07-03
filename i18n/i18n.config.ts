@@ -6,4 +6,11 @@
 export default defineI18nConfig(() => ({
   legacy: false,
   fallbackLocale: 'en',
+  // Keyed by the ACTIVE locale `code` (en/es) — the same key vue-i18n uses for
+  // $d/d resolution — NOT the BCP-47 language (en-US/es-MX). Keying by language
+  // would make $d find no format and fall back to a default/ISO rendering.
+  datetimeFormats: {
+    en: { long: { weekday: 'long', month: 'long', day: 'numeric' } },
+    es: { long: { weekday: 'long', month: 'long', day: 'numeric' } },
+  },
 }));

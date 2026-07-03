@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { groupByPlant, type DueTask } from '../utils/tasks.js';
+import { groupByPlant, dueState, type DueTask } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
-import { dueLabel as fmtDueLabel } from '../utils/tasks.js';
 import type { Plant } from '../types/api.js';
 
+const { t, d } = useI18n();
+const { dueLabel } = useTaskMeta();
 const api = useApi();
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
@@ -26,21 +27,17 @@ const grouped = computed(() => groupByPlant((tasks.value ?? []) as DueTask[]));
 const dueCount = computed(() => (tasks.value ?? []).length);
 
 const today = todayYmd();
-const dateLabel = new Date().toLocaleDateString('en-US', {
-  weekday: 'long',
-  month: 'long',
-  day: 'numeric',
-});
+const dateLabel = computed(() => d(new Date(), 'long'));
 const subtitle = computed(() =>
   dueCount.value
-    ? `${dateLabel} · ${dueCount.value} ${dueCount.value === 1 ? 'task' : 'tasks'} due`
-    : dateLabel,
+    ? `${dateLabel.value} · ${t('today.tasksDue', { n: dueCount.value }, dueCount.value)}`
+    : dateLabel.value,
 );
 
 function rowStatus(due: string): 'overdue' | 'today' | 'upcoming' {
-  const label = fmtDueLabel(new Date(due), new Date());
-  if (label === 'Overdue') return 'overdue';
-  if (label === 'Today') return 'today';
+  const k = dueState(new Date(due), new Date()).kind;
+  if (k === 'overdue') return 'overdue';
+  if (k === 'today') return 'today';
   return 'upcoming';
 }
 
@@ -63,10 +60,10 @@ function openProgress(plantId: string) {
 
 <template>
   <div>
-    <UiScreenHeader eyebrow="Today" title="Today's care" :subtitle="subtitle" />
+    <UiScreenHeader :eyebrow="$t('today.eyebrow')" :title="$t('today.title')" :subtitle="subtitle" />
 
     <UiCard v-if="!grouped.size" padded>
-      <UiEmptyState>Nothing due today. 🌿</UiEmptyState>
+      <UiEmptyState>{{ $t('today.empty') }}</UiEmptyState>
     </UiCard>
 
     <UiCardGrid v-else :desktop="isDesktop" :min="340" :gap="14">
@@ -86,11 +83,11 @@ function openProgress(plantId: string) {
         </template>
         <div class="mp-today__rows">
           <UiTaskRow
-            v-for="t in plantTasks"
-            :key="t.task"
-            :task="t.task"
-            :status="rowStatus(t.nextDueOn)"
-            :due-label="fmtDueLabel(new Date(t.nextDueOn), new Date())"
+            v-for="t2 in plantTasks"
+            :key="t2.task"
+            :task="t2.task"
+            :status="rowStatus(t2.nextDueOn)"
+            :due-label="dueLabel(dueState(new Date(t2.nextDueOn)))"
             @done="e => markDone(plantId, e.task, e.occurredOn)"
             @postpone="e => postpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"

@@ -1,25 +1,29 @@
 <script setup lang="ts">
 import type { HistoryItem } from '../types/api.js';
-import { TASK_PAST_LABELS } from '../utils/tasks.js';
-import { TASK_ICONS } from '../composables/useTaskMeta';
+import { useTaskMeta } from '../composables/useTaskMeta';
 
 defineProps<{ items: HistoryItem[] }>();
 const emit = defineEmits<{ openEntry: [entryId: string] }>();
 
+const { TASK_ICONS, taskPastLabel, healthLabel } = useTaskMeta();
+const { t } = useI18n();
+
 const MS_DAY = 86_400_000;
-// Relative phrasing for a past YYYY-MM-DD ("today" / "yesterday" / "N days ago").
-function agoLabel(occurredOn: string): string {
+// Pure day-count for a past YYYY-MM-DD; the wording is applied via t() below.
+function agoDays(occurredOn: string): number {
   const [y, m, d] = occurredOn.split('-').map(Number);
   const then = Date.UTC(y, m - 1, d);
   const now = new Date();
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const days = Math.round((today - then) / MS_DAY);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  return `${days} days ago`;
+  return Math.round((today - then) / MS_DAY);
 }
-
-const HEALTH_LABELS: Record<string, string> = { SICK: 'Sick', POOR: 'Poor', GOOD: 'Good', EXCELLENT: 'Excellent' };
+// "today" / "yesterday" / "N days ago" from the day count, localized + pluralized.
+function agoLabel(occurredOn: string): string {
+  const days = agoDays(occurredOn);
+  if (days <= 0) return t('history.today');
+  if (days === 1) return t('history.yesterday');
+  return t('history.daysAgo', { n: days }, days);
+}
 </script>
 
 <template>
@@ -29,9 +33,9 @@ const HEALTH_LABELS: Record<string, string> = { SICK: 'Sick', POOR: 'Poor', GOOD
         <button type="button" class="mp-history__row mp-history__row--link" @click="emit('openEntry', item.entryId)">
           <UiAppIcon name="camera" :size="18" class="mp-history__icon" />
           <span class="mp-history__text">
-            Progress logged · <strong>{{ HEALTH_LABELS[item.health] }}</strong>
-            <span v-if="item.photoCount" class="mp-history__meta"> · {{ item.photoCount }} photo(s)</span>
-            <span v-if="item.tagCount" class="mp-history__meta"> · {{ item.tagCount }} tag(s)</span>
+            {{ t('history.progressLogged') }} · <strong>{{ healthLabel(item.health) }}</strong>
+            <span v-if="item.photoCount" class="mp-history__meta"> · {{ t('history.photoCount', { n: item.photoCount }, item.photoCount) }}</span>
+            <span v-if="item.tagCount" class="mp-history__meta"> · {{ t('history.tagCount', { n: item.tagCount }, item.tagCount) }}</span>
           </span>
           <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
           <UiAppIcon name="chevron-right" :size="16" color="var(--text-faint)" />
@@ -40,7 +44,7 @@ const HEALTH_LABELS: Record<string, string> = { SICK: 'Sick', POOR: 'Poor', GOOD
       <template v-else>
         <div class="mp-history__row">
           <UiAppIcon :name="TASK_ICONS[item.task]" :size="18" class="mp-history__icon" />
-          <span class="mp-history__text">{{ TASK_PAST_LABELS[item.task] }}</span>
+          <span class="mp-history__text">{{ taskPastLabel(item.task) }}</span>
           <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
         </div>
       </template>

@@ -1,22 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { TASK_LABELS, dueLabel, groupByPlant, type DueTask } from './tasks.js';
+import { dueState, groupByPlant, type DueTask } from './tasks.js';
 
 const today = new Date('2026-06-18');
 
-describe('task presentation helpers', () => {
-  it('maps task codes to human labels', () => {
-    expect(TASK_LABELS.WATER).toBe('Water');
-    expect(TASK_LABELS.CLEAN_LEAVES).toBe('Clean leaves');
-  });
-
-  it('has a label for the MIST task', () => {
-    expect(TASK_LABELS.MIST).toBe('Mist leaves');
-  });
-
-  it('labels due dates relative to today', () => {
-    expect(dueLabel(new Date('2026-06-18'), today)).toBe('Today');
-    expect(dueLabel(new Date('2026-06-17'), today)).toBe('Overdue');
-    expect(dueLabel(new Date('2026-06-19'), today)).toBe('Tomorrow');
+describe('task scheduling helpers (pure)', () => {
+  it('classifies due dates relative to today', () => {
+    expect(dueState(new Date('2026-06-18'), today)).toEqual({ kind: 'today', days: 0 });
+    expect(dueState(new Date('2026-06-17'), today)).toEqual({ kind: 'overdue', days: 1 });
+    expect(dueState(new Date('2026-06-19'), today)).toEqual({ kind: 'tomorrow', days: 1 });
+    expect(dueState(new Date('2026-06-23'), today)).toEqual({ kind: 'inDays', days: 5 });
   });
 
   it('groups due tasks by plant preserving order', () => {

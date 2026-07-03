@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { type TaskCode } from '../../../utils/tasks.js';
+import { type TaskCode, type DueState } from '../../../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../../../utils/localDate.js';
 import { plantTitle } from '../../../utils/displayName.js';
+
+const { t } = useI18n();
+// Detail page uses ONLY the long phrasing ("Due in N days" / "Overdue by N days"),
+// so destructure dueLabelLong (NOT dueLabel — that is the short Today-page form).
+const { dueLabelLong } = useTaskMeta();
 
 const route = useRoute();
 const api = useApi();
@@ -47,10 +52,13 @@ const placeName = computed(() => {
 
 const today = () => todayYmd();
 
-function dueLabel(t: { daysUntilDue: number; status: string }): string {
-  if (t.status === 'overdue') return `Overdue by ${Math.abs(t.daysUntilDue)} day(s)`;
-  if (t.status === 'today') return 'Due today';
-  return t.daysUntilDue === 1 ? 'Due tomorrow' : `Due in ${t.daysUntilDue} days`;
+// The care endpoint returns { daysUntilDue, status }; map it to the shared DueState
+// shape so the i18n dueLabelLong() renders it (no English wording lives here).
+function careDueState(row: { daysUntilDue: number; status: string }): DueState {
+  if (row.status === 'overdue') return { kind: 'overdue', days: Math.abs(row.daysUntilDue) };
+  if (row.status === 'today') return { kind: 'today', days: 0 };
+  if (row.daysUntilDue === 1) return { kind: 'tomorrow', days: 1 };
+  return { kind: 'inDays', days: row.daysUntilDue };
 }
 
 async function markDone(task: TaskCode, occurredOn?: string) {
@@ -69,13 +77,13 @@ async function postpone(task: TaskCode) {
 <template>
   <div v-if="plant">
     <UiScreenHeader
-      back="All plants"
+      :back="$t('plantDetail.backAll')"
       :title="plantTitle(plant)"
       :subtitle="plant.speciesScientificName && plant.speciesScientificName !== plantTitle(plant) ? plant.speciesScientificName : undefined"
       @back="navigateTo('/plants')"
     >
       <template #action>
-        <UiButton color="neutral" variant="soft" icon="pencil-square" @click="openEdit">Edit</UiButton>
+        <UiButton color="neutral" variant="soft" icon="pencil-square" @click="openEdit">{{ $t('common.edit') }}</UiButton>
       </template>
     </UiScreenHeader>
 
@@ -87,7 +95,7 @@ async function postpone(task: TaskCode) {
           <div class="mp-detail__identity-info">
             <UiPlantName :title="plantTitle(plant)" :scientific="plant.speciesScientificName" :size="18" />
             <div class="mp-detail__meta">
-              Acquired {{ plant.acquiredOn.slice(0, 10) }}<template v-if="placeName"> · {{ placeName }}</template>
+              {{ $t('plantDetail.acquired', { date: plant.acquiredOn.slice(0, 10) }) }}<template v-if="placeName"> · {{ placeName }}</template>
             </div>
           </div>
         </div>
@@ -104,7 +112,7 @@ async function postpone(task: TaskCode) {
             icon="book-open"
             @click="navigateTo(`/blog/${plant.speciesSlug}`)"
           >
-            Read the care guide
+            {{ $t('plantDetail.readGuide') }}
           </UiButton>
         </div>
       </UiCard>
@@ -115,30 +123,30 @@ async function postpone(task: TaskCode) {
           v-if="care && care.viability.level === 'caution'"
           color="amber"
           class="mp-detail__alert"
-          title="Could be a better spot"
-          description="Light and humidity here are a little low for this plant. Try a brighter window, or mist more often."
+          :title="$t('plantDetail.cautionTitle')"
+          :description="$t('plantDetail.cautionDesc')"
         />
         <UiAlert
           v-if="care && care.viability.level === 'poor'"
           color="red"
           class="mp-detail__alert"
-          title="This spot isn't a good fit"
-          description="Consider moving this plant somewhere with gentler light and more humidity."
+          :title="$t('plantDetail.poorTitle')"
+          :description="$t('plantDetail.poorDesc')"
         />
 
-        <UiSectionTitle>Care</UiSectionTitle>
+        <UiSectionTitle>{{ $t('plantDetail.care') }}</UiSectionTitle>
 
         <UiCard v-if="!care || !care.tasks.length" padded>
-          <UiEmptyState>Nothing to do right now. 🌿</UiEmptyState>
+          <UiEmptyState>{{ $t('plantDetail.careEmpty') }}</UiEmptyState>
         </UiCard>
         <UiCard v-else :padded="false">
           <div class="mp-detail__rows">
             <UiTaskRow
-              v-for="t in care.tasks"
-              :key="t.task"
-              :task="t.task"
-              :status="t.status"
-              :due-label="dueLabel(t)"
+              v-for="t3 in care.tasks"
+              :key="t3.task"
+              :task="t3.task"
+              :status="t3.status"
+              :due-label="dueLabelLong(careDueState(t3))"
               with-done-date
               @done="e => markDone(e.task, e.occurredOn)"
               @postpone="e => postpone(e.task)"
@@ -150,9 +158,9 @@ async function postpone(task: TaskCode) {
 
       <!-- History -->
       <div>
-        <UiSectionTitle>History</UiSectionTitle>
+        <UiSectionTitle>{{ $t('plantDetail.history') }}</UiSectionTitle>
         <UiCard v-if="!history || !history.length" padded>
-          <UiEmptyState>No history yet. Log progress to start the journal. 🌱</UiEmptyState>
+          <UiEmptyState>{{ $t('plantDetail.historyEmpty') }}</UiEmptyState>
         </UiCard>
         <UiCard v-else :padded="false">
           <div class="mp-detail__history">
@@ -170,7 +178,7 @@ async function postpone(task: TaskCode) {
     />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
   </div>
-  <UiEmptyState v-else>Loading…</UiEmptyState>
+  <UiEmptyState v-else>{{ $t('common.loading') }}</UiEmptyState>
 </template>
 
 <style scoped>

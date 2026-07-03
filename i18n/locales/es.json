@@ -233,7 +233,14 @@
     "empty": "Aún no hay especies.",
     "allArticles": "Todos los artículos",
     "careGuide": "Guía de cuidado",
-    "noArticle": "Aún no hay artículo disponible."
+    "noArticle": "Aún no hay artículo disponible.",
+    "media": {
+      "previewAlt": "Vista previa de la imagen subida",
+      "uploading": "Subiendo…",
+      "uploadError": "No se pudo subir — inténtalo de nuevo.",
+      "copyLink": "Copiar enlace",
+      "copied": "¡Copiado!"
+    }
   },
   "admin": {
     "pageNotFound": "Página no encontrada",

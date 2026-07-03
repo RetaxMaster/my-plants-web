@@ -233,7 +233,14 @@
     "empty": "No species yet.",
     "allArticles": "All articles",
     "careGuide": "Care guide",
-    "noArticle": "No article available yet."
+    "noArticle": "No article available yet.",
+    "media": {
+      "previewAlt": "Uploaded image preview",
+      "uploading": "Uploading…",
+      "uploadError": "Upload failed — please try again.",
+      "copyLink": "Copy link",
+      "copied": "Copied!"
+    }
   },
   "admin": {
     "pageNotFound": "Page not found",

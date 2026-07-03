@@ -14,7 +14,11 @@ export default defineEventHandler(async (event) => {
   const contentType = getRequestHeader(event, 'content-type');
   if (contentType) headers['content-type'] = contentType;
 
-  const body = method === 'GET' || method === 'HEAD' ? undefined : await readRawBody(event);
+  // Read the raw body binary-safe (Buffer, not a UTF-8 string): multipart image uploads carry raw
+  // binary bytes that a default 'utf8' decode would mangle (invalid sequences → U+FFFD), breaking the
+  // backend's image decode. ofetch/$fetch forwards a Buffer body untouched and JSON parses fine from it.
+  const body =
+    method === 'GET' || method === 'HEAD' ? undefined : await readRawBody(event, false);
 
   try {
     return await $fetch(`${apiBase}${path}`, { method, headers, body });

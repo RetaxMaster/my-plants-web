@@ -13,7 +13,25 @@ const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPl
 
 const { data: places } = await useAsyncData('places-for-edit', () => api.listPlaces());
 
+const { data: history, refresh: refreshHistory } = await useAsyncData(`history-${id}`, () => api.getPlantHistory(id));
+
 const editing = ref(false);
+
+const progressOpen = ref(false);
+const entryOpen = ref(false);
+const activeEntryId = ref<string | null>(null);
+
+function openProgress() { progressOpen.value = true; }
+
+async function onProgressSaved() {
+  // Progress re-anchors (drops off the care rows) and a new entry appears in the timeline.
+  await Promise.all([refresh(), refreshHistory()]);
+}
+
+function openEntry(entryId: string) {
+  activeEntryId.value = entryId;
+  entryOpen.value = true;
+}
 
 function openEdit() {
   if (!plant.value) return;
@@ -124,7 +142,21 @@ async function postpone(task: TaskCode) {
               with-done-date
               @done="e => markDone(e.task, e.occurredOn)"
               @postpone="e => postpone(e.task)"
+              @log-progress="openProgress"
             />
+          </div>
+        </UiCard>
+      </div>
+
+      <!-- History -->
+      <div>
+        <UiSectionTitle>History</UiSectionTitle>
+        <UiCard v-if="!history || !history.length" padded>
+          <UiEmptyState>No history yet. Log progress to start the journal. 🌱</UiEmptyState>
+        </UiCard>
+        <UiCard v-else :padded="false">
+          <div class="mp-detail__history">
+            <HistoryTimeline :items="history" @open-entry="openEntry" />
           </div>
         </UiCard>
       </div>
@@ -136,6 +168,8 @@ async function postpone(task: TaskCode) {
       :places="places ?? []"
       @saved="onEdited"
     />
+    <ProgressLogModal v-model="progressOpen" :plant-id="id" @saved="onProgressSaved" />
+    <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
   </div>
   <UiEmptyState v-else>Loading…</UiEmptyState>
 </template>
@@ -178,6 +212,11 @@ async function postpone(task: TaskCode) {
 }
 
 .mp-detail__rows {
+  display: grid;
+  padding: 0 var(--space-4);
+}
+
+.mp-detail__history {
   display: grid;
   padding: 0 var(--space-4);
 }

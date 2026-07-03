@@ -27,7 +27,14 @@ async function openSession(id: string | null) {
   }
 }
 
+// Bumped on every "New chat" so chatKey changes and KnowledgeChat remounts FRESH — otherwise, after a
+// brand-new chat created its session (onCreated keeps detail null so the live stream survives), the key
+// would stay constant and a later "New chat" would reuse the same component instance, whose internal
+// state still points at the previous session — the next prompt would resume the old conversation.
+const newChatSeq = ref(0);
+
 function newChat() {
+  newChatSeq.value += 1;
   void openSession(null);
 }
 
@@ -56,7 +63,7 @@ async function removeSession(id: string) {
 // The KnowledgeChat mount key: brand-new chats mount fresh under 'new'; existing sessions under their
 // id. Adopting a new session's id (onCreated) intentionally does NOT change this key mid-stream —
 // the component keeps streaming; only a user-driven openSession() switches conversations.
-const chatKey = computed(() => (detail.value ? detail.value.id : 'new'));
+const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatSeq.value}`));
 </script>
 
 <template>

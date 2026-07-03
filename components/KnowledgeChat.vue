@@ -61,6 +61,9 @@ function closeStream() {
 }
 
 function openStreamForTurn(turn: KnowledgeChatTurn) {
+  // Never overwrite a live handle: close any prior stream first so a client can't leak (e.g. after a
+  // ticket-fetch error left one connected, or when starting a new turn). Idempotent — no-op if none.
+  closeStream();
   transcript.bindRun(turn.runId); // seal previous, promote this turn as the ingest target
   const client = createChatClient({ socketUrl, fetchTicket: (runId) => runs.mintSocketTicket(runId) });
   client.on('reset', () => { transcript.resetActiveTurn(); sync(); }); // backlog replay on every (re)join

@@ -20,7 +20,8 @@
     "blog": "Blog",
     "more": "More",
     "admin": "Admin",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "language": "Language"
   },
   "actingAs": {
     "banner": "Acting as {label}",
@@ -212,7 +213,8 @@
     "citiesSub": "Your home & saved cities",
     "movingLabel": "Moving",
     "movingSub": "Simulate a move",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "languageSub": "Choose English or Spanish"
   },
   "login": {
     "welcome": "Welcome back",

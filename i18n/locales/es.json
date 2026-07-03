@@ -20,7 +20,8 @@
     "blog": "Blog",
     "more": "Más",
     "admin": "Admin",
-    "signIn": "Iniciar sesión"
+    "signIn": "Iniciar sesión",
+    "language": "Idioma"
   },
   "actingAs": {
     "banner": "Actuando como {label}",
@@ -212,7 +213,8 @@
     "citiesSub": "Tu hogar y ciudades guardadas",
     "movingLabel": "Mudanza",
     "movingSub": "Simular una mudanza",
-    "signOut": "Cerrar sesión"
+    "signOut": "Cerrar sesión",
+    "languageSub": "Elige inglés o español"
   },
   "login": {
     "welcome": "Bienvenida de nuevo",

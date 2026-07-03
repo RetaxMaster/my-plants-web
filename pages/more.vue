@@ -41,6 +41,17 @@ async function logout() {
         </div>
       </Card>
 
+      <Card>
+        <div class="mp-more__row">
+          <IconTile icon="language" tone="cafe" :size="44" />
+          <div class="mp-more__text">
+            <div class="mp-more__label">{{ $t('nav.language') }}</div>
+            <div class="mp-more__sub">{{ $t('more.languageSub') }}</div>
+          </div>
+          <UiLocaleToggle />
+        </div>
+      </Card>
+
       <Card clickable @click="logout">
         <div class="mp-more__row">
           <IconTile icon="arrow-right-on-rectangle" tone="green" :size="44" />

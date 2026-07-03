@@ -80,6 +80,10 @@ function stopActingAs() {
           <template #label>{{ actingAs.label }}</template>
         </i18n-t>
       </button>
+      <div class="mp-account__locale">
+        <span class="mp-account__locale-label">{{ $t('nav.language') }}</span>
+        <UiLocaleToggle />
+      </div>
       <button type="button" class="mp-menu-item" @click="logout">
         <AppIcon name="arrow-right-on-rectangle" :size="16" color="currentColor" />
         {{ $t('account.signOut') }}
@@ -110,6 +114,20 @@ function stopActingAs() {
 
 .mp-account__city {
   font: 12px var(--font-sans);
+  color: var(--text-muted);
+}
+
+.mp-account__locale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px;
+}
+.mp-account__locale-label {
+  font: var(--weight-medium) var(--text-sm) var(--font-sans);
   color: var(--text-muted);
 }
 </style>

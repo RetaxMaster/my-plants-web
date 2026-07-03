@@ -35,7 +35,9 @@
     "noPrimaryCity": "No primary city",
     "adminTools": "Admin tools",
     "switchUser": "Switch user",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "writingDesk": "Writing desk",
+    "mediaLibrary": "Media library"
   },
   "tasks": {
     "labels": {
@@ -334,7 +336,20 @@
       "uploading": "Uploading…",
       "uploadError": "Upload failed — please try again.",
       "copyLink": "Copy link",
-      "copied": "Copied!"
+      "copied": "Copied!",
+      "eyebrow": "Media library",
+      "title": "Images",
+      "subtitle": "Upload an image, copy its link, and paste it into a post.",
+      "uploadLabel": "Upload an image",
+      "uploadHint": "It's compressed and stored; copy the link into your Markdown as ![alt](url).",
+      "galleryTitle": "All uploads",
+      "empty": "No images yet.",
+      "delete": "Delete",
+      "confirmDelete": "Delete this image? The file is removed too.",
+      "confirmDeleteYes": "Delete",
+      "confirmDeleteNo": "Keep",
+      "deleted": "Image deleted.",
+      "deleteError": "Could not delete — please try again."
     }
   },
   "admin": {
@@ -342,6 +357,10 @@
     "eyebrow": "Admin",
     "toolsTitle": "Admin tools",
     "toolsSubtitle": "Tools available to administrators.",
+    "blogTitle": "Writing desk",
+    "blogDesc": "Write and publish the blog's care guides.",
+    "mediaTitle": "Media library",
+    "mediaDesc": "Upload images and copy links for your posts.",
     "keTitle": "Knowledge Engine",
     "keDesc": "Chat with the research assistant to curate species records.",
     "switchTitle": "Switch user",

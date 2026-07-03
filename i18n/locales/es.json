@@ -35,7 +35,9 @@
     "noPrimaryCity": "Sin ciudad principal",
     "adminTools": "Herramientas de admin",
     "switchUser": "Cambiar de usuario",
-    "signOut": "Cerrar sesión"
+    "signOut": "Cerrar sesión",
+    "writingDesk": "Escritorio",
+    "mediaLibrary": "Biblioteca multimedia"
   },
   "tasks": {
     "labels": {
@@ -334,7 +336,20 @@
       "uploading": "Subiendo…",
       "uploadError": "No se pudo subir — inténtalo de nuevo.",
       "copyLink": "Copiar enlace",
-      "copied": "¡Copiado!"
+      "copied": "¡Copiado!",
+      "eyebrow": "Biblioteca multimedia",
+      "title": "Imágenes",
+      "subtitle": "Sube una imagen, copia su enlace y pégalo en una entrada.",
+      "uploadLabel": "Sube una imagen",
+      "uploadHint": "Se comprime y se guarda; copia el enlace en tu Markdown como ![alt](url).",
+      "galleryTitle": "Todas las imágenes",
+      "empty": "Aún no hay imágenes.",
+      "delete": "Eliminar",
+      "confirmDelete": "¿Eliminar esta imagen? También se borra el archivo.",
+      "confirmDeleteYes": "Eliminar",
+      "confirmDeleteNo": "Conservar",
+      "deleted": "Imagen eliminada.",
+      "deleteError": "No se pudo eliminar — inténtalo de nuevo."
     }
   },
   "admin": {
@@ -342,6 +357,10 @@
     "eyebrow": "Admin",
     "toolsTitle": "Herramientas de admin",
     "toolsSubtitle": "Herramientas disponibles para administradores.",
+    "blogTitle": "Escritorio",
+    "blogDesc": "Escribe y publica las guías de cuidado del blog.",
+    "mediaTitle": "Biblioteca multimedia",
+    "mediaDesc": "Sube imágenes y copia enlaces para tus entradas.",
     "keTitle": "Knowledge Engine",
     "keDesc": "Chatea con el asistente de investigación para curar registros de especies.",
     "switchTitle": "Cambiar de usuario",

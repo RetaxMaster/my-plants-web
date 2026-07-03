@@ -1,5 +1,34 @@
 export default defineNuxtConfig({
-  modules: ['nuxt-auth-utils', '@nuxt/fonts', '@nuxt/icon', '@nuxtjs/color-mode'],
+  modules: ['nuxt-auth-utils', '@nuxt/fonts', '@nuxt/icon', '@nuxtjs/color-mode', '@nuxtjs/i18n'],
+  i18n: {
+    // The locale is NEVER in the URL — it is internal state + a cookie. This is the
+    // mechanism that satisfies "handle language as internal state, no /en or /es".
+    strategy: 'no_prefix',
+    // Fallback when the browser is neither en nor es.
+    defaultLocale: 'en',
+    // Lazy-load each locale's JSON so only the active catalogue ships.
+    lazy: true,
+    langDir: 'locales',
+    // vue-i18n runtime options (fallbackLocale, later datetime/number formats).
+    vueI18n: './i18n.config.ts',
+    locales: [
+      { code: 'en', language: 'en-US', name: 'English', file: 'en.json' },
+      { code: 'es', language: 'es-MX', name: 'Español', file: 'es.json' },
+    ],
+    // SSR-safe browser detection with cookie persistence. Under no_prefix there is
+    // no URL redirect: the module resolves the active locale from the cookie (if
+    // present) else the Accept-Language header, and writes the cookie — all during
+    // SSR, so the FIRST HTML paint is already in the resolved locale (no flash, no
+    // hydration mismatch). alwaysRedirect:false → once the user picks a locale, the
+    // cookie wins over the browser on later visits. redirectOn is deliberately
+    // OMITTED: it only governs URL-prefix redirects, which no_prefix never performs.
+    detectBrowserLanguage: {
+      useCookie: true,
+      cookieKey: 'i18n_redirected',
+      fallbackLocale: 'en',
+      alwaysRedirect: false,
+    },
+  },
   css: ['~/assets/css/design-system.css', '@retaxmaster/claude-realtime-client/style.css'],
   colorMode: { classSuffix: '', dataValue: 'theme', preference: 'light', fallback: 'light' },
   typescript: { strict: true, typeCheck: false, tsConfig: { compilerOptions: { types: ['node'] } } },

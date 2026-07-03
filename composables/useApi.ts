@@ -4,6 +4,8 @@ import type {
   KnowledgeSocketTicketResponse, OwnerSummary, Place, Plant, PlantCare, PlantViability,
   ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesBrief, SpeciesSummary,
   UpdatePlace, UpdatePlant, Viability,
+  BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
+  MediaAssetView, CreateBlogpost, UpdateBlogpost,
 } from '../types/api.js';
 
 export function useApi() {
@@ -35,6 +37,37 @@ export function useApi() {
   return {
     listSpecies: () => api<SpeciesSummary[]>('/species'),
     getSpeciesBrief: (slug: string) => api<SpeciesBrief>(`/species/${slug}/brief`),
+
+    // --- Blog (public: no session; @Public on the API) ---
+    listBlog: (page = 1, pageSize = 10) =>
+      api<BlogPage<BlogpostCard>>(`/blog?page=${page}&pageSize=${pageSize}`),
+    getBlogpost: (slug: string) => api<BlogpostDetail>(`/blog/${slug}`),
+
+    // --- Blog admin (RolesGuard ADMIN on the API) ---
+    // q is free text (title/slug) so it MUST be encoded; build the query with URLSearchParams and
+    // omit empty params. Called with no args by the desk's default view.
+    listBlogposts: (params: { status?: 0 | 1; q?: string; page?: number } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.status !== undefined) qs.set('status', String(params.status));
+      if (params.q) qs.set('q', params.q);
+      if (params.page) qs.set('page', String(params.page));
+      const query = qs.toString();
+      return api<BlogPage<BlogpostAdminRow>>(`/blogposts${query ? `?${query}` : ''}`);
+    },
+    createBlogpost: (body: CreateBlogpost) =>
+      api<BlogpostAdminDetail>('/blogposts', { method: 'POST', body }),
+    getBlogpostAdmin: (slug: string) => api<BlogpostAdminDetail>(`/blogposts/${slug}`),
+    updateBlogpost: (slug: string, body: UpdateBlogpost) =>
+      api<BlogpostAdminDetail>(`/blogposts/${slug}`, { method: 'PATCH', body }),
+    deleteBlogpost: (slug: string) =>
+      api<{ ok: true }>(`/blogposts/${slug}`, { method: 'DELETE' }),
+    uploadBlogpostCover: (slug: string, form: FormData) =>
+      api<BlogpostAdminDetail>(`/blogposts/${slug}/cover`, { method: 'POST', body: form }),
+
+    // --- Media library (RolesGuard ADMIN on the API) ---
+    uploadMedia: (form: FormData) => api<MediaAssetView>('/media', { method: 'POST', body: form }),
+    listMedia: (page = 1) => api<BlogPage<MediaAssetView>>(`/media?page=${page}`),
+    deleteMedia: (id: string) => api<{ ok: true }>(`/media/${id}`, { method: 'DELETE' }),
 
     listCities: () => api<City[]>('/cities'),
     createCity: (body: CreateCity) => api<City>('/cities', { method: 'POST', body }),

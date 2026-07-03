@@ -20,6 +20,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   done: [{ task: TaskCode; occurredOn?: string }];
   postpone: [{ task: TaskCode }];
+  logProgress: [{ task: TaskCode }];
 }>();
 
 const doneDate = ref('');
@@ -30,6 +31,7 @@ const badgeColor = computed(() =>
 
 const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
 const onPostpone = () => emit('postpone', { task: props.task });
+const onLogProgress = () => emit('logProgress', { task: props.task });
 </script>
 
 <template>
@@ -40,17 +42,22 @@ const onPostpone = () => emit('postpone', { task: props.task });
       <Badge :color="badgeColor" size="xs">{{ dueLabel }}</Badge>
     </div>
     <div class="mp-taskrow__actions">
-      <input
-        v-if="withDoneDate"
-        v-model="doneDate"
-        type="date"
-        class="mp-taskrow__date"
-        aria-label="Date the task was done"
-      />
-      <Button size="xs" color="primary" icon="check" @click="onDone">Done</Button>
-      <Button size="xs" color="neutral" variant="ghost" icon="clock" @click="onPostpone">
-        Postpone
-      </Button>
+      <template v-if="task === 'PROGRESS'">
+        <Button size="xs" color="primary" icon="camera" @click="onLogProgress">Log progress</Button>
+      </template>
+      <template v-else>
+        <input
+          v-if="withDoneDate"
+          v-model="doneDate"
+          type="date"
+          class="mp-taskrow__date"
+          aria-label="Date the task was done"
+        />
+        <Button size="xs" color="primary" icon="check" @click="onDone">Done</Button>
+        <Button size="xs" color="neutral" variant="ghost" icon="clock" @click="onPostpone">
+          Postpone
+        </Button>
+      </template>
     </div>
   </div>
 </template>

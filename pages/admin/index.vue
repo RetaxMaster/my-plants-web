@@ -30,6 +30,26 @@ if (user.value?.role !== 'ADMIN') {
           <NuxtLink to="/admin/owners" class="mp-admin-tile__cta mp-admin-tile__cta--ghost">{{ $t('common.open') }}</NuxtLink>
         </div>
       </UiCard>
+      <UiCard padded>
+        <div class="mp-admin-tile">
+          <UiIconTile icon="pencil-square" tone="green" :size="40" />
+          <div class="mp-admin-tile__info">
+            <div class="mp-admin-tile__title">{{ $t('admin.blogTitle') }}</div>
+            <p class="mp-admin-tile__desc">{{ $t('admin.blogDesc') }}</p>
+          </div>
+          <NuxtLink to="/admin/blog" class="mp-admin-tile__cta">{{ $t('common.open') }}</NuxtLink>
+        </div>
+      </UiCard>
+      <UiCard padded>
+        <div class="mp-admin-tile">
+          <UiIconTile icon="photo" tone="green" :size="40" />
+          <div class="mp-admin-tile__info">
+            <div class="mp-admin-tile__title">{{ $t('admin.mediaTitle') }}</div>
+            <p class="mp-admin-tile__desc">{{ $t('admin.mediaDesc') }}</p>
+          </div>
+          <NuxtLink to="/admin/media" class="mp-admin-tile__cta">{{ $t('common.open') }}</NuxtLink>
+        </div>
+      </UiCard>
     </UiCardGrid>
   </div>
 </template>

@@ -10,7 +10,7 @@ import NavTabs from '../components/ui/NavTabs.vue';
 import AppIcon from '../components/ui/AppIcon.vue';
 import AccountMenu from '../components/AccountMenu.vue';
 
-const { loggedIn } = useUserSession();
+const { loggedIn, user } = useUserSession();
 const { actingAs, stop: stopActingAs } = useActingAs();
 
 const route = useRoute();
@@ -46,9 +46,15 @@ const bottomItemsAll: NavItem[] = [
   { key: 'more', label: 'More', icon: 'ellipsis-horizontal', to: '/more', public: false },
 ];
 
-const topItems = computed(() =>
-  loggedIn.value ? topItemsAll : topItemsAll.filter((i) => i.public),
-);
+const topItems = computed(() => {
+  const base = loggedIn.value ? topItemsAll : topItemsAll.filter((i) => i.public);
+  // Admins get an extra desktop tab to the admin area. Role-gating a nav item is display-only; the
+  // hard gate is each admin page's createError(404) + the API RolesGuard (403).
+  if (loggedIn.value && user.value?.role === 'ADMIN') {
+    return [...base, { key: 'admin', label: 'Admin', icon: 'sparkles', to: '/admin', public: false }];
+  }
+  return base;
+});
 const bottomItems = computed(() =>
   loggedIn.value ? bottomItemsAll : bottomItemsAll.filter((i) => i.public),
 );
@@ -62,6 +68,7 @@ function tabForPath(path: string): string {
   if (path.startsWith('/places')) return 'places';
   if (path.startsWith('/cities')) return 'cities';
   if (path.startsWith('/moving')) return 'moving';
+  if (path.startsWith('/admin')) return 'admin';
   if (path.startsWith('/blog')) return 'blog';
   if (path.startsWith('/more')) return 'more';
   return 'today';

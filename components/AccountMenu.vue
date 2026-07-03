@@ -65,6 +65,10 @@ function stopActingAs() {
         <div class="mp-account__name">{{ user?.username }}</div>
         <div class="mp-account__city">{{ primaryCity }}</div>
       </div>
+      <NuxtLink v-if="isAdmin" to="/admin" class="mp-menu-item" @click="open = false">
+        <AppIcon name="sparkles" :size="16" color="currentColor" />
+        Admin tools
+      </NuxtLink>
       <NuxtLink v-if="isAdmin" to="/admin/owners" class="mp-menu-item" @click="open = false">
         <AppIcon name="user-group" :size="16" color="currentColor" />
         Switch user

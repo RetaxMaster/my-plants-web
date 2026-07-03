@@ -3,14 +3,27 @@ import { marked } from 'marked';
 
 const route = useRoute();
 const api = useApi();
+const { locale } = useI18n();
 const slug = route.params.id as string;
 const { data: brief } = await useAsyncData(`blog-${slug}`, () => api.getSpeciesBrief(slug));
+
+// ONE source of truth for which Markdown body to render. Prefer the active locale's
+// body; if that language's body is null (a pre-migration row may have only one), fall
+// back to the other language rather than showing empty. Both the rendered article AND
+// the empty-state v-if depend on THIS computed (spec §7), so they can never disagree.
+const selectedBriefMarkdown = computed<string | null>(() => {
+  const b = brief.value;
+  if (!b) return null;
+  const preferred = locale.value === 'es' ? b.briefEs : b.briefEn;
+  const other = locale.value === 'es' ? b.briefEn : b.briefEs;
+  return preferred ?? other ?? null;
+});
 
 // The brief is our own curated Markdown (authored by the editorial-writer, persisted only via the
 // knowledge-engine's db:insert — trusted content, never user-supplied), so rendering it to HTML for
 // a polished, readable article is safe here.
 const articleHtml = computed(() =>
-  brief.value?.briefEs ? (marked.parse(brief.value.briefEs, { async: false }) as string) : '',
+  selectedBriefMarkdown.value ? (marked.parse(selectedBriefMarkdown.value, { async: false }) as string) : '',
 );
 </script>
 
@@ -30,7 +43,7 @@ const articleHtml = computed(() =>
         <span v-if="brief.commonNames.length" class="mp-article__sci">({{ brief.scientificName }})</span>
       </h1>
 
-      <p v-if="!brief.briefEs" class="mp-article__empty">No article available yet.</p>
+      <p v-if="!selectedBriefMarkdown" class="mp-article__empty">{{ $t('blog.noArticle') }}</p>
       <UiProse v-else :html="articleHtml" />
     </article>
   </div>

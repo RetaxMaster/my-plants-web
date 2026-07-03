@@ -95,7 +95,7 @@ async function postpone(task: TaskCode) {
           <div class="mp-detail__identity-info">
             <UiPlantName :title="plantTitle(plant)" :scientific="plant.speciesScientificName" :size="18" />
             <div class="mp-detail__meta">
-              {{ $t('plantDetail.acquired', { date: plant.acquiredOn.slice(0, 10) }) }}<template v-if="placeName"> · {{ placeName }}</template>
+              {{ $t('plantDetail.acquired', { date: $d(new Date(plant.acquiredOn), 'short') }) }}<template v-if="placeName"> · {{ placeName }}</template>
             </div>
           </div>
         </div>

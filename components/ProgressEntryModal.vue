@@ -32,7 +32,7 @@ watch([open, () => props.entryId], async ([isOpen, id]) => {
     <div v-else-if="entry" class="mp-entry">
       <div class="mp-entry__head">
         <strong>{{ healthLabel(entry.health) }}</strong>
-        <span class="mp-entry__date">{{ entry.occurredOn }}</span>
+        <span class="mp-entry__date">{{ $d(new Date(entry.occurredOn), 'short') }}</span>
       </div>
 
       <div v-if="entry.photos.length" class="mp-entry__photos">

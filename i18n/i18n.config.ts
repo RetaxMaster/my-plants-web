@@ -10,7 +10,13 @@ export default defineI18nConfig(() => ({
   // $d/d resolution — NOT the BCP-47 language (en-US/es-MX). Keying by language
   // would make $d find no format and fall back to a default/ISO rendering.
   datetimeFormats: {
-    en: { long: { weekday: 'long', month: 'long', day: 'numeric' } },
-    es: { long: { weekday: 'long', month: 'long', day: 'numeric' } },
+    en: {
+      long: { weekday: 'long', month: 'long', day: 'numeric' },
+      short: { year: 'numeric', month: 'short', day: 'numeric' },
+    },
+    es: {
+      long: { weekday: 'long', month: 'long', day: 'numeric' },
+      short: { year: 'numeric', month: 'short', day: 'numeric' },
+    },
   },
 }));

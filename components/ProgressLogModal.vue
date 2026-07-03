@@ -44,7 +44,17 @@ function revokePreviews() {
   for (const url of previews.value) URL.revokeObjectURL(url);
 }
 
-watch(open, (isOpen) => { if (isOpen) reset(); });
+watch(open, (isOpen) => {
+  if (isOpen) {
+    reset();
+  } else {
+    // The modal often stays mounted (plant detail keeps it around), so free the blob previews on
+    // close too — otherwise repeated Cancel/Save cycles leak object URLs until the next open/unmount.
+    revokePreviews();
+    files.value = [];
+    previews.value = [];
+  }
+});
 onBeforeUnmount(revokePreviews);
 
 function onFiles(event: Event) {

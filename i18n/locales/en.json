@@ -259,11 +259,28 @@
   },
   "knowledgeEngine": {
     "claudeLabel": "Knowledge Engine",
-    "composerPlaceholder": "Ask the knowledge engine to research a species…",
     "cantContinue": "This conversation can't be continued — its first turn ended before a session was established.",
     "runInProgress": "A run is already in progress for this conversation.",
     "sendNotResumable": "That message could not be sent (too long or not resumable).",
-    "sendError": "Could not send your message. Please try again."
+    "sendError": "Could not send your message. Please try again.",
+    "composer": {
+      "promptLabel": "Message",
+      "promptPlaceholder": "Ask the knowledge engine to research a species…",
+      "send": "Send",
+      "stop": "Stop",
+      "running": "Running…",
+      "stopping": "Stopping…",
+      "enterToSend": "Enter to send",
+      "shiftEnterNewline": "Shift+Enter for a new line",
+      "genericError": "Something went wrong. Please try again.",
+      "connected": "Connected",
+      "reconnecting": "Reconnecting…",
+      "disconnected": "Disconnected",
+      "jumpToLatest": "Jump to latest",
+      "overloaded": "Claude is overloaded",
+      "retrying": "Retrying…",
+      "retry": "Retry"
+    }
   },
   "citySearch": {
     "placeholder": "Search a city…",

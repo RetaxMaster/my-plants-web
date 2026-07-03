@@ -57,4 +57,15 @@ describe('vue-i18n message resolution', () => {
     expect(g.t('today.tasksDue', { n: 1 }, 1)).toBe('1 task due');
     expect(g.t('today.tasksDue', { n: 5 }, 5)).toBe('5 tasks due');
   });
+
+  it('resolves knowledge-engine composer chrome per locale', () => {
+    const g = make();
+    expect(g.t('knowledgeEngine.composer.promptLabel')).toBe('Message');
+    expect(g.t('knowledgeEngine.composer.send')).toBe('Send');
+    expect(g.t('knowledgeEngine.composer.enterToSend')).toBe('Enter to send');
+    g.locale.value = 'es';
+    expect(g.t('knowledgeEngine.composer.promptLabel')).toBe('Mensaje');
+    expect(g.t('knowledgeEngine.composer.send')).toBe('Enviar');
+    expect(g.t('knowledgeEngine.composer.shiftEnterNewline')).toBe('Shift+Enter para una nueva línea');
+  });
 });

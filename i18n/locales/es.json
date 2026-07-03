@@ -259,11 +259,28 @@
   },
   "knowledgeEngine": {
     "claudeLabel": "Knowledge Engine",
-    "composerPlaceholder": "Pídele al knowledge engine que investigue una especie…",
     "cantContinue": "Esta conversación no puede continuar — su primer turno terminó antes de establecer una sesión.",
     "runInProgress": "Ya hay una ejecución en curso para esta conversación.",
     "sendNotResumable": "Ese mensaje no se pudo enviar (demasiado largo o no se puede reanudar).",
-    "sendError": "No se pudo enviar tu mensaje. Inténtalo de nuevo."
+    "sendError": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
+    "composer": {
+      "promptLabel": "Mensaje",
+      "promptPlaceholder": "Pídele al knowledge engine que investigue una especie…",
+      "send": "Enviar",
+      "stop": "Detener",
+      "running": "Ejecutando…",
+      "stopping": "Deteniendo…",
+      "enterToSend": "Enter para enviar",
+      "shiftEnterNewline": "Shift+Enter para una nueva línea",
+      "genericError": "Algo salió mal. Inténtalo de nuevo.",
+      "connected": "Conectado",
+      "reconnecting": "Reconectando…",
+      "disconnected": "Desconectado",
+      "jumpToLatest": "Ir a lo más reciente",
+      "overloaded": "Claude está sobrecargado",
+      "retrying": "Reintentando…",
+      "retry": "Reintentar"
+    }
   },
   "citySearch": {
     "placeholder": "Busca una ciudad…",

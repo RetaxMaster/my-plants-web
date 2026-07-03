@@ -22,6 +22,37 @@ const sessions = useKnowledgeChatSessions();
 const runs = useKnowledgeChatRuns();
 const socketUrl = useRuntimeConfig().public.knowledgeChatSocketUrl;
 
+// Translate the Composer's own CHROME (label / hint / Send-Stop buttons / connection + retry
+// states) — NOT the streamed transcript content (spec §2). The package renders these from its
+// English DEFAULT_LABELS unless a `labels` override is passed; the Composer merges
+// `{ ...injected, ...props.labels }`, so this partial override wins. A computed so it re-translates
+// on a live locale switch.
+// NOTE: `Console` (the transcript) has NO `labels` prop and reads its own labels from the package's
+// private `crt-labels` injection, whose Symbol is not exported — so `Console`'s internal
+// "Jump to latest" affordance cannot be overridden through the public API. It is a minor,
+// package-chrome English leak (an internal scroll button), out of reach until the package exports
+// the injection key; `composer.jumpToLatest` is kept below so it applies automatically if it ever does.
+const composerLabels = computed(() => ({
+  promptLabel: t('knowledgeEngine.composer.promptLabel'),
+  // Deliberately the app's OWN placeholder (was knowledgeEngine.composerPlaceholder), NOT the
+  // package default "Type a message…" — keeps the English output byte-identical to pre-i18n.
+  promptPlaceholder: t('knowledgeEngine.composer.promptPlaceholder'),
+  send: t('knowledgeEngine.composer.send'),
+  stop: t('knowledgeEngine.composer.stop'),
+  running: t('knowledgeEngine.composer.running'),
+  stopping: t('knowledgeEngine.composer.stopping'),
+  enterToSend: t('knowledgeEngine.composer.enterToSend'),
+  shiftEnterNewline: t('knowledgeEngine.composer.shiftEnterNewline'),
+  genericError: t('knowledgeEngine.composer.genericError'),
+  connected: t('knowledgeEngine.composer.connected'),
+  reconnecting: t('knowledgeEngine.composer.reconnecting'),
+  disconnected: t('knowledgeEngine.composer.disconnected'),
+  jumpToLatest: t('knowledgeEngine.composer.jumpToLatest'),
+  overloaded: t('knowledgeEngine.composer.overloaded'),
+  retrying: t('knowledgeEngine.composer.retrying'),
+  retry: t('knowledgeEngine.composer.retry'),
+}));
+
 // Chat theming (claude-realtime-client). The package paints ALL its color from a namespaced --crt-*
 // custom-property set that a "theme" maps over; style.css only ships structure. We render our OWN shell
 // (Console + Composer, not the package's ChatPanel), so we must apply a theme ourselves or every
@@ -198,7 +229,7 @@ onBeforeUnmount(() => closeStream());
       :running="streaming"
       :can-send="canSend"
       :error="error ?? undefined"
-      :placeholder="$t('knowledgeEngine.composerPlaceholder')"
+      :labels="composerLabels"
       @submit="submit"
       @stop="stop"
     />

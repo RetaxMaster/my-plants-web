@@ -141,3 +141,109 @@ export interface KnowledgeChatSessionDetail {
 export interface CreateKnowledgeSessionResponse { sessionId: string; runId: string; ticket: string }
 export interface ResumeKnowledgeRunResponse { runId: string; ticket: string }
 export interface KnowledgeSocketTicketResponse { ticket: string }
+
+// --- Blog & media (Spec 3; mirrors the API read-models in Spec 1) ---
+
+// Paginated envelope returned by GET /blog, GET /blogposts, GET /media.
+export interface BlogPage<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+// Public feed card (GET /blog items). Bilingual title/excerpt; the web picks the locale field.
+// Date fields arrive as ISO strings over JSON. difficulty is currently always null (no species
+// difficulty signal exists yet) — the badge is rendered only when it is non-null.
+export interface BlogpostCard {
+  slug: string;
+  titleEs: string;
+  titleEn: string | null;
+  excerptEs: string;
+  excerptEn: string | null;
+  coverImageUrl: string | null;
+  publishedAt: string | null;
+  readingMinutes: number;
+  speciesSlug: string | null;
+  speciesScientificName: string | null;
+  speciesCommonName: string | null;
+  difficulty: string | null;
+}
+
+// Public single-post detail (GET /blog/:slug) — card + body/youtube/cta.
+export interface BlogpostDetail extends BlogpostCard {
+  bodyEs: string;
+  bodyEn: string | null;
+  youtubeUrl: string | null;
+  ctaLink: string | null;
+  ctaLabelEs: string | null;
+  ctaLabelEn: string | null;
+}
+
+// The full editor view — the RAW blogpost row returned by the admin routes (create/get/patch/cover).
+// No species-derived fields, no readingMinutes (that is a public-feed projection only).
+export interface BlogpostAdminDetail {
+  slug: string;
+  status: 0 | 1;
+  speciesSlug: string | null;
+  titleEs: string;
+  titleEn: string | null;
+  excerptEs: string;
+  excerptEn: string | null;
+  bodyEs: string;
+  bodyEn: string | null;
+  coverImageUrl: string | null;
+  coverImageObjectKey: string | null;
+  youtubeUrl: string | null;
+  ctaLink: string | null;
+  ctaLabelEs: string | null;
+  ctaLabelEn: string | null;
+  createdByUserId: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Writing-desk list row (GET /blogposts items).
+export interface BlogpostAdminRow {
+  slug: string;
+  status: 0 | 1;
+  titleEs: string;
+  excerptEs: string;
+  coverImageUrl: string | null;
+  speciesSlug: string | null;
+  updatedAt: string;
+}
+
+// Media library asset (POST /media response + GET /media items).
+export interface MediaAssetView {
+  id: string;
+  imageUrl: string;
+  filename: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  createdAt: string;
+}
+
+// Create/update request bodies (server-owned fields omitted; speciesSlug is whitelist-stripped by the
+// API — the desk only creates/edits free-form posts). ES leads (required); EN + the rest are optional.
+export interface CreateBlogpost {
+  slug?: string;
+  status?: 0 | 1;
+  titleEs: string;
+  titleEn?: string | null;
+  excerptEs: string;
+  excerptEn?: string | null;
+  bodyEs: string;
+  bodyEn?: string | null;
+  coverImageUrl?: string | null;
+  coverImageObjectKey?: string | null;
+  youtubeUrl?: string | null;
+  ctaLink?: string | null;
+  ctaLabelEs?: string | null;
+  ctaLabelEn?: string | null;
+}
+
+export type UpdateBlogpost = Partial<CreateBlogpost>;

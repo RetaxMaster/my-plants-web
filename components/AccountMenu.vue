@@ -74,6 +74,14 @@ function stopActingAs() {
         <AppIcon name="user-group" :size="16" color="currentColor" />
         {{ $t('account.switchUser') }}
       </NuxtLink>
+      <NuxtLink v-if="isAdmin" to="/admin/blog" class="mp-menu-item" @click="open = false">
+        <AppIcon name="pencil-square" :size="16" color="currentColor" />
+        {{ $t('account.writingDesk') }}
+      </NuxtLink>
+      <NuxtLink v-if="isAdmin" to="/admin/media" class="mp-menu-item" @click="open = false">
+        <AppIcon name="photo" :size="16" color="currentColor" />
+        {{ $t('account.mediaLibrary') }}
+      </NuxtLink>
       <button v-if="actingAs" type="button" class="mp-menu-item" @click="stopActingAs">
         <AppIcon name="arrow-uturn-left" :size="16" color="currentColor" />
         <i18n-t keypath="actingAs.stopNamed" tag="span">

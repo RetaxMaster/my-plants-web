@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { type TaskCode } from '../../utils/tasks.js';
-import { todayYmd, addDaysYmd } from '../../utils/localDate.js';
-import { plantTitle } from '../../utils/displayName.js';
+import { type TaskCode } from '../../../utils/tasks.js';
+import { todayYmd, addDaysYmd } from '../../../utils/localDate.js';
+import { plantTitle } from '../../../utils/displayName.js';
 
 const route = useRoute();
 const api = useApi();
@@ -17,15 +17,13 @@ const { data: history, refresh: refreshHistory } = await useAsyncData(`history-$
 
 const editing = ref(false);
 
-const progressOpen = ref(false);
 const entryOpen = ref(false);
 const activeEntryId = ref<string | null>(null);
 
-function openProgress() { progressOpen.value = true; }
-
-async function onProgressSaved() {
-  // Progress re-anchors (drops off the care rows) and a new entry appears in the timeline.
-  await Promise.all([refresh(), refreshHistory()]);
+// "Log progress" is now a full-screen route (/plants/:id/progress), not a modal — the care rows +
+// history timeline are refreshed by key when it navigates back after a successful save.
+function openProgress() {
+  return navigateTo(`/plants/${id}/progress`);
 }
 
 function openEntry(entryId: string) {
@@ -170,7 +168,6 @@ async function postpone(task: TaskCode) {
       :places="places ?? []"
       @saved="onEdited"
     />
-    <ProgressLogModal v-model="progressOpen" :plant-id="id" @saved="onProgressSaved" />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
   </div>
   <UiEmptyState v-else>Loading…</UiEmptyState>

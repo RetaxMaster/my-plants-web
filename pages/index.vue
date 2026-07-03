@@ -54,16 +54,10 @@ async function postpone(plantId: string, task: DueTask['task']) {
   await refresh();
 }
 
-const progressPlantId = ref<string | null>(null);
-const progressOpen = ref(false);
-
+// "Log progress" opens the full-screen route (/plants/:id/progress); after saving there the user lands
+// on the plant detail, so there's no in-place Today refresh to wire here.
 function openProgress(plantId: string) {
-  progressPlantId.value = plantId;
-  progressOpen.value = true;
-}
-
-async function onProgressSaved() {
-  await refresh(); // Progress re-anchors to next Monday and drops off Today
+  return navigateTo(`/plants/${plantId}/progress`);
 }
 </script>
 
@@ -104,13 +98,6 @@ async function onProgressSaved() {
         </div>
       </UiCard>
     </UiCardGrid>
-
-    <ProgressLogModal
-      v-if="progressPlantId"
-      v-model="progressOpen"
-      :plant-id="progressPlantId"
-      @saved="onProgressSaved"
-    />
   </div>
 </template>
 

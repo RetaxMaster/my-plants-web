@@ -109,3 +109,35 @@ export type CareActionTask = Exclude<TaskCode, 'PROGRESS'>;
 export type HistoryItem =
   | { kind: 'progress'; entryId: string; occurredOn: string; health: ProgressHealth; photoCount: number; tagCount: number }
   | { kind: 'action'; task: CareActionTask; type: 'DONE'; occurredOn: string };
+
+// Admin knowledge-engine chat (spec 3). Sessions are a shared admin pool; addressed by internal cuid id.
+export type KnowledgeChatRunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+
+export interface KnowledgeChatSessionSummary {
+  id: string;
+  claudeSessionId: string | null;
+  title: string;
+  status: KnowledgeChatRunStatus | null;
+  turns: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeChatTurn {
+  runId: string;
+  prompt: string;
+  status: KnowledgeChatRunStatus;
+  isActive: boolean;
+  logUrl: string;
+}
+
+export interface KnowledgeChatSessionDetail {
+  id: string;
+  title: string;
+  claudeSessionId: string | null;
+  turns: KnowledgeChatTurn[];
+}
+
+export interface CreateKnowledgeSessionResponse { sessionId: string; runId: string; ticket: string }
+export interface ResumeKnowledgeRunResponse { runId: string; ticket: string }
+export interface KnowledgeSocketTicketResponse { ticket: string }

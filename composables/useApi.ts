@@ -1,7 +1,9 @@
 import type {
-  City, CitySearchResult, CreateCity, CreatePlace, CreatePlant, DueTaskResponse, Feedback, HistoryItem,
-  OwnerSummary, Place, Plant, PlantCare, PlantViability, ProgressEntryDetail, ProgressTag, SpeciesBrief,
-  SpeciesSummary, UpdatePlace, UpdatePlant, Viability,
+  City, CitySearchResult, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
+  DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
+  KnowledgeSocketTicketResponse, OwnerSummary, Place, Plant, PlantCare, PlantViability,
+  ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesBrief, SpeciesSummary,
+  UpdatePlace, UpdatePlant, Viability,
 } from '../types/api.js';
 
 export function useApi() {
@@ -70,6 +72,21 @@ export function useApi() {
       api<PlantViability[]>('/moving/simulate', { method: 'POST', body: { latitude, longitude } }),
     scheduleMove: (sel: { name: string; latitude: number; longitude: number; timezone: string }, moveOn: string) =>
       api<{ id: string }>('/moving/schedule', { method: 'POST', body: { ...sel, moveOn } }),
+
+    // Admin knowledge-engine chat (all admin-gated on the API via RolesGuard).
+    listKnowledgeSessions: () => api<KnowledgeChatSessionSummary[]>('/knowledge-chat/sessions'),
+    createKnowledgeSession: (prompt: string) =>
+      api<CreateKnowledgeSessionResponse>('/knowledge-chat/sessions', { method: 'POST', body: { prompt } }),
+    getKnowledgeSession: (id: string) =>
+      api<KnowledgeChatSessionDetail>(`/knowledge-chat/sessions/${id}`),
+    resumeKnowledgeSession: (id: string, prompt: string) =>
+      api<ResumeKnowledgeRunResponse>(`/knowledge-chat/sessions/${id}/runs`, { method: 'POST', body: { prompt } }),
+    deleteKnowledgeSession: (id: string) =>
+      api<{ ok: true }>(`/knowledge-chat/sessions/${id}`, { method: 'DELETE' }),
+    mintKnowledgeSocketTicket: (runId: string) =>
+      api<KnowledgeSocketTicketResponse>(`/knowledge-chat/runs/${runId}/socket-ticket`, { method: 'POST' }),
+    // Raw NDJSON transcript. The endpoint returns text/plain; ofetch yields the string as-is.
+    fetchKnowledgeRunLog: (logUrl: string) => api<string>(logUrl),
 
     listOwners: () => api<OwnerSummary[]>('/owners'),
     actAs: (ownerId: string) =>

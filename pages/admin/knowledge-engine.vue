@@ -1,0 +1,142 @@
+<script setup lang="ts">
+import type { KnowledgeChatSessionDetail } from '../../types/api';
+
+const { user } = useUserSession();
+if (user.value?.role !== 'ADMIN') {
+  throw createError({ statusCode: 404, statusMessage: 'Page not found' });
+}
+
+const sessionsApi = useKnowledgeChatSessions();
+const { data: sessions, refresh } = await useAsyncData('knowledge-sessions', () => sessionsApi.list(), {
+  default: () => [],
+});
+
+// null selection = a brand-new chat (not yet created); a string = an existing session's internal id.
+const selected = ref<string | null>(null);
+const detail = ref<KnowledgeChatSessionDetail | null>(null);
+const loadingDetail = ref(false);
+
+async function openSession(id: string | null) {
+  selected.value = id;
+  if (id === null) { detail.value = null; return; }
+  loadingDetail.value = true;
+  try {
+    detail.value = await sessionsApi.fetch(id);
+  } finally {
+    loadingDetail.value = false;
+  }
+}
+
+function newChat() {
+  void openSession(null);
+}
+
+async function onCreated(sessionId: string) {
+  // A brand-new chat just created its session server-side; adopt its id (no remount — the live stream
+  // is already running) and refresh the list so it appears.
+  selected.value = sessionId;
+  await refresh();
+}
+
+async function onChanged() {
+  await refresh();
+}
+
+async function removeSession(id: string) {
+  try {
+    await sessionsApi.remove(id);
+  } catch {
+    if (import.meta.client) alert('Could not delete — a run may still be active.');
+    return;
+  }
+  if (selected.value === id) await openSession(null);
+  await refresh();
+}
+
+// The KnowledgeChat mount key: brand-new chats mount fresh under 'new'; existing sessions under their
+// id. Adopting a new session's id (onCreated) intentionally does NOT change this key mid-stream —
+// the component keeps streaming; only a user-driven openSession() switches conversations.
+const chatKey = computed(() => (detail.value ? detail.value.id : 'new'));
+</script>
+
+<template>
+  <div>
+    <UiScreenHeader eyebrow="Admin" title="Knowledge Engine" subtitle="Research a species with the knowledge-engine assistant." />
+    <div class="mp-kchat-layout">
+      <aside class="mp-kchat-list">
+        <UiButton size="sm" variant="solid" color="neutral" block @click="newChat">New chat</UiButton>
+        <UiCard v-if="!sessions?.length" padded>
+          <UiEmptyState>No conversations yet.</UiEmptyState>
+        </UiCard>
+        <ul v-else class="mp-kchat-list__items">
+          <li v-for="s in sessions" :key="s.id" class="mp-kchat-list__item" :class="{ 'is-active': s.id === selected }">
+            <button type="button" class="mp-kchat-list__open" @click="openSession(s.id)">
+              <span class="mp-kchat-list__title">{{ s.title }}</span>
+              <span class="mp-kchat-list__meta">
+                <UiBadge v-if="s.status" :color="s.status === 'RUNNING' ? 'green' : 'neutral'" size="xs">{{ s.status }}</UiBadge>
+                <span class="mp-kchat-list__turns">{{ s.turns }} turns</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="mp-kchat-list__del"
+              :disabled="s.status === 'RUNNING' || s.status === 'QUEUED'"
+              title="Delete conversation"
+              @click="removeSession(s.id)"
+            >
+              <UiAppIcon name="trash" :size="15" color="currentColor" />
+            </button>
+          </li>
+        </ul>
+      </aside>
+
+      <section class="mp-kchat-main">
+        <UiCard padded class="mp-kchat-panel">
+          <ClientOnly>
+            <div v-if="loadingDetail" class="mp-kchat-main__loading">Loading…</div>
+            <KnowledgeChat
+              v-else
+              :key="chatKey"
+              :session-id="detail?.id ?? null"
+              :initial-claude-session-id="detail?.claudeSessionId ?? null"
+              :initial-turns="detail?.turns ?? []"
+              @created="onCreated"
+              @changed="onChanged"
+            />
+            <template #fallback>
+              <div class="mp-kchat-main__loading">Loading chat…</div>
+            </template>
+          </ClientOnly>
+        </UiCard>
+      </section>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.mp-kchat-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.mp-kchat-list { display: flex; flex-direction: column; gap: 10px; }
+.mp-kchat-list__items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mp-kchat-list__item {
+  display: flex; align-items: stretch; gap: 4px;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+}
+.mp-kchat-list__item.is-active { border-color: var(--accent-cafe-ink); }
+.mp-kchat-list__open { flex: 1; min-width: 0; text-align: left; background: none; border: none; padding: 8px 10px; cursor: pointer; }
+.mp-kchat-list__title { display: block; font: 600 13px var(--font-sans); color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-kchat-list__meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.mp-kchat-list__turns { font: 12px var(--font-sans); color: var(--text-muted); }
+.mp-kchat-list__del { background: none; border: none; padding: 0 8px; color: var(--text-muted); cursor: pointer; }
+.mp-kchat-list__del:disabled { opacity: 0.4; cursor: not-allowed; }
+.mp-kchat-panel { min-height: 60vh; display: flex; }
+.mp-kchat-main__loading { font: 14px var(--font-sans); color: var(--text-muted); }
+
+@media (max-width: 720px) {
+  .mp-kchat-layout { grid-template-columns: 1fr; }
+}
+</style>

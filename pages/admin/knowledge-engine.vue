@@ -133,7 +133,12 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
   gap: 16px;
   align-items: start;
 }
-.mp-kchat-list { display: flex; flex-direction: column; gap: 10px; }
+/* Both grid tracks MUST be allowed to shrink below their content's min-content, or the transcript
+   Console (wide monospace lines) forces the track — and thus the whole grid — past the viewport
+   (horizontal overflow on mobile). `min-width: 0` on each grid child is the fix; the Console then
+   scrolls internally instead of stretching the layout. */
+.mp-kchat-list { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mp-kchat-main { min-width: 0; }
 .mp-kchat-list__items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .mp-kchat-list__item {
   display: flex; align-items: stretch; gap: 4px;
@@ -146,7 +151,7 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
 .mp-kchat-list__turns { font: 12px var(--font-sans); color: var(--text-muted); }
 .mp-kchat-list__del { background: none; border: none; padding: 0 8px; color: var(--text-muted); cursor: pointer; }
 .mp-kchat-list__del:disabled { opacity: 0.4; cursor: not-allowed; }
-.mp-kchat-panel { min-height: 60vh; display: flex; }
+.mp-kchat-panel { min-height: 60vh; display: flex; min-width: 0; overflow: hidden; }
 .mp-kchat-main__loading { font: 14px var(--font-sans); color: var(--text-muted); }
 
 @media (max-width: 720px) {

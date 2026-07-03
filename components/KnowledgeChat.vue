@@ -179,7 +179,15 @@ onBeforeUnmount(() => closeStream());
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  /* min-width: 0 lets the transcript Console shrink and scroll internally instead of forcing the
+     column wider than the viewport (mobile horizontal overflow). */
+  min-width: 0;
+  width: 100%;
   height: 100%;
+}
+/* Belt-and-suspenders: never let the embedded console establish a min-content wider than its column. */
+.mp-kchat :deep(.crt-console) {
+  min-width: 0;
 }
 .mp-kchat__note {
   font: 13px var(--font-sans);

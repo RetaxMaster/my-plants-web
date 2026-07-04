@@ -187,6 +187,7 @@ export interface BlogpostAdminDetail {
   bodyEn: string | null;
   coverImageUrl: string | null;
   coverImageObjectKey: string | null;
+  coverImagePrompt: string | null;
   youtubeUrl: string | null;
   ctaLink: string | null;
   ctaLabelEs: string | null;

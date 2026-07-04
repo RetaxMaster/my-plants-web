@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { BlogpostAdminDetail, UpdateBlogpost } from '../../../types/api.js';
 import { renderMarkdown } from '../../../utils/renderMarkdown.js';
-import { needsThumbnailWarning } from '../../../utils/publishGuard.js';
+import { needsCoverWarning } from '../../../utils/publishGuard.js';
 
 const { t, locales } = useI18n();
 const { user } = useUserSession();
@@ -151,10 +151,10 @@ async function persist(publish?: boolean) {
 }
 
 // Save (keeps current status) or the explicit publish toggle. The publish guard fires whenever the
-// action results in a PUBLISHED post AND the ES body still carries the thumbnail-prompt block.
+// action results in a PUBLISHED post AND the post has no cover image (which is also its Meta/OG card).
 async function save(publish?: boolean) {
   const willBePublished = publish === true || (publish === undefined && isPublished.value);
-  if (willBePublished && needsThumbnailWarning(form.bodyEs)) {
+  if (willBePublished && needsCoverWarning(form.coverImageUrl)) {
     pendingPublish.value = publish;
     guardOpen.value = true;
     return;
@@ -199,7 +199,8 @@ async function confirmGuardPublish() {
         <UiBadge :color="isPublished ? 'green' : 'neutral'" size="xs" :dot="isPublished">{{ $t(`blog.status.${form.status}`) }}</UiBadge>
         <span class="mp-editor__vis">{{ isPublished ? $t('blog.editor.publicVisible') : $t('blog.editor.draftVisible') }}</span>
         <UiButton
-          size="xs" variant="ghost" :color="isPublished ? 'neutral' : 'primary'"
+          size="sm" variant="solid"
+          :color="isPublished ? 'neutral' : 'primary'"
           :icon="isPublished ? 'arrow-down-circle' : 'arrow-up-circle'"
           :loading="saving" @click="save(!isPublished)"
         >{{ isPublished ? $t('blog.editor.moveToDraft') : $t('blog.editor.publish') }}</UiButton>
@@ -261,12 +262,17 @@ async function confirmGuardPublish() {
         {{ saveError ? $t('blog.editor.saveError') : saveState === 'saved' ? $t('blog.editor.saved') : saveState === 'dirty' ? $t('blog.editor.dirty') : $t('blog.editor.clean') }}
       </span>
       <span class="mp-savebar__meta">{{ localeName(lang) }} · {{ $t('blog.editor.wordsMin', { words, min: minutes }) }}</span>
-      <UiButton size="sm" :loading="saving" @click="save()">{{ isPublished ? $t('blog.editor.save') : $t('blog.editor.saveDraft') }}</UiButton>
+      <UiButton
+        size="sm"
+        :loading="saving"
+        :disabled="saveState !== 'dirty'"
+        @click="save()"
+      >{{ saveState === 'dirty' ? (isPublished ? $t('blog.editor.save') : $t('blog.editor.saveDraft')) : $t('blog.editor.allSaved') }}</UiButton>
     </div>
 
     <!-- publish guard -->
-    <UiModal v-model="guardOpen" :title="$t('blog.editor.guardTitle')">
-      <p class="mp-editor__guardbody">{{ $t('blog.editor.guardBody') }}</p>
+    <UiModal v-model="guardOpen" :title="$t('blog.editor.guardNoCoverTitle')">
+      <p class="mp-editor__guardbody">{{ $t('blog.editor.guardNoCoverBody') }}</p>
       <div class="mp-editor__guardactions">
         <UiButton variant="ghost" color="neutral" @click="guardOpen = false">{{ $t('blog.editor.guardKeep') }}</UiButton>
         <UiButton :loading="saving" @click="confirmGuardPublish">{{ $t('blog.editor.guardPublish') }}</UiButton>

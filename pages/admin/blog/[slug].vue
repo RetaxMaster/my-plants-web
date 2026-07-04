@@ -2,6 +2,7 @@
 import type { BlogpostAdminDetail, UpdateBlogpost } from '../../../types/api.js';
 import { renderMarkdown } from '../../../utils/renderMarkdown.js';
 import { needsCoverWarning } from '../../../utils/publishGuard.js';
+import { countWords, readingMinutes } from '../../../utils/readingTime.js';
 
 const { t, locales } = useI18n();
 const { user } = useUserSession();
@@ -73,8 +74,8 @@ const excerpt = langField('excerptEs', 'excerptEn');
 const body = langField('bodyEs', 'bodyEn');
 const ctaLabel = langField('ctaLabelEs', 'ctaLabelEn');
 
-const words = computed(() => (body.value.trim() ? body.value.trim().split(/\s+/).length : 0));
-const minutes = computed(() => Math.max(1, Math.ceil(words.value / 200)));
+const words = computed(() => countWords(body.value));
+const minutes = computed(() => readingMinutes(body.value));
 
 const previewMd = computed(() =>
   body.value.trim() ? body.value : `*${lang.value === 'es' ? t('blog.editor.previewEmptyEs') : t('blog.editor.previewEmptyEn')}*`,

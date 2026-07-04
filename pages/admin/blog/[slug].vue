@@ -27,6 +27,7 @@ const form = reactive({
   titleEs: '', titleEn: '', excerptEs: '', excerptEn: '', bodyEs: '', bodyEn: '',
   youtubeUrl: '', ctaLink: '', ctaLabelEs: '', ctaLabelEn: '',
   coverImageUrl: null as string | null, coverImageObjectKey: null as string | null,
+  coverImagePrompt: null as string | null,
   status: 0 as 0 | 1, slug: '', speciesSlug: null as string | null,
 });
 
@@ -39,6 +40,7 @@ function seed(p: BlogpostAdminDetail) {
   form.youtubeUrl = p.youtubeUrl ?? ''; form.ctaLink = p.ctaLink ?? '';
   form.ctaLabelEs = p.ctaLabelEs ?? ''; form.ctaLabelEn = p.ctaLabelEn ?? '';
   form.coverImageUrl = p.coverImageUrl; form.coverImageObjectKey = p.coverImageObjectKey;
+  form.coverImagePrompt = p.coverImagePrompt;
   form.status = p.status; form.slug = p.slug; form.speciesSlug = p.speciesSlug;
   nextTick(() => (seeding.value = false));
 }
@@ -218,6 +220,14 @@ async function confirmGuardPublish() {
           :hint="$t('blog.editor.coverHint')"
           :current-url="form.coverImageUrl"
         />
+        <div v-if="form.coverImagePrompt" class="mp-editor__coverprompt">
+          <UiCopyableField
+            :model-value="form.coverImagePrompt"
+            :label="$t('blog.editor.coverPromptLabel')"
+            :rows="6"
+          />
+          <p class="mp-editor__coverprompthint">{{ $t('blog.editor.coverPromptHint') }}</p>
+        </div>
         <UiFormGroup :label="$t('blog.editor.youtube')" :hint="$t('blog.editor.youtubeHint')">
           <UiInput v-model="form.youtubeUrl" icon="play-circle" placeholder="https://www.youtube.com/watch?v=…" />
         </UiFormGroup>
@@ -306,6 +316,8 @@ async function confirmGuardPublish() {
 .mp-editor__detailsgrid { display: grid; gap: 18px; }
 .mp-editor__ctagrid { display: grid; gap: 18px; grid-template-columns: 1fr; }
 @media (min-width: 880px) { .mp-editor__ctagrid { grid-template-columns: 1fr 1fr; } }
+.mp-editor__coverprompt { display: grid; gap: var(--space-2); }
+.mp-editor__coverprompthint { margin: 0; font: 11px var(--font-sans); color: var(--text-faint); }
 
 .mp-editor__bodyhead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 30px 0 16px; }
 .mp-editor__bodytitle { margin: 0; }

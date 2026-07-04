@@ -253,6 +253,9 @@
     "notFoundLead": "It may have been unpublished or the link is wrong.",
     "backToBlog": "Back to the blog",
     "watchVideo": "Watch the companion video",
+    "toc": "Contents",
+    "author": { "role": "Plant care writer" },
+    "preview": { "draftBanner": "Preview · Draft" },
     "status": {
       "0": "Draft",
       "1": "Published"

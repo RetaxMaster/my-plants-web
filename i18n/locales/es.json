@@ -253,6 +253,9 @@
     "notFoundLead": "Puede que se haya despublicado o que el enlace sea incorrecto.",
     "backToBlog": "Volver al blog",
     "watchVideo": "Ver el video complementario",
+    "toc": "Índice",
+    "author": { "role": "Escribe sobre el cuidado de las plantas" },
+    "preview": { "draftBanner": "Vista previa · Borrador" },
     "status": {
       "0": "Borrador",
       "1": "Publicado"

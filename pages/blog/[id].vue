@@ -89,6 +89,14 @@ const { data, error } = await useAsyncData(`blog-article-${slug}`, async () => {
 const view = computed<ArticleView | null>(() => data.value?.view ?? null);
 const isDraft = computed(() => data.value?.isDraft ?? false);
 
+// Not-found (missing slug, or a draft an anonymous visitor can't see) still renders the friendly
+// not-found UI, but the SSR response must carry a real 404 — otherwise crawlers treat the not-found
+// page as a live 200 (soft-404). Set it on the server when there is no article to show.
+if (import.meta.server && !data.value) {
+  const event = useRequestEvent();
+  if (event) setResponseStatus(event, 404);
+}
+
 const title = computed(() =>
   view.value ? pickLocalized(locale.value, view.value.titleEs, view.value.titleEn) ?? view.value.titleEs : '',
 );

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BlogpostCard } from '../../types/api.js';
+import type { BlogpostCard, BlogpostAdminRow } from '../../types/api.js';
 import { pickLocalized } from '../../utils/localizedField.js';
 import { formatBlogDate } from '../../utils/blogDate.js';
 
@@ -17,24 +17,95 @@ const page = computed(() => {
   return Number.isFinite(raw) && raw >= 1 ? raw : 1;
 });
 
+const isAdmin = computed(() => user.value?.role === 'ADMIN');
+
 const { data } = await useAsyncData(
   () => `blog-feed-${page.value}`,
   () => api.listBlog(page.value, PAGE_SIZE),
   { watch: [page] },
 );
 
-const isAdmin = computed(() => user.value?.role === 'ADMIN');
-const items = computed<BlogpostCard[]>(() => data.value?.items ?? []);
-// The featured slot is the newest post — only on page 1.
-const featured = computed<BlogpostCard | null>(() => (page.value === 1 ? items.value[0] ?? null : null));
-const rest = computed<BlogpostCard[]>(() => (page.value === 1 ? items.value.slice(1) : items.value));
+// Admin-only draft overlay. Fetched once (page 1 of the drafts list); for non-admins it resolves null
+// (never calls the RolesGuard endpoint). Surfaced only on the magazine's page 1 (see the merge below).
+const { data: draftsData } = await useAsyncData(
+  'blog-drafts',
+  () => (isAdmin.value ? api.listBlogposts({ status: 0 }) : Promise.resolve(null)),
+  { watch: [isAdmin] },
+);
+
+// One card shape for the "more guides" list, regardless of source. A DRAFT honestly carries less:
+// no reading time, no difficulty, no species (the admin row has none) — the template renders those
+// only when non-null, so nothing is fabricated.
+interface FeedCard {
+  kind: 'published' | 'draft';
+  slug: string;
+  titleEs: string; titleEn: string | null;
+  excerptEs: string; excerptEn: string | null;
+  coverImageUrl: string | null;
+  dateIso: string | null;               // shown in the meta line
+  sortDate: string | null;              // ordering key (publishedAt or updatedAt)
+  readingMinutes: number | null;
+  speciesScientificName: string | null;
+  difficulty: string | null;
+}
+
+function toPublishedCard(c: BlogpostCard): FeedCard {
+  return {
+    kind: 'published',
+    slug: c.slug,
+    titleEs: c.titleEs, titleEn: c.titleEn,
+    excerptEs: c.excerptEs, excerptEn: c.excerptEn,
+    coverImageUrl: c.coverImageUrl,
+    dateIso: c.publishedAt, sortDate: c.publishedAt,
+    readingMinutes: c.readingMinutes,
+    speciesScientificName: c.speciesScientificName,
+    difficulty: c.difficulty,
+  };
+}
+
+function toDraftCard(r: BlogpostAdminRow): FeedCard {
+  return {
+    kind: 'draft',
+    slug: r.slug,
+    titleEs: r.titleEs, titleEn: null,      // no EN on the admin row
+    excerptEs: r.excerptEs, excerptEn: null,
+    coverImageUrl: r.coverImageUrl,
+    dateIso: r.updatedAt, sortDate: r.updatedAt,
+    readingMinutes: null,                   // no body to estimate from on the row
+    speciesScientificName: null,            // not on the row
+    difficulty: null,                       // not on the row
+  };
+}
+
+const publishedItems = computed<BlogpostCard[]>(() => data.value?.items ?? []);
+// The featured slot is the newest PUBLISHED post — page 1 only, never a draft.
+const featured = computed<BlogpostCard | null>(() => (page.value === 1 ? publishedItems.value[0] ?? null : null));
+
+// Descending by effective date; nulls sort last.
+function byDateDesc(a: FeedCard, b: FeedCard): number {
+  const ta = a.sortDate ? Date.parse(a.sortDate) : -Infinity;
+  const tb = b.sortDate ? Date.parse(b.sortDate) : -Infinity;
+  return tb - ta;
+}
+
+const rest = computed<FeedCard[]>(() => {
+  const publishedRest = (page.value === 1 ? publishedItems.value.slice(1) : publishedItems.value).map(toPublishedCard);
+  // Drafts only merge on page 1 (freshest view); deeper pages stay the published feed.
+  if (!isAdmin.value || page.value !== 1) return publishedRest;
+  const draftCards = (draftsData.value?.items ?? []).map(toDraftCard);
+  return [...publishedRest, ...draftCards].sort(byDateDesc);
+});
+
 const totalPages = computed(() => data.value?.totalPages ?? 1);
 const total = computed(() => data.value?.total ?? 0);
 const pageNumbers = computed(() => Array.from({ length: totalPages.value }, (_, i) => i + 1));
+const hasItems = computed(() => !!featured.value || rest.value.length > 0);
 
-const title = (c: BlogpostCard) => pickLocalized(locale.value, c.titleEs, c.titleEn) ?? c.titleEs;
-const excerpt = (c: BlogpostCard) => pickLocalized(locale.value, c.excerptEs, c.excerptEn) ?? '';
-const dateLabel = (c: BlogpostCard) => formatBlogDate(locale.value, c.publishedAt);
+const title = (c: { titleEs: string; titleEn: string | null }) =>
+  pickLocalized(locale.value, c.titleEs, c.titleEn) ?? c.titleEs;
+const excerpt = (c: { excerptEs: string; excerptEn: string | null }) =>
+  pickLocalized(locale.value, c.excerptEs, c.excerptEn) ?? '';
+const dateLabel = (iso: string | null) => formatBlogDate(locale.value, iso);
 
 function goToPage(p: number) {
   if (p < 1 || p > totalPages.value || p === page.value) return;
@@ -61,12 +132,12 @@ function goToPage(p: number) {
     </div>
 
     <!-- empty -->
-    <UiCard v-if="!items.length" padded>
+    <UiCard v-if="!hasItems" padded>
       <UiEmptyState>{{ $t('blog.empty') }}</UiEmptyState>
     </UiCard>
 
     <template v-else>
-      <!-- featured (page 1 only) -->
+      <!-- featured (page 1 only, published) -->
       <div v-if="featured" class="mp-featured">
         <NuxtLink :to="`/blog/${featured.slug}`" class="mp-featured__cover mp-clickable">
           <img v-if="featured.coverImageUrl" :src="featured.coverImageUrl" :alt="title(featured)" />
@@ -75,7 +146,7 @@ function goToPage(p: number) {
         <div class="mp-featured__body">
           <div class="mp-featured__meta">
             <UiBadge color="green" size="sm" dot>{{ $t('blog.featured') }}</UiBadge>
-            <span class="mp-meta-line">{{ dateLabel(featured) }} · {{ $t('blog.minRead', { min: featured.readingMinutes }) }}</span>
+            <span class="mp-meta-line">{{ dateLabel(featured.publishedAt) }} · {{ $t('blog.minRead', { min: featured.readingMinutes }) }}</span>
           </div>
           <NuxtLink :to="`/blog/${featured.slug}`" class="mp-featured__title mp-clickable">{{ title(featured) }}</NuxtLink>
           <p class="mp-featured__excerpt">{{ excerpt(featured) }}</p>
@@ -88,7 +159,7 @@ function goToPage(p: number) {
         </div>
       </div>
 
-      <!-- more guides (magazine list, alternating) -->
+      <!-- more guides (magazine list, alternating; drafts merged inline for admins) -->
       <div class="mp-more">
         <div class="mp-more__head">
           <div>
@@ -111,10 +182,14 @@ function goToPage(p: number) {
               <div v-else class="mp-magcard__ph"><UiAppIcon name="photo" :size="24" color="var(--text-faint)" /></div>
             </div>
             <div class="mp-magcard__body">
-              <div class="mp-meta-line">{{ dateLabel(s) }} · {{ $t('blog.minRead', { min: s.readingMinutes }) }}</div>
+              <div class="mp-meta-line">
+                <template v-if="s.kind === 'draft'">{{ dateLabel(s.dateIso) }}</template>
+                <template v-else>{{ dateLabel(s.dateIso) }} · {{ $t('blog.minRead', { min: s.readingMinutes }) }}</template>
+              </div>
               <UiPlantName :title="title(s)" :scientific="s.speciesScientificName ?? undefined" :size="20" />
               <p class="mp-magcard__excerpt">{{ excerpt(s) }}</p>
               <div class="mp-magcard__foot">
+                <UiBadge v-if="s.kind === 'draft'" color="neutral" size="xs">{{ $t('blog.status.0') }}</UiBadge>
                 <UiBadge v-if="s.difficulty" color="cafe" size="xs">{{ s.difficulty }}</UiBadge>
                 <span class="mp-readmore">{{ $t('blog.readGuide') }} <UiAppIcon name="arrow-right" :size="14" color="currentColor" /></span>
               </div>
@@ -122,7 +197,7 @@ function goToPage(p: number) {
           </NuxtLink>
         </div>
 
-        <!-- pagination -->
+        <!-- pagination (published feed) -->
         <nav v-if="totalPages > 1" class="mp-pagination" :aria-label="$t('blog.pagination')">
           <div class="mp-pagination__row">
             <UiButton size="sm" variant="soft" color="neutral" icon="chevron-left" :disabled="page <= 1" @click="goToPage(page - 1)">

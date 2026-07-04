@@ -55,6 +55,26 @@ describe('renderArticle — scoped sanitizer (id only on h2/h3, and only OUR ids
     expect(html).toContain('y');
   });
 
+  it('strips a raw author id even when it COLLIDES with a slug we generated', () => {
+    // The subtle attack a value-only check missed: the author writes literal <h2 id="watering-basics">
+    // that collides with the slug generated for the real `## Watering basics`. Only the real heading may
+    // keep the id; the injected raw one must be dropped (no duplicate id / hijacked anchor). The
+    // per-render nonce is what distinguishes them — the author cannot forge it.
+    const { html, toc } = renderArticle('<h2 id="watering-basics">Injected</h2>\n\n## Watering basics');
+    // Exactly ONE element carries id="watering-basics" — the real generated heading, not the raw one.
+    expect(html.match(/id="watering-basics"/g)).toHaveLength(1);
+    expect(html).toContain('<h2 id="watering-basics">Watering basics</h2>');
+    expect(html).toContain('Injected'); // the raw heading's TEXT survives, only its id is stripped
+    expect(toc).toEqual([{ id: 'watering-basics', text: 'Watering basics', level: 2 }]);
+  });
+
+  it('never leaks the internal nonce into the returned html', () => {
+    const { html } = renderArticle('## Light\n\n### Water');
+    expect(html).not.toMatch(/mp-h-[a-z0-9]/); // the nonce prefix is stripped before returning
+    expect(html).toContain('id="light"');
+    expect(html).toContain('id="water"');
+  });
+
   it('still strips class attributes (ban unchanged)', () => {
     const { html } = renderArticle('<span class="mp-savebar">x</span>');
     expect(html).not.toContain('class=');

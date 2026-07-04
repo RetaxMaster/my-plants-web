@@ -47,6 +47,15 @@ export function renderArticle(md: string): RenderedArticle {
   // the spec invariant: "the kept ids are our slugify output on the heading text, not attacker markup."
   const generatedIds = new Set<string>();
 
+  // Per-render UNGUESSABLE nonce. Our heading renderer prefixes every id it emits with `${nonce}:`; the
+  // sanitizer hook keeps an id ONLY when it carries this prefix (then strips it back off). Value-only
+  // matching is NOT enough: raw author HTML like `<h2 id="watering-basics">` can COLLIDE with a slug we
+  // also generated for a real `## Watering basics`, and a value check would let the injected id survive
+  // (duplicate id / hijacked TOC anchor). The author cannot forge a random per-render prefix, so their
+  // id is dropped. The nonce never reaches the returned html (stripped in the hook), so the final ids
+  // are the clean slugs — identical in SSR and on the client (no hydration mismatch).
+  const nonce = `mp-h-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+
   // Deduplicate slugs: the first "setup" stays `setup`, the next becomes `setup-1`, etc. An empty
   // slug (heading with no slug-able chars) falls back to `section`.
   const dedupe = (base: string): string => {
@@ -66,7 +75,9 @@ export function renderArticle(md: string): RenderedArticle {
           const id = dedupe(slugify(token.text));
           generatedIds.add(id);
           toc.push({ id, text: plainText(token.text), level: depth as 2 | 3 });
-          return `<h${depth} id="${id}">${inner}</h${depth}>\n`;
+          // Emit the nonce-prefixed id; the hook strips the prefix back to the clean `id` after proving
+          // provenance. The clean `id` is what lands in the html and the toc, so the two never drift.
+          return `<h${depth} id="${nonce}:${id}">${inner}</h${depth}>\n`;
         }
         return `<h${depth}>${inner}</h${depth}>\n`;
       },
@@ -76,18 +87,25 @@ export function renderArticle(md: string): RenderedArticle {
   const rawHtml = marked.parse(md, { async: false }) as string;
 
   // SCOPED sanitizer hook: `id` is in ALLOWED_ATTR above (so DOMPurify lets it reach the hook), and
-  // this hook DROPS it unless BOTH hold: (a) the node is an H2/H3, AND (b) the id value is one WE
-  // generated this render (`generatedIds`). Condition (b) is what defeats author-/attacker-supplied
-  // ids on raw `<h2 id="…">`/`<h3 id="…">` HTML in the body — those are not in the set, so they are
-  // stripped and can never collide with the page's fixed `.mp-*`/anchor ids. Added and removed around
-  // the single sanitize call so renderMarkdown (the editor preview) is never affected. Synchronous,
-  // no reentrancy — `generatedIds` is fully populated by the parse pass above before sanitize runs.
+  // this hook DROPS it unless ALL hold: (a) the node is an H2/H3, (b) the id carries THIS render's
+  // unguessable `${nonce}:` prefix (proving WE emitted it — an author cannot forge it, so a raw
+  // `<h2 id="watering-basics">` that collides with a real slug is still dropped), and (c) the stripped
+  // slug is one we actually generated (`generatedIds`, belt-and-suspenders). When kept, the nonce
+  // prefix is removed so the surviving `id` is the clean slug. Added and removed around the single
+  // sanitize call so renderMarkdown (the editor preview) is never affected. Synchronous, no reentrancy
+  // — `generatedIds` is fully populated by the parse pass above before sanitize runs.
+  const prefix = `${nonce}:`;
   DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
     if (data.attrName !== 'id') return;
     const isHeading = node.nodeName === 'H2' || node.nodeName === 'H3';
-    if (!isHeading || !generatedIds.has(data.attrValue)) {
-      data.keepAttr = false;
+    if (isHeading && data.attrValue.startsWith(prefix)) {
+      const clean = data.attrValue.slice(prefix.length);
+      if (generatedIds.has(clean)) {
+        data.attrValue = clean; // strip the nonce; keep our real slug id
+        return;
+      }
     }
+    data.keepAttr = false; // any id without our per-render nonce (incl. raw author ids) is dropped
   });
   let html: string;
   try {

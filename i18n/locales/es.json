@@ -336,6 +336,9 @@
       "guardPublish": "Publicar de todos modos",
       "guardKeep": "Seguir editando"
     },
+    "admin": {
+      "viewPublic": "Ver entrada pública"
+    },
     "media": {
       "previewAlt": "Vista previa de la imagen subida",
       "uploading": "Subiendo…",

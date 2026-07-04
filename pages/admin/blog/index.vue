@@ -155,6 +155,10 @@ function goToPage(p: number) {
 
             <div v-else class="mp-postrow__actions">
               <UiButton
+                size="xs" variant="ghost" color="neutral" icon="arrow-up-right"
+                @click="navigateTo(`/blog/${row.slug}`)"
+              >{{ $t('blog.admin.viewPublic') }}</UiButton>
+              <UiButton
                 v-if="row.status === 1"
                 size="xs" variant="ghost" color="neutral" icon="arrow-down-circle"
                 :loading="busy === row.slug" @click="setStatus(row, 0)"

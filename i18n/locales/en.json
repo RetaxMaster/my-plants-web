@@ -336,6 +336,9 @@
       "guardPublish": "Publish anyway",
       "guardKeep": "Keep editing"
     },
+    "admin": {
+      "viewPublic": "View public post"
+    },
     "media": {
       "previewAlt": "Uploaded image preview",
       "uploading": "Uploading…",

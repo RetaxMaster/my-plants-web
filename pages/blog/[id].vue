@@ -212,13 +212,11 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
         <div v-if="ctaHref && ctaLabel" class="mp-postcta">
           <span class="mp-postcta__eyebrow">{{ $t('blog.cta.eyebrow') }}</span>
           <h2 class="mp-postcta__title">{{ $t('blog.cta.lead') }}<span class="mp-postcta__dot">.</span></h2>
-          <div class="mp-postcta__btnwrap">
-            <a class="mp-postcta__link" :href="ctaHref" target="_blank" rel="noopener noreferrer">
-              <span class="mp-postcta__sheen" aria-hidden="true" />
-              <span class="mp-postcta__label">{{ ctaLabel }}</span>
-              <span class="mp-postcta__arrow" aria-hidden="true">→</span>
-            </a>
-          </div>
+          <a class="mp-postcta__link" :href="ctaHref" target="_blank" rel="noopener noreferrer">
+            <span class="mp-postcta__sheen" aria-hidden="true" />
+            <span class="mp-postcta__label">{{ ctaLabel }}</span>
+            <span class="mp-postcta__arrow" aria-hidden="true">→</span>
+          </a>
         </div>
 
         <!-- Author sign-off: the same byline as the hero, closing the article. -->
@@ -341,59 +339,50 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
   letter-spacing: -0.02em; color: var(--text-strong);
 }
 .mp-postcta__dot { color: var(--brand-primary); }
-/* The wrapper carries the beacon and must NOT clip it (so the ring can expand OUTWARD past the pill).
-   The pill itself keeps overflow:hidden for the sheen — that's why the beacon can't live on the pill. */
-.mp-postcta__btnwrap { position: relative; display: inline-flex; margin-top: 8px; isolation: isolate; }
-/* Beacon pulse: a SOFT brand-colored glow (a blurred shadow ring — NOT a solid fill) behind the pill
-   that gently expands and fades on a loop, echoing the Retax reference's halo. The box-shadow is
-   STATIC; only transform + opacity animate (on a promoted layer), so it respects the perf invariant
-   (no animated shadow, no paint/layout animation in the loop). No `background` → it reads as a halo
-   around the pill, never a hard green block. */
-.mp-postcta__btnwrap::before {
-  content: ''; position: absolute; inset: 0; z-index: 0; border-radius: var(--radius-pill);
-  pointer-events: none; will-change: transform, opacity;
-  /* ONLY a diffuse blurred glow — no solid ring/spread (a hard spread reads as a green frame). Two
-     blurred layers (a wider soft halo + a tighter brighter one) give it presence without a hard edge. */
-  box-shadow:
-    0 0 26px 5px color-mix(in srgb, var(--brand-primary) 55%, transparent),
-    0 0 10px 1px color-mix(in srgb, var(--brand-primary) 45%, transparent);
-  animation: mp-cta-beacon 2.6s cubic-bezier(0.22, 0.61, 0.2, 1) infinite;
-}
-@keyframes mp-cta-beacon {
-  0% { transform: scale(0.9); opacity: 0.9; }
-  70%, 100% { transform: scale(1.22); opacity: 0; }
-}
 .mp-postcta__link {
-  position: relative; z-index: 1;
+  position: relative; margin-top: 8px;
   display: inline-flex; align-items: center; gap: 10px;
   padding: 14px 30px; border-radius: var(--radius-pill);
   background: var(--brand-primary); color: var(--text-on-brand);
   font: var(--weight-semibold) 15px var(--font-sans); text-decoration: none; overflow: hidden;
   transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  /* Beacon pulse — the EXACT Retax mechanism: an ANIMATED box-shadow that expands its spread from 0 to
+     18px and fades to transparent on a loop, giving the ring that radiates outward from the pill. It
+     lives on the pill itself; an outset box-shadow is NOT clipped by the pill's own overflow:hidden
+     (only inner children are), which is why this shows and a pseudo-element ring did not.
+     DELIBERATE EXCEPTION to the perf invariant ("no animated paint in an infinite loop"): the user
+     asked to replicate the Retax effect exactly. Scoped to one small button, so the paint cost is
+     negligible; documented here per the decide-and-document rule. */
+  animation: mp-cta-beacon 2.4s cubic-bezier(0.22, 0.61, 0.2, 1) infinite;
 }
-.mp-postcta__link:hover { transform: translateY(-2px); background: var(--brand-primary-hover); }
-/* Sheen sweeps periodically (like the reference) — TRANSFORM only. */
+.mp-postcta__link:hover { transform: translateY(-2px) scale(1.03); background: var(--brand-primary-hover); }
+@keyframes mp-cta-beacon {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-primary) 45%, transparent); }
+  70% { box-shadow: 0 0 0 18px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+/* Sheen sweeps periodically across the pill (clipped by overflow:hidden) — the Retax sheen keyframes. */
 .mp-postcta__sheen {
   position: absolute; top: 0; bottom: 0; left: 0; width: 45%; pointer-events: none;
   transform: translateX(-180%) skewX(-18deg);
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
-  animation: mp-cta-sheen 4.2s cubic-bezier(0.22, 0.61, 0.2, 1) infinite;
+  animation: mp-cta-sheen 4s cubic-bezier(0.22, 0.61, 0.2, 1) infinite;
 }
 @keyframes mp-cta-sheen {
   0%, 55% { transform: translateX(-180%) skewX(-18deg); }
-  100% { transform: translateX(360%) skewX(-18deg); }
+  100% { transform: translateX(340%) skewX(-18deg); }
 }
 .mp-postcta__label { position: relative; }
-/* Arrow nudges out periodically + a little extra on hover. */
+/* Arrow nudges out periodically (Retax nudge) + a little extra on hover. */
 .mp-postcta__arrow {
   position: relative; display: inline-block;
-  animation: mp-cta-nudge 1.7s ease-in-out infinite;
+  animation: mp-cta-nudge 1.6s ease-in-out infinite;
 }
-@keyframes mp-cta-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
-.mp-postcta__link:hover .mp-postcta__arrow { transform: translateX(4px); }
+@keyframes mp-cta-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(5px); } }
+.mp-postcta__link:hover .mp-postcta__arrow { transform: translateX(5px); }
 @media (prefers-reduced-motion: reduce) {
   .mp-postcta__link:hover { transform: none; }
-  .mp-postcta__btnwrap::before,
+  .mp-postcta__link,
   .mp-postcta__sheen,
   .mp-postcta__arrow { animation: none; }
 }

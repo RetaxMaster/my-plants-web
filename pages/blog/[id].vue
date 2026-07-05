@@ -3,7 +3,7 @@ import type { BlogpostDetail, BlogpostAdminDetail } from '../../types/api.js';
 import { pickLocalized } from '../../utils/localizedField.js';
 import { renderArticle } from '../../utils/renderArticle.js';
 import { youtubeEmbedUrl } from '../../utils/youtube.js';
-import { formatBlogDate } from '../../utils/blogDate.js';
+import { formatBlogDateFull } from '../../utils/blogDate.js';
 import { safeHttpUrl } from '../../utils/safeUrl.js';
 import { readingMinutes } from '../../utils/readingTime.js';
 import { absoluteUrl } from '../../utils/absoluteUrl.js';
@@ -117,7 +117,7 @@ const ctaLabel = computed(() =>
 );
 // Author-supplied link — guard the scheme so a stored `javascript:` CTA can never become an XSS vector.
 const ctaHref = computed(() => safeHttpUrl(view.value?.ctaLink));
-const dateLabel = computed(() => (view.value ? formatBlogDate(locale.value, view.value.dateIso) : ''));
+const dateLabel = computed(() => (view.value ? formatBlogDateFull(locale.value, view.value.dateIso) : ''));
 const readingMin = computed(() => view.value?.readingMinutes ?? 1);
 
 // --- SEO (§4.7): reactive getters so a locale switch updates the tags. Cover is the Meta OG image,
@@ -218,6 +218,13 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
             <span class="mp-postcta__arrow" aria-hidden="true">→</span>
           </a>
         </div>
+
+        <!-- Author sign-off: the same byline as the hero, closing the article. -->
+        <footer class="mp-article__sign">
+          <UiAuthorByline :name="author.name" :handle="author.handle" :avatar="author.avatar" :size="52">
+            <template #role>{{ $t('blog.author.role') }}</template>
+          </UiAuthorByline>
+        </footer>
       </article>
     </div>
   </div>
@@ -282,9 +289,8 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
 .mp-hero__sci { font: italic var(--weight-regular) 0.6em var(--font-sans); opacity: 0.85; }
 .mp-hero__excerpt { margin: 0; font: 16px/1.6 var(--font-sans); max-width: 62ch; color: rgba(255,255,255,0.92); }
 .mp-hero__byline { margin-top: 4px; }
-/* The byline sits on the dark scrim → light ink for name/handle/meta in the hero. */
+/* The byline sits on the dark scrim → light ink for name/meta; the @handle keeps the brand color. */
 .mp-hero__byline :deep(.mp-byline__name) { color: #fff; }
-.mp-hero__byline :deep(.mp-byline__handle) { color: rgba(255,255,255,0.9); }
 .mp-hero__byline :deep(.mp-byline__meta) { color: rgba(255,255,255,0.72); }
 
 /* No-cover degrade: solid surface band, dark ink from tokens (no scrim, no white text). */
@@ -294,7 +300,6 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
 .mp-hero--nocover .mp-hero__draft { background: var(--brand-accent-subtle); color: var(--accent-cafe-ink); }
 .mp-hero--nocover .mp-hero__excerpt { color: var(--text-muted); }
 .mp-hero--nocover .mp-hero__byline :deep(.mp-byline__name) { color: var(--text-strong); }
-.mp-hero--nocover .mp-hero__byline :deep(.mp-byline__handle) { color: var(--text-brand); }
 .mp-hero--nocover .mp-hero__byline :deep(.mp-byline__meta) { color: var(--text-faint); }
 
 /* ============ BODY ============
@@ -335,27 +340,55 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
 }
 .mp-postcta__dot { color: var(--brand-primary); }
 .mp-postcta__link {
-  position: relative; display: inline-flex; align-items: center; gap: 10px; margin-top: 6px;
+  position: relative; isolation: isolate;
+  display: inline-flex; align-items: center; gap: 10px; margin-top: 6px;
   padding: 14px 30px; border-radius: var(--radius-pill);
   background: var(--brand-primary); color: var(--text-on-brand);
   font: var(--weight-semibold) 15px var(--font-sans); text-decoration: none; overflow: hidden;
   transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .mp-postcta__link:hover { transform: translateY(-2px); background: var(--brand-primary-hover); }
-/* Sheen animates TRANSFORM only (GPU), one-shot on hover — not an infinite layout animation. */
+/* Beacon pulse: a brand-colored clone BEHIND the pill that scales up and fades out on a periodic
+   loop — the outward "pulse" from the Retax reference, but done with transform + opacity (GPU) instead
+   of an animated box-shadow, so it respects the perf invariant (no paint/layout animation in a loop). */
+.mp-postcta__link::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit;
+  background: var(--brand-primary); pointer-events: none;
+  animation: mp-cta-beacon 2.6s cubic-bezier(0.22, 0.61, 0.2, 1) infinite;
+}
+@keyframes mp-cta-beacon {
+  0% { transform: scale(1); opacity: 0.55; }
+  70%, 100% { transform: scale(1.28); opacity: 0; }
+}
+/* Sheen sweeps periodically (like the reference) — TRANSFORM only. */
 .mp-postcta__sheen {
   position: absolute; top: 0; bottom: 0; left: 0; width: 45%; pointer-events: none;
-  transform: translateX(-160%);
+  transform: translateX(-180%) skewX(-18deg);
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+  animation: mp-cta-sheen 4.2s cubic-bezier(0.22, 0.61, 0.2, 1) infinite;
 }
-.mp-postcta__link:hover .mp-postcta__sheen { animation: mp-sheen 0.9s var(--ease-out); }
-@keyframes mp-sheen { to { transform: translateX(360%); } }
+@keyframes mp-cta-sheen {
+  0%, 55% { transform: translateX(-180%) skewX(-18deg); }
+  100% { transform: translateX(360%) skewX(-18deg); }
+}
 .mp-postcta__label { position: relative; }
-.mp-postcta__arrow { position: relative; transition: transform var(--dur-fast) var(--ease-out); }
-.mp-postcta__link:hover .mp-postcta__arrow { transform: translateX(3px); }
+/* Arrow nudges out periodically + a little extra on hover. */
+.mp-postcta__arrow {
+  position: relative; display: inline-block;
+  animation: mp-cta-nudge 1.7s ease-in-out infinite;
+}
+@keyframes mp-cta-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+.mp-postcta__link:hover .mp-postcta__arrow { transform: translateX(4px); }
 @media (prefers-reduced-motion: reduce) {
   .mp-postcta__link:hover { transform: none; }
-  .mp-postcta__link:hover .mp-postcta__sheen { animation: none; }
+  .mp-postcta__link::before,
+  .mp-postcta__sheen,
+  .mp-postcta__arrow { animation: none; }
+}
+
+/* Author sign-off at the article's end */
+.mp-article__sign {
+  margin-top: 48px; padding-top: 26px; border-top: 1px solid var(--border-subtle);
 }
 
 /* ============ Not found ============ */

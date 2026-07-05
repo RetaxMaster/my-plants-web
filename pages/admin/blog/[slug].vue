@@ -58,7 +58,10 @@ function seed(p: BlogpostAdminDetail) {
   form.status = p.status; form.slug = p.slug; form.speciesSlug = p.speciesSlug;
   baseline.value = editableSnapshot(); // capture the saved state as the clean baseline
 }
-watchEffect(() => { if (post.value) seed(post.value); });
+// Seed ONLY when the loaded post changes (initial load) — NOT on every edit. `watchEffect` would track
+// the form reads inside `editableSnapshot()` (called by seed) and re-seed on every keystroke, which
+// re-baselines the form and permanently forces dirty=false. `watch(post)` tracks only `post`.
+watch(post, (p) => { if (p) seed(p); }, { immediate: true });
 
 const isFreeForm = computed(() => form.speciesSlug === null);
 const isPublished = computed(() => form.status === 1);

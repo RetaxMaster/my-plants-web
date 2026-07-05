@@ -59,7 +59,7 @@ const initials = computed(() =>
 }
 .mp-byline__text { display: grid; gap: 3px; line-height: 1.25; min-width: 0; }
 .mp-byline__name { font: var(--weight-semibold) 14px var(--font-sans); color: var(--text-strong); }
-.mp-byline__handle { font: var(--weight-regular) 12px var(--font-mono); color: var(--text-brand); margin-left: 6px; }
+.mp-byline__handle { font: var(--weight-regular) 12px var(--font-mono); color: var(--brand-primary); margin-left: 6px; }
 .mp-byline__meta { font: 11px var(--font-mono); letter-spacing: 0.03em; color: var(--text-faint); }
 .mp-byline__role { font: var(--weight-medium) 12px var(--font-sans); color: var(--text-muted); }
 </style>

@@ -26,9 +26,9 @@ describe('renderArticle — TOC extraction', () => {
   it('lists h2/h3 in document order with levels and plain text', () => {
     const { toc } = renderArticle('## Light\n\n### Direct **sun**\n\n## Water');
     expect(toc).toEqual([
-      { id: 'light', text: 'Light', level: 2 },
-      { id: 'direct-sun', text: 'Direct sun', level: 3 },
-      { id: 'water', text: 'Water', level: 2 },
+      { id: 'light', text: 'Light', level: 2, num: '01' },
+      { id: 'direct-sun', text: 'Direct sun', level: 3, num: '·' },
+      { id: 'water', text: 'Water', level: 2, num: '02' },
     ]);
   });
 
@@ -65,7 +65,7 @@ describe('renderArticle — scoped sanitizer (id only on h2/h3, and only OUR ids
     expect(html.match(/id="watering-basics"/g)).toHaveLength(1);
     expect(html).toContain('<h2 id="watering-basics">Watering basics</h2>');
     expect(html).toContain('Injected'); // the raw heading's TEXT survives, only its id is stripped
-    expect(toc).toEqual([{ id: 'watering-basics', text: 'Watering basics', level: 2 }]);
+    expect(toc).toEqual([{ id: 'watering-basics', text: 'Watering basics', level: 2, num: '01' }]);
   });
 
   it('never leaks the internal nonce into the returned html', () => {

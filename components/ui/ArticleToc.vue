@@ -37,9 +37,9 @@ onMounted(() => {
       }
       recompute();
     },
-    // A band under the sticky topbar: a heading counts as "active" once it crosses ~88px from the top
-    // and until it leaves the top 35% of the viewport. Tune in the perf/a11y review (Phase 3).
-    { rootMargin: '-88px 0px -65% 0px', threshold: 0 },
+    // A band under the sticky topbar: a heading counts as "active" once it crosses ~96px from the top
+    // and until it leaves the top 35% of the viewport.
+    { rootMargin: '-96px 0px -65% 0px', threshold: 0 },
   );
   // Seed the first entry active so the index never renders with nothing highlighted on load.
   activeId.value = props.items[0]?.id ?? '';
@@ -67,30 +67,45 @@ onBeforeUnmount(() => {
           :href="`#${item.id}`"
           class="mp-toc__link"
           :aria-current="activeId === item.id ? 'location' : undefined"
-        >{{ item.text }}</a>
+        >
+          <span class="mp-toc__num">{{ item.num }}</span>
+          <span class="mp-toc__text">{{ item.text }}</span>
+        </a>
       </li>
     </ol>
   </nav>
 </template>
 
 <style scoped>
-.mp-toc { font: var(--font-sans); }
-.mp-toc__title { font: 700 12px var(--font-sans); letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; }
-.mp-toc__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.mp-toc__item--sub { margin-left: 14px; }
+.mp-toc { font-family: var(--font-sans); }
+.mp-toc__title {
+  font: var(--weight-medium) 10.5px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 14px;
+}
+.mp-toc__list { list-style: none; margin: 0; padding: 0; }
+/* The continuous vertical rail: every link carries a left border, and the items are flush (no gap),
+   so their borders form ONE unbroken line down the whole index; the active item lights its segment. */
 .mp-toc__link {
-  display: block; padding: 5px 10px; border-left: 2px solid transparent;
-  font: 500 13px/1.4 var(--font-sans); color: var(--text-muted); text-decoration: none;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 0 7px 14px;
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-muted); text-decoration: none;
   transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
+.mp-toc__item--sub .mp-toc__link { padding-left: 30px; }
 .mp-toc__link:hover { color: var(--text-strong); }
 .mp-toc__item--active > .mp-toc__link {
-  color: var(--text-brand); border-left-color: var(--brand-primary); background: var(--accent-green-surface);
+  color: var(--text-brand); border-left-color: var(--brand-primary);
 }
+.mp-toc__num {
+  font: 9.5px var(--font-mono); color: var(--text-faint); flex-shrink: 0; letter-spacing: 0.02em;
+}
+.mp-toc__item--active > .mp-toc__link .mp-toc__num { color: var(--text-brand); }
+.mp-toc__text { font: var(--weight-medium) 12.5px/1.45 var(--font-sans); }
+
 /* Anchor jumps land below the sticky topbar, not under it. */
-:global(.mp-article-body h2),
-:global(.mp-article-body h3) { scroll-margin-top: 96px; }
+:global(.mp-article h2),
+:global(.mp-article h3) { scroll-margin-top: 96px; }
 @media (prefers-reduced-motion: no-preference) {
   :global(html) { scroll-behavior: smooth; }
 }

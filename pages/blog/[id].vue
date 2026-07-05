@@ -140,34 +140,32 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
 </script>
 
 <template>
-  <div v-if="view">
-    <!-- Reading progress: fixed at the very top edge, tracks the whole article element. -->
+  <div v-if="view" class="mp-article-page">
+    <!-- Reading progress: fixed at the very top edge, tracks the article element. -->
     <UiReadingProgress target=".mp-article" />
 
-    <button type="button" class="mp-backlink" @click="navigateTo('/blog')">
-      <UiAppIcon name="chevron-left" :size="16" color="currentColor" />
-      {{ $t('blog.allArticles') }}
-    </button>
+    <!-- HERO (full-bleed): the cover fills the width behind a legibility scrim; the eyebrow, title,
+         excerpt and author byline stack on top. Degrades to a solid band with no cover. -->
+    <header class="mp-hero" :class="{ 'mp-hero--nocover': !view.coverImageUrl }">
+      <img
+        v-if="view.coverImageUrl"
+        :src="view.coverImageUrl"
+        :alt="title"
+        class="mp-hero__img"
+        fetchpriority="high"
+        decoding="async"
+      />
+      <div v-if="view.coverImageUrl" class="mp-hero__scrim" aria-hidden="true" />
+      <div class="mp-hero__inner">
+        <button type="button" class="mp-hero__back" @click="navigateTo('/blog')">
+          <UiAppIcon name="chevron-left" :size="15" color="currentColor" />
+          {{ $t('blog.allArticles') }}
+        </button>
 
-    <div v-if="isDraft" class="mp-preview-banner">
-      <UiAppIcon name="eye" :size="15" color="currentColor" />
-      {{ $t('blog.preview.draftBanner') }}
-    </div>
-
-    <article class="mp-article">
-      <!-- HERO (§4.5): cover fills a large band with a legibility scrim; text stacks on top.
-           Degrades to a solid surface band when there is no cover. The cover is the LCP → eager. -->
-      <header class="mp-hero" :class="{ 'mp-hero--nocover': !view.coverImageUrl }">
-        <img
-          v-if="view.coverImageUrl"
-          :src="view.coverImageUrl"
-          :alt="title"
-          class="mp-hero__img"
-          fetchpriority="high"
-          decoding="async"
-        />
-        <div v-if="view.coverImageUrl" class="mp-hero__scrim" aria-hidden="true" />
-        <div class="mp-hero__content">
+        <div class="mp-hero__foot">
+          <div v-if="isDraft" class="mp-hero__draft">
+            <UiAppIcon name="eye" :size="14" color="currentColor" /> {{ $t('blog.preview.draftBanner') }}
+          </div>
           <div class="mp-hero__badges">
             <UiBadge color="green" size="sm" dot>{{ $t('blog.careGuide') }}</UiBadge>
             <UiBadge v-if="view.difficulty" color="cafe" size="sm">{{ view.difficulty }}</UiBadge>
@@ -177,47 +175,51 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
             <span v-if="view.speciesScientificName" class="mp-hero__sci">({{ view.speciesScientificName }})</span>
           </h1>
           <p v-if="excerpt" class="mp-hero__excerpt">{{ excerpt }}</p>
-          <div class="mp-hero__meta">{{ dateLabel }} · {{ $t('blog.minRead', { min: readingMin }) }}</div>
-          <UiAuthorByline :name="author.name" :avatar="author.avatar" :size="40" class="mp-hero__byline">
-            <template #role>{{ $t('blog.author.role') }}</template>
+          <UiAuthorByline
+            :name="author.name"
+            :handle="author.handle"
+            :avatar="author.avatar"
+            :size="44"
+            class="mp-hero__byline"
+          >
+            <template #meta>{{ dateLabel }} · {{ $t('blog.minRead', { min: readingMin }) }}</template>
           </UiAuthorByline>
         </div>
-      </header>
-
-      <!-- BODY: sticky TOC rail beside the article column on wide screens; TOC sits above the body on
-           narrow screens (no cover-flow / no CLS — the list is server-rendered). -->
-      <div class="mp-article__layout" :class="{ 'mp-article__layout--withtoc': toc.length }">
-        <aside v-if="toc.length" class="mp-article__rail">
-          <UiArticleToc :items="toc" :title="$t('blog.toc')" class="mp-article__toc" />
-        </aside>
-
-        <div class="mp-article-body">
-          <p v-if="!body" class="mp-article__empty">{{ $t('blog.noArticle') }}</p>
-          <UiProse v-else :html="articleHtml" />
-
-          <div v-if="embedUrl" class="mp-article__video">
-            <iframe
-              :src="embedUrl"
-              :title="$t('blog.watchVideo')"
-              loading="lazy"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowfullscreen
-            />
-          </div>
-
-          <!-- Prominent final CTA (§4.6): a bordered panel with a short lead + a large action.
-               The action stays an <a> (external link, target/_blank + rel) styled with brand tokens —
-               a <button> nested in an <a> would be invalid markup — inside a UiCard panel. -->
-          <UiCard v-if="ctaHref && ctaLabel" class="mp-cta" padded>
-            <div class="mp-cta__lead">{{ $t('blog.cta.lead') }}</div>
-            <a :href="ctaHref" target="_blank" rel="noopener noreferrer" class="mp-cta__btn">
-              {{ ctaLabel }}
-              <UiAppIcon name="arrow-right" :size="18" color="currentColor" />
-            </a>
-          </UiCard>
-        </div>
       </div>
-    </article>
+    </header>
+
+    <!-- BODY: a centered reading block; the índice is a sticky rail to the LEFT on wide screens. -->
+    <div class="mp-article-wrap" :class="{ 'mp-article-wrap--withtoc': toc.length }">
+      <aside v-if="toc.length" class="mp-article-rail">
+        <UiArticleToc :items="toc" :title="$t('blog.toc')" />
+      </aside>
+
+      <article class="mp-article">
+        <div v-if="embedUrl" class="mp-article__video">
+          <iframe
+            :src="embedUrl"
+            :title="$t('blog.watchVideo')"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+          />
+        </div>
+
+        <p v-if="!body" class="mp-article__empty">{{ $t('blog.noArticle') }}</p>
+        <UiProse v-else :html="articleHtml" />
+
+        <!-- Prominent final CTA: eyebrow + display title + a large pill action with a hover sheen. -->
+        <div v-if="ctaHref && ctaLabel" class="mp-postcta">
+          <span class="mp-postcta__eyebrow">{{ $t('blog.cta.eyebrow') }}</span>
+          <h2 class="mp-postcta__title">{{ $t('blog.cta.lead') }}<span class="mp-postcta__dot">.</span></h2>
+          <a class="mp-postcta__link" :href="ctaHref" target="_blank" rel="noopener noreferrer">
+            <span class="mp-postcta__sheen" aria-hidden="true" />
+            <span class="mp-postcta__label">{{ ctaLabel }}</span>
+            <span class="mp-postcta__arrow" aria-hidden="true">→</span>
+          </a>
+        </div>
+      </article>
+    </div>
   </div>
 
   <div v-else class="mp-notfound">
@@ -232,80 +234,131 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
 </template>
 
 <style scoped>
-/* Draft preview banner (admin-only) */
-.mp-preview-banner {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 7px 12px; margin-bottom: 16px; border-radius: var(--radius-pill);
-  background: var(--brand-accent-subtle); color: var(--accent-cafe-ink);
-  font: 700 12px var(--font-sans);
-}
-
-/* HERO */
+/* ============ HERO (full-bleed) ============
+   Breaks out of the app-shell's centered, padded column: 100vw wide, pulled up under the topbar. */
 .mp-hero {
-  position: relative; overflow: hidden; border-radius: var(--radius-lg);
-  min-height: 340px; margin-bottom: 30px;
-  display: flex; align-items: flex-end;
+  position: relative;
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-top: -26px; /* cancel the shell's top padding so the cover pins to the topbar */
+  min-height: max(440px, 52vh);
+  overflow: hidden;
+  display: flex;
   background: var(--surface-sunken);
 }
-@media (min-width: 880px) { .mp-hero { min-height: 420px; } }
 .mp-hero__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-/* Legibility scrim — a translucent dark gradient (rgba, not a brand color) so white text reads on any
-   cover. NOT a blur (perf invariant). */
+/* Legibility scrim — a translucent dark gradient (rgba, not a brand color), NOT a blur (perf invariant). */
 .mp-hero__scrim {
-  position: absolute; inset: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.34) 46%, rgba(0,0,0,0.04) 100%);
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to top, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.46) 40%, rgba(0,0,0,0.14) 78%, rgba(0,0,0,0.20) 100%);
 }
-.mp-hero__content { position: relative; z-index: 1; padding: 26px; display: grid; gap: 12px; color: #fff; }
-@media (min-width: 880px) { .mp-hero__content { padding: 34px; max-width: 760px; } }
+.mp-hero__inner {
+  position: relative; z-index: 1;
+  width: 100%; max-width: 1180px; margin: 0 auto;
+  padding: 24px 22px 42px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  gap: 16px; color: #fff;
+}
+.mp-hero__back {
+  align-self: flex-start; margin-bottom: auto; /* sits at the top; content stays at the bottom */
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 13px; border-radius: var(--radius-pill);
+  background: rgba(0,0,0,0.32); border: 1px solid rgba(255,255,255,0.22);
+  color: #fff; font: var(--weight-medium) 12px var(--font-sans); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.mp-hero__back:hover { background: rgba(0,0,0,0.5); }
+.mp-hero__foot { display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
+.mp-hero__draft {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: var(--radius-pill);
+  background: rgba(255,255,255,0.16); color: #fff; font: var(--weight-semibold) 11px var(--font-sans);
+}
 .mp-hero__badges { display: flex; align-items: center; gap: 10px; }
-.mp-hero__title { font: 800 clamp(26px, 4vw, 40px)/1.12 var(--font-sans); letter-spacing: -0.02em; margin: 0; color: inherit; }
-.mp-hero__sci { font: italic var(--weight-regular) 0.62em var(--font-sans); opacity: 0.85; }
-.mp-hero__excerpt { margin: 0; font: 16px/1.55 var(--font-sans); max-width: 60ch; color: rgba(255,255,255,0.92); }
-.mp-hero__meta { font: 600 12px var(--font-sans); color: rgba(255,255,255,0.82); }
+.mp-hero__title {
+  margin: 0; font: var(--weight-extra) clamp(28px, 4.4vw, 46px)/1.1 var(--font-sans);
+  letter-spacing: -0.025em; color: inherit;
+}
+.mp-hero__sci { font: italic var(--weight-regular) 0.6em var(--font-sans); opacity: 0.85; }
+.mp-hero__excerpt { margin: 0; font: 16px/1.6 var(--font-sans); max-width: 62ch; color: rgba(255,255,255,0.92); }
 .mp-hero__byline { margin-top: 4px; }
-/* Byline text sits on the dark scrim → force light ink for the name/role in the hero context. */
+/* The byline sits on the dark scrim → light ink for name/handle/meta in the hero. */
 .mp-hero__byline :deep(.mp-byline__name) { color: #fff; }
-.mp-hero__byline :deep(.mp-byline__role) { color: rgba(255,255,255,0.85); }
+.mp-hero__byline :deep(.mp-byline__handle) { color: rgba(255,255,255,0.9); }
+.mp-hero__byline :deep(.mp-byline__meta) { color: rgba(255,255,255,0.72); }
 
 /* No-cover degrade: solid surface band, dark ink from tokens (no scrim, no white text). */
 .mp-hero--nocover { background: var(--surface-sunken); border: 1px solid var(--border-subtle); }
-.mp-hero--nocover .mp-hero__content { color: var(--text-strong); }
+.mp-hero--nocover .mp-hero__inner { color: var(--text-strong); }
+.mp-hero--nocover .mp-hero__back { background: var(--surface-card); border-color: var(--border-subtle); color: var(--text-body); }
+.mp-hero--nocover .mp-hero__draft { background: var(--brand-accent-subtle); color: var(--accent-cafe-ink); }
 .mp-hero--nocover .mp-hero__excerpt { color: var(--text-muted); }
-.mp-hero--nocover .mp-hero__meta { color: var(--text-faint); }
 .mp-hero--nocover .mp-hero__byline :deep(.mp-byline__name) { color: var(--text-strong); }
-.mp-hero--nocover .mp-hero__byline :deep(.mp-byline__role) { color: var(--text-muted); }
+.mp-hero--nocover .mp-hero__byline :deep(.mp-byline__handle) { color: var(--text-brand); }
+.mp-hero--nocover .mp-hero__byline :deep(.mp-byline__meta) { color: var(--text-faint); }
 
-/* BODY LAYOUT */
-.mp-article__layout { display: grid; gap: 24px; }
-.mp-article-body { max-width: 720px; min-width: 0; }
-/* When there is no TOC the body centers in the column. */
-.mp-article__layout:not(.mp-article__layout--withtoc) .mp-article-body { margin: 0 auto; }
+/* ============ BODY ============
+   Centered reading block (max-width), with the sticky índice rail to the left on wide screens. */
+.mp-article-wrap { max-width: 1180px; margin: 0 auto; padding: 48px 0 72px; }
 @media (min-width: 1024px) {
-  .mp-article__layout--withtoc {
-    grid-template-columns: 232px minmax(0, 1fr);
-    gap: 44px; align-items: start;
+  .mp-article-wrap--withtoc {
+    display: flex; gap: 52px; align-items: flex-start; justify-content: center;
   }
-  /* Sticky rail below the sticky topbar (z-index 30 at top:0). top offset ≈ topbar height + breathing
-     room — verify the exact value in the Phase 3 real-browser review. */
-  .mp-article__toc { position: sticky; top: 96px; max-height: calc(100vh - 120px); overflow-y: auto; }
+  /* Sticky on the ASIDE itself (not a child) so it has the full grid height to travel through. */
+  .mp-article-rail {
+    position: sticky; top: 96px; flex: 0 0 214px;
+    max-height: calc(100vh - 120px); overflow-y: auto;
+  }
+  .mp-article { flex: 0 1 760px; min-width: 0; }
 }
+/* No TOC (or narrow): the article centers within the reading width. */
+.mp-article-wrap:not(.mp-article-wrap--withtoc) .mp-article,
+.mp-article { max-width: 760px; margin: 0 auto; }
+@media (max-width: 1023px) { .mp-article-rail { display: none; } }
 
 .mp-article__empty { color: var(--text-muted); margin-top: 16px; }
-.mp-article__video { position: relative; aspect-ratio: 16 / 9; margin-top: 26px; border-radius: 14px; overflow: hidden; }
+.mp-article__video { position: relative; aspect-ratio: 16 / 9; margin-bottom: 28px; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border-subtle); }
 .mp-article__video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
-/* Prominent CTA panel */
-.mp-cta { margin-top: 34px; display: grid; gap: 14px; justify-items: start; }
-.mp-cta__lead { font: 700 clamp(16px, 2vw, 19px) var(--font-sans); color: var(--text-strong); }
-.mp-cta__btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 12px 22px; border-radius: var(--radius-md);
-  background: var(--brand-primary); color: var(--text-on-brand);
-  font: 700 15px var(--font-sans); text-decoration: none;
-  transition: filter var(--dur-fast) var(--ease-out);
+/* ============ Prominent final CTA ============ */
+.mp-postcta {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px;
+  margin-top: 52px; padding: 46px 20px 8px; border-top: 1px solid var(--border-subtle);
 }
-.mp-cta__btn:hover { filter: brightness(0.94); }
+.mp-postcta__eyebrow {
+  font: var(--weight-medium) 10.5px var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-faint);
+}
+.mp-postcta__title {
+  margin: 0; font: var(--weight-extra) clamp(24px, 3.4vw, 34px)/1.14 var(--font-sans);
+  letter-spacing: -0.02em; color: var(--text-strong);
+}
+.mp-postcta__dot { color: var(--brand-primary); }
+.mp-postcta__link {
+  position: relative; display: inline-flex; align-items: center; gap: 10px; margin-top: 6px;
+  padding: 14px 30px; border-radius: var(--radius-pill);
+  background: var(--brand-primary); color: var(--text-on-brand);
+  font: var(--weight-semibold) 15px var(--font-sans); text-decoration: none; overflow: hidden;
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.mp-postcta__link:hover { transform: translateY(-2px); background: var(--brand-primary-hover); }
+/* Sheen animates TRANSFORM only (GPU), one-shot on hover — not an infinite layout animation. */
+.mp-postcta__sheen {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 45%; pointer-events: none;
+  transform: translateX(-160%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+}
+.mp-postcta__link:hover .mp-postcta__sheen { animation: mp-sheen 0.9s var(--ease-out); }
+@keyframes mp-sheen { to { transform: translateX(360%); } }
+.mp-postcta__label { position: relative; }
+.mp-postcta__arrow { position: relative; transition: transform var(--dur-fast) var(--ease-out); }
+.mp-postcta__link:hover .mp-postcta__arrow { transform: translateX(3px); }
+@media (prefers-reduced-motion: reduce) {
+  .mp-postcta__link:hover { transform: none; }
+  .mp-postcta__link:hover .mp-postcta__sheen { animation: none; }
+}
 
+/* ============ Not found ============ */
 .mp-notfound { max-width: 520px; margin: 40px auto; }
 .mp-notfound__title { font: 700 16px var(--font-sans); color: var(--text-strong); }
 .mp-notfound__lead { margin: 6px 0 12px; font: 14px var(--font-sans); color: var(--text-muted); }

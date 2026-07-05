@@ -12,6 +12,9 @@ export interface TocEntry {
   id: string;
   text: string;
   level: 2 | 3;
+  // Display index for the TOC: a zero-padded section number for h2 ("01", "02", …), a middot "·" for
+  // h3 sub-entries. Computed here (from document order) so the index and anchors never drift.
+  num: string;
 }
 export interface RenderedArticle {
   html: string;
@@ -41,6 +44,7 @@ function plainText(md: string): string {
 export function renderArticle(md: string): RenderedArticle {
   const toc: TocEntry[] = [];
   const used = new Map<string, number>();
+  let sectionNum = 0; // increments on each h2 → the TOC's "01", "02", … section numbering
   // The EXACT set of ids WE generated on real Markdown headings this render. The sanitizer hook keeps
   // `id` only when its value is in here — so an author who writes literal `<h2 id="mp-savebar">` HTML
   // in the body has that id STRIPPED (it is not one of ours), even though the node is an h2. This is
@@ -74,7 +78,9 @@ export function renderArticle(md: string): RenderedArticle {
         if (depth === 2 || depth === 3) {
           const id = dedupe(slugify(token.text));
           generatedIds.add(id);
-          toc.push({ id, text: plainText(token.text), level: depth as 2 | 3 });
+          if (depth === 2) sectionNum += 1;
+          const num = depth === 2 ? String(sectionNum).padStart(2, '0') : '·';
+          toc.push({ id, text: plainText(token.text), level: depth as 2 | 3, num });
           // Emit the nonce-prefixed id; the hook strips the prefix back to the clean `id` after proving
           // provenance. The clean `id` is what lands in the html and the toc, so the two never drift.
           return `<h${depth} id="${nonce}:${id}">${inner}</h${depth}>\n`;

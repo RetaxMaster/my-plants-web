@@ -32,9 +32,22 @@ const form = reactive({
   status: 0 as 0 | 1, slug: '', speciesSlug: null as string | null,
 });
 
-const seeding = ref(true);
+// A snapshot of ONLY the fields the Save/Publish action persists (buildBody + status + slug). The
+// cover image/prompt are saved via their own endpoints / are read-only, so they never belong to the
+// save button's "unsaved changes" state.
+function editableSnapshot(): string {
+  return JSON.stringify([
+    form.titleEs, form.titleEn, form.excerptEs, form.excerptEn,
+    form.bodyEs, form.bodyEn, form.youtubeUrl, form.ctaLink,
+    form.ctaLabelEs, form.ctaLabelEn, form.status, form.slug,
+  ]);
+}
+// The saved baseline: what the editable fields looked like at the last seed (initial load or after a
+// successful save). Dirtiness is a COMPARISON against it — not a latch — so typing a change and then
+// reverting it (e.g. type a letter, delete it) returns to "clean".
+const baseline = ref<string | null>(null);
+
 function seed(p: BlogpostAdminDetail) {
-  seeding.value = true;
   form.titleEs = p.titleEs; form.titleEn = p.titleEn ?? '';
   form.excerptEs = p.excerptEs; form.excerptEn = p.excerptEn ?? '';
   form.bodyEs = p.bodyEs; form.bodyEn = p.bodyEn ?? '';
@@ -43,7 +56,7 @@ function seed(p: BlogpostAdminDetail) {
   form.coverImageUrl = p.coverImageUrl; form.coverImageObjectKey = p.coverImageObjectKey;
   form.coverImagePrompt = p.coverImagePrompt;
   form.status = p.status; form.slug = p.slug; form.speciesSlug = p.speciesSlug;
-  nextTick(() => (seeding.value = false));
+  baseline.value = editableSnapshot(); // capture the saved state as the clean baseline
 }
 watchEffect(() => { if (post.value) seed(post.value); });
 
@@ -90,10 +103,12 @@ const ctaHint = computed(() => {
   return t('blog.editor.ctaHintNone');
 });
 
-// Dirty tracking (ignore the programmatic seed).
-const dirty = ref(false);
+// Dirty = the editable fields differ from the saved baseline (a comparison, not a latch — reverting a
+// change clears it). Recomputes whenever any compared field changes.
 const savedFlash = ref(false);
-watch(form, () => { if (!seeding.value) { dirty.value = true; savedFlash.value = false; } }, { deep: true });
+const dirty = computed(() => baseline.value !== null && editableSnapshot() !== baseline.value);
+// Clear the transient "saved" flash the instant a real change reappears.
+watch(dirty, (d) => { if (d) savedFlash.value = false; });
 
 const saveState = computed(() => (savedFlash.value ? 'saved' : dirty.value ? 'dirty' : 'clean'));
 
@@ -142,8 +157,7 @@ async function persist(publish?: boolean) {
       await navigateTo(`/admin/blog/${updated.slug}`);
       return;
     }
-    seed(updated);
-    dirty.value = false;
+    seed(updated); // re-baselines the form → dirty (computed) becomes false
     savedFlash.value = true;
     setTimeout(() => (savedFlash.value = false), 2500);
   } catch {

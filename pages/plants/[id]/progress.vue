@@ -65,7 +65,7 @@ async function save() {
     await api.logProgress(id, form);
     // Progress re-anchors (drops off the care rows) and a new entry appears in the timeline — invalidate
     // both keys so the detail page shows fresh data the moment we navigate back, no stale flash.
-    await refreshNuxtData([`care-${id}`, `history-${id}`]);
+    await refreshNuxtData([`plant-${id}`, `care-${id}`, `history-${id}`, `photos-${id}`]);
     await navigateTo(`/plants/${id}`);
   } catch (e: any) {
     // Map the API's STABLE error codes to friendly, actionable messages (the raw upstream strings like

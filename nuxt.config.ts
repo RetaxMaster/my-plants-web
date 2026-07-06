@@ -37,6 +37,8 @@ export default defineNuxtConfig({
       // The chat console references Hanken Grotesk / JetBrains Mono / Newsreader; the client package
       // never injects font <link>s (privacy/CSP), so we load them here.
       link: [
+        // Browser-tab icon: the MyPlants sprout, served from public/ at the site root.
+        { rel: 'icon', type: 'image/png', href: '/favicon.png' },
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
         {

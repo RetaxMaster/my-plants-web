@@ -120,6 +120,7 @@
     "cautionDesc": "Light and humidity here are a little low for this plant. Try a brighter window, or mist more often.",
     "poorTitle": "This spot isn't a good fit",
     "poorDesc": "Consider moving this plant somewhere with gentler light and more humidity.",
+    "notes": "Notes & health",
     "care": "Care",
     "careEmpty": "Nothing to do right now. 🌿",
     "history": "History",
@@ -528,7 +529,7 @@
     "limitReachedAria": "Maximum of {max} photos reached",
     "dropOrBrowse": "Drop photos here or click to browse",
     "limitReached": "Photo limit reached ({max})",
-    "upTo": "Up to {max} images",
+    "upTo": "Up to {max} image | Up to {max} images",
     "photoPreviewAlt": "Selected photo preview",
     "removePhoto": "Remove photo"
   },

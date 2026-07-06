@@ -140,7 +140,9 @@
   "photos": {
     "title": "Photos",
     "empty": "No photos yet. Log progress with a photo to start the gallery. 🌱",
-    "alt": "Progress photo from {date}"
+    "alt": "Progress photo from {date}",
+    "showAll": "Show all {n} photos",
+    "showLess": "Show less"
   },
   "careBasis": {
     "title": "The care plan is based on",

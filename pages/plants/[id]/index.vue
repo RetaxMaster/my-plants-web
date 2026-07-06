@@ -23,6 +23,15 @@ const { data: history, refresh: refreshHistory } = await useAsyncData(`history-$
 // The photos gallery = every progress photo, flattened newest-first, each carrying its owning entryId.
 const { data: photos, refresh: refreshPhotos } = await useAsyncData(`photos-${id}`, () => api.getPlantPhotos(id));
 
+// Collapsed by default: show the first 6 (2 rows of 3). The expand/collapse button only appears when
+// there are MORE than 6 photos (guard on the TOTAL count, not the sliced list).
+const PHOTOS_COLLAPSED = 6;
+const photosExpanded = ref(false);
+const visiblePhotos = computed(() => {
+  const all = photos.value ?? [];
+  return photosExpanded.value ? all : all.slice(0, PHOTOS_COLLAPSED);
+});
+
 const editing = ref(false);
 
 const entryOpen = ref(false);
@@ -305,12 +314,21 @@ async function postpone(task: TaskCode) {
           </UiCard>
           <UiCard v-else padded>
             <ul class="mp-detail__gallery">
-              <li v-for="ph in photos" :key="ph.id">
+              <li v-for="ph in visiblePhotos" :key="ph.id">
                 <button type="button" class="mp-detail__thumb" @click="openEntry(ph.entryId)">
                   <img :src="ph.imageUrl" :alt="$t('photos.alt', { date: $d(ymdToLocalDate(ph.occurredOn), 'short') })" loading="lazy" />
                 </button>
               </li>
             </ul>
+            <button
+              v-if="photos.length > PHOTOS_COLLAPSED"
+              type="button"
+              class="mp-detail__gallery-toggle"
+              @click="photosExpanded = !photosExpanded"
+            >
+              <span>{{ photosExpanded ? $t('photos.showLess') : $t('photos.showAll', { n: photos.length }) }}</span>
+              <UiAppIcon :name="photosExpanded ? 'chevron-up' : 'chevron-down'" :size="16" color="currentColor" />
+            </button>
           </UiCard>
         </div>
 
@@ -528,6 +546,34 @@ async function postpone(task: TaskCode) {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Quiet full-width expand/collapse control below the grid (only when >6 photos). */
+.mp-detail__gallery-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  margin-top: var(--space-3);
+  padding: var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font: var(--weight-medium) var(--text-sm) / 1 var(--font-sans);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.mp-detail__gallery-toggle:hover {
+  background: var(--surface-sunken);
+  color: var(--text-strong);
+}
+
+.mp-detail__gallery-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .mp-detail__thumb {

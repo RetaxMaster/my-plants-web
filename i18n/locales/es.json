@@ -140,7 +140,9 @@
   "photos": {
     "title": "Fotos",
     "empty": "Aún no hay fotos. Registra avances con una foto para empezar la galería. 🌱",
-    "alt": "Foto de avance del {date}"
+    "alt": "Foto de avance del {date}",
+    "showAll": "Ver las {n} fotos",
+    "showLess": "Ver menos"
   },
   "careBasis": {
     "title": "El plan de cuidados se basa en",

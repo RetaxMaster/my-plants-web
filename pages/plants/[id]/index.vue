@@ -391,28 +391,30 @@ async function postpone(task: TaskCode) {
         <div>
           <UiSectionTitle>{{ $t('careBasis.title') }}</UiSectionTitle>
           <UiCard padded class="mp-detail__basis">
-            <div class="mp-detail__basis-head">
-              <UiMeter
-                :filled="meter.filled"
-                :total="meter.total"
-                :label="$t('careBasis.meterLabel', { filled: meter.filled, total: meter.total, pct: meter.pct })"
-                class="mp-detail__basis-meter"
-              />
-              <UiButton size="xs" variant="soft" color="neutral" icon="plus" @click="profileOpen = true">
-                {{ $t('careBasis.addMissingInfo') }}
-              </UiButton>
-            </div>
-            <div v-for="group in careBasisGroups" :key="group.title" class="mp-detail__basis-group">
-              <div class="mp-detail__basis-group-title">{{ group.title }}</div>
-              <div class="mp-detail__basis-items">
-                <UiInfoItem
-                  v-for="item in group.items"
-                  :key="item.label"
-                  :icon="item.icon"
-                  :label="item.label"
-                  :value="item.value"
-                  :missing-label="$t('careBasis.missing')"
+            <div class="mp-detail__basis-inner">
+              <div class="mp-detail__basis-head">
+                <UiMeter
+                  :filled="meter.filled"
+                  :total="meter.total"
+                  :label="$t('careBasis.meterLabel', { filled: meter.filled, total: meter.total, pct: meter.pct })"
+                  class="mp-detail__basis-meter"
                 />
+                <UiButton size="xs" variant="soft" color="neutral" icon="plus" @click="profileOpen = true">
+                  {{ $t('careBasis.addMissingInfo') }}
+                </UiButton>
+              </div>
+              <div v-for="group in careBasisGroups" :key="group.title" class="mp-detail__basis-group">
+                <div class="mp-detail__basis-group-title">{{ group.title }}</div>
+                <div class="mp-detail__basis-items">
+                  <UiInfoItem
+                    v-for="item in group.items"
+                    :key="item.label"
+                    :icon="item.icon"
+                    :label="item.label"
+                    :value="item.value"
+                    :missing-label="$t('careBasis.missing')"
+                  />
+                </div>
               </div>
             </div>
           </UiCard>
@@ -624,8 +626,12 @@ async function postpone(task: TaskCode) {
   color: var(--care-poor);
 }
 
-.mp-detail__basis {
-  /* Generous separation between the meter head and each factor group so nothing collides. */
+.mp-detail__basis-inner {
+  /* Grid the ACTUAL content wrapper, not the UiCard root: UiCard applies the class to its
+     outer element but slots content into an inner .mp-card__body, so a grid/gap on the root
+     never reaches the head + groups. Gridding this inner div gives the generous separation
+     between the meter head and each factor group so the group titles never collide with the
+     row above them. */
   display: grid;
   gap: var(--space-6);
 }

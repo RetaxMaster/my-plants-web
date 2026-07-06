@@ -70,15 +70,27 @@ function openProgress(plantId: string) {
       <UiCard v-for="[plantId, plantTasks] in grouped" :key="plantId">
         <template #header>
           <NuxtLink :to="`/plants/${plantId}`" class="mp-today__plant">
-            <UiPlantAvatar :size="40" />
-            <div class="mp-today__plant-info">
-              <UiPlantName
-                :title="plantName(plantId)"
-                :scientific="plantById(plantId)?.speciesScientificName"
-              />
-              <div v-if="placeName(plantId)" class="mp-today__place">{{ placeName(plantId) }}</div>
+            <UiPlantPhoto
+              :src="plantById(plantId)?.coverImageUrl ?? null"
+              :alt="$t('plantPhoto.alt', { name: plantName(plantId) })"
+              :height="128"
+              class="mp-today__banner"
+            >
+              <template v-if="placeName(plantId)" #chips>
+                <UiPhotoChip icon="map-pin" :label="placeName(plantId)" />
+              </template>
+            </UiPlantPhoto>
+            <div class="mp-today__plant-head">
+              <UiPlantAvatar :size="40" />
+              <div class="mp-today__plant-info">
+                <UiPlantName
+                  :title="plantName(plantId)"
+                  :scientific="plantById(plantId)?.speciesScientificName"
+                />
+                <div v-if="placeName(plantId)" class="mp-today__place">{{ placeName(plantId) }}</div>
+              </div>
+              <UiAppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
             </div>
-            <UiAppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
           </NuxtLink>
         </template>
         <div class="mp-today__rows">
@@ -100,10 +112,18 @@ function openProgress(plantId: string) {
 
 <style scoped>
 .mp-today__plant {
+  display: block;
+  text-decoration: none;
+}
+
+.mp-today__banner {
+  margin-bottom: var(--space-3);
+}
+
+.mp-today__plant-head {
   display: flex;
   align-items: center;
   gap: 12px;
-  text-decoration: none;
 }
 
 .mp-today__plant-info {

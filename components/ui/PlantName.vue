@@ -20,7 +20,11 @@ const props = withDefaults(
 // commonName is provided. Otherwise the original inline "title (scientific)" is rendered unchanged.
 const stacked = computed(() => props.commonName != null && props.commonName !== '');
 const showScientific = computed(() => !!props.scientific && props.scientific !== props.title);
-const showIdentity = computed(() => stacked.value || showScientific.value);
+// In stacked mode the title is the EDITORIAL headline — a different thing from the scientific name —
+// so the scientific always shows when present (no dedup against the title, unlike inline mode where
+// the title IS the name). This also aligns the compact cards with the featured card's rule.
+const hasScientific = computed(() => !!props.scientific);
+const showIdentity = computed(() => stacked.value || hasScientific.value);
 const subSize = computed(() => Math.round(props.size * 0.72));
 </script>
 
@@ -30,7 +34,7 @@ const subSize = computed(() => Math.round(props.size * 0.72));
     <component :is="titleTag" class="mp-plant-name__title mp-plant-name__title--block" :style="{ font: `700 ${size}px var(--font-sans)` }">{{ title }}</component>
     <span v-if="showIdentity" class="mp-plant-name__identity" :style="{ fontSize: `${subSize}px` }">
       <span class="mp-plant-name__common">{{ commonName }}</span>
-      <span v-if="showScientific" class="mp-plant-name__sci">({{ scientific }})</span>
+      <span v-if="hasScientific" class="mp-plant-name__sci">({{ scientific }})</span>
     </span>
   </span>
 

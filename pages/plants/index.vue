@@ -39,28 +39,24 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
         v-for="p in plants"
         :key="p.id"
         :to="`/plants/${p.id}`"
-        padded
+        :padded="false"
       >
         <UiPlantPhoto
           :src="p.coverImageUrl"
           :alt="$t('plantPhoto.alt', { name: plantTitle(p) })"
           :height="118"
-          class="mp-plant-row__banner"
+          class="mp-plant-card__banner"
         >
           <template v-if="placeName(p.placeId)" #chips>
             <UiPhotoChip icon="map-pin" :label="placeName(p.placeId)" />
           </template>
         </UiPlantPhoto>
-        <div class="mp-plant-row">
-          <UiPlantAvatar :size="48" />
-          <div class="mp-plant-row__info">
+        <div class="mp-plant-card__row">
+          <div class="mp-plant-card__info">
             <UiPlantName :title="plantTitle(p)" :scientific="p.speciesScientificName" />
-            <div v-if="placeName(p.placeId)" class="mp-plant-row__place">{{ placeName(p.placeId) }}</div>
           </div>
-          <div class="mp-plant-row__end">
-            <UiPlantStatusBadge :plant="p" :due-count="dueCountByPlant[p.id] ?? 0" />
-            <UiAppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
-          </div>
+          <UiPlantStatusBadge :plant="p" :due-count="dueCountByPlant[p.id] ?? 0" />
+          <UiAppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
         </div>
       </UiCard>
     </UiCardGrid>
@@ -68,30 +64,21 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
 </template>
 
 <style scoped>
-.mp-plant-row__banner {
-  margin-bottom: var(--space-3);
+/* Banner sits flush at the card's top edge (the card clips it to its rounded corners); square its
+   own corners so only the card radius shows. */
+.mp-plant-card__banner {
+  border-radius: 0;
 }
 
-.mp-plant-row {
+.mp-plant-card__row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  padding: 12px 16px;
 }
 
-.mp-plant-row__info {
+.mp-plant-card__info {
   flex: 1;
   min-width: 0;
-}
-
-.mp-plant-row__place {
-  font: 13px var(--font-sans);
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-
-.mp-plant-row__end {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 </style>

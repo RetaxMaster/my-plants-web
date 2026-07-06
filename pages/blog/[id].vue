@@ -175,9 +175,8 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
           <div v-if="isDraft" class="mp-hero__draft">
             <UiAppIcon name="eye" :size="14" color="currentColor" /> {{ $t('blog.preview.draftBanner') }}
           </div>
-          <div class="mp-hero__badges">
-            <UiBadge color="green" size="sm" dot>{{ $t('blog.careGuide') }}</UiBadge>
-            <UiBadge v-if="view.difficulty" color="cafe" size="sm">{{ view.difficulty }}</UiBadge>
+          <div v-if="view.difficulty" class="mp-hero__badges">
+            <UiBadge color="cafe" size="sm">{{ view.difficulty }}</UiBadge>
           </div>
           <UiPlantName
             class="mp-hero__name"

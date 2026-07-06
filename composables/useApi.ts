@@ -4,6 +4,7 @@ import type {
   KnowledgeSocketTicketResponse, OwnerSummary, Place, Plant, PlantCare, PlantViability,
   ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesSummary,
   UpdatePlace, UpdatePlant, Viability,
+  PlantDetail, PlantProfile, PlantProfileUpdate, PlantPhotoItem,
   BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
 } from '../types/api.js';
@@ -79,7 +80,18 @@ export function useApi() {
     updatePlace: (id: string, body: UpdatePlace) => api<Place>(`/places/${id}`, { method: 'PATCH', body }),
 
     listPlants: () => api<Plant[]>('/plants'),
-    getPlant: (id: string) => api<Plant>(`/plants/${id}`),
+    getPlant: (id: string) => api<PlantDetail>(`/plants/${id}`),
+    setCoverPhoto: (id: string, file: File) => {
+      const form = new FormData();
+      form.append('photo', file);
+      return api<PlantDetail>(`/plants/${id}/cover-photo`, { method: 'PUT', body: form });
+    },
+    deleteCoverPhoto: (id: string) =>
+      api<PlantDetail>(`/plants/${id}/cover-photo`, { method: 'DELETE' }),
+    getPlantProfile: (id: string) => api<PlantProfile>(`/plants/${id}/profile`),
+    updatePlantProfile: (id: string, patch: PlantProfileUpdate) =>
+      api<PlantProfile>(`/plants/${id}/profile`, { method: 'PATCH', body: patch }),
+    getPlantPhotos: (id: string) => api<PlantPhotoItem[]>(`/plants/${id}/photos`),
     getPlantCare: (id: string) => api<PlantCare>(`/plants/${id}/care`),
     createPlant: (body: CreatePlant) => api<Plant>('/plants', { method: 'POST', body }),
     updatePlant: (id: string, body: UpdatePlant) => api<Plant>(`/plants/${id}`, { method: 'PATCH', body }),

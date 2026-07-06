@@ -1,4 +1,7 @@
 import type { TaskCode } from '../utils/tasks.js';
+import type {
+  PotType, SoilMix, GrowthHabit, WindowDist,
+} from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -31,6 +34,7 @@ export interface CreatePlace {
 export interface Plant {
   id: string; ownerId: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
   speciesScientificName: string; speciesCommonName: string;
+  coverImageUrl: string | null;
 }
 
 export interface Viability { level: ViabilityLevel; reasons: string[] }
@@ -39,6 +43,41 @@ export interface UpdatePlace { name?: string; climateControlled?: boolean }
 export interface CreatePlant {
   placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;
   lastDone?: { task: CareActionTask; doneOn: string }[]; // PROGRESS excluded — journaled, never seeded
+}
+
+// --- Plant physical profile (spec 1 vocabulary; all fields optional/nullable) ---
+export interface PlantProfile {
+  windowDistance: WindowDist | null;
+  growLight: boolean | null;
+  potType: PotType | null;
+  potSizeCm: number | null;
+  hasDrainage: boolean | null;
+  soilMix: SoilMix | null;
+  growthHabit: GrowthHabit | null;
+  ageMonths: number | null;
+  nearHeater: boolean | null;
+}
+// PATCH body: absent key = leave unchanged, explicit null = clear.
+export type PlantProfileUpdate = Partial<PlantProfile>;
+
+// One item in the plant photos gallery (every progress photo, flattened, newest-first).
+export interface PlantPhotoItem {
+  id: string; imageUrl: string; entryId: string; occurredOn: string; sortOrder: number;
+}
+
+// Care-basis summary fields carried by GET /plants/:id (spec 2 §6). ProgressHealth is defined below.
+export interface PlantLatestProgress {
+  entryId: string; occurredOn: string; health: ProgressHealth; observations: string | null;
+}
+export interface PlantDerived {
+  heightCm: number | null;
+  lastRepottedOn: string | null;
+}
+// GET /plants/:id — the plant view enriched with the care-basis payload. GET /plants returns Plant[].
+export interface PlantDetail extends Plant {
+  profile: PlantProfile;
+  latestProgress: PlantLatestProgress | null;
+  derived: PlantDerived;
 }
 
 export interface DueTaskResponse { plantId: string; task: TaskCode; nextDueOn: string }

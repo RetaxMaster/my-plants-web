@@ -116,7 +116,7 @@ function onDragLeave() {
       <span class="mp-dropzone__title">
         {{ atLimit ? t('dropzone.limitReached', { max }) : t('dropzone.dropOrBrowse') }}
       </span>
-      <span v-if="!atLimit" class="mp-dropzone__hint">{{ t('dropzone.upTo', { max }) }}</span>
+      <span v-if="!atLimit" class="mp-dropzone__hint">{{ t('dropzone.upTo', { max }, max) }}</span>
     </button>
 
     <input

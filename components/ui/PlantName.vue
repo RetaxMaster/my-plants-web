@@ -8,11 +8,13 @@ const props = withDefaults(
     commonName?: string | null;
     size?: number;
     titleTag?: 'h1' | 'span';
+    identityScale?: number;
     class?: unknown;
   }>(),
   {
     size: 15,
     titleTag: 'span',
+    identityScale: 0.72,
   },
 );
 
@@ -25,7 +27,7 @@ const showScientific = computed(() => !!props.scientific && props.scientific !==
 // the title IS the name). This also aligns the compact cards with the featured card's rule.
 const hasScientific = computed(() => !!props.scientific);
 const showIdentity = computed(() => stacked.value || hasScientific.value);
-const subSize = computed(() => Math.round(props.size * 0.72));
+const subSize = computed(() => Math.round(props.size * props.identityScale));
 </script>
 
 <template>
@@ -62,6 +64,9 @@ const subSize = computed(() => Math.round(props.size * 0.72));
 .mp-plant-name__title--block { margin: 0; }
 
 .mp-plant-name__sci { color: var(--text-muted); }
+/* Stacked: the common name carries the prominence — the title's strong color + semibold — while the
+   scientific stays secondary/muted. (Inline mode is unaffected: it has no __common element.) */
+.mp-plant-name__common { color: var(--text-strong); font-weight: var(--weight-semibold); }
 /* Stacked identity row: same family as the title but smaller + secondary color; scientific italicised. */
 .mp-plant-name__identity {
   display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap;

@@ -300,8 +300,12 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
 .mp-hero__name :deep(.mp-plant-name__title) { color: inherit; font: var(--weight-extra) clamp(28px, 4.4vw, 46px)/1.1 var(--font-sans) !important; letter-spacing: -0.025em; }
 .mp-hero__name :deep(.mp-plant-name__identity) { color: rgba(255,255,255,0.82); }
 .mp-hero__name :deep(.mp-plant-name__identity .mp-plant-name__sci) { color: rgba(255,255,255,0.82); }
+/* The common name keeps its prominence on the dark scrim (full white); base rule would make it the
+   theme's strong ink (dark) and vanish on the scrim. Nocover degrades to the theme's strong ink. */
+.mp-hero__name :deep(.mp-plant-name__common) { color: #fff; }
 .mp-hero--nocover .mp-hero__name :deep(.mp-plant-name__identity),
 .mp-hero--nocover .mp-hero__name :deep(.mp-plant-name__identity .mp-plant-name__sci) { color: var(--text-muted); }
+.mp-hero--nocover .mp-hero__name :deep(.mp-plant-name__common) { color: var(--text-strong); }
 .mp-hero__excerpt { margin: 0; font: 16px/1.6 var(--font-sans); max-width: 62ch; color: rgba(255,255,255,0.92); }
 .mp-hero__byline { margin-top: 4px; }
 /* The byline sits on the dark scrim → light ink for name/meta; the @handle keeps the brand color. */

@@ -161,7 +161,7 @@ function goToPage(p: number) {
             v-if="commonName(featured) || featured.speciesScientificName"
             class="mp-featured__identity"
           >
-            <span v-if="commonName(featured)">{{ commonName(featured) }}</span>
+            <span v-if="commonName(featured)" class="mp-featured__common">{{ commonName(featured) }}</span>
             <em v-if="featured.speciesScientificName">({{ featured.speciesScientificName }})</em>
           </span>
           <p class="mp-featured__excerpt">{{ excerpt(featured) }}</p>
@@ -201,7 +201,7 @@ function goToPage(p: number) {
                 <template v-if="s.kind === 'draft'">{{ dateLabel(s.dateIso) }}</template>
                 <template v-else>{{ dateLabel(s.dateIso) }} · {{ $t('blog.minRead', { min: s.readingMinutes }) }}</template>
               </div>
-              <UiPlantName :title="title(s)" :common-name="commonName(s)" :scientific="s.speciesScientificName ?? undefined" :size="20" />
+              <UiPlantName :title="title(s)" :common-name="commonName(s)" :scientific="s.speciesScientificName ?? undefined" :size="20" :identity-scale="0.85" />
               <p class="mp-magcard__excerpt">{{ excerpt(s) }}</p>
               <div class="mp-magcard__foot">
                 <UiBadge v-if="s.kind === 'draft'" color="neutral" size="xs">{{ $t('blog.status.0') }}</UiBadge>
@@ -261,7 +261,8 @@ function goToPage(p: number) {
 .mp-featured__body { flex: 1 1 320px; min-width: 260px; display: grid; gap: 10px; align-content: center; }
 .mp-featured__meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .mp-featured__title { font: 800 clamp(22px, 3vw, 30px) var(--font-sans); letter-spacing: -0.02em; color: var(--text-strong); text-decoration: none; }
-.mp-featured__identity { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font: var(--weight-medium) 16px var(--font-sans); color: var(--text-muted); }
+.mp-featured__identity { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font: var(--weight-medium) 18px var(--font-sans); color: var(--text-muted); }
+.mp-featured__common { color: var(--text-strong); font-weight: var(--weight-semibold); }
 .mp-featured__identity em { font-style: italic; }
 .mp-featured__excerpt { margin: 0; font: 14.5px/1.65 var(--font-sans); color: var(--text-muted); max-width: 54ch; }
 .mp-featured__cta { display: flex; align-items: center; gap: 14px; margin-top: 4px; flex-wrap: wrap; }

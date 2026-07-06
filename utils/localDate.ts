@@ -25,3 +25,16 @@ export function addDaysYmd(days: number): string {
   d.setDate(d.getDate() + days);
   return ymd(d);
 }
+
+// Parse a date-ONLY `YYYY-MM-DD` string to a Date at LOCAL midnight (TZ-agnostic calendar day).
+//
+// `new Date('2026-07-06')` parses as UTC midnight, so in a negative offset such as
+// America/Mexico_City (UTC-6) it becomes Jul 5 18:00 local and renders as the PREVIOUS day. Building
+// the Date from its numeric components (year, month-1, day) pins it to the local calendar day the
+// string names, so `$d`/display always shows the intended date regardless of the viewer's timezone.
+// Use this for every date-only value (acquiredOn, occurredOn, lastRepottedOn, …) fed to `$d`/display —
+// NOT for genuine ISO datetime strings and NOT for the current time (`new Date()`).
+export function ymdToLocalDate(ymdStr: string): Date {
+  const [y, m, d] = ymdStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}

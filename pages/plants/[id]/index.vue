@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { type TaskCode, type DueState } from '../../../utils/tasks.js';
-import { todayYmd, addDaysYmd } from '../../../utils/localDate.js';
+import { todayYmd, addDaysYmd, ymdToLocalDate } from '../../../utils/localDate.js';
 import { plantTitle } from '../../../utils/displayName.js';
 
 const { t, d } = useI18n();
@@ -149,7 +149,7 @@ const careBasisGroups = computed(() => {
         { icon: 'arrows-pointing-out', label: t('careBasis.fields.potSize'), value: pr.potSizeCm != null ? t('careBasis.values.potSize', { n: pr.potSizeCm }) : null, counted: true },
         { icon: 'funnel', label: t('careBasis.fields.drainage'), value: yn(pr.hasDrainage), counted: true },
         { icon: 'square-3-stack-3d', label: t('careBasis.fields.soilMix'), value: soilMixLabel(pr.soilMix), counted: true },
-        { icon: 'calendar', label: t('careBasis.fields.lastRepotted'), value: dv.lastRepottedOn ? d(new Date(dv.lastRepottedOn), 'short') : null, counted: true },
+        { icon: 'calendar', label: t('careBasis.fields.lastRepotted'), value: dv.lastRepottedOn ? d(ymdToLocalDate(dv.lastRepottedOn), 'short') : null, counted: true },
       ],
     },
     {
@@ -245,7 +245,7 @@ async function postpone(task: TaskCode) {
           <div class="mp-detail__identity-info">
             <UiPlantName :title="plantTitle(plant)" :scientific="plant.speciesScientificName" :size="18" />
             <div class="mp-detail__meta">
-              {{ $t('plantDetail.acquired', { date: $d(new Date(plant.acquiredOn), 'short') }) }}<template v-if="placeName"> · {{ placeName }}</template>
+              {{ $t('plantDetail.acquired', { date: $d(ymdToLocalDate(plant.acquiredOn), 'short') }) }}<template v-if="placeName"> · {{ placeName }}</template>
             </div>
           </div>
           <UiViabilityBadge
@@ -268,13 +268,16 @@ async function postpone(task: TaskCode) {
         </UiCard>
 
         <!-- Notes & health (from the latest progress entry) -->
-        <UiCard v-if="plant.latestProgress" padded clickable class="mp-detail__notes" @click="openEntry(plant.latestProgress!.entryId)">
-          <div class="mp-detail__notes-head">
-            <strong>{{ healthLabel(plant.latestProgress.health) }}</strong>
-            <span class="mp-detail__notes-date">{{ $d(new Date(plant.latestProgress.occurredOn), 'short') }}</span>
-          </div>
-          <p v-if="plant.latestProgress.observations" class="mp-detail__notes-obs">{{ plant.latestProgress.observations }}</p>
-        </UiCard>
+        <div v-if="plant.latestProgress">
+          <UiSectionTitle>{{ $t('plantDetail.notes') }}</UiSectionTitle>
+          <UiCard padded clickable class="mp-detail__notes" @click="openEntry(plant.latestProgress!.entryId)">
+            <div class="mp-detail__notes-head">
+              <strong>{{ healthLabel(plant.latestProgress.health) }}</strong>
+              <span class="mp-detail__notes-date">{{ $d(ymdToLocalDate(plant.latestProgress.occurredOn), 'short') }}</span>
+            </div>
+            <p v-if="plant.latestProgress.observations" class="mp-detail__notes-obs">{{ plant.latestProgress.observations }}</p>
+          </UiCard>
+        </div>
       </div>
 
       <!-- Right column -->
@@ -289,7 +292,7 @@ async function postpone(task: TaskCode) {
             <ul class="mp-detail__gallery">
               <li v-for="ph in photos" :key="ph.id">
                 <button type="button" class="mp-detail__thumb" @click="openEntry(ph.entryId)">
-                  <img :src="ph.imageUrl" :alt="$t('photos.alt', { date: $d(new Date(ph.occurredOn), 'short') })" loading="lazy" />
+                  <img :src="ph.imageUrl" :alt="$t('photos.alt', { date: $d(ymdToLocalDate(ph.occurredOn), 'short') })" loading="lazy" />
                 </button>
               </li>
             </ul>

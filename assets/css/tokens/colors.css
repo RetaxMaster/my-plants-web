@@ -129,6 +129,19 @@
 
   /* Focus ring */
   --ring-brand: color-mix(in oklch, var(--green-500) 45%, transparent);
+
+  /* ---- Photo banners & over-photo chips (Plant Photos & Profile) ---- */
+  /* Translucent dark pill drawn OVER a photo — must stay legible on any image. */
+  --photo-chip-surface: rgba(28, 25, 23, 0.58);   /* stone-900 @ ~58% */
+  --photo-chip-ink:     #ffffff;
+  /* Over-photo semaphore dots (viability) — bright, high-contrast on a photo. */
+  --photo-dot-good:     var(--green-400);
+  --photo-dot-caution:  var(--amber-500);
+  --photo-dot-poor:     var(--red-500);
+  /* Generic banner (plant has no cover photo) — soft leafy gradient, no drop affordance. */
+  --photo-empty-from:   var(--green-100);
+  --photo-empty-to:     var(--cafe-100);
+  --photo-empty-ink:    var(--accent-green-ink);
 }
 
 /* ============================================================
@@ -207,4 +220,14 @@
 
   /* Focus ring */
   --ring-brand: color-mix(in oklch, var(--green-400) 50%, transparent);
+
+  /* ---- Photo banners & over-photo chips ---- */
+  --photo-chip-surface: rgba(12, 10, 9, 0.62);
+  --photo-chip-ink:     #ffffff;
+  --photo-dot-good:     var(--green-400);
+  --photo-dot-caution:  var(--amber-500);
+  --photo-dot-poor:     var(--red-500);
+  --photo-empty-from:   #16301f;
+  --photo-empty-to:     #33241a;
+  --photo-empty-ink:    var(--accent-green-ink);
 }

@@ -8,6 +8,9 @@ const route = useRoute();
 const api = useApi();
 const id = route.params.id as string;
 
+useHead(() => ({ title: t('meta.progress.title') }));
+useSeoMeta({ description: () => t('meta.progress.description') });
+
 // Reuse the same async keys the detail page uses, so a save here can refresh them by key on return.
 const { data: plant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
 // Fetched once and cached app-wide by the payload key — the same catalog the modal used before.

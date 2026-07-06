@@ -9,6 +9,9 @@ if (user.value?.role !== 'ADMIN') {
   throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
 }
 
+useHead(() => ({ title: t('meta.media.title') }));
+useSeoMeta({ description: () => t('meta.media.description') });
+
 const api = useApi();
 const page = ref(1);
 const { data, refresh } = await useAsyncData(

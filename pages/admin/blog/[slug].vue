@@ -3,8 +3,9 @@ import type { BlogpostAdminDetail, UpdateBlogpost } from '../../../types/api.js'
 import { renderMarkdown } from '../../../utils/renderMarkdown.js';
 import { needsCoverWarning } from '../../../utils/publishGuard.js';
 import { countWords, readingMinutes } from '../../../utils/readingTime.js';
+import { pickLocalized } from '../../../utils/localizedField.js';
 
-const { t, locales } = useI18n();
+const { t, locale, locales } = useI18n();
 const { user } = useUserSession();
 if (user.value?.role !== 'ADMIN') {
   throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
@@ -21,6 +22,13 @@ const localeName = (code: string) =>
   (locales.value as { code: string; name: string }[]).find((l) => l.code === code)?.name ?? code;
 
 const { data: post } = await useAsyncData(`admin-blogpost-${slug}`, () => api.getBlogpostAdmin(slug));
+
+// The browser tab shows the post's own title (localized, with cross-locale fallback — same rule as the
+// public blog page); a post that hasn't loaded yet falls back to the generic "Post editor" title.
+useHead(() => ({
+  title: post.value ? pickLocalized(locale.value, post.value.titleEs, post.value.titleEn) ?? post.value.titleEs : t('meta.postEditor.title'),
+}));
+useSeoMeta({ description: () => t('meta.postEditor.description') });
 
 // Local editable form (explicit Save; no autosave). All fields stored as strings; EN/optional fields
 // are converted to null on save when blank.

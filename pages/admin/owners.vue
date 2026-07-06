@@ -8,6 +8,9 @@ if (user.value?.role !== 'ADMIN') {
   throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
 }
 
+useHead(() => ({ title: t('meta.owners.title') }));
+useSeoMeta({ description: () => t('meta.owners.description') });
+
 const api = useApi();
 const { data: owners } = await useAsyncData('admin-owners', () => api.listOwners(), { default: () => [] });
 

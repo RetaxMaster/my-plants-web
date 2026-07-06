@@ -7,6 +7,9 @@ if (user.value?.role !== 'ADMIN') {
   throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
 }
 
+useHead(() => ({ title: t('meta.knowledgeEngine.title') }));
+useSeoMeta({ description: () => t('meta.knowledgeEngine.description') });
+
 const sessionsApi = useKnowledgeChatSessions();
 const { data: sessions, refresh } = await useAsyncData('knowledge-sessions', () => sessionsApi.list(), {
   default: () => [],

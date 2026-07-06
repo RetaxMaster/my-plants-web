@@ -3,6 +3,10 @@
 definePageMeta({ layout: 'auth' });
 
 const { t } = useI18n();
+
+useHead(() => ({ title: t('meta.login.title') }));
+useSeoMeta({ description: () => t('meta.login.description') });
+
 const username = ref('');
 const password = ref('');
 const error = ref('');

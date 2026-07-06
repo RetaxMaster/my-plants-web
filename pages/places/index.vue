@@ -4,6 +4,10 @@ import type { CreatePlace, HumidityCharacter, LightType } from '../../types/api.
 const { t } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
+
+useHead(() => ({ title: t('meta.places.title') }));
+useSeoMeta({ description: () => t('meta.places.description') });
+
 const { data: places, refresh } = await useAsyncData('places', () => api.listPlaces());
 const { data: cities } = await useAsyncData('cities', () => api.listCities());
 

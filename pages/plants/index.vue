@@ -4,6 +4,10 @@ import { plantTitle } from '../../utils/displayName.js';
 const { t, locale } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
+
+useHead(() => ({ title: t('meta.plants.title') }));
+useSeoMeta({ description: () => t('meta.plants.description') });
+
 const { data: plants } = await useAsyncData('plants-list', () => api.listPlants());
 const { data: tasks } = await useAsyncData('plants-list-today', () => api.todaysTasks());
 const { data: places } = await useAsyncData('plants-list-places', () => api.listPlaces());

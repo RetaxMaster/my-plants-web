@@ -4,6 +4,9 @@ const { user } = useUserSession();
 if (user.value?.role !== 'ADMIN') {
   throw createError({ statusCode: 404, statusMessage: t('admin.pageNotFound') });
 }
+
+useHead(() => ({ title: t('meta.admin.title') }));
+useSeoMeta({ description: () => t('meta.admin.description') });
 </script>
 
 <template>

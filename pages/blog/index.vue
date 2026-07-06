@@ -4,10 +4,13 @@ import { pickLocalized } from '../../utils/localizedField.js';
 import { formatBlogDate } from '../../utils/blogDate.js';
 
 const api = useApi();
-const { locale } = useI18n();
+const { t, locale } = useI18n();
 const { user } = useUserSession();
 const route = useRoute();
 const router = useRouter();
+
+useHead(() => ({ title: t('meta.blog.title') }));
+useSeoMeta({ description: () => t('meta.blog.description') });
 
 const PAGE_SIZE = 10;
 

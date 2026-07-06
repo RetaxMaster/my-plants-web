@@ -6,6 +6,9 @@ import type { Plant } from '../types/api.js';
 
 const { t, d, locale } = useI18n();
 const { dueLabel } = useTaskMeta();
+
+useHead(() => ({ title: t('meta.today.title') }));
+useSeoMeta({ description: () => t('meta.today.description') });
 const api = useApi();
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());

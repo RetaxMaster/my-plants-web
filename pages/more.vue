@@ -11,6 +11,9 @@ import AppIcon from '../components/ui/AppIcon.vue';
 const { user, clear } = useUserSession();
 const { t } = useI18n();
 
+useHead(() => ({ title: t('meta.more.title') }));
+useSeoMeta({ description: () => t('meta.more.description') });
+
 // Reactive so a locale switch re-renders the rows live (spec §6.3); to/icon stay as-is.
 const rows = computed(() => [
   { to: '/cities', icon: 'map-pin', label: t('more.citiesLabel'), sub: t('more.citiesSub') },

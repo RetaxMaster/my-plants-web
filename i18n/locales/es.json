@@ -562,5 +562,75 @@
   "theme": {
     "toLight": "Cambiar a tema claro",
     "toDark": "Cambiar a tema oscuro"
+  },
+  "meta": {
+    "today": {
+      "title": "Hoy",
+      "description": "Consulta lo que tus plantas necesitan hoy: riego, fertilización y otros cuidados, todo en un solo lugar."
+    },
+    "plants": {
+      "title": "Mis plantas",
+      "description": "Explora todas las plantas a tu cuidado, su estado de salud y lo que se aproxima."
+    },
+    "plantsNew": {
+      "title": "Agregar una planta",
+      "description": "Agrega una nueva planta a tu colección eligiendo su especie y el lugar donde vive."
+    },
+    "moving": {
+      "title": "Mudanza",
+      "description": "Simula una mudanza a otra ciudad y descubre cómo le iría a cada una de tus plantas antes de decidir."
+    },
+    "blog": {
+      "title": "Blog",
+      "description": "Guías de cuidado por especie escritas por el equipo de My Plants: prácticas, pacientes y probadas en nuestras propias ventanas."
+    },
+    "cities": {
+      "title": "Ciudades",
+      "description": "Administra las ciudades que sigues para calcular el cuidado de tus plantas según el clima local."
+    },
+    "places": {
+      "title": "Lugares",
+      "description": "Administra los lugares donde viven tus plantas, desde una ventana soleada hasta un patio con sombra."
+    },
+    "login": {
+      "title": "Iniciar sesión",
+      "description": "Inicia sesión en My Plants para cuidar tus plantas y mantener su calendario al día."
+    },
+    "more": {
+      "title": "Más",
+      "description": "Tu cuenta, ciudades guardadas, simulaciones de mudanza y otras opciones."
+    },
+    "admin": {
+      "title": "Admin",
+      "description": "Herramientas administrativas para gestionar el blog, la biblioteca multimedia y el knowledge engine."
+    },
+    "writingDesk": {
+      "title": "Escritorio",
+      "description": "Escribe, edita y publica las guías de cuidado por especie del blog."
+    },
+    "knowledgeEngine": {
+      "title": "Knowledge Engine",
+      "description": "Chatea con el asistente de investigación para curar nuevos registros de especies."
+    },
+    "media": {
+      "title": "Medios",
+      "description": "Sube imágenes y copia sus enlaces para usarlos en las entradas del blog."
+    },
+    "owners": {
+      "title": "Jardines",
+      "description": "Actúa en nombre de otro propietario para ver y administrar sus plantas."
+    },
+    "plantDetail": {
+      "title": "Planta",
+      "description": "Calendario de cuidado, historial y fotos de esta planta."
+    },
+    "progress": {
+      "title": "Registro de progreso",
+      "description": "Registra cómo va tu planta, con fotos, tamaño y notas para su bitácora de cuidado."
+    },
+    "postEditor": {
+      "title": "Editor de entrada",
+      "description": "Escribe y edita una guía de cuidado por especie para el blog."
+    }
   }
 }

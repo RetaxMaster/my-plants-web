@@ -16,6 +16,11 @@ const id = route.params.id as string;
 const { data: plant, refresh: refreshPlant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
 const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPlantCare(id));
 
+// The browser tab shows the plant's own name (nickname, else localized species name); a plant that
+// failed to load falls back to the generic "Plant" title rather than an empty tab.
+useHead(() => ({ title: plant.value ? plantTitle(plant.value, locale.value) : t('meta.plantDetail.title') }));
+useSeoMeta({ description: () => t('meta.plantDetail.description') });
+
 const { data: places } = await useAsyncData('places-for-edit', () => api.listPlaces());
 
 const { data: history, refresh: refreshHistory } = await useAsyncData(`history-${id}`, () => api.getPlantHistory(id));

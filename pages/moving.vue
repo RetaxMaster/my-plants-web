@@ -6,6 +6,10 @@ import { speciesPrimaryName } from '../utils/displayName.js';
 const { t, locale } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
+
+useHead(() => ({ title: t('meta.moving.title') }));
+useSeoMeta({ description: () => t('meta.moving.description') });
+
 const selection = ref<CitySearchResult | null>(null);
 const results = ref<PlantViability[] | null>(null);
 const moveOn = ref('');

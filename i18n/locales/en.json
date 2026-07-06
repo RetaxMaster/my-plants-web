@@ -562,5 +562,75 @@
   "theme": {
     "toLight": "Switch to light theme",
     "toDark": "Switch to dark theme"
+  },
+  "meta": {
+    "today": {
+      "title": "Today",
+      "description": "See what your plants need today — watering, fertilizing, and other care tasks, all in one place."
+    },
+    "plants": {
+      "title": "My plants",
+      "description": "Browse every plant in your care, its health, and what's coming due next."
+    },
+    "plantsNew": {
+      "title": "Add a plant",
+      "description": "Add a new plant to your collection by choosing its species and the place it lives."
+    },
+    "moving": {
+      "title": "Moving",
+      "description": "Simulate a move to a new city and see how each of your plants would fare before you commit."
+    },
+    "blog": {
+      "title": "Blog",
+      "description": "Species care guides written by the My Plants team — practical, patient, and tested on our own windowsills."
+    },
+    "cities": {
+      "title": "Cities",
+      "description": "Manage the cities you track so we can time your plants' care using local weather."
+    },
+    "places": {
+      "title": "Places",
+      "description": "Manage the places where your plants live, from a sunny windowsill to a shaded patio."
+    },
+    "login": {
+      "title": "Sign in",
+      "description": "Sign in to My Plants to tend your plants and keep their care on schedule."
+    },
+    "more": {
+      "title": "More",
+      "description": "Your account, saved cities, moving simulations, and other settings."
+    },
+    "admin": {
+      "title": "Admin",
+      "description": "Administrative tools for managing the blog, the media library, and the knowledge engine."
+    },
+    "writingDesk": {
+      "title": "Writing desk",
+      "description": "Write, edit, and publish the blog's species care guides."
+    },
+    "knowledgeEngine": {
+      "title": "Knowledge Engine",
+      "description": "Chat with the research assistant to curate new species records."
+    },
+    "media": {
+      "title": "Media",
+      "description": "Upload images and copy their links to use in your blog posts."
+    },
+    "owners": {
+      "title": "Gardens",
+      "description": "Act on behalf of another owner to view and manage their plants."
+    },
+    "plantDetail": {
+      "title": "Plant",
+      "description": "Care schedule, history, and photos for this plant."
+    },
+    "progress": {
+      "title": "Progress log",
+      "description": "Log how your plant is doing, with photos, size, and notes for its care journal."
+    },
+    "postEditor": {
+      "title": "Post editor",
+      "description": "Write and edit a species care guide for the blog."
+    }
   }
 }

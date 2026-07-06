@@ -2,8 +2,13 @@
 import type { CitySearchResult } from '../../types/api.js';
 import { friendlyCityLabel } from '../../utils/cityLabel.js';
 
+const { t } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
+
+useHead(() => ({ title: t('meta.cities.title') }));
+useSeoMeta({ description: () => t('meta.cities.description') });
+
 const { data: cities, refresh } = await useAsyncData('cities', () => api.listCities());
 
 const selection = ref<CitySearchResult | null>(null);

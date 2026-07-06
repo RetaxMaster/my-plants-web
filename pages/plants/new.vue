@@ -3,9 +3,13 @@ import type { CreatePlant, SpeciesSummary } from '../../types/api.js';
 import { todayYmd } from '../../utils/localDate.js';
 import { pickLocalized } from '../../utils/localizedField.js';
 
-const { locale } = useI18n();
+const { t, locale } = useI18n();
 const api = useApi();
 const router = useRouter();
+
+useHead(() => ({ title: t('meta.plantsNew.title') }));
+useSeoMeta({ description: () => t('meta.plantsNew.description') });
+
 const { data: species } = await useAsyncData('species', () => api.listSpecies());
 const { data: places } = await useAsyncData('places', () => api.listPlaces());
 

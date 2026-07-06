@@ -10,6 +10,9 @@ if (user.value?.role !== 'ADMIN') {
 
 const api = useApi();
 
+useHead(() => ({ title: t('meta.writingDesk.title') }));
+useSeoMeta({ description: () => t('meta.writingDesk.description') });
+
 const statusKey = ref<'all' | 'draft' | 'published'>('all');
 const statusOptions = computed(() => [
   { key: 'all', label: t('blog.writingDesk.filterAll') },

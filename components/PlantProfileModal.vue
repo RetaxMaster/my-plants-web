@@ -52,8 +52,15 @@ watch(open, async (isOpen) => {
   }
 });
 
+// Coerce the field's value to a finite number, or null to clear. UiInput honors v-model.number (it
+// emits a real number), but we also parse a finite numeric string defensively so the modal stays
+// correct independently of the input's coercion. An empty value clears the field (null).
 function num(v: number | string): number | null {
-  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const trimmed = v.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
 }
 
 async function save() {

@@ -109,6 +109,12 @@ const viabilityDot = computed(() => {
   return 'var(--photo-dot-good)';
 });
 
+// Notes & health badge color: green when the plant is thriving (GOOD/EXCELLENT), amber otherwise.
+const notesBadgeColor = computed<'green' | 'amber'>(() => {
+  const h = plant.value?.latestProgress?.health;
+  return h === 'GOOD' || h === 'EXCELLENT' ? 'green' : 'amber';
+});
+
 const { windowDistanceLabel, potTypeLabel, soilMixLabel, growthHabitLabel } = useProfileMeta();
 
 // The plant's current Place — the source of the place-sourced care-basis factors (light/humidity/temp/
@@ -238,14 +244,26 @@ async function postpone(task: TaskCode) {
     </UiPlantPhoto>
 
     <div :class="isDesktop ? 'mp-detail mp-detail--desktop' : 'mp-detail'">
-      <!-- Left column -->
+      <!-- Left column: identity, notes & health, photos, history -->
       <div class="mp-detail__col">
         <!-- Identity -->
         <UiCard padded>
-          <div class="mp-detail__identity-info">
-            <UiPlantName :title="plantTitle(plant)" :scientific="plant.speciesScientificName" :size="18" />
-            <div class="mp-detail__meta">
-              {{ $t('plantDetail.acquired', { date: $d(ymdToLocalDate(plant.acquiredOn), 'short') }) }}<template v-if="placeName"> · {{ placeName }}</template>
+          <UiPlantName :title="plantTitle(plant)" :scientific="plant.speciesScientificName" :size="18" />
+          <div class="mp-detail__id-rows">
+            <div class="mp-detail__id-row">
+              <UiAppIcon name="sparkles" :size="15" color="var(--text-faint)" class="mp-detail__id-icon" />
+              <span class="mp-detail__id-label">{{ $t('plantDetail.species') }}</span>
+              <span class="mp-detail__id-value">{{ plant.speciesCommonName || plant.speciesScientificName }}</span>
+            </div>
+            <div v-if="placeName" class="mp-detail__id-row">
+              <UiAppIcon name="map-pin" :size="15" color="var(--text-faint)" class="mp-detail__id-icon" />
+              <span class="mp-detail__id-label">{{ $t('plantDetail.livesIn') }}</span>
+              <span class="mp-detail__id-value">{{ placeName }}</span>
+            </div>
+            <div class="mp-detail__id-row">
+              <UiAppIcon name="calendar" :size="15" color="var(--text-faint)" class="mp-detail__id-icon" />
+              <span class="mp-detail__id-label">{{ $t('plantDetail.acquiredLabel') }}</span>
+              <span class="mp-detail__id-value">{{ $d(ymdToLocalDate(plant.acquiredOn), 'short') }}</span>
             </div>
           </div>
           <UiViabilityBadge
@@ -272,16 +290,13 @@ async function postpone(task: TaskCode) {
           <UiSectionTitle>{{ $t('plantDetail.notes') }}</UiSectionTitle>
           <UiCard padded clickable class="mp-detail__notes" @click="openEntry(plant.latestProgress!.entryId)">
             <div class="mp-detail__notes-head">
-              <strong>{{ healthLabel(plant.latestProgress.health) }}</strong>
+              <UiBadge :color="notesBadgeColor" size="xs" dot>{{ healthLabel(plant.latestProgress.health) }}</UiBadge>
               <span class="mp-detail__notes-date">{{ $d(ymdToLocalDate(plant.latestProgress.occurredOn), 'short') }}</span>
             </div>
             <p v-if="plant.latestProgress.observations" class="mp-detail__notes-obs">{{ plant.latestProgress.observations }}</p>
           </UiCard>
         </div>
-      </div>
 
-      <!-- Right column -->
-      <div class="mp-detail__col">
         <!-- Photos gallery -->
         <div>
           <UiSectionTitle>{{ $t('photos.title') }}</UiSectionTitle>
@@ -299,6 +314,22 @@ async function postpone(task: TaskCode) {
           </UiCard>
         </div>
 
+        <!-- History -->
+        <div>
+          <UiSectionTitle>{{ $t('plantDetail.history') }}</UiSectionTitle>
+          <UiCard v-if="!history || !history.length" padded>
+            <UiEmptyState>{{ $t('plantDetail.historyEmpty') }}</UiEmptyState>
+          </UiCard>
+          <UiCard v-else :padded="false">
+            <div class="mp-detail__history">
+              <HistoryTimeline :items="history" @open-entry="openEntry" />
+            </div>
+          </UiCard>
+        </div>
+      </div>
+
+      <!-- Right column: care, the care plan is based on -->
+      <div class="mp-detail__col">
         <!-- Care -->
         <div>
           <UiAlert
@@ -368,19 +399,6 @@ async function postpone(task: TaskCode) {
             </div>
           </UiCard>
         </div>
-
-        <!-- History -->
-        <div>
-          <UiSectionTitle>{{ $t('plantDetail.history') }}</UiSectionTitle>
-          <UiCard v-if="!history || !history.length" padded>
-            <UiEmptyState>{{ $t('plantDetail.historyEmpty') }}</UiEmptyState>
-          </UiCard>
-          <UiCard v-else :padded="false">
-            <div class="mp-detail__history">
-              <HistoryTimeline :items="history" @open-entry="openEntry" />
-            </div>
-          </UiCard>
-        </div>
       </div>
     </div>
 
@@ -440,14 +458,38 @@ async function postpone(task: TaskCode) {
   min-width: 0;
 }
 
-.mp-detail__identity-info {
+/* Identity: three labeled rows (icon + muted label + strong value). */
+.mp-detail__id-rows {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.mp-detail__id-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
 }
 
-.mp-detail__meta {
-  font: 12px var(--font-sans);
-  color: var(--text-faint);
-  margin-top: 4px;
+.mp-detail__id-icon {
+  flex: none;
+}
+
+.mp-detail__id-label {
+  flex: none;
+  width: 68px;
+  font: var(--text-xs) / 1.2 var(--font-sans);
+  color: var(--text-muted);
+}
+
+.mp-detail__id-value {
+  min-width: 0;
+  font: var(--weight-semibold) var(--text-sm) / 1.3 var(--font-sans);
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mp-detail__viability {
@@ -460,13 +502,14 @@ async function postpone(task: TaskCode) {
 
 .mp-detail__notes-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-sans);
   color: var(--text-strong);
 }
 
 .mp-detail__notes-date {
+  margin-left: auto;
   font-size: var(--text-xs);
   color: var(--text-faint);
 }
@@ -478,8 +521,9 @@ async function postpone(task: TaskCode) {
 }
 
 .mp-detail__gallery {
+  /* Compact grid of small square thumbnails, 3 per row. */
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-2);
   margin: 0;
   padding: 0;
@@ -535,8 +579,9 @@ async function postpone(task: TaskCode) {
 }
 
 .mp-detail__basis {
+  /* Generous separation between the meter head and each factor group so nothing collides. */
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .mp-detail__basis-head {
@@ -553,7 +598,7 @@ async function postpone(task: TaskCode) {
 
 .mp-detail__basis-group {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .mp-detail__basis-group-title {
@@ -564,8 +609,9 @@ async function postpone(task: TaskCode) {
 }
 
 .mp-detail__basis-items {
+  /* Three-ish columns with generous row/column gaps so items never overlap. */
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--space-4) var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-5) var(--space-4);
 }
 </style>

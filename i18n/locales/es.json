@@ -115,6 +115,9 @@
   "plantDetail": {
     "backAll": "Todas las plantas",
     "acquired": "Adquirida {date}",
+    "species": "Especie",
+    "livesIn": "Vive en",
+    "acquiredLabel": "Adquirida",
     "readGuide": "Leer la guía de cuidados",
     "cautionTitle": "Podría estar en un mejor lugar",
     "cautionDesc": "Aquí la luz y la humedad son un poco bajas para esta planta. Prueba una ventana con más luz o rocíala con más frecuencia.",

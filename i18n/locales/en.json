@@ -115,6 +115,9 @@
   "plantDetail": {
     "backAll": "All plants",
     "acquired": "Acquired {date}",
+    "species": "Species",
+    "livesIn": "Lives in",
+    "acquiredLabel": "Acquired",
     "readGuide": "Read the care guide",
     "cautionTitle": "Could be a better spot",
     "cautionDesc": "Light and humidity here are a little low for this plant. Try a brighter window, or mist more often.",

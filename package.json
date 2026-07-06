@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@retaxmaster/claude-realtime-client": "github:RetaxMaster/claude-realtime-client#v0.5.0",
-    "@retaxmaster/my-plants-species-schema": "file:../my-plants-species-schema/retaxmaster-my-plants-species-schema-0.6.0.tgz",
+    "@retaxmaster/my-plants-species-schema": "file:../my-plants-species-schema/retaxmaster-my-plants-species-schema-0.7.0.tgz",
     "isomorphic-dompurify": "^3.18.0",
     "marked": "^18.0.5",
     "nuxt": "^3.13.2",

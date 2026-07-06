@@ -13,6 +13,8 @@ const form = reactive<CreatePlant>({
   nickname: '',
   acquiredOn: todayYmd(),
 });
+// Deferred cover selection: held here and uploaded AFTER the plant is created (no plantId exists yet).
+const photoFiles = ref<File[]>([]);
 const error = ref('');
 
 const speciesOptions = computed(() =>
@@ -32,6 +34,18 @@ async function submit() {
   error.value = '';
   try {
     const plant = await api.createPlant({ ...form, nickname: form.nickname || undefined });
+    // Optional cover: a failure here must NOT block the flow — the plant exists and the cover can be
+    // added later from the detail hero. recompute + navigate run regardless (outside this try/catch).
+    const file = photoFiles.value[0];
+    if (file) {
+      try {
+        await api.setCoverPhoto(plant.id, file);
+      } catch (photoErr) {
+        // Non-blocking (no toast system exists): warn and move on — the plant exists and the detail
+        // hero offers "Add photo". Never surface a blocking error for the optional cover.
+        console.warn('Cover photo upload failed; the plant was created without it.', photoErr);
+      }
+    }
     await api.recompute();
     await router.push(`/plants/${plant.id}`);
   } catch (e) {
@@ -57,6 +71,9 @@ async function submit() {
       </UiFormGroup>
       <UiFormGroup :label="$t('plantsNew.nickname')" :hint="$t('plantsNew.nicknameHint')">
         <UiInput v-model="form.nickname" icon="sparkles" :placeholder="$t('plantsNew.nicknamePlaceholder')" />
+      </UiFormGroup>
+      <UiFormGroup :label="$t('plantsNew.photoLabel')" :hint="$t('plantsNew.photoHint')">
+        <UiImageDropzone v-model="photoFiles" :max="1" />
       </UiFormGroup>
       <UiFormGroup :label="$t('plantsNew.acquiredOn')" required>
         <UiInput v-model="form.acquiredOn" type="date" />

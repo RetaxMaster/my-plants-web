@@ -26,15 +26,21 @@ export function addDaysYmd(days: number): string {
   return ymd(d);
 }
 
-// Parse a date-ONLY `YYYY-MM-DD` string to a Date at LOCAL midnight (TZ-agnostic calendar day).
+// Parse a date-valued string to a Date at LOCAL midnight (TZ-agnostic calendar day).
 //
-// `new Date('2026-07-06')` parses as UTC midnight, so in a negative offset such as
-// America/Mexico_City (UTC-6) it becomes Jul 5 18:00 local and renders as the PREVIOUS day. Building
-// the Date from its numeric components (year, month-1, day) pins it to the local calendar day the
-// string names, so `$d`/display always shows the intended date regardless of the viewer's timezone.
-// Use this for every date-only value (acquiredOn, occurredOn, lastRepottedOn, …) fed to `$d`/display —
-// NOT for genuine ISO datetime strings and NOT for the current time (`new Date()`).
-export function ymdToLocalDate(ymdStr: string): Date {
-  const [y, m, d] = ymdStr.split('-').map(Number);
+// Accepts EITHER a date-only `YYYY-MM-DD` (e.g. API fields emitted via ymdFromUtcDate) OR a full ISO
+// datetime `YYYY-MM-DDThh:mm:ssZ` (e.g. Prisma-serialized `acquiredOn`, which is UTC-midnight of the
+// entered date). We take the leading 10-char calendar-date portion and build the Date from its numeric
+// components (year, month-1, day).
+//
+// Why: `new Date('2026-07-06')` parses as UTC midnight, so in a negative offset such as
+// America/Mexico_City (UTC-6) it becomes Jul 5 18:00 local and renders the PREVIOUS day. Building from
+// components pins the calendar day the string names, regardless of the viewer's timezone. Slicing to
+// the date portion FIRST also means a datetime string never yields an Invalid Date (splitting the raw
+// ISO string would make the day part `15T00:00:00.000Z` → NaN → an Invalid Date that vue-i18n's `$d()`
+// throws on). Use for date-valued fields (acquiredOn, occurredOn, lastRepottedOn, …) fed to
+// `$d`/display — NOT for the current time (`new Date()`).
+export function ymdToLocalDate(value: string): Date {
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d);
 }

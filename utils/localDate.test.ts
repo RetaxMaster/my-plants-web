@@ -26,4 +26,10 @@ describe('ymdToLocalDate', () => {
     expect(d.getMonth()).toBe(11);
     expect(d.getDate()).toBe(31);
   });
+
+  it('accepts a full ISO datetime string (e.g. Prisma acquiredOn) without returning an Invalid Date', () => {
+    const dt = ymdToLocalDate('2026-03-15T00:00:00.000Z');
+    expect(Number.isNaN(dt.getTime())).toBe(false);
+    expect([dt.getFullYear(), dt.getMonth(), dt.getDate()]).toEqual([2026, 2, 15]); // local Mar 15
+  });
 });

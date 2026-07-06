@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import type { CreatePlant } from '../../types/api.js';
+import type { CreatePlant, SpeciesSummary } from '../../types/api.js';
 import { todayYmd } from '../../utils/localDate.js';
+import { pickLocalized } from '../../utils/localizedField.js';
 
+const { locale } = useI18n();
 const api = useApi();
 const router = useRouter();
 const { data: species } = await useAsyncData('species', () => api.listSpecies());
@@ -17,12 +19,14 @@ const form = reactive<CreatePlant>({
 const photoFiles = ref<File[]>([]);
 const error = ref('');
 
+const speciesLabel = (s: SpeciesSummary) => {
+  const common = pickLocalized(locale.value, s.commonNameEs, s.commonNameEn);
+  return common && common !== s.scientificName ? `${common} (${s.scientificName})` : s.scientificName;
+};
+
 const speciesOptions = computed(() =>
   (species.value ?? []).map((s) => ({
-    label:
-      s.commonName && s.commonName !== s.scientificName
-        ? `${s.commonName} (${s.scientificName})`
-        : s.scientificName,
+    label: speciesLabel(s),
     value: s.slug,
   })),
 );

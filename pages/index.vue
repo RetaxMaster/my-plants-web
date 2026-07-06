@@ -4,7 +4,7 @@ import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
 import type { Plant } from '../types/api.js';
 
-const { t, d } = useI18n();
+const { t, d, locale } = useI18n();
 const { dueLabel } = useTaskMeta();
 const api = useApi();
 const isDesktop = useIsDesktop();
@@ -15,7 +15,7 @@ const { data: places } = await useAsyncData('places-for-today', () => api.listPl
 const plantById = (id: string): Plant | undefined => (plants.value ?? []).find((x) => x.id === id);
 const plantName = (id: string): string => {
   const p = plantById(id);
-  return p ? plantTitle(p) : id;
+  return p ? plantTitle(p, locale.value) : id;
 };
 const placeName = (id: string): string => {
   const p = plantById(id);

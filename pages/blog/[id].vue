@@ -34,6 +34,8 @@ interface ArticleView {
   readingMinutes: number;
   difficulty: string | null;
   speciesScientificName: string | null;
+  speciesCommonNameEs: string | null;
+  speciesCommonNameEn: string | null;
 }
 
 function fromPublic(p: BlogpostDetail): ArticleView {
@@ -48,6 +50,8 @@ function fromPublic(p: BlogpostDetail): ArticleView {
     readingMinutes: p.readingMinutes,
     difficulty: p.difficulty,
     speciesScientificName: p.speciesScientificName,
+    speciesCommonNameEs: p.speciesCommonNameEs,
+    speciesCommonNameEn: p.speciesCommonNameEn,
   };
 }
 
@@ -65,6 +69,8 @@ function fromAdmin(p: BlogpostAdminDetail): ArticleView {
     readingMinutes: readingMinutes(p.bodyEs),
     difficulty: null,               // not on the admin row
     speciesScientificName: null,    // not on the admin row
+    speciesCommonNameEs: null,
+    speciesCommonNameEn: null,
   };
 }
 
@@ -99,6 +105,9 @@ if (import.meta.server && !data.value) {
 
 const title = computed(() =>
   view.value ? pickLocalized(locale.value, view.value.titleEs, view.value.titleEn) ?? view.value.titleEs : '',
+);
+const speciesCommonName = computed(() =>
+  view.value ? pickLocalized(locale.value, view.value.speciesCommonNameEs, view.value.speciesCommonNameEn) : null,
 );
 const excerpt = computed(() =>
   view.value ? pickLocalized(locale.value, view.value.excerptEs, view.value.excerptEn) : null,
@@ -170,10 +179,14 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
             <UiBadge color="green" size="sm" dot>{{ $t('blog.careGuide') }}</UiBadge>
             <UiBadge v-if="view.difficulty" color="cafe" size="sm">{{ view.difficulty }}</UiBadge>
           </div>
-          <h1 class="mp-hero__title">
-            {{ title }}
-            <span v-if="view.speciesScientificName" class="mp-hero__sci">({{ view.speciesScientificName }})</span>
-          </h1>
+          <UiPlantName
+            class="mp-hero__name"
+            title-tag="h1"
+            :title="title"
+            :common-name="speciesCommonName"
+            :scientific="view.speciesScientificName ?? undefined"
+            :size="46"
+          />
           <p v-if="excerpt" class="mp-hero__excerpt">{{ excerpt }}</p>
           <UiAuthorByline
             :name="author.name"
@@ -282,11 +295,13 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }));
   background: rgba(255,255,255,0.16); color: #fff; font: var(--weight-semibold) 11px var(--font-sans);
 }
 .mp-hero__badges { display: flex; align-items: center; gap: 10px; }
-.mp-hero__title {
-  margin: 0; font: var(--weight-extra) clamp(28px, 4.4vw, 46px)/1.1 var(--font-sans);
-  letter-spacing: -0.025em; color: inherit;
-}
-.mp-hero__sci { font: italic var(--weight-regular) 0.6em var(--font-sans); opacity: 0.85; }
+/* UiPlantName (stacked) sets the title font inline but not the hero's color/clamp/scrim treatment —
+   reconcile those here so the identity look matches the previous hand-rolled h1. */
+.mp-hero__name :deep(.mp-plant-name__title) { color: inherit; font: var(--weight-extra) clamp(28px, 4.4vw, 46px)/1.1 var(--font-sans) !important; letter-spacing: -0.025em; }
+.mp-hero__name :deep(.mp-plant-name__identity) { color: rgba(255,255,255,0.82); }
+.mp-hero__name :deep(.mp-plant-name__identity .mp-plant-name__sci) { color: rgba(255,255,255,0.82); }
+.mp-hero--nocover .mp-hero__name :deep(.mp-plant-name__identity),
+.mp-hero--nocover .mp-hero__name :deep(.mp-plant-name__identity .mp-plant-name__sci) { color: var(--text-muted); }
 .mp-hero__excerpt { margin: 0; font: 16px/1.6 var(--font-sans); max-width: 62ch; color: rgba(255,255,255,0.92); }
 .mp-hero__byline { margin-top: 4px; }
 /* The byline sits on the dark scrim → light ink for name/meta; the @handle keeps the brand color. */

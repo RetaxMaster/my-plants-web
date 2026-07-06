@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { type TaskCode, type DueState } from '../../../utils/tasks.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../../../utils/localDate.js';
-import { plantTitle } from '../../../utils/displayName.js';
+import { plantTitle, speciesPrimaryName } from '../../../utils/displayName.js';
 
-const { t, d } = useI18n();
+const { t, d, locale } = useI18n();
 // Detail page uses ONLY the long phrasing ("Due in N days" / "Overdue by N days"),
 // so destructure dueLabelLong (NOT dueLabel — that is the short Today-page form).
 const { dueLabelLong, healthLabel } = useTaskMeta();
@@ -228,8 +228,8 @@ async function postpone(task: TaskCode) {
   <div v-if="plant">
     <UiScreenHeader
       :back="$t('plantDetail.backAll')"
-      :title="plantTitle(plant)"
-      :subtitle="plant.speciesScientificName && plant.speciesScientificName !== plantTitle(plant) ? plant.speciesScientificName : undefined"
+      :title="plantTitle(plant, locale)"
+      :subtitle="plant.speciesScientificName && plant.speciesScientificName !== plantTitle(plant, locale) ? plant.speciesScientificName : undefined"
       @back="navigateTo('/plants')"
     >
       <template #action>
@@ -240,7 +240,7 @@ async function postpone(task: TaskCode) {
     <!-- Hero photo -->
     <UiPlantPhoto
       :src="plant.coverImageUrl"
-      :alt="$t('plantPhoto.alt', { name: plantTitle(plant) })"
+      :alt="$t('plantPhoto.alt', { name: plantTitle(plant, locale) })"
       :height="heroHeight"
       class="mp-detail__hero"
     >
@@ -260,12 +260,12 @@ async function postpone(task: TaskCode) {
       <div class="mp-detail__col">
         <!-- Identity -->
         <UiCard padded>
-          <UiPlantName :title="plantTitle(plant)" :scientific="plant.speciesScientificName" :size="18" />
+          <UiPlantName :title="plantTitle(plant, locale)" :scientific="plant.speciesScientificName" :size="18" />
           <div class="mp-detail__id-rows">
             <div class="mp-detail__id-row">
               <UiAppIcon name="sparkles" :size="15" color="var(--text-faint)" class="mp-detail__id-icon" />
               <span class="mp-detail__id-label">{{ $t('plantDetail.species') }}</span>
-              <span class="mp-detail__id-value">{{ plant.speciesCommonName || plant.speciesScientificName }}</span>
+              <span class="mp-detail__id-value">{{ speciesPrimaryName(plant, locale) }}</span>
             </div>
             <div v-if="placeName" class="mp-detail__id-row">
               <UiAppIcon name="map-pin" :size="15" color="var(--text-faint)" class="mp-detail__id-icon" />

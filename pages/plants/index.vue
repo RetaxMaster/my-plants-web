@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { plantTitle } from '../../utils/displayName.js';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
 const { data: plants } = await useAsyncData('plants-list', () => api.listPlants());
@@ -43,7 +43,7 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
       >
         <UiPlantPhoto
           :src="p.coverImageUrl"
-          :alt="$t('plantPhoto.alt', { name: plantTitle(p) })"
+          :alt="$t('plantPhoto.alt', { name: plantTitle(p, locale) })"
           :height="118"
           class="mp-plant-card__banner"
         >
@@ -53,7 +53,7 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
         </UiPlantPhoto>
         <div class="mp-plant-card__row">
           <div class="mp-plant-card__info">
-            <UiPlantName :title="plantTitle(p)" :scientific="p.speciesScientificName" />
+            <UiPlantName :title="plantTitle(p, locale)" :scientific="p.speciesScientificName" />
           </div>
           <UiPlantStatusBadge :plant="p" :due-count="dueCountByPlant[p.id] ?? 0" />
           <UiAppIcon name="chevron-right" :size="18" color="var(--text-faint)" />

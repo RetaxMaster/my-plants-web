@@ -5,7 +5,7 @@ import type {
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
-export interface SpeciesSummary { slug: string; scientificName: string; commonName: string }
+export interface SpeciesSummary { slug: string; scientificName: string; commonNameEs: string | null; commonNameEn: string | null }
 
 export interface City {
   id: string; name: string; latitude: number; longitude: number; timezone: string; isPrimary: boolean;
@@ -33,7 +33,7 @@ export interface CreatePlace {
 
 export interface Plant {
   id: string; ownerId: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
-  speciesScientificName: string; speciesCommonName: string;
+  speciesScientificName: string; speciesCommonNameEs: string | null; speciesCommonNameEn: string | null;
   coverImageUrl: string | null;
 }
 
@@ -96,7 +96,7 @@ export interface OwnerSummary {
 
 export interface PlantViability {
   plantId: string; nickname: string | null; speciesSlug: string;
-  speciesScientificName: string; speciesCommonName: string;
+  speciesScientificName: string; speciesCommonNameEs: string | null; speciesCommonNameEn: string | null;
   level: ViabilityLevel; reasons: string[];
   placeCityName: string;
   inPrimaryCity: boolean;
@@ -198,7 +198,8 @@ export interface BlogpostCard {
   readingMinutes: number;
   speciesSlug: string | null;
   speciesScientificName: string | null;
-  speciesCommonName: string | null;
+  speciesCommonNameEs: string | null;
+  speciesCommonNameEn: string | null;
   difficulty: string | null;
 }
 

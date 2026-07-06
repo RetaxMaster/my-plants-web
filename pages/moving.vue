@@ -3,7 +3,7 @@ import type { CitySearchResult, PlantViability } from '../types/api.js';
 import { friendlyCityLabel } from '../utils/cityLabel.js';
 import { speciesPrimaryName } from '../utils/displayName.js';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
 const selection = ref<CitySearchResult | null>(null);
@@ -80,7 +80,7 @@ async function schedule() {
       <template v-else>
         <UiCardGrid :desktop="isDesktop" :min="300" :gap="12">
           <UiCard v-for="r in results" :key="r.plantId" padded>
-            <UiPlantName :title="r.nickname || speciesPrimaryName(r)" :scientific="r.speciesScientificName ?? undefined" />
+            <UiPlantName :title="r.nickname || speciesPrimaryName(r, locale)" :scientific="r.speciesScientificName ?? undefined" />
             <div class="mp-moving__viability">
               <UiViabilityBadge :level="r.level" :reasons="r.reasons" />
             </div>

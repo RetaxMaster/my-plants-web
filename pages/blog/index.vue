@@ -46,6 +46,8 @@ interface FeedCard {
   sortDate: string | null;              // ordering key (publishedAt or updatedAt)
   readingMinutes: number | null;
   speciesScientificName: string | null;
+  speciesCommonNameEs: string | null;
+  speciesCommonNameEn: string | null;
   difficulty: string | null;
 }
 
@@ -59,6 +61,8 @@ function toPublishedCard(c: BlogpostCard): FeedCard {
     dateIso: c.publishedAt, sortDate: c.publishedAt,
     readingMinutes: c.readingMinutes,
     speciesScientificName: c.speciesScientificName,
+    speciesCommonNameEs: c.speciesCommonNameEs,
+    speciesCommonNameEn: c.speciesCommonNameEn,
     difficulty: c.difficulty,
   };
 }
@@ -73,6 +77,8 @@ function toDraftCard(r: BlogpostAdminRow): FeedCard {
     dateIso: r.updatedAt, sortDate: r.updatedAt,
     readingMinutes: null,                   // no body to estimate from on the row
     speciesScientificName: null,            // not on the row
+    speciesCommonNameEs: null,
+    speciesCommonNameEn: null,
     difficulty: null,                       // not on the row
   };
 }
@@ -105,6 +111,8 @@ const title = (c: { titleEs: string; titleEn: string | null }) =>
   pickLocalized(locale.value, c.titleEs, c.titleEn) ?? c.titleEs;
 const excerpt = (c: { excerptEs: string; excerptEn: string | null }) =>
   pickLocalized(locale.value, c.excerptEs, c.excerptEn) ?? '';
+const commonName = (c: { speciesCommonNameEs: string | null; speciesCommonNameEn: string | null }) =>
+  pickLocalized(locale.value, c.speciesCommonNameEs, c.speciesCommonNameEn) ?? undefined;
 const dateLabel = (iso: string | null) => formatBlogDate(locale.value, iso);
 
 function goToPage(p: number) {
@@ -149,6 +157,13 @@ function goToPage(p: number) {
             <span class="mp-meta-line">{{ dateLabel(featured.publishedAt) }} · {{ $t('blog.minRead', { min: featured.readingMinutes }) }}</span>
           </div>
           <NuxtLink :to="`/blog/${featured.slug}`" class="mp-featured__title mp-clickable">{{ title(featured) }}</NuxtLink>
+          <span
+            v-if="commonName(featured) || featured.speciesScientificName"
+            class="mp-featured__identity"
+          >
+            <span v-if="commonName(featured)">{{ commonName(featured) }}</span>
+            <em v-if="featured.speciesScientificName">({{ featured.speciesScientificName }})</em>
+          </span>
           <p class="mp-featured__excerpt">{{ excerpt(featured) }}</p>
           <div class="mp-featured__cta">
             <UiButton trailing-icon="arrow-right" @click="navigateTo(`/blog/${featured.slug}`)">
@@ -186,7 +201,7 @@ function goToPage(p: number) {
                 <template v-if="s.kind === 'draft'">{{ dateLabel(s.dateIso) }}</template>
                 <template v-else>{{ dateLabel(s.dateIso) }} · {{ $t('blog.minRead', { min: s.readingMinutes }) }}</template>
               </div>
-              <UiPlantName :title="title(s)" :scientific="s.speciesScientificName ?? undefined" :size="20" />
+              <UiPlantName :title="title(s)" :common-name="commonName(s)" :scientific="s.speciesScientificName ?? undefined" :size="20" />
               <p class="mp-magcard__excerpt">{{ excerpt(s) }}</p>
               <div class="mp-magcard__foot">
                 <UiBadge v-if="s.kind === 'draft'" color="neutral" size="xs">{{ $t('blog.status.0') }}</UiBadge>
@@ -246,6 +261,8 @@ function goToPage(p: number) {
 .mp-featured__body { flex: 1 1 320px; min-width: 260px; display: grid; gap: 10px; align-content: center; }
 .mp-featured__meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .mp-featured__title { font: 800 clamp(22px, 3vw, 30px) var(--font-sans); letter-spacing: -0.02em; color: var(--text-strong); text-decoration: none; }
+.mp-featured__identity { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font: var(--weight-medium) 16px var(--font-sans); color: var(--text-muted); }
+.mp-featured__identity em { font-style: italic; }
 .mp-featured__excerpt { margin: 0; font: 14.5px/1.65 var(--font-sans); color: var(--text-muted); max-width: 54ch; }
 .mp-featured__cta { display: flex; align-items: center; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
 

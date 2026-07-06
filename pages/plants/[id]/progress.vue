@@ -2,7 +2,7 @@
 import type { ProgressHealth } from '../../../types/api.js';
 import { plantTitle } from '../../../utils/displayName.js';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const { healthLabel } = useTaskMeta();
 const route = useRoute();
 const api = useApi();
@@ -39,7 +39,7 @@ const files = ref<File[]>([]);
 const saving = ref(false);
 const error = ref('');
 
-const subtitle = computed(() => (plant.value ? plantTitle(plant.value) : undefined));
+const subtitle = computed(() => (plant.value ? plantTitle(plant.value, locale.value) : undefined));
 
 function toggleTag(key: string) {
   const i = selectedTags.value.indexOf(key);

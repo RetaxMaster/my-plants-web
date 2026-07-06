@@ -108,7 +108,9 @@
     "nickname": "Nickname",
     "nicknameHint": "Optional — what you call this plant.",
     "nicknamePlaceholder": "e.g. Monty",
-    "acquiredOn": "Acquired on"
+    "acquiredOn": "Acquired on",
+    "photoLabel": "Add a photo of your plant",
+    "photoHint": "Optional — you can also add one later from the plant's page."
   },
   "plantDetail": {
     "backAll": "All plants",
@@ -122,6 +124,106 @@
     "careEmpty": "Nothing to do right now. 🌿",
     "history": "History",
     "historyEmpty": "No history yet. Log progress to start the journal. 🌱"
+  },
+  "plantPhoto": {
+    "alt": "Photo of {name}",
+    "edit": "Edit photo",
+    "replace": "Replace photo",
+    "remove": "Remove photo",
+    "editTitle": "Plant photo",
+    "uploadError": "The photo couldn't be uploaded. Please try a different image."
+  },
+  "photos": {
+    "title": "Photos",
+    "empty": "No photos yet. Log progress with a photo to start the gallery. 🌱",
+    "alt": "Progress photo from {date}"
+  },
+  "careBasis": {
+    "title": "The care plan is based on",
+    "meterLabel": "{filled} of {total} · {pct}% complete",
+    "addMissingInfo": "Add missing info",
+    "missing": "Missing info",
+    "groupLight": "Light",
+    "groupPotSoil": "Pot & soil",
+    "groupPlant": "Plant",
+    "groupPlaceClimate": "Place & climate",
+    "fields": {
+      "level": "Light level",
+      "windowDistance": "Distance to window",
+      "growLight": "Grow light",
+      "potType": "Pot type",
+      "potSize": "Pot size",
+      "drainage": "Drainage hole",
+      "soilMix": "Soil mix",
+      "lastRepotted": "Last repotted",
+      "height": "Height",
+      "age": "Age",
+      "growthHabit": "Growth habit",
+      "humidity": "Humidity",
+      "indoorTemp": "Indoor temperature",
+      "setting": "Setting",
+      "nearAc": "Near AC",
+      "nearHeater": "Near a heater"
+    },
+    "values": {
+      "potSize": "{n} cm",
+      "height": "{n} cm",
+      "age": "{n} mo",
+      "tempRange": "{min}–{max} °C"
+    }
+  },
+  "plantProfile": {
+    "title": "Plant details",
+    "subtitle": "Optional facts about this specific plant. Fill in what you know.",
+    "windowDistance": "Distance to window",
+    "growLight": "Uses a grow light",
+    "potType": "Pot type",
+    "potSize": "Pot size (cm)",
+    "hasDrainage": "Pot has a drainage hole",
+    "soilMix": "Soil mix",
+    "growthHabit": "Growth habit",
+    "ageMonths": "Age (months)",
+    "nearHeater": "Sits near a heater",
+    "pickOption": "Not set",
+    "windowDistanceOptions": {
+      "on-sill": "On the windowsill",
+      "within-1m": "Within 1 m of a window",
+      "1-to-2m": "1–2 m from a window",
+      "2-to-3m": "2–3 m from a window",
+      "over-3m": "More than 3 m from a window",
+      "outdoors": "Outdoors"
+    },
+    "potTypeOptions": {
+      "terracotta": "Terracotta",
+      "unglazed-ceramic": "Unglazed ceramic",
+      "glazed-ceramic": "Glazed ceramic",
+      "plastic": "Plastic",
+      "porcelain": "Porcelain",
+      "metal": "Metal",
+      "concrete": "Concrete",
+      "fabric": "Fabric",
+      "other": "Other"
+    },
+    "soilMixOptions": {
+      "aroid": "Aroid mix",
+      "all-purpose": "All-purpose",
+      "cactus-succulent": "Cactus & succulent",
+      "orchid-bark": "Orchid bark",
+      "peat-based": "Peat-based",
+      "coco-coir": "Coco coir",
+      "semi-hydro": "Semi-hydro",
+      "other": "Other"
+    },
+    "growthHabitOptions": {
+      "upright": "Upright",
+      "climber": "Climber",
+      "trailing": "Trailing",
+      "clumping": "Clumping",
+      "rosette": "Rosette",
+      "tree": "Tree",
+      "shrub": "Shrub",
+      "other": "Other"
+    }
   },
   "progress": {
     "back": "Back to plant",

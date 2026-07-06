@@ -108,7 +108,9 @@
     "nickname": "Apodo",
     "nicknameHint": "Opcional — cómo le llamas a esta planta.",
     "nicknamePlaceholder": "ej. Monty",
-    "acquiredOn": "Adquirida el"
+    "acquiredOn": "Adquirida el",
+    "photoLabel": "Agrega una foto de tu planta",
+    "photoHint": "Opcional — también puedes agregarla después desde la página de la planta."
   },
   "plantDetail": {
     "backAll": "Todas las plantas",
@@ -122,6 +124,106 @@
     "careEmpty": "Nada por hacer por ahora. 🌿",
     "history": "Historial",
     "historyEmpty": "Aún no hay historial. Registra el progreso para empezar el diario. 🌱"
+  },
+  "plantPhoto": {
+    "alt": "Foto de {name}",
+    "edit": "Editar foto",
+    "replace": "Reemplazar foto",
+    "remove": "Quitar foto",
+    "editTitle": "Foto de la planta",
+    "uploadError": "No se pudo subir la foto. Prueba con una imagen distinta."
+  },
+  "photos": {
+    "title": "Fotos",
+    "empty": "Aún no hay fotos. Registra avances con una foto para empezar la galería. 🌱",
+    "alt": "Foto de avance del {date}"
+  },
+  "careBasis": {
+    "title": "El plan de cuidados se basa en",
+    "meterLabel": "{filled} de {total} · {pct}% completo",
+    "addMissingInfo": "Agregar información faltante",
+    "missing": "Falta información",
+    "groupLight": "Luz",
+    "groupPotSoil": "Maceta y sustrato",
+    "groupPlant": "Planta",
+    "groupPlaceClimate": "Lugar y clima",
+    "fields": {
+      "level": "Nivel de luz",
+      "windowDistance": "Distancia a la ventana",
+      "growLight": "Luz de cultivo",
+      "potType": "Tipo de maceta",
+      "potSize": "Tamaño de maceta",
+      "drainage": "Orificio de drenaje",
+      "soilMix": "Sustrato",
+      "lastRepotted": "Último trasplante",
+      "height": "Altura",
+      "age": "Edad",
+      "growthHabit": "Hábito de crecimiento",
+      "humidity": "Humedad",
+      "indoorTemp": "Temperatura interior",
+      "setting": "Ubicación",
+      "nearAc": "Cerca del aire acondicionado",
+      "nearHeater": "Cerca de un calefactor"
+    },
+    "values": {
+      "potSize": "{n} cm",
+      "height": "{n} cm",
+      "age": "{n} meses",
+      "tempRange": "{min}–{max} °C"
+    }
+  },
+  "plantProfile": {
+    "title": "Detalles de la planta",
+    "subtitle": "Datos opcionales sobre esta planta en particular. Llena lo que sepas.",
+    "windowDistance": "Distancia a la ventana",
+    "growLight": "Usa luz de cultivo",
+    "potType": "Tipo de maceta",
+    "potSize": "Tamaño de maceta (cm)",
+    "hasDrainage": "La maceta tiene orificio de drenaje",
+    "soilMix": "Sustrato",
+    "growthHabit": "Hábito de crecimiento",
+    "ageMonths": "Edad (meses)",
+    "nearHeater": "Está cerca de un calefactor",
+    "pickOption": "Sin especificar",
+    "windowDistanceOptions": {
+      "on-sill": "En el alféizar",
+      "within-1m": "A menos de 1 m de una ventana",
+      "1-to-2m": "De 1 a 2 m de una ventana",
+      "2-to-3m": "De 2 a 3 m de una ventana",
+      "over-3m": "A más de 3 m de una ventana",
+      "outdoors": "En exterior"
+    },
+    "potTypeOptions": {
+      "terracotta": "Terracota",
+      "unglazed-ceramic": "Cerámica sin esmaltar",
+      "glazed-ceramic": "Cerámica esmaltada",
+      "plastic": "Plástico",
+      "porcelain": "Porcelana",
+      "metal": "Metal",
+      "concrete": "Concreto",
+      "fabric": "Tela",
+      "other": "Otro"
+    },
+    "soilMixOptions": {
+      "aroid": "Mezcla para aroides",
+      "all-purpose": "Uso general",
+      "cactus-succulent": "Cactus y suculentas",
+      "orchid-bark": "Corteza para orquídeas",
+      "peat-based": "A base de turba",
+      "coco-coir": "Fibra de coco",
+      "semi-hydro": "Semihidropónico",
+      "other": "Otro"
+    },
+    "growthHabitOptions": {
+      "upright": "Erguida",
+      "climber": "Trepadora",
+      "trailing": "Colgante",
+      "clumping": "En macolla",
+      "rosette": "Roseta",
+      "tree": "Árbol",
+      "shrub": "Arbusto",
+      "other": "Otro"
+    }
   },
   "progress": {
     "back": "Volver a la planta",

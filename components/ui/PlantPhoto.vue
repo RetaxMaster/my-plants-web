@@ -1,10 +1,9 @@
 <script setup lang="ts">
 // Horizontal center-cropped plant banner. A real <img object-fit:cover> in a fixed-height box crops any
 // source dimensions with no layout shift; when there is no cover photo it shows the design's generic
-// leafy gradient (empty-state look, no drop affordance). Overlaid chips (place/viability) go in the
-// `chips` slot; an optional `overlay` slot (top-right) hosts an edit affordance on the detail hero.
-import AppIcon from './AppIcon.vue';
-
+// leafy default IMAGE (a repo asset at /plant-default.png) — no drop affordance, no placeholder icon.
+// Overlaid chips (place/viability) go in the `chips` slot; an optional `overlay` slot (top-right) hosts
+// an edit affordance on the detail hero.
 defineOptions({ inheritAttrs: false });
 
 const props = withDefaults(
@@ -12,15 +11,12 @@ const props = withDefaults(
     src?: string | null;
     alt?: string;
     height?: number;
-    // Icon shown centered on the generic (no-photo) background.
-    placeholderIcon?: string;
     class?: unknown;
   }>(),
   {
     src: null,
     alt: '',
     height: 128,
-    placeholderIcon: 'sparkles',
   },
 );
 
@@ -34,9 +30,6 @@ const slots = useSlots();
     v-bind="$attrs"
   >
     <img v-if="src" :src="src" :alt="alt" class="mp-plantphoto__img" loading="lazy" />
-    <div v-else class="mp-plantphoto__placeholder" aria-hidden="true">
-      <AppIcon :name="placeholderIcon" :size="Math.round(height * 0.28)" color="var(--photo-empty-ink)" />
-    </div>
 
     <div v-if="slots.chips" class="mp-plantphoto__chips">
       <slot name="chips" />
@@ -57,7 +50,8 @@ const slots = useSlots();
 }
 
 .mp-plantphoto--empty {
-  background: linear-gradient(135deg, var(--photo-empty-from), var(--photo-empty-to));
+  /* Design's leafy default IMAGE (repo asset, not R2) — the decoration for plants with no cover. */
+  background: url('/plant-default.png') center / cover no-repeat, var(--surface-sunken);
 }
 
 .mp-plantphoto__img {
@@ -65,15 +59,6 @@ const slots = useSlots();
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.mp-plantphoto__placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  opacity: 0.65;
 }
 
 .mp-plantphoto__chips {

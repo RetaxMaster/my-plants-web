@@ -11,6 +11,10 @@ const props = withDefaults(
     label: string;
     value?: string | null;
     missingLabel: string;
+    // TEMPORARY dev reference dot (hardcoded by the caller): true = the care engine consumes this
+    // factor today (green); false = captured but informational only (blue); undefined = no dot.
+    // Purely a visual aid to track what's left to wire into the engine — safe to remove later.
+    usedByEngine?: boolean;
     class?: unknown;
   }>(),
   {
@@ -23,6 +27,13 @@ const isMissing = computed(() => props.value === null || props.value === undefin
 
 <template>
   <div :class="['mp-infoitem', { 'mp-infoitem--missing': isMissing }, props.class]" v-bind="$attrs">
+    <span
+      v-if="usedByEngine !== undefined"
+      class="mp-infoitem__engine-dot"
+      :class="usedByEngine ? 'mp-infoitem__engine-dot--used' : 'mp-infoitem__engine-dot--info'"
+      :title="usedByEngine ? 'Used by the care engine' : 'Informational only'"
+      aria-hidden="true"
+    ></span>
     <span class="mp-infoitem__tile">
       <AppIcon :name="icon" :size="16" color="var(--accent-green-ink)" />
     </span>
@@ -35,10 +46,32 @@ const isMissing = computed(() => props.value === null || props.value === undefin
 
 <style scoped>
 .mp-infoitem {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+  /* room so the top-right reference dot never sits on top of the value text */
+  padding-right: var(--space-3);
+}
+
+/* TEMPORARY hardcoded reference dot (top-right corner): green = consumed by the care engine,
+   blue = informational only. A dev aid to remember what's left to wire into the engine. */
+.mp-infoitem__engine-dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.mp-infoitem__engine-dot--used {
+  background: #22c55e; /* green — used by the care engine */
+}
+
+.mp-infoitem__engine-dot--info {
+  background: #3b82f6; /* blue — informational only */
 }
 
 .mp-infoitem__tile {

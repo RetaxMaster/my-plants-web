@@ -3,7 +3,7 @@ import { type TaskCode, type DueState } from '../../../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../../../utils/localDate.js';
 import { plantTitle } from '../../../utils/displayName.js';
 
-const { t } = useI18n();
+const { t, d } = useI18n();
 // Detail page uses ONLY the long phrasing ("Due in N days" / "Overdue by N days"),
 // so destructure dueLabelLong (NOT dueLabel — that is the short Today-page form).
 const { dueLabelLong, healthLabel } = useTaskMeta();
@@ -107,6 +107,79 @@ const viabilityDot = computed(() => {
   if (level === 'poor') return 'var(--photo-dot-poor)';
   if (level === 'caution') return 'var(--photo-dot-caution)';
   return 'var(--photo-dot-good)';
+});
+
+const { windowDistanceLabel, potTypeLabel, soilMixLabel, growthHabitLabel } = useProfileMeta();
+
+// The plant's current Place — the source of the place-sourced care-basis factors (light/humidity/temp/
+// setting/Near AC). Read-only here (no place editing on the detail).
+const place = computed(() => (places.value ?? []).find((pl) => pl.id === plant.value?.placeId) ?? null);
+
+const profileOpen = ref(false);
+async function onProfileSaved() {
+  await refreshPlant(); // profile + derived changed -> the meter and info items move
+}
+
+// A tri-state boolean -> localized Yes/No, or null (Missing info) when unknown.
+function yn(v: boolean | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  return v ? t('common.yes') : t('common.no');
+}
+
+// The four care-basis groups. `counted: true` marks a user-fillable OR derivable factor that the
+// completeness meter tracks; place-sourced factors are shown for context but never counted.
+const careBasisGroups = computed(() => {
+  const pr = plant.value?.profile;
+  const dv = plant.value?.derived;
+  const pl = place.value;
+  if (!pr || !dv) return [];
+  return [
+    {
+      title: t('careBasis.groupLight'),
+      items: [
+        { icon: 'sun', label: t('careBasis.fields.level'), value: pl ? t('places.light_' + pl.lightType) : null, counted: false },
+        { icon: 'window', label: t('careBasis.fields.windowDistance'), value: windowDistanceLabel(pr.windowDistance), counted: true },
+        { icon: 'light-bulb', label: t('careBasis.fields.growLight'), value: yn(pr.growLight), counted: true },
+      ],
+    },
+    {
+      title: t('careBasis.groupPotSoil'),
+      items: [
+        { icon: 'archive-box', label: t('careBasis.fields.potType'), value: potTypeLabel(pr.potType), counted: true },
+        { icon: 'arrows-pointing-out', label: t('careBasis.fields.potSize'), value: pr.potSizeCm != null ? t('careBasis.values.potSize', { n: pr.potSizeCm }) : null, counted: true },
+        { icon: 'funnel', label: t('careBasis.fields.drainage'), value: yn(pr.hasDrainage), counted: true },
+        { icon: 'square-3-stack-3d', label: t('careBasis.fields.soilMix'), value: soilMixLabel(pr.soilMix), counted: true },
+        { icon: 'calendar', label: t('careBasis.fields.lastRepotted'), value: dv.lastRepottedOn ? d(new Date(dv.lastRepottedOn), 'short') : null, counted: true },
+      ],
+    },
+    {
+      title: t('careBasis.groupPlant'),
+      items: [
+        { icon: 'arrow-trending-up', label: t('careBasis.fields.height'), value: dv.heightCm != null ? t('careBasis.values.height', { n: dv.heightCm }) : null, counted: true },
+        { icon: 'clock', label: t('careBasis.fields.age'), value: pr.ageMonths != null ? t('careBasis.values.age', { n: pr.ageMonths }) : null, counted: true },
+        { icon: 'arrow-up-right', label: t('careBasis.fields.growthHabit'), value: growthHabitLabel(pr.growthHabit), counted: true },
+      ],
+    },
+    {
+      title: t('careBasis.groupPlaceClimate'),
+      items: [
+        { icon: 'cloud', label: t('careBasis.fields.humidity'), value: pl?.humidityCharacter ? t('places.humidity_' + pl.humidityCharacter) : null, counted: false },
+        { icon: 'sun', label: t('careBasis.fields.indoorTemp'), value: (pl && pl.indoorTempMinC != null && pl.indoorTempMaxC != null) ? t('careBasis.values.tempRange', { min: pl.indoorTempMinC, max: pl.indoorTempMaxC }) : null, counted: false },
+        { icon: 'home', label: t('careBasis.fields.setting'), value: pl ? (pl.indoor ? t('places.indoor') : t('places.outdoor')) : null, counted: false },
+        { icon: 'adjustments-horizontal', label: t('careBasis.fields.nearAc'), value: pl ? yn(pl.climateControlled) : null, counted: false },
+        { icon: 'fire', label: t('careBasis.fields.nearHeater'), value: yn(pr.nearHeater), counted: true },
+      ],
+    },
+  ];
+});
+
+// Completeness = filled/total over the COUNTED (fillable + derivable) factors only.
+const meter = computed(() => {
+  const counted = careBasisGroups.value.flatMap((g) => g.items).filter((i) => i.counted);
+  const total = counted.length;
+  const filled = counted.filter((i) => i.value !== null).length;
+  const pct = total ? Math.round((filled / total) * 100) : 0;
+  return { filled, total, pct };
 });
 
 const today = () => todayYmd();
@@ -262,6 +335,37 @@ async function postpone(task: TaskCode) {
           </UiCard>
         </div>
 
+        <!-- The care plan is based on -->
+        <div>
+          <UiSectionTitle>{{ $t('careBasis.title') }}</UiSectionTitle>
+          <UiCard padded class="mp-detail__basis">
+            <div class="mp-detail__basis-head">
+              <UiMeter
+                :filled="meter.filled"
+                :total="meter.total"
+                :label="$t('careBasis.meterLabel', { filled: meter.filled, total: meter.total, pct: meter.pct })"
+                class="mp-detail__basis-meter"
+              />
+              <UiButton size="xs" variant="soft" color="neutral" icon="plus" @click="profileOpen = true">
+                {{ $t('careBasis.addMissingInfo') }}
+              </UiButton>
+            </div>
+            <div v-for="group in careBasisGroups" :key="group.title" class="mp-detail__basis-group">
+              <div class="mp-detail__basis-group-title">{{ group.title }}</div>
+              <div class="mp-detail__basis-items">
+                <UiInfoItem
+                  v-for="item in group.items"
+                  :key="item.label"
+                  :icon="item.icon"
+                  :label="item.label"
+                  :value="item.value"
+                  :missing-label="$t('careBasis.missing')"
+                />
+              </div>
+            </div>
+          </UiCard>
+        </div>
+
         <!-- History -->
         <div>
           <UiSectionTitle>{{ $t('plantDetail.history') }}</UiSectionTitle>
@@ -284,6 +388,7 @@ async function postpone(task: TaskCode) {
       @saved="onEdited"
     />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
+    <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
 
     <!-- Cover-photo editor -->
     <UiModal v-model="coverOpen" :title="$t('plantPhoto.editTitle')">
@@ -424,5 +529,40 @@ async function postpone(task: TaskCode) {
   margin: 0;
   font: var(--text-xs) var(--font-sans);
   color: var(--care-poor);
+}
+
+.mp-detail__basis {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.mp-detail__basis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.mp-detail__basis-meter {
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-detail__basis-group {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.mp-detail__basis-group-title {
+  font: var(--weight-semibold) var(--text-xs) / 1 var(--font-sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.mp-detail__basis-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-4) var(--space-3);
 }
 </style>

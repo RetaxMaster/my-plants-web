@@ -41,6 +41,16 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
         :to="`/plants/${p.id}`"
         padded
       >
+        <UiPlantPhoto
+          :src="p.coverImageUrl"
+          :alt="$t('plantPhoto.alt', { name: plantTitle(p) })"
+          :height="118"
+          class="mp-plant-row__banner"
+        >
+          <template v-if="placeName(p.placeId)" #chips>
+            <UiPhotoChip icon="map-pin" :label="placeName(p.placeId)" />
+          </template>
+        </UiPlantPhoto>
         <div class="mp-plant-row">
           <UiPlantAvatar :size="48" />
           <div class="mp-plant-row__info">
@@ -58,6 +68,10 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
 </template>
 
 <style scoped>
+.mp-plant-row__banner {
+  margin-bottom: var(--space-3);
+}
+
 .mp-plant-row {
   display: flex;
   align-items: center;

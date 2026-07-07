@@ -50,6 +50,16 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     apiBase: process.env.NUXT_API_BASE ?? 'http://localhost:8000', // SERVER-ONLY: internal NestJS base
+    // Persist the nuxt-auth-utils session cookie (default is a browser-session cookie that dies on
+    // close — the root cause of "session drops when the browser/phone is killed"). Setting maxAge does
+    // NOT weaken httpOnly/secure/sameSite (all still on by default). The server middleware re-issues
+    // this cookie on every authenticated request so the window slides and never lapses (Clock A).
+    // `password` is required by h3's SessionConfig type; nuxt-auth-utils already reads
+    // NUXT_SESSION_PASSWORD via its own env-mapping, this just satisfies the type at the same value.
+    session: {
+      password: process.env.NUXT_SESSION_PASSWORD ?? '',
+      maxAge: Number(process.env.NUXT_SESSION_MAX_AGE ?? 60 * 60 * 24 * 30), // 30 days, in seconds
+    },
     public: {
       // v1 local-only: the browser connects DIRECTLY to the embedded engine's localhost Socket.IO
       // (the Nitro proxy is HTTP-only and cannot proxy a WS upgrade). Access is gated by the

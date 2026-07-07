@@ -10,6 +10,7 @@ export default defineEventHandler(async (event) => {
   const path = event.path;
   if (!path.startsWith('/api/')) return;
   if (path.startsWith('/api/auth/login') || path.startsWith('/api/auth/logout')) return;
+  if (path.startsWith('/api/acting-as')) return; // owns its own session write — don't double-seal
 
   const session = await getUserSession(event);
   const token = session.secure?.token;

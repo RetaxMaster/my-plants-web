@@ -57,7 +57,14 @@ const onLogProgress = () => emit('logProgress', { task: props.task });
           :aria-label="t('progress.doneDateAria')"
         />
         <Button size="xs" color="primary" icon="check" @click="onDone">{{ t('common.done') }}</Button>
-        <Button size="xs" color="neutral" variant="ghost" icon="clock" @click="onPostpone">
+        <Button
+          v-if="status !== 'upcoming'"
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          icon="clock"
+          @click="onPostpone"
+        >
           {{ t('common.postpone') }}
         </Button>
       </template>

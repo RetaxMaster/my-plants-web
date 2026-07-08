@@ -68,4 +68,15 @@ describe('vue-i18n message resolution', () => {
     expect(g.t('knowledgeEngine.composer.send')).toBe('Enviar');
     expect(g.t('knowledgeEngine.composer.shiftEnterNewline')).toBe('Shift+Enter para una nueva línea');
   });
+
+  it('en and es have identical key trees', () => {
+    const paths = (o: Record<string, unknown>, prefix = ''): string[] =>
+      Object.entries(o).flatMap(([k, v]) => {
+        const key = prefix ? `${prefix}.${k}` : k;
+        return v && typeof v === 'object' ? paths(v as Record<string, unknown>, key) : [key];
+      });
+    const enKeys = paths(en as Record<string, unknown>).sort();
+    const esKeys = paths(es as Record<string, unknown>).sort();
+    expect(esKeys).toEqual(enKeys);
+  });
 });

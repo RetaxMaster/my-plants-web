@@ -69,6 +69,15 @@ describe('vue-i18n message resolution', () => {
     expect(g.t('knowledgeEngine.composer.shiftEnterNewline')).toBe('Shift+Enter para una nueva línea');
   });
 
+  it('resolves per-task info copy and dryness labels per locale', () => {
+    const g = make();
+    expect(g.t('taskInfo.tasks.WATER.what')).toBe('Giving the plant water at the roots.');
+    expect(g.t('taskInfo.dryness.mostly-dry')).toBe('Let the soil dry out almost completely before watering.');
+    g.locale.value = 'es';
+    expect(g.t('taskInfo.tasks.WATER.what')).toBe('Darle agua a la planta en la raíz.');
+    expect(g.t('taskInfo.speciesTitle')).toBe('Para esta planta');
+  });
+
   it('en and es have identical key trees', () => {
     const paths = (o: Record<string, unknown>, prefix = ''): string[] =>
       Object.entries(o).flatMap(([k, v]) => {

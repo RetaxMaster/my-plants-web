@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { CreatePlace, HumidityCharacter, LightType } from '../../types/api.js';
+import { AIRFLOW } from '@retaxmaster/my-plants-species-schema/place-constants';
+import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 
 const { t } = useI18n();
 const api = useApi();
@@ -22,7 +24,7 @@ const lightOptions = computed<{ label: string; value: LightType }[]>(() => [
 // The create form needs to represent "not specified" for humidity, which the API stores
 // as null. The CreatePlace DTO type cannot hold the '' sentinel, so the form uses a local
 // type with humidityCharacter widened to include '', and submit() maps '' -> omitted.
-type PlaceForm = Omit<CreatePlace, 'humidityCharacter'> & { humidityCharacter: HumidityCharacter | '' };
+type PlaceForm = Omit<CreatePlace, 'humidityCharacter' | 'airflow'> & { humidityCharacter: HumidityCharacter | ''; airflow: Airflow | '' };
 
 const humidityOptions = computed<{ label: string; value: HumidityCharacter | '' }[]>(() => [
   { label: t('places.humidity_NONE'), value: '' },
@@ -31,9 +33,14 @@ const humidityOptions = computed<{ label: string; value: HumidityCharacter | '' 
   { label: t('places.humidity_HUMID'), value: 'HUMID' },
 ]);
 
+const airflowOptions = computed(() => [
+  { label: t('places.airflow_NONE'), value: '' },
+  ...AIRFLOW.map((v) => ({ label: t('places.airflow_' + v), value: v })),
+]);
+
 const form = reactive<PlaceForm>({
   cityId: '', name: '', indoor: true, lightType: 'BRIGHT_INDIRECT',
-  climateControlled: false, humidityCharacter: '', indoorTempMinC: null, indoorTempMaxC: null,
+  climateControlled: false, humidityCharacter: '', airflow: '', indoorTempMinC: null, indoorTempMaxC: null,
 });
 const cityOptions = computed(() => (cities.value ?? []).map((c) => ({ label: c.name, value: c.id })));
 
@@ -61,21 +68,22 @@ async function submit() {
         cityId: form.cityId, name: form.name, indoor: true, lightType: form.lightType,
         climateControlled: form.climateControlled,
         ...(form.humidityCharacter ? { humidityCharacter: form.humidityCharacter } : {}),
+        ...(form.airflow ? { airflow: form.airflow } : {}),
         indoorTempMinC: form.indoorTempMinC, indoorTempMaxC: form.indoorTempMaxC,
       }
     : { cityId: form.cityId, name: form.name, indoor: false, lightType: form.lightType };
   await api.createPlace(payload);
   Object.assign(form, {
-    name: '', climateControlled: false, humidityCharacter: '', indoorTempMinC: null, indoorTempMaxC: null,
+    name: '', climateControlled: false, humidityCharacter: '', airflow: '', indoorTempMinC: null, indoorTempMaxC: null,
   });
   await refresh();
 }
 
 const editing = ref(false);
-const editPlace = ref<{ id: string; name: string; climateControlled: boolean } | null>(null);
+const editPlace = ref<{ id: string; name: string; climateControlled: boolean; airflow: Airflow | null } | null>(null);
 
-function openEdit(p: { id: string; name: string; climateControlled: boolean }) {
-  editPlace.value = { id: p.id, name: p.name, climateControlled: p.climateControlled };
+function openEdit(p: { id: string; name: string; climateControlled: boolean; airflow: Airflow | null }) {
+  editPlace.value = { id: p.id, name: p.name, climateControlled: p.climateControlled, airflow: p.airflow };
   editing.value = true;
 }
 
@@ -147,6 +155,9 @@ const indoorIncomplete = computed(
             </UiFormGroup>
             <UiFormGroup :label="$t('places.humidityCharacter')">
               <UiSelectField v-model="form.humidityCharacter" :options="humidityOptions" />
+            </UiFormGroup>
+            <UiFormGroup :label="$t('places.airflow')">
+              <UiSelectField v-model="form.airflow" :options="airflowOptions" />
             </UiFormGroup>
             <div class="mp-place-temps">
               <UiFormGroup :label="$t('places.tempMin')">

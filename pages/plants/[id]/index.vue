@@ -333,7 +333,7 @@ function confirmPostpone(reason: string) {
               variant="soft"
               color="cafe"
               icon="book-open"
-              @click="navigateTo(`/blog/${plant.speciesSlug}`)"
+              :to="`/blog/${plant.speciesSlug}`"
             >
               {{ $t('plantDetail.readGuide') }}
             </UiButton>

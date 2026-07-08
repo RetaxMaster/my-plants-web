@@ -18,6 +18,7 @@ const props = withDefaults(
     disabled?: boolean;
     loading?: boolean;
     type?: 'button' | 'submit' | 'reset';
+    to?: string;
     class?: unknown;
   }>(),
   {
@@ -35,13 +36,17 @@ defineEmits<{ click: [MouseEvent] }>();
 
 const iconSize = computed(() => ({ xs: 14, sm: 16, md: 18 }[props.size]));
 const isDisabled = computed(() => props.disabled || props.loading);
+const NuxtLink = resolveComponent('NuxtLink');
+const isLink = computed(() => !!props.to);
 </script>
 
 <template>
-  <button
+  <component
+    :is="isLink ? NuxtLink : 'button'"
+    :to="isLink ? to : undefined"
+    :type="isLink ? undefined : type"
+    :disabled="isLink ? undefined : isDisabled"
     :class="['mp-btn', `mp-btn--${size}`, `mp-btn--${color}-${variant}`, { 'mp-btn--block': block }, props.class]"
-    :type="type"
-    :disabled="isDisabled"
     v-bind="$attrs"
     @click="$emit('click', $event)"
   >
@@ -49,7 +54,7 @@ const isDisabled = computed(() => props.disabled || props.loading);
     <AppIcon v-else-if="icon" :name="icon" :size="iconSize" />
     <slot />
     <AppIcon v-if="trailingIcon && !loading" :name="trailingIcon" :size="iconSize" />
-  </button>
+  </component>
 </template>
 
 <style scoped>

@@ -146,6 +146,18 @@ async function onProfileSaved() {
   await refreshPlant(); // profile + derived changed -> the meter and info items move
 }
 
+// Per-task info modal (C4): ONE reusable TaskInfoModal fed the clicked task code + (WATER only) the
+// species dryness slug from the care payload. The default task is harmless — it is set before opening.
+const taskInfoOpen = ref(false);
+const taskInfoTask = ref<TaskCode>('WATER');
+function openTaskInfo(e: { task: TaskCode }) {
+  taskInfoTask.value = e.task;
+  taskInfoOpen.value = true;
+}
+const taskInfoDryness = computed(() =>
+  taskInfoTask.value === 'WATER' ? (care.value?.soilDrynessBeforeWatering ?? null) : null,
+);
+
 // A tri-state boolean -> localized Yes/No, or null (Missing info) when unknown.
 function yn(v: boolean | null | undefined): string | null {
   if (v === null || v === undefined) return null;
@@ -425,8 +437,10 @@ function confirmPostpone(reason: string) {
                 :status="t3.status"
                 :due-label="dueLabelLong(careDueState(t3))"
                 with-done-date
+                show-info
                 @done="e => onDone(e.task, t3.status, e.occurredOn)"
                 @postpone="e => onPostpone(e.task)"
+                @info="openTaskInfo"
                 @log-progress="openProgress"
               />
             </div>
@@ -477,6 +491,7 @@ function confirmPostpone(reason: string) {
     />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
     <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
+    <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" />
 
     <!-- Cover-photo editor -->
     <UiModal v-model="coverOpen" :title="$t('plantPhoto.editTitle')">

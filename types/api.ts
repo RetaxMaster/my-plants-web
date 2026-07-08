@@ -40,7 +40,10 @@ export interface Plant {
 
 export interface Viability { level: ViabilityLevel; reasons: string[] }
 export interface UpdatePlant { nickname?: string; placeId?: string }
-export interface UpdatePlace { name?: string; climateControlled?: boolean; airflow?: Airflow | null }
+export interface UpdatePlace {
+  name?: string; climateControlled?: boolean; lightType?: LightType;
+  humidityCharacter?: HumidityCharacter | null; airflow?: Airflow | null;
+}
 export interface CreatePlant {
   placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;
   lastDone?: { task: CareActionTask; doneOn: string }[]; // PROGRESS excluded — journaled, never seeded

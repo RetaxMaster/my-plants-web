@@ -81,10 +81,17 @@ async function submit() {
 }
 
 const editing = ref(false);
-const editPlace = ref<{ id: string; name: string; climateControlled: boolean; airflow: Airflow | null } | null>(null);
+type EditablePlaceInput = {
+  id: string; name: string; indoor: boolean; climateControlled: boolean;
+  lightType: LightType; humidityCharacter: HumidityCharacter | null; airflow: Airflow | null;
+};
+const editPlace = ref<EditablePlaceInput | null>(null);
 
-function openEdit(p: { id: string; name: string; climateControlled: boolean; airflow: Airflow | null }) {
-  editPlace.value = { id: p.id, name: p.name, climateControlled: p.climateControlled, airflow: p.airflow };
+function openEdit(p: EditablePlaceInput) {
+  editPlace.value = {
+    id: p.id, name: p.name, indoor: p.indoor, climateControlled: p.climateControlled,
+    lightType: p.lightType, humidityCharacter: p.humidityCharacter, airflow: p.airflow,
+  };
   editing.value = true;
 }
 

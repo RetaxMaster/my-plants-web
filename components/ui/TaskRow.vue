@@ -16,14 +16,16 @@ const props = withDefaults(
     status: 'overdue' | 'today' | 'upcoming';
     dueLabel: string;
     withDoneDate?: boolean;
+    showInfo?: boolean;
   }>(),
-  { withDoneDate: false },
+  { withDoneDate: false, showInfo: false },
 );
 
 const emit = defineEmits<{
   done: [{ task: TaskCode; occurredOn?: string }];
   postpone: [{ task: TaskCode }];
   logProgress: [{ task: TaskCode }];
+  info: [{ task: TaskCode }];
 }>();
 
 const doneDate = ref('');
@@ -35,6 +37,7 @@ const badgeColor = computed(() =>
 const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
 const onPostpone = () => emit('postpone', { task: props.task });
 const onLogProgress = () => emit('logProgress', { task: props.task });
+const onInfo = () => emit('info', { task: props.task });
 </script>
 
 <template>
@@ -43,6 +46,15 @@ const onLogProgress = () => emit('logProgress', { task: props.task });
       <AppIcon :name="TASK_ICONS[task]" :size="18" class="mp-taskrow__icon" />
       <span class="mp-taskrow__label">{{ taskLabel(task) }}</span>
       <Badge :color="badgeColor" size="xs">{{ dueLabel }}</Badge>
+      <button
+        v-if="showInfo"
+        type="button"
+        class="mp-taskrow__info"
+        :aria-label="t('taskInfo.aria')"
+        @click="onInfo"
+      >
+        <AppIcon name="information-circle" :size="16" />
+      </button>
     </div>
     <div class="mp-taskrow__actions">
       <template v-if="task === 'PROGRESS'">
@@ -120,6 +132,32 @@ const onLogProgress = () => emit('logProgress', { task: props.task });
 
 .mp-taskrow__date:focus {
   border-color: var(--border-brand);
+  box-shadow: var(--shadow-focus);
+}
+
+.mp-taskrow__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+
+.mp-taskrow__info:hover {
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+}
+
+.mp-taskrow__info:focus-visible {
+  outline: none;
   box-shadow: var(--shadow-focus);
 }
 </style>

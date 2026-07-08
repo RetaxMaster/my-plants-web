@@ -2,6 +2,7 @@ import type { TaskCode } from '../utils/tasks.js';
 import type {
   PotType, SoilMix, GrowthHabit, WindowDist,
 } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
+import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -23,12 +24,12 @@ export type HumidityCharacter = 'DRY' | 'NORMAL' | 'HUMID';
 export interface Place {
   id: string; ownerId: string; cityId: string; name: string; indoor: boolean; lightType: LightType;
   climateControlled: boolean; humidityCharacter: HumidityCharacter | null;
-  indoorTempMinC: number | null; indoorTempMaxC: number | null;
+  indoorTempMinC: number | null; indoorTempMaxC: number | null; airflow: Airflow | null;
 }
 export interface CreatePlace {
   cityId: string; name: string; indoor: boolean; lightType: LightType;
   climateControlled?: boolean; humidityCharacter?: HumidityCharacter;
-  indoorTempMinC?: number | null; indoorTempMaxC?: number | null;
+  indoorTempMinC?: number | null; indoorTempMaxC?: number | null; airflow?: Airflow;
 }
 
 export interface Plant {
@@ -39,7 +40,7 @@ export interface Plant {
 
 export interface Viability { level: ViabilityLevel; reasons: string[] }
 export interface UpdatePlant { nickname?: string; placeId?: string }
-export interface UpdatePlace { name?: string; climateControlled?: boolean }
+export interface UpdatePlace { name?: string; climateControlled?: boolean; airflow?: Airflow | null }
 export interface CreatePlant {
   placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;
   lastDone?: { task: CareActionTask; doneOn: string }[]; // PROGRESS excluded — journaled, never seeded

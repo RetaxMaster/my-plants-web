@@ -86,7 +86,11 @@ export interface DueTaskResponse { plantId: string; task: TaskCode; nextDueOn: s
 export type FeedbackType = 'DONE' | 'POSTPONED' | 'SYMPTOM';
 export interface Feedback {
   task: TaskCode; type: FeedbackType; occurredOn: string;
-  postponeToOn?: string; payload?: Record<string, unknown>;
+  postponeToOn?: string;
+  // WATER-only feedback reason (spec B): captured on an early WATER Done or a WATER Postpone; a slug from
+  // EARLY_WATER_REASONS ∪ WATER_POSTPONE_REASONS. Omitted for non-water tasks and due waterings.
+  reason?: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface OwnerSummary {

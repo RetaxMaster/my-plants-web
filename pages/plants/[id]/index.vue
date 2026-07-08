@@ -10,6 +10,12 @@ const { dueLabelLong, healthLabel } = useTaskMeta();
 
 const route = useRoute();
 const api = useApi();
+
+const { earlyWaterOptions, postponeOptions } = useFeedbackReasons();
+
+const pending = ref<{ task: TaskCode; type: 'DONE' | 'POSTPONED'; occurredOn?: string } | null>(null);
+const earlyPickerOpen = ref(false);
+const postponePickerOpen = ref(false);
 const isDesktop = useIsDesktop();
 const id = route.params.id as string;
 
@@ -217,16 +223,47 @@ function careDueState(row: { daysUntilDue: number; status: string }): DueState {
   return { kind: 'inDays', days: row.daysUntilDue };
 }
 
-async function markDone(task: TaskCode, occurredOn?: string) {
-  await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today() });
+async function sendDone(task: TaskCode, occurredOn?: string, reason?: string) {
+  await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
   // A completed action becomes a history item (kind:'action', e.g. "Watered today"), so refresh the
   // timeline in place too — not just the care rows — consistent with the progress-log path.
   await Promise.all([refresh(), refreshHistory()]);
 }
 
-async function postpone(task: TaskCode) {
-  await api.sendFeedback(id, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1) });
+async function sendPostpone(task: TaskCode, reason?: string) {
+  await api.sendFeedback(id, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1), reason });
   await refresh();
+}
+
+// A WATER done on a not-yet-due task (status 'upcoming') is an early watering → ask why; otherwise send.
+function onDone(task: TaskCode, status: 'overdue' | 'today' | 'upcoming', occurredOn?: string) {
+  if (task === 'WATER' && status === 'upcoming') {
+    pending.value = { task, type: 'DONE', occurredOn };
+    earlyPickerOpen.value = true;
+    return;
+  }
+  return sendDone(task, occurredOn);
+}
+
+function onPostpone(task: TaskCode) {
+  if (task === 'WATER') {
+    pending.value = { task, type: 'POSTPONED' };
+    postponePickerOpen.value = true;
+    return;
+  }
+  return sendPostpone(task);
+}
+
+function confirmEarly(reason: string) {
+  const p = pending.value;
+  pending.value = null;
+  if (p) void sendDone(p.task, p.occurredOn, reason);
+}
+
+function confirmPostpone(reason: string) {
+  const p = pending.value;
+  pending.value = null;
+  if (p) void sendPostpone(p.task, reason);
 }
 </script>
 
@@ -388,8 +425,8 @@ async function postpone(task: TaskCode) {
                 :status="t3.status"
                 :due-label="dueLabelLong(careDueState(t3))"
                 with-done-date
-                @done="e => markDone(e.task, e.occurredOn)"
-                @postpone="e => postpone(e.task)"
+                @done="e => onDone(e.task, t3.status, e.occurredOn)"
+                @postpone="e => onPostpone(e.task)"
                 @log-progress="openProgress"
               />
             </div>
@@ -462,6 +499,20 @@ async function postpone(task: TaskCode) {
         <UiButton color="neutral" variant="ghost" @click="coverOpen = false">{{ $t('common.close') }}</UiButton>
       </template>
     </UiModal>
+
+    <UiReasonPicker
+      v-model:open="earlyPickerOpen"
+      :title="$t('feedback.earlyWaterTitle')"
+      :options="earlyWaterOptions"
+      @confirm="confirmEarly"
+    />
+    <UiReasonPicker
+      v-model:open="postponePickerOpen"
+      :title="$t('feedback.postponeTitle')"
+      :options="postponeOptions"
+      :confirm-label="$t('common.postpone')"
+      @confirm="confirmPostpone"
+    />
   </div>
   <UiEmptyState v-else>{{ $t('common.loading') }}</UiEmptyState>
 </template>

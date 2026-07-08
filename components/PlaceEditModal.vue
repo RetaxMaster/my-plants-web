@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import { AIRFLOW } from '@retaxmaster/my-plants-species-schema/place-constants';
+import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
+
 interface EditablePlace {
   id: string;
   name: string;
   climateControlled: boolean;
+  airflow: Airflow | null;
 }
 
 const props = defineProps<{
@@ -15,15 +19,23 @@ const api = useApi();
 
 const open = defineModel<boolean>({ default: false });
 
+const { t } = useI18n();
 const editName = ref('');
 const editClimate = ref(false);
+const editAirflow = ref<Airflow | ''>('');
 const savingEdit = ref(false);
+
+const airflowOptions = computed(() => [
+  { label: t('places.airflow_NONE'), value: '' },
+  ...AIRFLOW.map((v) => ({ label: t('places.airflow_' + v), value: v })),
+]);
 
 // Whenever the modal opens, seed the fields from the current place.
 watch(open, (isOpen) => {
   if (isOpen && props.place) {
     editName.value = props.place.name;
     editClimate.value = props.place.climateControlled;
+    editAirflow.value = props.place.airflow ?? '';
   }
 });
 
@@ -31,7 +43,11 @@ async function saveEdit() {
   if (!props.place) return;
   savingEdit.value = true;
   try {
-    await api.updatePlace(props.place.id, { name: editName.value, climateControlled: editClimate.value });
+    await api.updatePlace(props.place.id, {
+      name: editName.value,
+      climateControlled: editClimate.value,
+      airflow: editAirflow.value === '' ? null : editAirflow.value,
+    });
     emit('saved');
     open.value = false;
   } finally { savingEdit.value = false; }
@@ -49,6 +65,9 @@ async function saveEdit() {
           <UiSwitch v-model="editClimate" />
           <span class="mp-edit-form__switch-text">{{ editClimate ? $t('common.yes') : $t('common.no') }}</span>
         </div>
+      </UiFormGroup>
+      <UiFormGroup :label="$t('placeEdit.airflow')">
+        <UiSelectField v-model="editAirflow" :options="airflowOptions" />
       </UiFormGroup>
     </div>
     <template #footer>

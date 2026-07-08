@@ -10,6 +10,14 @@ const { dueLabel } = useTaskMeta();
 useHead(() => ({ title: t('meta.today.title') }));
 useSeoMeta({ description: () => t('meta.today.description') });
 const api = useApi();
+
+const { earlyWaterOptions, postponeOptions } = useFeedbackReasons();
+
+// A WATER action that teaches the schedule opens a reason picker; on confirm we send with the reason.
+// Everything else sends immediately with no prompt.
+const pending = ref<{ plantId: string; task: DueTask['task']; type: 'DONE' | 'POSTPONED'; occurredOn?: string } | null>(null);
+const earlyPickerOpen = ref(false);
+const postponePickerOpen = ref(false);
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
 const { data: plants } = await useAsyncData('plants', () => api.listPlants());
@@ -44,14 +52,47 @@ function rowStatus(due: string): 'overdue' | 'today' | 'upcoming' {
   return 'upcoming';
 }
 
-async function markDone(plantId: string, task: DueTask['task'], occurredOn?: string) {
-  await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today });
+async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
+  await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today, reason });
   await refresh();
 }
 
-async function postpone(plantId: string, task: DueTask['task']) {
-  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today, postponeToOn: addDaysYmd(1) });
+async function sendPostpone(plantId: string, task: DueTask['task'], reason?: string) {
+  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today, postponeToOn: addDaysYmd(1), reason });
   await refresh();
+}
+
+// Done: a WATER done that is NOT yet due (status 'upcoming') is an EARLY watering → ask why. Any other
+// done (non-water, or a due/overdue WATER) sends immediately.
+function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'today' | 'upcoming', occurredOn?: string) {
+  if (task === 'WATER' && status === 'upcoming') {
+    pending.value = { plantId, task, type: 'DONE', occurredOn };
+    earlyPickerOpen.value = true;
+    return;
+  }
+  return sendDone(plantId, task, occurredOn);
+}
+
+// Postpone: a WATER postpone always asks why; non-water postpones send immediately (unchanged).
+function onPostpone(plantId: string, task: DueTask['task']) {
+  if (task === 'WATER') {
+    pending.value = { plantId, task, type: 'POSTPONED' };
+    postponePickerOpen.value = true;
+    return;
+  }
+  return sendPostpone(plantId, task);
+}
+
+function confirmEarly(reason: string) {
+  const p = pending.value;
+  pending.value = null;
+  if (p) void sendDone(p.plantId, p.task, p.occurredOn, reason);
+}
+
+function confirmPostpone(reason: string) {
+  const p = pending.value;
+  pending.value = null;
+  if (p) void sendPostpone(p.plantId, p.task, reason);
 }
 
 // "Log progress" opens the full-screen route (/plants/:id/progress); after saving there the user lands
@@ -103,13 +144,27 @@ function openProgress(plantId: string) {
             :task="t2.task"
             :status="rowStatus(t2.nextDueOn)"
             :due-label="dueLabel(dueState(new Date(t2.nextDueOn)))"
-            @done="e => markDone(plantId, e.task, e.occurredOn)"
-            @postpone="e => postpone(plantId, e.task)"
+            @done="e => onDone(plantId, e.task, rowStatus(t2.nextDueOn), e.occurredOn)"
+            @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"
           />
         </div>
       </UiCard>
     </UiCardGrid>
+
+    <UiReasonPicker
+      v-model:open="earlyPickerOpen"
+      :title="$t('feedback.earlyWaterTitle')"
+      :options="earlyWaterOptions"
+      @confirm="confirmEarly"
+    />
+    <UiReasonPicker
+      v-model:open="postponePickerOpen"
+      :title="$t('feedback.postponeTitle')"
+      :options="postponeOptions"
+      :confirm-label="$t('common.postpone')"
+      @confirm="confirmPostpone"
+    />
   </div>
 </template>
 

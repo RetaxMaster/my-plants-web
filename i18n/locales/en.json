@@ -169,7 +169,8 @@
       "indoorTemp": "Indoor temperature",
       "setting": "Setting",
       "nearAc": "Near AC",
-      "nearHeater": "Near a heater"
+      "nearHeater": "Near a heater",
+      "airflow": "Air movement"
     },
     "values": {
       "potSize": "{n} cm",
@@ -284,7 +285,12 @@
     "humidity_NONE": "Not specified",
     "humidity_DRY": "Dry",
     "humidity_NORMAL": "Normal",
-    "humidity_HUMID": "Humid"
+    "humidity_HUMID": "Humid",
+    "airflow": "Air movement",
+    "airflow_NONE": "Not specified",
+    "airflow_still": "Still",
+    "airflow_some": "Some",
+    "airflow_breezy": "Breezy"
   },
   "cities": {
     "title": "Cities",
@@ -548,7 +554,8 @@
   "placeEdit": {
     "title": "Edit place",
     "name": "Name",
-    "climateControlled": "Climate controlled"
+    "climateControlled": "Climate controlled",
+    "airflow": "Air movement"
   },
   "viability": {
     "good": "Good fit",

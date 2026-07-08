@@ -169,7 +169,8 @@
       "indoorTemp": "Temperatura interior",
       "setting": "Ubicación",
       "nearAc": "Cerca del aire acondicionado",
-      "nearHeater": "Cerca de un calefactor"
+      "nearHeater": "Cerca de un calefactor",
+      "airflow": "Movimiento del aire"
     },
     "values": {
       "potSize": "{n} cm",
@@ -284,7 +285,12 @@
     "humidity_NONE": "Sin especificar",
     "humidity_DRY": "Seca",
     "humidity_NORMAL": "Normal",
-    "humidity_HUMID": "Húmeda"
+    "humidity_HUMID": "Húmeda",
+    "airflow": "Movimiento del aire",
+    "airflow_NONE": "Sin especificar",
+    "airflow_still": "Quieto",
+    "airflow_some": "Algo",
+    "airflow_breezy": "Con brisa"
   },
   "cities": {
     "title": "Ciudades",
@@ -548,7 +554,8 @@
   "placeEdit": {
     "title": "Editar lugar",
     "name": "Nombre",
-    "climateControlled": "Con clima controlado"
+    "climateControlled": "Con clima controlado",
+    "airflow": "Movimiento del aire"
   },
   "viability": {
     "good": "Buen ajuste",

@@ -575,7 +575,7 @@
   },
   "plantStatus": {
     "due": "{n} due",
-    "allGood": "All good"
+    "upToDate": "Tasks up to date"
   },
   "theme": {
     "toLight": "Switch to light theme",

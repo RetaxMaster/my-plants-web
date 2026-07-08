@@ -575,7 +575,7 @@
   },
   "plantStatus": {
     "due": "{n} pendiente | {n} pendientes",
-    "allGood": "Todo bien"
+    "upToDate": "Tareas al día"
   },
   "theme": {
     "toLight": "Cambiar a tema claro",

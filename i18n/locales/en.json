@@ -78,6 +78,17 @@
       "inDays": "Due in {n} day | Due in {n} days"
     }
   },
+  "feedback": {
+    "earlyWaterTitle": "Why are you watering early?",
+    "postponeTitle": "Why postpone this watering?",
+    "reason": {
+      "intuition": "Just a hunch",
+      "dry-soil": "The soil was dry",
+      "soil-still-moist": "The soil is still moist",
+      "no-time": "No time right now",
+      "other": "Another reason"
+    }
+  },
   "history": {
     "today": "today",
     "yesterday": "yesterday",

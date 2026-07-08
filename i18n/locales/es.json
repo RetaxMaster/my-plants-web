@@ -78,6 +78,17 @@
       "inDays": "En {n} día | En {n} días"
     }
   },
+  "feedback": {
+    "earlyWaterTitle": "¿Por qué riegas antes de tiempo?",
+    "postponeTitle": "¿Por qué pospones este riego?",
+    "reason": {
+      "intuition": "Solo por intuición",
+      "dry-soil": "La tierra estaba seca",
+      "soil-still-moist": "La tierra aún está húmeda",
+      "no-time": "Ahora no tengo tiempo",
+      "other": "Otra razón"
+    }
+  },
   "history": {
     "today": "hoy",
     "yesterday": "ayer",

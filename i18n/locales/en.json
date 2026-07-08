@@ -58,6 +58,57 @@
       "MIST": "Misted"
     }
   },
+  "taskInfo": {
+    "aria": "About this task",
+    "whatTitle": "What is it?",
+    "whyTitle": "Why it matters",
+    "howTitle": "How to do it",
+    "speciesTitle": "For this plant",
+    "dryness": {
+      "keep-moist": "Keep the soil evenly moist — never let it dry out.",
+      "top-inch-dry": "Let the top inch (2–3 cm) of soil dry before watering.",
+      "half-dry": "Let the top half of the soil dry before watering.",
+      "mostly-dry": "Let the soil dry out almost completely before watering.",
+      "fully-dry": "Let the soil dry out completely before watering."
+    },
+    "tasks": {
+      "WATER": {
+        "what": "Giving the plant water at the roots.",
+        "why": "Too little dries the plant out; too much suffocates the roots and invites rot.",
+        "how": "Water until it drains from the bottom, then let the soil dry to this plant's preferred level before the next watering. Empty any saucer so the roots never sit in water."
+      },
+      "FERTILIZE": {
+        "what": "Feeding the plant nutrients, usually a diluted liquid fertilizer.",
+        "why": "Potting mix runs out of nutrients; feeding during the growing season keeps growth healthy.",
+        "how": "Apply a balanced fertilizer diluted to the label rate onto already-moist soil, during the active season. Skip a stressed or dormant plant."
+      },
+      "REPOT": {
+        "what": "Moving the plant into fresh mix, often a slightly larger pot.",
+        "why": "Roots outgrow the pot and the old mix breaks down, starving and choking the plant.",
+        "how": "Lift the plant out, gently loosen the roots, set it in fresh mix one size up, and water it in. Best in the growing season."
+      },
+      "ROTATE": {
+        "what": "Turning the pot so a different side faces the light.",
+        "why": "Plants lean toward light; rotating keeps growth even and upright.",
+        "how": "Give the pot a quarter turn each time, always in the same direction, so every side gets its share of light."
+      },
+      "CLEAN_LEAVES": {
+        "what": "Wiping dust off the leaves.",
+        "why": "Dust blocks light and clogs the pores the leaf breathes through, slowing growth.",
+        "how": "Wipe each leaf gently with a soft, damp cloth, supporting it with your other hand. Do both sides on large leaves."
+      },
+      "MIST": {
+        "what": "Spraying a fine mist of water around the foliage.",
+        "why": "Briefly raises humidity for plants that come from humid habitats.",
+        "how": "Mist the air around the leaves in the morning so they dry by night; avoid soaking fuzzy-leaved plants, which trap water and spot."
+      },
+      "PROGRESS": {
+        "what": "Logging a photo and a note about how the plant is doing.",
+        "why": "A record of size and health over time shows whether your care is working.",
+        "how": "Snap a photo, jot an observation, and optionally record the height so the care plan can track growth."
+      }
+    }
+  },
   "health": {
     "SICK": "Sick",
     "POOR": "Poor",

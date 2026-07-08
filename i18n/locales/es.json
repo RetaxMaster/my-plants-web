@@ -58,6 +58,57 @@
       "MIST": "Rociada"
     }
   },
+  "taskInfo": {
+    "aria": "Acerca de esta tarea",
+    "whatTitle": "¿Qué es?",
+    "whyTitle": "Por qué importa",
+    "howTitle": "Cómo hacerlo",
+    "speciesTitle": "Para esta planta",
+    "dryness": {
+      "keep-moist": "Mantén la tierra húmeda de forma pareja; nunca dejes que se seque.",
+      "top-inch-dry": "Deja que se sequen los primeros 2–3 cm antes de regar.",
+      "half-dry": "Deja que se seque la mitad superior de la tierra antes de regar.",
+      "mostly-dry": "Deja que la tierra se seque casi por completo antes de regar.",
+      "fully-dry": "Deja que la tierra se seque por completo antes de regar."
+    },
+    "tasks": {
+      "WATER": {
+        "what": "Darle agua a la planta en la raíz.",
+        "why": "Muy poca la reseca; demasiada asfixia la raíz y provoca pudrición.",
+        "how": "Riega hasta que el agua salga por abajo y deja que la tierra se seque al nivel que prefiere esta planta antes del siguiente riego. Vacía el plato para que la raíz nunca quede en agua."
+      },
+      "FERTILIZE": {
+        "what": "Alimentar a la planta con nutrientes, normalmente un fertilizante líquido diluido.",
+        "why": "El sustrato se queda sin nutrientes; alimentarla en temporada de crecimiento la mantiene sana.",
+        "how": "Aplica un fertilizante balanceado diluido según la etiqueta sobre tierra ya húmeda, durante la temporada activa. No fertilices una planta estresada o en reposo."
+      },
+      "REPOT": {
+        "what": "Cambiar la planta a sustrato fresco, a menudo a una maceta un poco más grande.",
+        "why": "La raíz se queda sin espacio y el sustrato viejo se degrada, ahogando a la planta.",
+        "how": "Saca la planta, afloja con cuidado la raíz, colócala en sustrato fresco una talla más grande y riégala. Mejor en temporada de crecimiento."
+      },
+      "ROTATE": {
+        "what": "Girar la maceta para que otro lado quede hacia la luz.",
+        "why": "Las plantas se inclinan hacia la luz; girarla mantiene el crecimiento parejo y derecho.",
+        "how": "Dale un cuarto de vuelta cada vez, siempre en el mismo sentido, para que todos los lados reciban luz."
+      },
+      "CLEAN_LEAVES": {
+        "what": "Quitar el polvo de las hojas.",
+        "why": "El polvo bloquea la luz y tapa los poros por los que respira la hoja, frenando el crecimiento.",
+        "how": "Limpia cada hoja con un paño suave y húmedo, sosteniéndola con la otra mano. En hojas grandes, limpia ambos lados."
+      },
+      "MIST": {
+        "what": "Rociar una fina bruma de agua alrededor del follaje.",
+        "why": "Sube la humedad por un momento para plantas de origen húmedo.",
+        "how": "Rocía el aire alrededor de las hojas por la mañana para que se sequen antes de la noche; evita empapar plantas de hoja aterciopelada, que retienen agua y se manchan."
+      },
+      "PROGRESS": {
+        "what": "Registrar una foto y una nota de cómo va la planta.",
+        "why": "Un registro de tamaño y salud en el tiempo muestra si tu cuidado funciona.",
+        "how": "Toma una foto, anota una observación y, si quieres, registra la altura para que el plan de cuidados siga el crecimiento."
+      }
+    }
+  },
   "health": {
     "SICK": "Enferma",
     "POOR": "Regular",

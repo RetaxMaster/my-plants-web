@@ -2,6 +2,7 @@
 import type { CreatePlace, HumidityCharacter, LightType } from '../../types/api.js';
 import { AIRFLOW } from '@retaxmaster/my-plants-species-schema/place-constants';
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
+import { HUMIDITY_BAND_DRY_MAX, HUMIDITY_BAND_HUMID_MIN } from '../../utils/humidityBands.js';
 
 const { t } = useI18n();
 const api = useApi();
@@ -16,10 +17,10 @@ const { data: cities } = await useAsyncData('cities', () => api.listCities());
 // Option labels come from the SAME places.light_*/humidity_* keys the cards use, so the
 // form wording and the card wording share one key set (no fork). Values stay as the enum.
 const lightOptions = computed<{ label: string; value: LightType }[]>(() => [
-  { label: t('places.light_DIRECT'), value: 'DIRECT' },
-  { label: t('places.light_BRIGHT_INDIRECT'), value: 'BRIGHT_INDIRECT' },
-  { label: t('places.light_MEDIUM'), value: 'MEDIUM' },
-  { label: t('places.light_LOW'), value: 'LOW' },
+  { label: t('places.lightOption_DIRECT'), value: 'DIRECT' },
+  { label: t('places.lightOption_BRIGHT_INDIRECT'), value: 'BRIGHT_INDIRECT' },
+  { label: t('places.lightOption_MEDIUM'), value: 'MEDIUM' },
+  { label: t('places.lightOption_LOW'), value: 'LOW' },
 ]);
 // The create form needs to represent "not specified" for humidity, which the API stores
 // as null. The CreatePlace DTO type cannot hold the '' sentinel, so the form uses a local
@@ -28,9 +29,9 @@ type PlaceForm = Omit<CreatePlace, 'humidityCharacter' | 'airflow'> & { humidity
 
 const humidityOptions = computed<{ label: string; value: HumidityCharacter | '' }[]>(() => [
   { label: t('places.humidity_NONE'), value: '' },
-  { label: t('places.humidity_DRY'), value: 'DRY' },
-  { label: t('places.humidity_NORMAL'), value: 'NORMAL' },
-  { label: t('places.humidity_HUMID'), value: 'HUMID' },
+  { label: t('places.humidityOption_DRY', { max: HUMIDITY_BAND_DRY_MAX }), value: 'DRY' },
+  { label: t('places.humidityOption_NORMAL', { min: HUMIDITY_BAND_DRY_MAX, max: HUMIDITY_BAND_HUMID_MIN }), value: 'NORMAL' },
+  { label: t('places.humidityOption_HUMID', { min: HUMIDITY_BAND_HUMID_MIN }), value: 'HUMID' },
 ]);
 
 const airflowOptions = computed(() => [

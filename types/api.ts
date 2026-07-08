@@ -118,6 +118,8 @@ export interface PlantCare {
   tasks: PlantCareTask[];
   // Added in Phase C — the per-plant viability semaphore for its current place.
   viability: { level: ViabilityLevel; reasons: string[] };
+  // The species' soil-dryness-before-watering slug (e.g. 'mostly-dry'), used by the WATER info modal.
+  soilDrynessBeforeWatering?: string;
 }
 
 // --- Care History ---

@@ -70,9 +70,15 @@ const isLink = computed(() => !!props.to);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
+  /* With `to` this renders a NuxtLink (<a>), which the global `a:hover` rule would underline. */
+  text-decoration: none;
   transition:
     filter var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
+}
+
+.mp-btn:hover {
+  text-decoration: none;
 }
 
 .mp-btn--block {

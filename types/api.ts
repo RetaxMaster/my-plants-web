@@ -43,6 +43,7 @@ export interface UpdatePlant { nickname?: string; placeId?: string }
 export interface UpdatePlace {
   name?: string; climateControlled?: boolean; lightType?: LightType;
   humidityCharacter?: HumidityCharacter | null; airflow?: Airflow | null;
+  indoorTempMinC?: number | null; indoorTempMaxC?: number | null;
 }
 export interface CreatePlant {
   placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;

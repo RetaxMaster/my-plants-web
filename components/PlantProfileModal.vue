@@ -19,6 +19,7 @@ const loading = ref(false);
 const saving = ref(false);
 
 // Local editable state. Enums use '' for "not set"; numbers use '' for empty; booleans are plain.
+// potSizeCm is driven by UiSlider, whose unset state is `null` rather than ''.
 const windowDistance = ref('');
 const potType = ref('');
 const soilMix = ref('');
@@ -26,8 +27,14 @@ const growthHabit = ref('');
 const growLight = ref(false);
 const hasDrainage = ref(false);
 const nearHeater = ref(false);
-const potSizeCm = ref<number | string>('');
+const potSizeCm = ref<number | null>(null);
 const ageMonths = ref<number | string>('');
+
+// Pot-diameter bounds — cm. The engine's size factor saturates a little past POT_REF_CM + 23 (~38 cm),
+// so 50 comfortably covers every pot that still moves the watering calc.
+const POT_SIZE_MIN = 5;
+const POT_SIZE_MAX = 50;
+const POT_SIZE_STEP = 1;
 
 // Prepend an enabled "Not set" option so a user can CLEAR an enum (a disabled placeholder can't be reselected).
 const withNotSet = (opts: { value: string; label: string }[]) =>
@@ -45,7 +52,7 @@ watch(open, async (isOpen) => {
     growLight.value = p.growLight === true;
     hasDrainage.value = p.hasDrainage === true;
     nearHeater.value = p.nearHeater === true;
-    potSizeCm.value = p.potSizeCm ?? '';
+    potSizeCm.value = p.potSizeCm ?? null;
     ageMonths.value = p.ageMonths ?? '';
   } finally {
     loading.value = false;
@@ -74,7 +81,7 @@ async function save() {
       growLight: growLight.value,
       hasDrainage: hasDrainage.value,
       nearHeater: nearHeater.value,
-      potSizeCm: num(potSizeCm.value),
+      potSizeCm: potSizeCm.value,
       ageMonths: num(ageMonths.value),
     };
     await api.updatePlantProfile(props.plantId, patch);
@@ -98,7 +105,16 @@ async function save() {
         <UiSelectField v-model="potType" :options="withNotSet(potTypeOptions)" />
       </UiFormGroup>
       <UiFormGroup :label="$t('plantProfile.potSize')">
-        <UiInput v-model.number="potSizeCm" type="number" min="1" step="1" />
+        <UiSlider
+          v-model="potSizeCm"
+          :min="POT_SIZE_MIN"
+          :max="POT_SIZE_MAX"
+          :step="POT_SIZE_STEP"
+          :suffix="$t('plantProfile.potSizeSuffix')"
+          :placeholder="$t('plantProfile.pickOption')"
+          :clear-label="$t('plantProfile.clearPotSize')"
+          clearable
+        />
       </UiFormGroup>
       <UiFormGroup :label="$t('plantProfile.soilMix')">
         <UiSelectField v-model="soilMix" :options="withNotSet(soilMixOptions)" />

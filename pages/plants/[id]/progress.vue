@@ -36,7 +36,7 @@ const SIZE_STEP = 5;
 const health = ref<ProgressHealth | null>(null);
 const observations = ref('');
 const recordSize = ref(false);
-const sizeCm = ref(45);
+const sizeCm = ref<number | null>(45);
 const selectedTags = ref<string[]>([]);
 const files = ref<File[]>([]);
 const saving = ref(false);
@@ -62,7 +62,7 @@ async function save() {
     const form = new FormData();
     form.append('health', health.value);
     if (observations.value.trim()) form.append('observations', observations.value.trim());
-    if (recordSize.value) form.append('sizeCm', String(sizeCm.value));
+    if (recordSize.value && sizeCm.value !== null) form.append('sizeCm', String(sizeCm.value));
     if (selectedTags.value.length) form.append('tags', JSON.stringify(selectedTags.value));
     for (const f of files.value) form.append('photos', f);
     await api.logProgress(id, form);

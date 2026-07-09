@@ -3,6 +3,7 @@ import type { CreatePlace, HumidityCharacter, LightType } from '../../types/api.
 import { AIRFLOW } from '@retaxmaster/my-plants-species-schema/place-constants';
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 import { HUMIDITY_BAND_DRY_MAX, HUMIDITY_BAND_HUMID_MIN } from '../../utils/humidityBands.js';
+import { toNullableNumber } from '../../utils/nullableNumber.js';
 
 const { t } = useI18n();
 const api = useApi();
@@ -47,11 +48,7 @@ const cityOptions = computed(() => (cities.value ?? []).map((c) => ({ label: c.n
 
 // UInput's v-model is `string | number`; the DTO field is `number | null`.
 // Bridge the two so an empty input reads/writes as the contract's `null` without leaking
-// `null` into the component's typed model. `v-model.number` yields the empty string ''
-// (not undefined) when the user clears a typed value, so coerce anything that is not a
-// finite number to `null` — otherwise '' would reach the `number | null` DTO and 400.
-const toNullableNumber = (v: number | string): number | null =>
-  typeof v === 'number' && Number.isFinite(v) ? v : null;
+// `null` into the component's typed model. See utils/nullableNumber for the '' → null coercion.
 const indoorTempMinC = computed<number | string>({
   get: () => form.indoorTempMinC ?? '',
   set: (v) => { form.indoorTempMinC = toNullableNumber(v); },
@@ -84,6 +81,7 @@ const editing = ref(false);
 type EditablePlaceInput = {
   id: string; name: string; indoor: boolean; climateControlled: boolean;
   lightType: LightType; humidityCharacter: HumidityCharacter | null; airflow: Airflow | null;
+  indoorTempMinC: number | null; indoorTempMaxC: number | null;
 };
 const editPlace = ref<EditablePlaceInput | null>(null);
 
@@ -91,6 +89,7 @@ function openEdit(p: EditablePlaceInput) {
   editPlace.value = {
     id: p.id, name: p.name, indoor: p.indoor, climateControlled: p.climateControlled,
     lightType: p.lightType, humidityCharacter: p.humidityCharacter, airflow: p.airflow,
+    indoorTempMinC: p.indoorTempMinC, indoorTempMaxC: p.indoorTempMaxC,
   };
   editing.value = true;
 }

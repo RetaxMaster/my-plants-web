@@ -205,7 +205,11 @@ const careBasisGroups = computed(() => {
         // it needs a pot size, a non-trailing habit, and a measurement fresh enough to still carry
         // authority. The API owns that rule; the dot only reflects it.
         { icon: 'arrow-trending-up', label: t('careBasis.fields.height'), value: dv.heightCm != null ? t('careBasis.values.height', { n: dv.heightCm }) : null, counted: true, usedByEngine: care.value?.crowding?.usedByEngine ?? false },
-        { icon: 'clock', label: t('careBasis.fields.age'), value: pr.ageMonths != null ? t('careBasis.values.age', { n: pr.ageMonths }) : null, counted: true, usedByEngine: true },
+        // `ageMonths` feeds NO factor in the care engine (docs/care-engine.md §7.11). Its only effect
+        // today is an unintended confidence credit, documented there as a deferred bug — advertising that
+        // accident with a green dot would be dishonest. `growthHabit` below shares the same confidence
+        // weight but DOES feed a factor, so it stays green.
+        { icon: 'clock', label: t('careBasis.fields.age'), value: pr.ageMonths != null ? t('careBasis.values.age', { n: pr.ageMonths }) : null, counted: true, usedByEngine: false },
         { icon: 'arrow-up-right', label: t('careBasis.fields.growthHabit'), value: growthHabitLabel(pr.growthHabit), counted: true, usedByEngine: true },
       ],
     },

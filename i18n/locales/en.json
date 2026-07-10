@@ -107,6 +107,12 @@
         "why": "A record of size and health over time shows whether your care is working.",
         "how": "Snap a photo, jot an observation, and optionally record the height so the care plan can track growth."
       }
+    },
+    "repot": {
+      "crowdingTitle": "Why now",
+      "crowdingBody": "This date is an inspection reminder, not a verdict. It moves earlier when your plant grows tall for its pot (a crowded plant is more likely to be root-bound) and later when it sits in a roomy one. The roots decide — go and look.",
+      "signsTitle": "Signs to look for",
+      "signsEmpty": "Check whether roots are circling the pot or growing out of the drainage holes."
     }
   },
   "health": {

@@ -107,6 +107,12 @@
         "why": "Un registro de tamaño y salud en el tiempo muestra si tu cuidado funciona.",
         "how": "Toma una foto, anota una observación y, si quieres, registra la altura para que el plan de cuidados siga el crecimiento."
       }
+    },
+    "repot": {
+      "crowdingTitle": "Por qué ahora",
+      "crowdingBody": "Esta fecha es un recordatorio para revisar, no un veredicto. Se adelanta cuando tu planta crece mucho para su maceta (una planta apretada tiene más probabilidad de tener las raíces apiñadas) y se retrasa cuando tiene una maceta holgada. Las raíces deciden: ve y revisa.",
+      "signsTitle": "Señales que debes buscar",
+      "signsEmpty": "Revisa si las raíces dan vueltas en la maceta o salen por los agujeros de drenaje."
     }
   },
   "health": {

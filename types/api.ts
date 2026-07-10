@@ -124,6 +124,14 @@ export interface PlantCare {
   viability: { level: ViabilityLevel; reasons: string[] };
   // The species' soil-dryness-before-watering slug (e.g. 'mostly-dry'), used by the WATER info modal.
   soilDrynessBeforeWatering?: string;
+  // The plant-to-pot crowding index (spec E, Area A). `usedByEngine` is the single source of truth for
+  // the height dot on "care is based on" — never re-derive that rule on the client. `repotSigns` is
+  // species catalog data, rendered verbatim. Optional so an older API during a rolling deploy still types.
+  crowding?: {
+    index: number | null;
+    usedByEngine: boolean;
+    repotSigns: string[];
+  };
 }
 
 // --- Care History ---

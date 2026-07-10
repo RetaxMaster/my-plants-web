@@ -157,6 +157,11 @@ function openTaskInfo(e: { task: TaskCode }) {
 const taskInfoDryness = computed(() =>
   taskInfoTask.value === 'WATER' ? (care.value?.soilDrynessBeforeWatering ?? null) : null,
 );
+// REPOT-only: the species' repotting signs. The due date is an INSPECTION reminder, so the modal names
+// what to look for. Species catalog data — rendered verbatim (the known API-supplied English-leak class).
+const taskInfoRepotSigns = computed(() =>
+  taskInfoTask.value === 'REPOT' ? (care.value?.crowding?.repotSigns ?? null) : null,
+);
 
 // A tri-state boolean -> localized Yes/No, or null (Missing info) when unknown.
 function yn(v: boolean | null | undefined): string | null {
@@ -196,7 +201,10 @@ const careBasisGroups = computed(() => {
     {
       title: t('careBasis.groupPlant'),
       items: [
-        { icon: 'arrow-trending-up', label: t('careBasis.fields.height'), value: dv.heightCm != null ? t('careBasis.values.height', { n: dv.heightCm }) : null, counted: true, usedByEngine: false },
+        // Height is engine-read only through the crowding index (height ÷ pot size, habit-normalized):
+        // it needs a pot size, a non-trailing habit, and a measurement fresh enough to still carry
+        // authority. The API owns that rule; the dot only reflects it.
+        { icon: 'arrow-trending-up', label: t('careBasis.fields.height'), value: dv.heightCm != null ? t('careBasis.values.height', { n: dv.heightCm }) : null, counted: true, usedByEngine: care.value?.crowding?.usedByEngine ?? false },
         { icon: 'clock', label: t('careBasis.fields.age'), value: pr.ageMonths != null ? t('careBasis.values.age', { n: pr.ageMonths }) : null, counted: true, usedByEngine: true },
         { icon: 'arrow-up-right', label: t('careBasis.fields.growthHabit'), value: growthHabitLabel(pr.growthHabit), counted: true, usedByEngine: true },
       ],
@@ -491,7 +499,7 @@ function confirmPostpone(reason: string) {
     />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
     <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
-    <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" />
+    <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" :repot-signs="taskInfoRepotSigns" />
 
     <!-- Cover-photo editor -->
     <UiModal v-model="coverOpen" :title="$t('plantPhoto.editTitle')">

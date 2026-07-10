@@ -91,8 +91,11 @@ export type FeedbackType = 'DONE' | 'POSTPONED' | 'SYMPTOM';
 export interface Feedback {
   task: TaskCode; type: FeedbackType; occurredOn: string;
   postponeToOn?: string;
-  // WATER-only feedback reason (spec B): captured on an early WATER Done or a WATER Postpone; a slug from
-  // EARLY_WATER_REASONS ∪ WATER_POSTPONE_REASONS. Omitted for non-water tasks and due waterings.
+  // Feedback reason. For WATER (spec B): captured on an early WATER Done or a WATER Postpone; a slug from
+  // EARLY_WATER_REASONS ∪ WATER_POSTPONE_REASONS. For REPOT (spec F): the inspection outcome on a Postpone,
+  // a slug from REPOT_POSTPONE_REASONS. Omitted for every other task and for due waterings.
+  //
+  // A REPOT Postpone sends NO `postponeToOn`: the server derives a FLOOR date from the reason.
   reason?: string;
   payload?: Record<string, unknown>;
 }

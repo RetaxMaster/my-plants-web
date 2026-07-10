@@ -43,7 +43,7 @@
     "labels": {
       "WATER": "Water",
       "FERTILIZE": "Fertilize",
-      "REPOT": "Repot",
+      "REPOT": "Check the roots",
       "ROTATE": "Rotate",
       "CLEAN_LEAVES": "Clean leaves",
       "MIST": "Mist leaves",
@@ -143,8 +143,13 @@
       "dry-soil": "The soil was dry",
       "soil-still-moist": "The soil is still moist",
       "no-time": "No time right now",
-      "other": "Another reason"
-    }
+      "other": "Another reason",
+      "not-needed-yet": "It doesn't need it yet — the roots look fine",
+      "needed-cannot-now": "It's root-bound, but I can't repot today",
+      "could-not-check": "I couldn't check"
+    },
+    "repotInspectTitle": "Check whether it needs repotting",
+    "repotSignsHeading": "Signs to look for"
   },
   "history": {
     "today": "today",
@@ -444,10 +449,17 @@
     "notFoundLead": "It may have been unpublished or the link is wrong.",
     "backToBlog": "Back to the blog",
     "watchVideo": "Watch the companion video",
-    "cta": { "eyebrow": "between you and me", "lead": "I didn't put this in the article" },
+    "cta": {
+      "eyebrow": "between you and me",
+      "lead": "I didn't put this in the article"
+    },
     "toc": "Contents",
-    "author": { "role": "Plant care writer" },
-    "preview": { "draftBanner": "Preview · Draft" },
+    "author": {
+      "role": "Plant care writer"
+    },
+    "preview": {
+      "draftBanner": "Preview · Draft"
+    },
     "status": {
       "0": "Draft",
       "1": "Published"

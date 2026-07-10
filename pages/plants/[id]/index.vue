@@ -11,11 +11,14 @@ const { dueLabelLong, healthLabel } = useTaskMeta();
 const route = useRoute();
 const api = useApi();
 
-const { earlyWaterOptions, postponeOptions } = useFeedbackReasons();
+const { earlyWaterOptions, postponeOptions, repotPostponeOptions } = useFeedbackReasons();
 
 const pending = ref<{ task: TaskCode; type: 'DONE' | 'POSTPONED'; occurredOn?: string } | null>(null);
 const earlyPickerOpen = ref(false);
 const postponePickerOpen = ref(false);
+// REPOT is an INSPECTION (spec F.7). NOTE: a queued UX change removes Postpone from this screen; when it
+// lands, this picker moves with the button. The Today list is the canonical entry point.
+const repotPickerOpen = ref(false);
 const isDesktop = useIsDesktop();
 const id = route.params.id as string;
 
@@ -259,6 +262,12 @@ async function sendPostpone(task: TaskCode, reason?: string) {
   await refresh();
 }
 
+// A REPOT postpone sends NO client date: the API derives a FLOOR from the reason, and a floor can never pin.
+async function sendRepotPostpone(reason: string) {
+  await api.sendFeedback(id, { task: 'REPOT', type: 'POSTPONED', occurredOn: today(), reason });
+  await refresh();
+}
+
 // A WATER done on a not-yet-due task (status 'upcoming') is an early watering → ask why; otherwise send.
 function onDone(task: TaskCode, status: 'overdue' | 'today' | 'upcoming', occurredOn?: string) {
   if (task === 'WATER' && status === 'upcoming') {
@@ -275,6 +284,10 @@ function onPostpone(task: TaskCode) {
     postponePickerOpen.value = true;
     return;
   }
+  if (task === 'REPOT') {
+    repotPickerOpen.value = true;
+    return;
+  }
   return sendPostpone(task);
 }
 
@@ -288,6 +301,10 @@ function confirmPostpone(reason: string) {
   const p = pending.value;
   pending.value = null;
   if (p) void sendPostpone(p.task, reason);
+}
+
+function confirmRepotPostpone(reason: string) {
+  void sendRepotPostpone(reason);
 }
 </script>
 
@@ -539,6 +556,15 @@ function confirmPostpone(reason: string) {
       :options="postponeOptions"
       :confirm-label="$t('common.postpone')"
       @confirm="confirmPostpone"
+    />
+    <UiReasonPicker
+      v-model:open="repotPickerOpen"
+      :title="$t('feedback.repotInspectTitle')"
+      :options="repotPostponeOptions"
+      :signs="care?.crowding?.repotSigns ?? []"
+      :signs-heading="$t('feedback.repotSignsHeading')"
+      :confirm-label="$t('common.postpone')"
+      @confirm="confirmRepotPostpone"
     />
   </div>
   <UiEmptyState v-else>{{ $t('common.loading') }}</UiEmptyState>

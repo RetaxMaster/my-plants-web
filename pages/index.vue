@@ -11,13 +11,17 @@ useHead(() => ({ title: t('meta.today.title') }));
 useSeoMeta({ description: () => t('meta.today.description') });
 const api = useApi();
 
-const { earlyWaterOptions, postponeOptions } = useFeedbackReasons();
+const { earlyWaterOptions, postponeOptions, repotPostponeOptions } = useFeedbackReasons();
 
 // A WATER action that teaches the schedule opens a reason picker; on confirm we send with the reason.
 // Everything else sends immediately with no prompt.
 const pending = ref<{ plantId: string; task: DueTask['task']; type: 'DONE' | 'POSTPONED'; occurredOn?: string } | null>(null);
 const earlyPickerOpen = ref(false);
 const postponePickerOpen = ref(false);
+// REPOT is an INSPECTION (spec F.7): its Postpone always asks which of the three outcomes the owner saw,
+// and shows the species' repotting signs. Same picker component, a different vocabulary.
+const repotPickerOpen = ref(false);
+const pendingRepotSigns = ref<string[]>([]);
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
 const { data: plants } = await useAsyncData('plants', () => api.listPlants());
@@ -62,6 +66,13 @@ async function sendPostpone(plantId: string, task: DueTask['task'], reason?: str
   await refresh();
 }
 
+// A REPOT postpone sends NO client date: the API derives a FLOOR from the reason (+14 d for the two
+// justified outcomes, tomorrow for `could-not-check`), and a floor can never pin the schedule.
+async function sendRepotPostpone(plantId: string, reason: string) {
+  await api.sendFeedback(plantId, { task: 'REPOT', type: 'POSTPONED', occurredOn: today, reason });
+  await refresh();
+}
+
 // Done: a WATER done that is NOT yet due (status 'upcoming') is an EARLY watering → ask why. Any other
 // done (non-water, or a due/overdue WATER) sends immediately.
 function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'today' | 'upcoming', occurredOn?: string) {
@@ -73,11 +84,24 @@ function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'tod
   return sendDone(plantId, task, occurredOn);
 }
 
-// Postpone: a WATER postpone always asks why; non-water postpones send immediately (unchanged).
-function onPostpone(plantId: string, task: DueTask['task']) {
+// Postpone: WATER asks why; REPOT asks what the owner saw (an inspection); every other task sends
+// immediately (unchanged).
+async function onPostpone(plantId: string, task: DueTask['task']) {
   if (task === 'WATER') {
     pending.value = { plantId, task, type: 'POSTPONED' };
     postponePickerOpen.value = true;
+    return;
+  }
+  if (task === 'REPOT') {
+    pending.value = { plantId, task, type: 'POSTPONED' };
+    // The species' checklist of what root-boundness looks like, shown at the moment we ask. Today's list
+    // does not load the care payload, so fetch it for this plant only; an empty list simply renders no
+    // signs block rather than blocking the picker.
+    pendingRepotSigns.value = await api
+      .getPlantCare(plantId)
+      .then((c) => c.crowding?.repotSigns ?? [])
+      .catch(() => []);
+    repotPickerOpen.value = true;
     return;
   }
   return sendPostpone(plantId, task);
@@ -93,6 +117,12 @@ function confirmPostpone(reason: string) {
   const p = pending.value;
   pending.value = null;
   if (p) void sendPostpone(p.plantId, p.task, reason);
+}
+
+function confirmRepotPostpone(reason: string) {
+  const p = pending.value;
+  pending.value = null;
+  if (p) void sendRepotPostpone(p.plantId, reason);
 }
 
 // "Log progress" opens the full-screen route (/plants/:id/progress); after saving there the user lands
@@ -164,6 +194,15 @@ function openProgress(plantId: string) {
       :options="postponeOptions"
       :confirm-label="$t('common.postpone')"
       @confirm="confirmPostpone"
+    />
+    <UiReasonPicker
+      v-model:open="repotPickerOpen"
+      :title="$t('feedback.repotInspectTitle')"
+      :options="repotPostponeOptions"
+      :signs="pendingRepotSigns"
+      :signs-heading="$t('feedback.repotSignsHeading')"
+      :confirm-label="$t('common.postpone')"
+      @confirm="confirmRepotPostpone"
     />
   </div>
 </template>

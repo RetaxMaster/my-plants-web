@@ -43,7 +43,7 @@
     "labels": {
       "WATER": "Regar",
       "FERTILIZE": "Fertilizar",
-      "REPOT": "Trasplantar",
+      "REPOT": "Revisar las raíces",
       "ROTATE": "Rotar",
       "CLEAN_LEAVES": "Limpiar hojas",
       "MIST": "Rociar hojas",
@@ -143,8 +143,13 @@
       "dry-soil": "La tierra estaba seca",
       "soil-still-moist": "La tierra aún está húmeda",
       "no-time": "Ahora no tengo tiempo",
-      "other": "Otra razón"
-    }
+      "other": "Otra razón",
+      "not-needed-yet": "Aún no lo necesita — las raíces se ven bien",
+      "needed-cannot-now": "Está apretada de raíces, pero hoy no puedo trasplantar",
+      "could-not-check": "No pude revisarlo"
+    },
+    "repotInspectTitle": "Revisa si necesita trasplante",
+    "repotSignsHeading": "Señales a buscar"
   },
   "history": {
     "today": "hoy",
@@ -444,10 +449,17 @@
     "notFoundLead": "Puede que se haya despublicado o que el enlace sea incorrecto.",
     "backToBlog": "Volver al blog",
     "watchVideo": "Ver el video complementario",
-    "cta": { "eyebrow": "entre tú y yo", "lead": "Esto no lo puse en el artículo" },
+    "cta": {
+      "eyebrow": "entre tú y yo",
+      "lead": "Esto no lo puse en el artículo"
+    },
     "toc": "Índice",
-    "author": { "role": "Escribe sobre el cuidado de las plantas" },
-    "preview": { "draftBanner": "Vista previa · Borrador" },
+    "author": {
+      "role": "Escribe sobre el cuidado de las plantas"
+    },
+    "preview": {
+      "draftBanner": "Vista previa · Borrador"
+    },
     "status": {
       "0": "Borrador",
       "1": "Publicado"

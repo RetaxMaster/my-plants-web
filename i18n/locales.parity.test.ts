@@ -26,3 +26,25 @@ describe('locale catalogues', () => {
     expect(values(es as Tree).every((v) => v.length > 0)).toBe(true);
   });
 });
+
+describe('REPOT inspection keys (spec F.7)', () => {
+  it('both locales define the three inspection outcomes, the title and the signs heading', () => {
+    for (const slug of ['not-needed-yet', 'needed-cannot-now', 'could-not-check'] as const) {
+      expect((en.feedback.reason as Record<string, string>)[slug]).toBeTruthy();
+      expect((es.feedback.reason as Record<string, string>)[slug]).toBeTruthy();
+    }
+    expect(en.feedback.repotInspectTitle).toBeTruthy();
+    expect(es.feedback.repotInspectTitle).toBeTruthy();
+    expect(en.feedback.repotSignsHeading).toBeTruthy();
+    expect(es.feedback.repotSignsHeading).toBeTruthy();
+  });
+
+  it('the REPOT task label reads as an INSPECTION, not as a verdict', () => {
+    // The engine has never seen the roots. "Repot" asserts a conclusion it has no evidence for; the task is
+    // the *look*. This assertion is what would fail if the label regressed to a bare verb.
+    expect(en.tasks.labels.REPOT).toBe('Check the roots');
+    expect(es.tasks.labels.REPOT).toBe('Revisar las raíces');
+    expect(en.tasks.labels.REPOT).not.toBe('Repot');
+    expect(es.tasks.labels.REPOT).not.toBe('Trasplantar');
+  });
+});

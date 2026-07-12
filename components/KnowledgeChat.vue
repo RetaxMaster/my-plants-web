@@ -24,7 +24,7 @@ const emit = defineEmits<{
   (e: 'changed'): void;
 }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const sessions = useKnowledgeChatSessions();
 const runs = useKnowledgeChatRuns();
 const socketUrl = useRuntimeConfig().public.knowledgeChatSocketUrl;
@@ -184,6 +184,15 @@ const chat = useAgentChat({
   userLabel: t('knowledgeEngine.you'),
   quotaUsageLabel: chatLabels.value.quotaUsage,
   quotaResetsLabel: chatLabels.value.quotaResets,
+  // The package's default reset formatter is `toLocaleTimeString()` with no locale, so it follows the
+  // SERVER/BROWSER locale rather than the app's — which rendered "se renueva 3:00:00 PM": a 12-hour clock,
+  // with seconds, inside Spanish copy. A reset time is a clock reading, so give it the app's locale and drop
+  // the seconds (nobody's quota resets on a particular second). Receives epoch MILLISECONDS.
+  formatQuotaReset: (ms: number) =>
+    new Date(ms).toLocaleTimeString(locale.value === 'es' ? 'es-MX' : 'en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
   runDoneLabel: chatLabels.value.runDone,
   formatTurns: chatLabels.value.formatTurns,
   formatDuration: chatLabels.value.formatDuration,

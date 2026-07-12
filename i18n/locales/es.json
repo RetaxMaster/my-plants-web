@@ -624,7 +624,22 @@
       "collapse": "Ver menos",
       "seeAll": "Ver todo",
       "copy": "Copiar",
-      "copied": "Copiado"
+      "copied": "Copiado",
+      "transcriptLabel": "Transcripción de la conversación",
+      "quotaUsage": "cuota",
+      "quotaResets": "se renueva",
+      "runDone": "listo",
+      "tokens": "tokens",
+      "turnOne": "1 turno",
+      "turnOther": "{n} turnos"
+    },
+    "command": {
+      "lead": "Comando",
+      "succeeded": "comando completado",
+      "failed": "el comando falló",
+      "refused": "comando rechazado",
+      "groupLabel": "Comandos",
+      "unsupported": "no soportado"
     },
     "agent": {
       "select": "Agente",

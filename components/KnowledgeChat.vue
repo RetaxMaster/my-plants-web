@@ -67,6 +67,31 @@ const chatLabels = computed(() => ({
   authCta: t('knowledgeEngine.agent.authCta'),
   providerLockedLabel: t('knowledgeEngine.agent.locked'),
   noProviderAvailable: t('knowledgeEngine.agent.noneAvailable'),
+  // Transcript chrome (the scroll region is keyboard-focusable in 2.0.0 and needs an accessible name).
+  transcriptLabel: t('knowledgeEngine.console.transcriptLabel'),
+  // Quota. `quota.updated` is a SNAPSHOT on the turn's meta line — "· cuota 84% · se renueva 18:40" — and it
+  // is NOT an alarm. The alarm is a separate notice, and it now fires only when the quota is truly exhausted.
+  quotaUsage: t('knowledgeEngine.console.quotaUsage'),
+  quotaResets: t('knowledgeEngine.console.quotaResets'),
+  // The close line. The WORDS are strings; anything shaped by a NUMBER is a function, because the package
+  // cannot guess a plural rule (English has 2 forms, Polish 3, Japanese 1) — so it hands us the count and
+  // renders what we return. Note the default changed: a one-turn run used to render the wrong "1 turns".
+  runDone: t('knowledgeEngine.console.runDone'),
+  tokens: t('knowledgeEngine.console.tokens'),
+  formatTurns: (n: number) =>
+    n === 1 ? t('knowledgeEngine.console.turnOne') : t('knowledgeEngine.console.turnOther', { n }),
+  formatDuration: (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}min`),
+  // Claude publishes a price; Codex publishes NO price anywhere in its protocol, so that field is simply
+  // absent on a Codex run and the package renders nothing. We never substitute a zero — "$0.0000" would tell
+  // the user the run was free.
+  formatCost: (usd: number) => `$${usd.toFixed(4)}`,
+  // Commands.
+  commandLead: t('knowledgeEngine.command.lead'),
+  commandSucceeded: t('knowledgeEngine.command.succeeded'),
+  commandFailed: t('knowledgeEngine.command.failed'),
+  commandRefused: t('knowledgeEngine.command.refused'),
+  commandsGroupLabel: t('knowledgeEngine.command.groupLabel'),
+  commandUnsupported: t('knowledgeEngine.command.unsupported'),
 }));
 
 // Display names for the picker (the package falls back to the bare protocol id, e.g. "codex").
@@ -133,6 +158,23 @@ const chat = useAgentChat({
   initialProvider: props.initialProvider ?? undefined,
   rateLimitNotice: t('knowledgeEngine.rateLimitReached'),
   userLabel: t('knowledgeEngine.you'),
+  // The run-close line, the quota line and command-result text are baked directly into each entry's
+  // `text` the moment useAgentChat processes an AgentEvent — NOT read reactively from the `labels` prop
+  // that Console/Composer consume later (that prop only reaches each component's OWN chrome: transcriptLabel,
+  // commandLead, thinking). So these translated strings/formatters must be supplied here too, or the baked
+  // text stays in the package's English defaults regardless of what chatLabels holds.
+  quotaUsageLabel: chatLabels.value.quotaUsage,
+  quotaResetsLabel: chatLabels.value.quotaResets,
+  runDoneLabel: chatLabels.value.runDone,
+  formatTurns: chatLabels.value.formatTurns,
+  formatDuration: chatLabels.value.formatDuration,
+  formatCost: chatLabels.value.formatCost,
+  tokensLabel: chatLabels.value.tokens,
+  commandLabels: {
+    succeeded: chatLabels.value.commandSucceeded,
+    failed: chatLabels.value.commandFailed,
+    refused: chatLabels.value.commandRefused,
+  },
 });
 
 // Everything the package renders, we render. The engine (2.0.0) no longer confuses Claude's benign quota

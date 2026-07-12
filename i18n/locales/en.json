@@ -624,7 +624,22 @@
       "collapse": "Show less",
       "seeAll": "See all",
       "copy": "Copy",
-      "copied": "Copied"
+      "copied": "Copied",
+      "transcriptLabel": "Conversation transcript",
+      "quotaUsage": "quota",
+      "quotaResets": "resets",
+      "runDone": "done",
+      "tokens": "tokens",
+      "turnOne": "1 turn",
+      "turnOther": "{n} turns"
+    },
+    "command": {
+      "lead": "Command",
+      "succeeded": "command completed",
+      "failed": "command failed",
+      "refused": "command refused",
+      "groupLabel": "Commands",
+      "unsupported": "not supported"
     },
     "agent": {
       "select": "Agent",

@@ -188,10 +188,15 @@ const chat = useAgentChat({
   // SERVER/BROWSER locale rather than the app's — which rendered "se renueva 3:00:00 PM": a 12-hour clock,
   // with seconds, inside Spanish copy. A reset time is a clock reading, so give it the app's locale and drop
   // the seconds (nobody's quota resets on a particular second). Receives epoch MILLISECONDS.
+  //
+  // `hourCycle` is set EXPLICITLY, and that is the whole point: `es-MX` defaults to a 12-hour clock (it
+  // renders "03:00 p.m."), so naming the locale alone does not get you a 24-hour time — Mexico writes 24h
+  // in this kind of UI, and the CLDR default disagrees. en-US keeps h12, which is correct for it.
   formatQuotaReset: (ms: number) =>
     new Date(ms).toLocaleTimeString(locale.value === 'es' ? 'es-MX' : 'en-US', {
       hour: '2-digit',
       minute: '2-digit',
+      hourCycle: locale.value === 'es' ? 'h23' : 'h12',
     }),
   runDoneLabel: chatLabels.value.runDone,
   formatTurns: chatLabels.value.formatTurns,

@@ -29,7 +29,7 @@ export default defineNuxtConfig({
       alwaysRedirect: false,
     },
   },
-  css: ['~/assets/css/design-system.css', '@retaxmaster/claude-realtime-client/style.css'],
+  css: ['~/assets/css/design-system.css', '@retaxmaster/agents-realtime-client/style.css'],
   colorMode: { classSuffix: '', dataValue: 'theme', preference: 'light', fallback: 'light' },
   typescript: { strict: true, typeCheck: false, tsConfig: { compilerOptions: { types: ['node'] } } },
   app: {

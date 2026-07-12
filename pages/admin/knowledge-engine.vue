@@ -115,7 +115,8 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
               v-else
               :key="chatKey"
               :session-id="detail?.id ?? null"
-              :initial-claude-session-id="detail?.claudeSessionId ?? null"
+              :initial-provider="detail?.provider ?? null"
+              :initial-provider-session-id="detail?.providerSessionId ?? null"
               :initial-turns="detail?.turns ?? []"
               @created="onCreated"
               @changed="onChanged"

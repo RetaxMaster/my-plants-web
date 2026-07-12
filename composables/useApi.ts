@@ -1,8 +1,9 @@
+import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
 import type {
   City, CitySearchResult, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
   DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
   KnowledgeSocketTicketResponse, OwnerSummary, Place, Plant, PlantCare, PlantViability,
-  ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesSummary,
+  KnowledgeChatHistory, KnowledgeChatProvider, ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesSummary,
   UpdatePlace, UpdatePlant, Viability,
   PlantDetail, PlantProfile, PlantProfileUpdate, PlantPhotoItem,
   BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
@@ -119,18 +120,30 @@ export function useApi() {
 
     // Admin knowledge-engine chat (all admin-gated on the API via RolesGuard).
     listKnowledgeSessions: () => api<KnowledgeChatSessionSummary[]>('/knowledge-chat/sessions'),
-    createKnowledgeSession: (prompt: string) =>
-      api<CreateKnowledgeSessionResponse>('/knowledge-chat/sessions', { method: 'POST', body: { prompt } }),
+    // The agent is chosen at CREATION and owned by the conversation from then on — resume never carries
+    // one (the API reads it off the session row).
+    createKnowledgeSession: (prompt: string, provider: KnowledgeChatProvider) =>
+      api<CreateKnowledgeSessionResponse>('/knowledge-chat/sessions', { method: 'POST', body: { prompt, provider } }),
     getKnowledgeSession: (id: string) =>
       api<KnowledgeChatSessionDetail>(`/knowledge-chat/sessions/${id}`),
-    resumeKnowledgeSession: (id: string, prompt: string) =>
-      api<ResumeKnowledgeRunResponse>(`/knowledge-chat/sessions/${id}/runs`, { method: 'POST', body: { prompt } }),
+    // The conversation's transcript as CANONICAL AgentEvents, ready to seed straight into the chat. The
+    // browser never parses raw agent output any more — the engine owns that translation.
+    getKnowledgeSessionHistory: (id: string) =>
+      api<KnowledgeChatHistory>(`/knowledge-chat/sessions/${id}/history`),
+    // `provider` is honored ONLY when the conversation never established an agent session (its opening turn
+    // is being retried, possibly on the other agent). Once a session exists the server ignores it and uses
+    // the conversation's own agent.
+    resumeKnowledgeSession: (id: string, prompt: string, provider?: KnowledgeChatProvider) =>
+      api<ResumeKnowledgeRunResponse>(`/knowledge-chat/sessions/${id}/runs`, { method: 'POST', body: { prompt, provider } }),
     deleteKnowledgeSession: (id: string) =>
       api<{ ok: true }>(`/knowledge-chat/sessions/${id}`, { method: 'DELETE' }),
+    // Per-agent availability, proxied by our API behind its own admin auth (the browser never touches the
+    // engine's control plane). Drives the agent picker: only an available agent is selectable.
+    listKnowledgeProviders: (force = false) =>
+      api<AgentProviderStatus[]>(`/knowledge-chat/provider-status${force ? '?force=1' : ''}`),
     mintKnowledgeSocketTicket: (runId: string) =>
       api<KnowledgeSocketTicketResponse>(`/knowledge-chat/runs/${runId}/socket-ticket`, { method: 'POST' }),
     // Raw NDJSON transcript. The endpoint returns text/plain; ofetch yields the string as-is.
-    fetchKnowledgeRunLog: (logUrl: string) => api<string>(logUrl),
 
     listOwners: () => api<OwnerSummary[]>('/owners'),
     actAs: (ownerId: string) =>

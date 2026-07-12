@@ -594,10 +594,7 @@
     "deleteError": "Could not delete — a run may still be active."
   },
   "knowledgeEngine": {
-    "claudeLabel": "Knowledge Engine",
-    "cantContinue": "This conversation can't be continued — its first turn ended before a session was established.",
     "runInProgress": "A run is already in progress for this conversation.",
-    "sendNotResumable": "That message could not be sent (too long or not resumable).",
     "sendError": "Could not send your message. Please try again.",
     "composer": {
       "promptLabel": "Message",
@@ -612,11 +609,36 @@
       "connected": "Connected",
       "reconnecting": "Reconnecting…",
       "disconnected": "Disconnected",
-      "jumpToLatest": "Jump to latest",
-      "overloaded": "Claude is overloaded",
+      "overloaded": "The agent is overloaded",
       "retrying": "Retrying…",
       "retry": "Retry"
-    }
+    },
+    "agentLabel": "Knowledge Engine",
+    "you": "You",
+    "runFailed": "The run failed.",
+    "console": {
+      "jumpToLatest": "Jump to latest",
+      "thinking": "thinking",
+      "expandText": "Show more",
+      "collapse": "Show less",
+      "seeAll": "See all",
+      "copy": "Copy",
+      "copied": "Copied"
+    },
+    "agent": {
+      "select": "Agent",
+      "notInstalled": "not installed",
+      "notAuthenticated": "signed out",
+      "authCta": "Sign in",
+      "locked": "fixed for this conversation",
+      "noneAvailable": "No agent is available right now.",
+      "authHint": "Sign {agent} in on the server (run its CLI there), then re-check.",
+      "recheck": "Re-check"
+    },
+    "transcriptUnavailable": "This conversation's transcript can no longer be shown — it predates the current chat engine.",
+    "firstTurnFailed": "This conversation's first turn never reached an agent. Send it again — you can also switch agents first.",
+    "sendRejected": "That message could not be sent (it may be too long).",
+    "agentSessionMissing": "The agent no longer has this conversation's session, so it can't be shown or continued. Start a new chat to pick the topic back up."
   },
   "citySearch": {
     "placeholder": "Search a city…",

@@ -1,3 +1,4 @@
+import type { SessionHistory } from '@retaxmaster/agents-realtime-protocol';
 import type { TaskCode } from '../utils/tasks.js';
 import type {
   PotType, SoilMix, GrowthHabit, WindowDist,
@@ -166,9 +167,16 @@ export type HistoryItem =
 // Admin knowledge-engine chat (spec 3). Sessions are a shared admin pool; addressed by internal cuid id.
 export type KnowledgeChatRunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
+// Which agent runs a conversation. Mirrors the agents-realtime `AgentProvider` wire vocabulary — the
+// value the API persists is the value it sends the engine, so this stays a plain string union.
+export type KnowledgeChatProvider = 'claude' | 'codex';
+
 export interface KnowledgeChatSessionSummary {
   id: string;
-  claudeSessionId: string | null;
+  provider: KnowledgeChatProvider;
+  // The AGENT's own session id (Claude's UUID / Codex's thread id); null until the first run establishes
+  // one — a conversation with none can never be resumed.
+  providerSessionId: string | null;
   title: string;
   status: KnowledgeChatRunStatus | null;
   turns: number;
@@ -187,9 +195,14 @@ export interface KnowledgeChatTurn {
 export interface KnowledgeChatSessionDetail {
   id: string;
   title: string;
-  claudeSessionId: string | null;
+  provider: KnowledgeChatProvider;
+  providerSessionId: string | null;
   turns: KnowledgeChatTurn[];
 }
+
+// The engine's canonical SessionHistory plus the one fact only our API can report: the agent itself no
+// longer holds this session, so the conversation cannot be continued either.
+export type KnowledgeChatHistory = SessionHistory & { agentSessionMissing?: boolean };
 
 export interface CreateKnowledgeSessionResponse { sessionId: string; runId: string; ticket: string }
 export interface ResumeKnowledgeRunResponse { runId: string; ticket: string }

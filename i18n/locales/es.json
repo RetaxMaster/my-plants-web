@@ -594,10 +594,7 @@
     "deleteError": "No se pudo eliminar — puede haber una ejecución activa."
   },
   "knowledgeEngine": {
-    "claudeLabel": "Knowledge Engine",
-    "cantContinue": "Esta conversación no puede continuar — su primer turno terminó antes de establecer una sesión.",
     "runInProgress": "Ya hay una ejecución en curso para esta conversación.",
-    "sendNotResumable": "Ese mensaje no se pudo enviar (demasiado largo o no se puede reanudar).",
     "sendError": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
     "composer": {
       "promptLabel": "Mensaje",
@@ -612,11 +609,36 @@
       "connected": "Conectado",
       "reconnecting": "Reconectando…",
       "disconnected": "Desconectado",
-      "jumpToLatest": "Ir a lo más reciente",
-      "overloaded": "Claude está sobrecargado",
+      "overloaded": "El agente está saturado",
       "retrying": "Reintentando…",
       "retry": "Reintentar"
-    }
+    },
+    "agentLabel": "Motor de conocimiento",
+    "you": "Tú",
+    "runFailed": "La ejecución falló.",
+    "console": {
+      "jumpToLatest": "Ir a lo más reciente",
+      "thinking": "razonando",
+      "expandText": "Ver más",
+      "collapse": "Ver menos",
+      "seeAll": "Ver todo",
+      "copy": "Copiar",
+      "copied": "Copiado"
+    },
+    "agent": {
+      "select": "Agente",
+      "notInstalled": "no instalado",
+      "notAuthenticated": "sin sesión",
+      "authCta": "Iniciar sesión",
+      "locked": "fijado para esta conversación",
+      "noneAvailable": "No hay ningún agente disponible por ahora.",
+      "authHint": "Inicia sesión en {agent} desde el servidor (corre su CLI ahí) y vuelve a verificar.",
+      "recheck": "Verificar de nuevo"
+    },
+    "transcriptUnavailable": "El historial de esta conversación ya no se puede mostrar: es anterior al motor de chat actual.",
+    "firstTurnFailed": "El primer turno de esta conversación nunca llegó al agente. Vuelve a enviarlo — también puedes cambiar de agente antes.",
+    "sendRejected": "No se pudo enviar ese mensaje (puede ser demasiado largo).",
+    "agentSessionMissing": "El agente ya no tiene la sesión de esta conversación, así que no se puede mostrar ni continuar. Abre un chat nuevo para retomar el tema."
   },
   "citySearch": {
     "placeholder": "Busca una ciudad…",

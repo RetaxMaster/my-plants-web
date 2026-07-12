@@ -1,12 +1,20 @@
+import type { KnowledgeChatProvider } from '../types/api';
+
 // Thin session-scoped wrapper over useApi (mirrors retaxmaster's useCvSessions): list / create /
-// fetch / resume / remove. Centralizing here keeps the page and the chat component from drifting.
+// fetch / resume / remove, plus the agents the engine can actually run. Centralizing here keeps the
+// page and the chat component from drifting.
 export function useKnowledgeChatSessions() {
   const api = useApi();
   return {
     list: () => api.listKnowledgeSessions(),
     fetch: (id: string) => api.getKnowledgeSession(id),
-    create: (prompt: string) => api.createKnowledgeSession(prompt),
-    resume: (id: string, prompt: string) => api.resumeKnowledgeSession(id, prompt),
+    // Creating a conversation picks its agent; resuming never does (the conversation owns it).
+    create: (prompt: string, provider: KnowledgeChatProvider) => api.createKnowledgeSession(prompt, provider),
+    resume: (id: string, prompt: string, provider?: KnowledgeChatProvider) =>
+      api.resumeKnowledgeSession(id, prompt, provider),
     remove: (id: string) => api.deleteKnowledgeSession(id),
+    // Canonical, engine-rebuilt transcript for seeding a reopened conversation.
+    history: (id: string) => api.getKnowledgeSessionHistory(id),
+    providers: (force = false) => api.listKnowledgeProviders(force),
   };
 }

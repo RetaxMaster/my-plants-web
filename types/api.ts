@@ -1,4 +1,4 @@
-import type { SessionHistory } from '@retaxmaster/agents-realtime-protocol';
+import type { AgentCommand, CommandCatalog, SessionHistory } from '@retaxmaster/agents-realtime-protocol';
 import type { TaskCode } from '../utils/tasks.js';
 import type {
   PotType, SoilMix, GrowthHabit, WindowDist,
@@ -184,13 +184,20 @@ export interface KnowledgeChatSessionSummary {
   updatedAt: string;
 }
 
+// A turn is a prompt OR a command — the API guarantees exactly one is set.
 export interface KnowledgeChatTurn {
   runId: string;
-  prompt: string;
+  prompt: string | null;
+  command: AgentCommand | null;
   status: KnowledgeChatRunStatus;
   isActive: boolean;
   logUrl: string;
 }
+
+// What a send carries. The union is the point: there is no shape in which a command rides inside a prompt.
+export type KnowledgeChatSendInput = { prompt: string } | { command: AgentCommand };
+
+export type { CommandCatalog };
 
 export interface KnowledgeChatSessionDetail {
   id: string;

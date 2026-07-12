@@ -654,6 +654,7 @@
     "transcriptUnavailable": "This conversation's transcript can no longer be shown — it predates the current chat engine.",
     "firstTurnFailed": "This conversation's first turn never reached an agent. Send it again — you can also switch agents first.",
     "sendRejected": "That message could not be sent (it may be too long).",
+    "commandNeedsConversation": "Send a message first — a command needs an ongoing conversation.",
     "agentSessionMissing": "The agent no longer has this conversation's session, so it can't be shown or continued. Start a new chat to pick the topic back up."
   },
   "citySearch": {

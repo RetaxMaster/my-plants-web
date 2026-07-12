@@ -1,7 +1,7 @@
 import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
 import type {
-  City, CitySearchResult, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
-  DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
+  City, CitySearchResult, CommandCatalog, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
+  DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSendInput, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
   KnowledgeSocketTicketResponse, OwnerSummary, Place, Plant, PlantCare, PlantViability,
   KnowledgeChatHistory, KnowledgeChatProvider, ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesSummary,
   UpdatePlace, UpdatePlant, Viability,
@@ -133,8 +133,14 @@ export function useApi() {
     // `provider` is honored ONLY when the conversation never established an agent session (its opening turn
     // is being retried, possibly on the other agent). Once a session exists the server ignores it and uses
     // the conversation's own agent.
-    resumeKnowledgeSession: (id: string, prompt: string, provider?: KnowledgeChatProvider) =>
-      api<ResumeKnowledgeRunResponse>(`/knowledge-chat/sessions/${id}/runs`, { method: 'POST', body: { prompt, provider } }),
+    //
+    // `input` is a prompt OR a command — never both. A command is an instruction to the agent's runtime, and
+    // it has its own field at every hop precisely so no host can accidentally bury it inside a prompt string.
+    resumeKnowledgeSession: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) =>
+      api<ResumeKnowledgeRunResponse>(`/knowledge-chat/sessions/${id}/runs`, {
+        method: 'POST',
+        body: { ...input, provider },
+      }),
     deleteKnowledgeSession: (id: string) =>
       api<{ ok: true }>(`/knowledge-chat/sessions/${id}`, { method: 'DELETE' }),
     // Per-agent availability, proxied by our API behind its own admin auth (the browser never touches the
@@ -143,6 +149,10 @@ export function useApi() {
       api<AgentProviderStatus[]>(`/knowledge-chat/provider-status${force ? '?force=1' : ''}`),
     mintKnowledgeSocketTicket: (runId: string) =>
       api<KnowledgeSocketTicketResponse>(`/knowledge-chat/runs/${runId}/socket-ticket`, { method: 'POST' }),
+    // The agent's command catalog — what the composer's `/` autocomplete lists. Proxied by our API behind
+    // its own admin auth; the package never fetches it itself.
+    getKnowledgeCommands: (provider: KnowledgeChatProvider) =>
+      api<CommandCatalog>(`/knowledge-chat/commands?provider=${provider}`),
     // Raw NDJSON transcript. The endpoint returns text/plain; ofetch yields the string as-is.
 
     listOwners: () => api<OwnerSummary[]>('/owners'),

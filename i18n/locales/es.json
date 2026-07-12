@@ -654,6 +654,7 @@
     "transcriptUnavailable": "El historial de esta conversación ya no se puede mostrar: es anterior al motor de chat actual.",
     "firstTurnFailed": "El primer turno de esta conversación nunca llegó al agente. Vuelve a enviarlo — también puedes cambiar de agente antes.",
     "sendRejected": "No se pudo enviar ese mensaje (puede ser demasiado largo).",
+    "commandNeedsConversation": "Manda un mensaje primero — un comando necesita una conversación en curso.",
     "agentSessionMissing": "El agente ya no tiene la sesión de esta conversación, así que no se puede mostrar ni continuar. Abre un chat nuevo para retomar el tema."
   },
   "citySearch": {

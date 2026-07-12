@@ -3,7 +3,8 @@ import {
   AgentSelector, Console, Composer, RunFailureNotice, ThemeSelector, useAgentChat, useTheme,
   type ChatDriver,
 } from '@retaxmaster/agents-realtime-client/vue';
-import type { AgentProvider, AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
+import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
+import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
 import type { KnowledgeChatProvider, KnowledgeChatTurn } from '../types/api';
 
 const props = defineProps<{
@@ -125,13 +126,16 @@ const agentSessionMissing = ref(false);
 // The host seams the chat client drives. Both calls NAME THE AGENT, because our /execute does: the engine
 // spawns a provider-neutral runner and cannot guess which CLI to drive.
 const driver: ChatDriver = {
-  async start(provider, prompt) {
+  async start(provider, prompt, opts) {
+    // A command cannot OPEN a conversation: its title comes from the first prompt, and there is no agent
+    // session for it to act on. `submit()` blocks it before it can get here; this is the structural backstop.
+    if (opts?.command) throw new Error('A command cannot start a conversation');
     // An EXISTING conversation can land here: one whose opening turn never got an agent off the ground
     // (signed out, missing binary, refused at the availability gate) has no agent session, so the client
     // treats the next send as a fresh start. That must RETRY that conversation's opening turn — possibly
     // on a different agent — not silently create a second conversation and orphan the first.
     if (currentSessionId.value) {
-      const res = await sessions.resume(currentSessionId.value, prompt, provider as KnowledgeChatProvider);
+      const res = await sessions.resume(currentSessionId.value, { prompt }, provider as KnowledgeChatProvider);
       emit('changed');
       return { runId: res.runId };
     }
@@ -141,11 +145,15 @@ const driver: ChatDriver = {
     emit('changed');
     return { runId: res.runId };
   },
-  async resume(_provider, _providerSessionId, prompt) {
+  async resume(_provider, _providerSessionId, prompt, opts) {
     // The agent and its session id are the CONVERSATION's, not the caller's — the API reads both off the
     // session row, so a resume can never be pointed at another agent's memory.
     if (!currentSessionId.value) throw new Error('Cannot resume without a session');
-    const res = await sessions.resume(currentSessionId.value, prompt);
+    // The command travels in its OWN field, exactly as it arrived. We never rebuild it into text.
+    const res = await sessions.resume(
+      currentSessionId.value,
+      opts?.command ? { command: opts.command } : { prompt },
+    );
     emit('changed');
     return { runId: res.runId };
   },
@@ -184,6 +192,22 @@ const chat = useAgentChat({
     };
   },
 });
+
+// The composer's `/` autocomplete. The package NEVER fetches this itself — our API proxies the engine's
+// catalog behind admin auth and we hand it over. It is per-AGENT (Claude ships its own skills; Codex has its
+// own set), so it reloads when the selection changes. An empty list is a valid answer: the composer simply
+// degrades to plain prose and never blocks typing.
+const commands = ref<CommandDescriptor[]>([]);
+async function loadCommands(provider: AgentProvider | null) {
+  if (!provider) { commands.value = []; return; }
+  try {
+    const catalog = await sessions.commands(provider as KnowledgeChatProvider);
+    commands.value = catalog.commands;
+  } catch {
+    commands.value = []; // no autocomplete is a degraded UI, not a broken one
+  }
+}
+watch(() => chat.selectedProvider.value, (p) => void loadCommands(p), { immediate: true });
 
 // Everything the package renders, we render. The engine (2.0.0) no longer confuses Claude's benign quota
 // telemetry with an alarm: `quota.updated` is a SNAPSHOT that lands on the turn's meta line, and the
@@ -240,12 +264,28 @@ async function recheckProviders() {
 }
 
 async function submit() {
-  const text = draft.value.trim();
-  if (!text || !canSend.value) return;
+  const text = draft.value;
+  if (!text.trim() || !canSend.value) return;
   error.value = null;
-  chat.pushUserPrompt(text, t('knowledgeEngine.you'));
+
+  // The SAME function the engine's /execute validator uses. Two implementations of "is this a command?" is
+  // two chances to disagree about where a command starts — and the `/` must be at index 0 (a leading space
+  // is prose), which is exactly the rule a host that composes prompts can accidentally break.
+  const command = parseCommandInput(text);
+
+  if (command && !chat.sessionId.value) {
+    error.value = t('knowledgeEngine.commandNeedsConversation');
+    return;
+  }
+  // A command turn leads with the ENGINE's `command.started`, never an optimistic user bubble — that is what
+  // makes it render identically live and on replay, and never twice. So: push a bubble for a prompt, and only
+  // for a prompt.
+  if (!command) chat.pushUserPrompt(text.trim(), t('knowledgeEngine.you'));
   draft.value = '';
   try {
+    // useAgentChat re-parses the raw text and hands the driver `{ command }`; we pass the text through
+    // untouched. Never trim, never prepend — a prepended character decapitates a command.
+    //
     // The agent session id IS the conversation's memory: present → continue it; absent → this is a
     // brand-new conversation and the driver creates it.
     if (chat.sessionId.value) await chat.resume(chat.sessionId.value, text);
@@ -296,7 +336,9 @@ async function restore() {
 function attachActiveRun() {
   const active = props.initialTurns.find((turn) => turn.isActive);
   if (!active) return;
-  chat.pushUserPrompt(active.prompt, t('knowledgeEngine.you'));
+  // A command turn has no user bubble to restore — the engine's replayed `command.started` leads it. Only a
+  // PROMPT turn needs its bubble re-pushed (seeded history holds only TERMINAL turns, by design).
+  if (active.prompt) chat.pushUserPrompt(active.prompt, t('knowledgeEngine.you'));
   chat.connect(String(active.runId)); // runId MUST be a string — the server authorizes STOP by strict ===
 }
 
@@ -371,6 +413,7 @@ onBeforeUnmount(() => chat.close());
       :disabled="noProviderAvailable"
       :error="noProviderAvailable ? chatLabels.noProviderAvailable : (error ?? undefined)"
       :labels="chatLabels"
+      :commands="commands"
       @submit="submit"
       @stop="chat.stop()"
     />

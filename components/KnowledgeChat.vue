@@ -170,26 +170,29 @@ const chat = useAgentChat({
   // transcriptLabel, commandLead, thinking). So the translations must be supplied HERE too, or the baked
   // text silently stays in the package's English defaults no matter what `chatLabels` holds.
   //
-  // GETTERS, not values: the package reads these options once per TURN, off the object we pass at setup.
-  // Passing `chatLabels.value.x` would freeze the transcript in whatever locale was active when the chat
-  // mounted — so a mid-conversation language switch would keep baking English. A getter is re-evaluated on
-  // each new turn, which is exactly the granularity the package reads at. (Entries already rendered keep
-  // their text, of course: a sentence that was written cannot un-write itself.)
-  get rateLimitNotice() { return t('knowledgeEngine.rateLimitReached'); },
-  get userLabel() { return t('knowledgeEngine.you'); },
-  get quotaUsageLabel() { return chatLabels.value.quotaUsage; },
-  get quotaResetsLabel() { return chatLabels.value.quotaResets; },
-  get runDoneLabel() { return chatLabels.value.runDone; },
-  get formatTurns() { return chatLabels.value.formatTurns; },
-  get formatDuration() { return chatLabels.value.formatDuration; },
-  get formatCost() { return chatLabels.value.formatCost; },
-  get tokensLabel() { return chatLabels.value.tokens; },
-  get commandLabels() {
-    return {
-      succeeded: chatLabels.value.commandSucceeded,
-      failed: chatLabels.value.commandFailed,
-      refused: chatLabels.value.commandRefused,
-    };
+  // KNOWN LIMIT, stated rather than hidden: these are read ONCE, when useAgentChat is constructed — it copies
+  // them straight into createTranscript. So the baked text is fixed at the locale that was active when the
+  // chat MOUNTED. Switching language mid-conversation re-translates everything driven by `chatLabels` (the
+  // Console's own chrome, the Composer, the picker) but NOT these: a later turn still closes with the
+  // mount-time locale until the chat is remounted.
+  //
+  // We tried getters. They do not help: the package evaluates each option at construction, not per turn — so
+  // a getter fires once and freezes exactly like a value. Making this reactive needs the PACKAGE to accept a
+  // thunk here, which it already does for `provider` (`provider: providerSource`) — that is the upstream ask,
+  // and pretending otherwise in this file would be a comment that lies.
+  rateLimitNotice: t('knowledgeEngine.rateLimitReached'),
+  userLabel: t('knowledgeEngine.you'),
+  quotaUsageLabel: chatLabels.value.quotaUsage,
+  quotaResetsLabel: chatLabels.value.quotaResets,
+  runDoneLabel: chatLabels.value.runDone,
+  formatTurns: chatLabels.value.formatTurns,
+  formatDuration: chatLabels.value.formatDuration,
+  formatCost: chatLabels.value.formatCost,
+  tokensLabel: chatLabels.value.tokens,
+  commandLabels: {
+    succeeded: chatLabels.value.commandSucceeded,
+    failed: chatLabels.value.commandFailed,
+    refused: chatLabels.value.commandRefused,
   },
 });
 

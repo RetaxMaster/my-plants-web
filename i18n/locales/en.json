@@ -596,6 +596,7 @@
   "knowledgeEngine": {
     "runInProgress": "A run is already in progress for this conversation.",
     "sendError": "Could not send your message. Please try again.",
+    "rateLimitReached": "the agent is out of quota",
     "composer": {
       "promptLabel": "Message",
       "promptPlaceholder": "Ask the knowledge engine to research a species…",

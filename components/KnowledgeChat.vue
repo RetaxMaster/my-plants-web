@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { ConsoleEntry } from '@retaxmaster/agents-realtime-client';
 import {
   AgentSelector, Console, Composer, RunFailureNotice, ThemeSelector, useAgentChat, useTheme,
   type ChatDriver,
@@ -86,17 +85,6 @@ const { theme, setTheme } = useTheme({
   storageKey: 'crt-theme-knowledge',
 });
 
-// Benign rate-limit notice suppression. Claude's CLI emits `rate_limit_event` lines as rolling-window
-// STATUS (not an actual limit hit); the adapter faithfully maps them to a `notice{code:"rate_limit"}`,
-// which the console renders as the system entry "· <rateLimitNotice>". That label is misleading noise
-// here. There is no stable marker on the rendered entry to key off — only its text — so we inject a
-// UNIQUE sentinel as the notice and drop the system entries whose text is exactly that (defensively also
-// matching the package default, in case the option is ever ignored). A GENUINE rate limit is NOT hidden:
-// it arrives as a run FAILURE (kind `rate_limited`) through RunFailureNotice below.
-const RATE_LIMIT_MARKER = '__mp_rate_limit_event__';
-const RATE_LIMIT_TEXTS = new Set([`· ${RATE_LIMIT_MARKER}`, '· rate limit reached']);
-const isRateLimitNotice = (e: ConsoleEntry) => e.kind === 'system' && RATE_LIMIT_TEXTS.has(e.text);
-
 const currentSessionId = ref<string | null>(props.sessionId);
 const draft = ref('');
 const error = ref<string | null>(null);
@@ -143,12 +131,15 @@ const chat = useAgentChat({
   fetchTicket: (runId) => runs.mintSocketTicket(runId),
   driver,
   initialProvider: props.initialProvider ?? undefined,
-  rateLimitNotice: RATE_LIMIT_MARKER,
+  rateLimitNotice: t('knowledgeEngine.rateLimitReached'),
   userLabel: t('knowledgeEngine.you'),
 });
 
-// Drop the benign rate-limit notices; everything else the package renders, we render.
-const entries = computed(() => chat.entries.value.filter((e) => !isRateLimitNotice(e)));
+// Everything the package renders, we render. The engine (2.0.0) no longer confuses Claude's benign quota
+// telemetry with an alarm: `quota.updated` is a SNAPSHOT that lands on the turn's meta line, and the
+// `rate_limit` notice now fires ONLY on the rise into `exhausted`. Filtering it — which we used to do —
+// would now hide the one notice that means something.
+const entries = computed(() => chat.entries.value);
 const streaming = computed(() =>
   ['connecting', 'streaming', 'reconnecting'].includes(chat.state.value),
 );

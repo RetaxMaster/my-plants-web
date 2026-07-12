@@ -596,6 +596,7 @@
   "knowledgeEngine": {
     "runInProgress": "Ya hay una ejecución en curso para esta conversación.",
     "sendError": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
+    "rateLimitReached": "el agente se quedó sin cuota",
     "composer": {
       "promptLabel": "Mensaje",
       "promptPlaceholder": "Pídele al knowledge engine que investigue una especie…",

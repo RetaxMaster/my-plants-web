@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@retaxmaster/agents-realtime-client": "git+ssh://git@github.com:RetaxMaster/agents-realtime-client.git#v2.0.0",
+    "@retaxmaster/agents-realtime-client": "git+ssh://git@github.com:RetaxMaster/agents-realtime-client.git#v2.1.0",
     "@retaxmaster/my-plants-species-schema": "file:../my-plants-species-schema/retaxmaster-my-plants-species-schema-0.9.0.tgz",
     "isomorphic-dompurify": "^3.18.0",
     "marked": "^18.0.5",

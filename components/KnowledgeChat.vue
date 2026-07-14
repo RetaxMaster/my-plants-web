@@ -3,6 +3,9 @@ import {
   AgentSelector, Console, Composer, RunFailureNotice, ThemeSelector, useAgentChat, useTheme,
   type ChatDriver,
 } from '@retaxmaster/agents-realtime-client/vue';
+// The transcript's label set is a CORE type (the Vue layer only re-exports the components), and it is the
+// contract the `labels` thunk must satisfy in full.
+import type { TranscriptLabels } from '@retaxmaster/agents-realtime-client';
 import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
 import type { KnowledgeChatProvider, KnowledgeChatTurn } from '../types/api';
@@ -159,29 +162,29 @@ const driver: ChatDriver = {
   },
 };
 
-const chat = useAgentChat({
-  socketUrl,
-  fetchTicket: (runId) => runs.mintSocketTicket(runId),
-  driver,
-  initialProvider: props.initialProvider ?? undefined,
-  // The run-close line, the quota line, the rate-limit notice and command-result text are BAKED into each
-  // entry's `text` the moment useAgentChat processes an AgentEvent — they are NOT read from the `labels`
-  // prop Console/Composer consume later (that prop only reaches each component's own chrome:
-  // transcriptLabel, commandLead, thinking). So the translations must be supplied HERE too, or the baked
-  // text silently stays in the package's English defaults no matter what `chatLabels` holds.
-  //
-  // KNOWN LIMIT, stated rather than hidden: these are read ONCE, when useAgentChat is constructed — it copies
-  // them straight into createTranscript. So the baked text is fixed at the locale that was active when the
-  // chat MOUNTED. Switching language mid-conversation re-translates everything driven by `chatLabels` (the
-  // Console's own chrome, the Composer, the picker) but NOT these: a later turn still closes with the
-  // mount-time locale until the chat is remounted.
-  //
-  // We tried getters. They do not help: the package evaluates each option at construction, not per turn — so
-  // a getter fires once and freezes exactly like a value. Making this reactive needs the PACKAGE to accept a
-  // thunk here, which it already does for `provider` (`provider: providerSource`) — that is the upstream ask,
-  // and pretending otherwise in this file would be a comment that lies.
+// The run-close line, the quota line, the rate-limit notice and command-result text are BAKED into each
+// entry's `text` the moment useAgentChat processes an AgentEvent — they are NOT read from the `labels` prop
+// Console/Composer consume later (that prop only reaches each component's own chrome: transcriptLabel,
+// commandLead, thinking). So the transcript needs its OWN complete label set, supplied here.
+//
+// It is a THUNK, and that is the whole point (2.1.0): the package re-reads it ONCE PER TURN. A live language
+// switch therefore re-translates NEW turns while a turn already in flight keeps the locale it was born in —
+// which is the honest behaviour, since its text was baked when it ran. Until 2.1.0 these options were read
+// once at construction and the transcript spoke its mount-time locale forever; that limit is now gone.
+//
+// Every key is REQUIRED and the thunk is never merged with the package's English defaults — a partial set is
+// a compile error rather than a silently half-translated screen. That is what surfaced the five labels below
+// (session, stopped, truncated, file change, unsupported event) as English leaks we had never noticed.
+const transcriptLabels = computed<TranscriptLabels>(() => ({
   rateLimitNotice: t('knowledgeEngine.rateLimitReached'),
-  userLabel: t('knowledgeEngine.you'),
+  // Notice kinds we do not translate individually; the package renders the notice's own text. Empty is a
+  // real answer here, not a gap.
+  noticeLabels: {},
+  commandLabels: {
+    succeeded: chatLabels.value.commandSucceeded,
+    failed: chatLabels.value.commandFailed,
+    refused: chatLabels.value.commandRefused,
+  },
   quotaUsageLabel: chatLabels.value.quotaUsage,
   quotaResetsLabel: chatLabels.value.quotaResets,
   // The package's default reset formatter is `toLocaleTimeString()` with no locale, so it follows the
@@ -198,16 +201,33 @@ const chat = useAgentChat({
       minute: '2-digit',
       hourCycle: locale.value === 'es' ? 'h23' : 'h12',
     }),
+  sessionLabel: t('knowledgeEngine.console.session'),
   runDoneLabel: chatLabels.value.runDone,
+  // NEW in 2.1.0. A command that failed used to close under the green "done" line — the screen asserted a
+  // success the log never claimed. It now closes "✗ falló", and this is the word it uses. The RUN still
+  // succeeded (the process ran and exited 0): the run and the command are different facts, and only the
+  // rendered line changed. Our DB and every count are untouched.
+  runFailedLabel: t('knowledgeEngine.console.runFailed'),
   formatTurns: chatLabels.value.formatTurns,
   formatDuration: chatLabels.value.formatDuration,
   formatCost: chatLabels.value.formatCost,
   tokensLabel: chatLabels.value.tokens,
-  commandLabels: {
-    succeeded: chatLabels.value.commandSucceeded,
-    failed: chatLabels.value.commandFailed,
-    refused: chatLabels.value.commandRefused,
-  },
+  stoppedNote: t('knowledgeEngine.console.stopped'),
+  truncatedNote: t('knowledgeEngine.console.truncated'),
+  fileChangeLabel: t('knowledgeEngine.console.fileChange'),
+  unsupportedEventLabel: t('knowledgeEngine.console.unsupportedEvent'),
+  // The package groups thousands with a fixed en-US separator so two machines render alike. We can do better:
+  // this is the APP's locale, which is the one the reader is actually looking at.
+  formatNumber: (n: number) => n.toLocaleString(locale.value === 'es' ? 'es-MX' : 'en-US'),
+}));
+
+const chat = useAgentChat({
+  socketUrl,
+  fetchTicket: (runId) => runs.mintSocketTicket(runId),
+  driver,
+  initialProvider: props.initialProvider ?? undefined,
+  userLabel: t('knowledgeEngine.you'),
+  labels: () => transcriptLabels.value,
 });
 
 // The composer's `/` autocomplete. The package NEVER fetches this itself — our API proxies the engine's

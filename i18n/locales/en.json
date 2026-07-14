@@ -629,6 +629,12 @@
       "quotaUsage": "quota",
       "quotaResets": "resets",
       "runDone": "done",
+      "runFailed": "failed",
+      "session": "session",
+      "stopped": "stopped by user",
+      "truncated": "truncated",
+      "fileChange": "file change",
+      "unsupportedEvent": "unsupported event",
       "tokens": "tokens",
       "turnOne": "1 turn",
       "turnOther": "{n} turns"

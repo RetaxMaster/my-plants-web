@@ -629,6 +629,12 @@
       "quotaUsage": "cuota",
       "quotaResets": "se renueva",
       "runDone": "listo",
+      "runFailed": "falló",
+      "session": "sesión",
+      "stopped": "lo detuviste",
+      "truncated": "truncado",
+      "fileChange": "cambio de archivo",
+      "unsupportedEvent": "evento no soportado",
       "tokens": "tokens",
       "turnOne": "1 turno",
       "turnOther": "{n} turnos"

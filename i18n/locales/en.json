@@ -639,6 +639,13 @@
       "turnOne": "1 turn",
       "turnOther": "{n} turns"
     },
+    "runStatus": {
+      "QUEUED": "queued",
+      "RUNNING": "running",
+      "SUCCEEDED": "succeeded",
+      "FAILED": "failed",
+      "CANCELLED": "cancelled"
+    },
     "command": {
       "lead": "Command",
       "succeeded": "command completed",

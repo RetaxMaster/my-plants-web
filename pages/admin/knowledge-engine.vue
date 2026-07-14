@@ -90,7 +90,10 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
             <button type="button" class="mp-kchat-list__open" @click="openSession(s.id)">
               <span class="mp-kchat-list__title">{{ s.title }}</span>
               <span class="mp-kchat-list__meta">
-                <UiBadge v-if="s.status" :color="s.status === 'RUNNING' ? 'green' : 'neutral'" size="xs">{{ s.status }}</UiBadge>
+                <!-- The run status is a DB enum (QUEUED/RUNNING/…), not copy: rendering it raw printed the
+                     English word next to a Spanish turn count, on the same line. It goes through i18n like
+                     every other user-facing string. -->
+                <UiBadge v-if="s.status" :color="s.status === 'RUNNING' ? 'green' : 'neutral'" size="xs">{{ $t(`knowledgeEngine.runStatus.${s.status}`) }}</UiBadge>
                 <span class="mp-kchat-list__turns">{{ $t('admin.turns', { n: s.turns }, s.turns) }}</span>
               </span>
             </button>

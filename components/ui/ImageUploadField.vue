@@ -71,7 +71,21 @@ async function copyLink() {
 </template>
 
 <style scoped>
-.mp-uploadfield { display: grid; gap: var(--space-3); }
+/* `minmax(0, 1fr)`, not the implicit `auto` track.
+ *
+ * An `auto` grid track is floored by its widest child's MIN-content width, and a grid item's own
+ * `min-width` defaults to `auto` — so one unbreakable child can force the whole column wider than the
+ * card that holds it. That is exactly what happened here: the result row below carries a `<code>` with
+ * the (long, unbreakable) asset URL, and it dragged this single-column track out to ~754px inside a
+ * 526px card, which then clipped everything — preview, dropzone and URL alike — because the card is
+ * `overflow: hidden`. The `min-width: 0` already on the `<code>` does NOT prevent this: a percentage
+ * `flex-basis` (`flex: 1` = `flex-basis: 0%`) is indefinite while intrinsic sizes are being resolved, so
+ * the `<code>` still contributes its full max-content width upwards.
+ *
+ * `minmax(0, 1fr)` lets the track shrink below its content's min-content, which is what a stack of
+ * blocks inside a fixed-width card actually wants. It protects every child of this grid, including the
+ * ones nobody has added yet. */
+.mp-uploadfield { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 .mp-uploadfield__label { font: var(--weight-semibold) var(--text-sm) var(--font-sans); color: var(--text-strong); }
 .mp-uploadfield__hint { margin: 0; font: var(--text-xs) var(--font-sans); color: var(--text-muted); }
 .mp-uploadfield__preview {
@@ -83,7 +97,11 @@ async function copyLink() {
 }
 .mp-uploadfield__status { margin: 0; font: var(--text-sm) var(--font-sans); color: var(--text-muted); }
 .mp-uploadfield__status--error { color: var(--care-poor-text, var(--text-strong)); }
-.mp-uploadfield__result { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* `min-width: 0` overrides the grid item's automatic minimum, so this row is allowed to be narrower than
+ * the URL it contains — the `<code>` then scrolls inside itself (overflow-x below) instead of pushing the
+ * card apart. The track above already permits this; keeping it here means the row stays shrinkable even
+ * if it is ever moved into a different container. */
+.mp-uploadfield__result { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
 .mp-uploadfield__url {
   flex: 1;
   min-width: 0;

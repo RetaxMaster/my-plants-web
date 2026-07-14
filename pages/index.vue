@@ -50,7 +50,7 @@ const subtitle = computed(() =>
 );
 
 function rowStatus(due: string): 'overdue' | 'today' | 'upcoming' {
-  const k = dueState(new Date(due), new Date()).kind;
+  const k = dueState(due).kind;
   if (k === 'overdue') return 'overdue';
   if (k === 'today') return 'today';
   return 'upcoming';
@@ -173,7 +173,7 @@ function openProgress(plantId: string) {
             :key="t2.task"
             :task="t2.task"
             :status="rowStatus(t2.nextDueOn)"
-            :due-label="dueLabel(dueState(new Date(t2.nextDueOn)))"
+            :due-label="dueLabel(dueState(t2.nextDueOn))"
             @done="e => onDone(plantId, e.task, rowStatus(t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"

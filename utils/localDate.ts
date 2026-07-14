@@ -44,3 +44,32 @@ export function ymdToLocalDate(value: string): Date {
   const [y, m, d] = value.slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d);
 }
+
+const MS_DAY = 86_400_000;
+
+// Whole calendar days from `from` to `to`, counted on the OWNER'S calendar (positive when `to` is later).
+// This is the single day-difference primitive in the app: "how long ago did this happen" and "how many
+// days until this is due" are the same question asked in two directions, and both must be answered on the
+// calendar the owner is actually living in.
+//
+// The trap this exists to close: every care date the API sends is a timezone-agnostic CALENDAR DAY
+// ("2026-07-13"), dated in the plant's city. Comparing it against a "today" taken from the UTC clock
+// (`new Date().getUTCDate()`) silently shifts by one day for half of every day: in a negative offset such
+// as America/Mexico_City (UTC-6) the UTC calendar day rolls over to tomorrow at 18:00 LOCAL. From then
+// until midnight, an entry the owner logged minutes ago rendered as "yesterday" and a task due today
+// rendered as "overdue". Both were real, and both came from that one substitution.
+//
+// So: read the year/month/day with the LOCAL accessors (the owner's day), and use Date.UTC purely as an
+// epoch normalizer for the subtraction — that keeps the arithmetic immune to DST, where a calendar day is
+// 23 or 25 hours long and a fixed-millisecond subtraction would round to the wrong day.
+export function calendarDaysBetween(from: Date, to: Date): number {
+  const a = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b - a) / MS_DAY);
+}
+
+// Whole calendar days since a date-valued API string (`occurredOn`), on the owner's calendar.
+// 0 = today, 1 = yesterday, N = N days ago. Negative would mean the future, which history never holds.
+export function calendarDaysSince(occurredOn: string, now: Date = new Date()): number {
+  return calendarDaysBetween(ymdToLocalDate(occurredOn), now);
+}

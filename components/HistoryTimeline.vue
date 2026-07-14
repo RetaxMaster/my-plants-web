@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { HistoryItem } from '../types/api.js';
 import { useTaskMeta } from '../composables/useTaskMeta';
+import { calendarDaysSince } from '../utils/localDate.js';
 
 defineProps<{ items: HistoryItem[] }>();
 const emit = defineEmits<{ openEntry: [entryId: string] }>();
@@ -8,18 +9,11 @@ const emit = defineEmits<{ openEntry: [entryId: string] }>();
 const { TASK_ICONS, taskPastLabel, healthLabel } = useTaskMeta();
 const { t } = useI18n();
 
-const MS_DAY = 86_400_000;
-// Pure day-count for a past YYYY-MM-DD; the wording is applied via t() below.
-function agoDays(occurredOn: string): number {
-  const [y, m, d] = occurredOn.split('-').map(Number);
-  const then = Date.UTC(y, m - 1, d);
-  const now = new Date();
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return Math.round((today - then) / MS_DAY);
-}
-// "today" / "yesterday" / "N days ago" from the day count, localized + pluralized.
+// "today" / "yesterday" / "N days ago", localized + pluralized. The day count comes from the shared
+// local-calendar helper: counting it here against the UTC clock is what made a just-logged entry read
+// as "yesterday" every evening (see calendarDaysBetween).
 function agoLabel(occurredOn: string): string {
-  const days = agoDays(occurredOn);
+  const days = calendarDaysSince(occurredOn);
   if (days <= 0) return t('history.today');
   if (days === 1) return t('history.yesterday');
   return t('history.daysAgo', { n: days }, days);

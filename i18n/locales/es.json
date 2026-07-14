@@ -9,7 +9,8 @@
     "open": "Abrir",
     "loading": "Cargando…",
     "yes": "Sí",
-    "no": "No"
+    "no": "No",
+    "saving": "Guardando…"
   },
   "nav": {
     "today": "Hoy",
@@ -780,5 +781,15 @@
       "title": "Editor de entrada",
       "description": "Escribe y edita una guía de cuidado por especie para el blog."
     }
+  },
+  "upload": {
+    "uploading": "Subiendo… {percent}%",
+    "upload_file_too_large": "«{name}» pesa demasiado ({size}). Cada foto debe pesar menos de {max}.",
+    "upload_request_too_large": "Esas fotos suman {size}. Sube menos de {max} a la vez.",
+    "upload_stalled": "La subida dejó de responder: revisa tu conexión e inténtalo de nuevo. No se guardó nada.",
+    "upload_no_response": "Tus fotos se subieron, pero el servidor nunca respondió. Recarga la página para ver si se guardó antes de volver a intentarlo.",
+    "upload_network": "Se cortó la conexión durante la subida. No se guardó nada; inténtalo de nuevo.",
+    "upload_rejected_by_server": "El servidor rechazó estas fotos porque pesan demasiado. Inténtalo con menos fotos o con fotos más ligeras.",
+    "processingPhotos": "Procesando fotos…"
   }
 }

@@ -20,17 +20,56 @@ export function useApi() {
   // Capture the session in setup scope so the 401 handler below never calls a
   // composable after an await (which would trigger a composable-scope warning).
   const session = useUserSession();
+  const { t } = useI18n();
+
+  // A mid-session 401 means the bearer was revoked/expired: drop the stale session and bounce to
+  // /login. Client-side only, and ONLY when we actually had a session — so a public page (blog) that
+  // ever sees a 401 from a public endpoint is never bounced to login for a logged-out visitor.
+  const handle401 = async (e: any) => {
+    if (import.meta.client && session.loggedIn.value && (e?.statusCode === 401 || e?.response?.status === 401)) {
+      await session.clear();
+      await navigateTo('/login');
+    }
+  };
+
   const api = async <T>(path: string, opts?: Parameters<typeof $fetch>[1]) => {
     try {
       return await fetcher<T>(`/api${path}`, opts as any);
     } catch (e: any) {
-      // A mid-session 401 means the bearer was revoked/expired: drop the stale
-      // session and bounce to /login. Client-side only, and ONLY when we actually
-      // had a session — so a public page (blog) that ever sees a 401 from a public
-      // endpoint is never bounced to login for a logged-out visitor.
-      if (import.meta.client && session.loggedIn.value && (e?.statusCode === 401 || e?.response?.status === 401)) {
-        await session.clear();
-        await navigateTo('/login');
+      await handle401(e);
+      throw e;
+    }
+  };
+
+  // EVERY file upload goes through here — never through `api()`. A large body can be refused by NGINX
+  // (413) while the browser is still sending it, and a fetch() in that state never settles: the save
+  // hangs forever with no error (see utils/upload.ts). So an upload is (1) pre-flighted against the
+  // limits the server actually enforces, and (2) sent over XHR, whose progress events let us detect a
+  // dead connection. Failures arrive in the same shape as any API error (`e.data.code`/`e.data.message`),
+  // so callers keep a single catch block.
+  const upload = async <T>(
+    path: string,
+    form: FormData,
+    opts: { method?: 'POST' | 'PUT'; onProgress?: (percent: number) => void } = {},
+  ): Promise<T> => {
+    const rejection = checkUploadLimits(form);
+    if (rejection) throw makeUploadError(rejection.code, t(`upload.${rejection.code}`, rejection.params));
+    try {
+      return await uploadFormData<T>(`/api${path}`, form, opts);
+    } catch (e: any) {
+      await handle401(e);
+      // Give our own client-side failures (dead connection, backend never answered) a translated,
+      // actionable message; an API error already carries its own.
+      const code: string | undefined = e?.data?.code;
+      if (code === 'upload_stalled' || code === 'upload_no_response' || code === 'upload_network') {
+        e.data.message = t(`upload.${code}`);
+      }
+      // 413 never comes from our API — it comes from the infrastructure in front of it (NGINX's
+      // client_max_body_size), so it carries no error code of ours. Say the one thing the user can act
+      // on: the photos were too heavy for the server. Without this they retry the same batch and fail
+      // again on a generic "could not save".
+      if (e?.statusCode === 413) {
+        e.data = { ...(e.data ?? {}), code: 'upload_rejected_by_server', message: t('upload.upload_rejected_by_server') };
       }
       throw e;
     }
@@ -63,10 +102,10 @@ export function useApi() {
     deleteBlogpost: (slug: string) =>
       api<{ ok: true }>(`/blogposts/${slug}`, { method: 'DELETE' }),
     uploadBlogpostCover: (slug: string, form: FormData) =>
-      api<BlogpostAdminDetail>(`/blogposts/${slug}/cover`, { method: 'POST', body: form }),
+      upload<BlogpostAdminDetail>(`/blogposts/${slug}/cover`, form),
 
     // --- Media library (RolesGuard ADMIN on the API) ---
-    uploadMedia: (form: FormData) => api<MediaAssetView>('/media', { method: 'POST', body: form }),
+    uploadMedia: (form: FormData) => upload<MediaAssetView>('/media', form),
     listMedia: (page = 1) => api<BlogPage<MediaAssetView>>(`/media?page=${page}`),
     deleteMedia: (id: string) => api<{ ok: true }>(`/media/${id}`, { method: 'DELETE' }),
 
@@ -85,7 +124,7 @@ export function useApi() {
     setCoverPhoto: (id: string, file: File) => {
       const form = new FormData();
       form.append('photo', file);
-      return api<PlantDetail>(`/plants/${id}/cover-photo`, { method: 'PUT', body: form });
+      return upload<PlantDetail>(`/plants/${id}/cover-photo`, form, { method: 'PUT' });
     },
     deleteCoverPhoto: (id: string) =>
       api<PlantDetail>(`/plants/${id}/cover-photo`, { method: 'DELETE' }),
@@ -107,8 +146,10 @@ export function useApi() {
 
     // Care History
     getProgressCatalog: () => api<ProgressTag[]>('/progress/catalog'),
-    logProgress: (plantId: string, form: FormData) =>
-      api<ProgressEntryDetail>(`/plants/${plantId}/progress`, { method: 'POST', body: form }),
+    // The heaviest upload in the app: up to 8 raw camera photos in one request. onProgress drives a real
+    // percentage on the save button so a slow phone upload never LOOKS like a frozen one.
+    logProgress: (plantId: string, form: FormData, onProgress?: (percent: number) => void) =>
+      upload<ProgressEntryDetail>(`/plants/${plantId}/progress`, form, { onProgress }),
     getProgressEntry: (plantId: string, entryId: string) =>
       api<ProgressEntryDetail>(`/plants/${plantId}/progress/${entryId}`),
     getPlantHistory: (plantId: string) => api<HistoryItem[]>(`/plants/${plantId}/history`),

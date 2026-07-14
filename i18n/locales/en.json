@@ -9,7 +9,8 @@
     "open": "Open",
     "loading": "Loading…",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "saving": "Saving…"
   },
   "nav": {
     "today": "Today",
@@ -780,5 +781,15 @@
       "title": "Post editor",
       "description": "Write and edit a species care guide for the blog."
     }
+  },
+  "upload": {
+    "uploading": "Uploading… {percent}%",
+    "upload_file_too_large": "“{name}” is too large ({size}). Each photo must be under {max}.",
+    "upload_request_too_large": "Those photos add up to {size}. Please upload less than {max} at a time.",
+    "upload_stalled": "The upload stopped responding — check your connection and try again. Nothing was saved.",
+    "upload_no_response": "Your photos went up, but the server never answered. Reload the page to check whether it was saved before trying again.",
+    "upload_network": "The connection dropped during the upload. Nothing was saved — please try again.",
+    "upload_rejected_by_server": "The server refused these photos because they are too heavy. Try again with fewer or lighter photos.",
+    "processingPhotos": "Processing photos…"
   }
 }

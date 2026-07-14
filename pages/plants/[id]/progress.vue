@@ -41,8 +41,20 @@ const selectedTags = ref<string[]>([]);
 const files = ref<File[]>([]);
 const saving = ref(false);
 const error = ref('');
+// Upload percentage, only while photos are actually on the wire. Null when there is nothing to show
+// (no photos, or the bytes are all sent and we're waiting on the backend).
+const uploadPercent = ref<number | null>(null);
 
 const subtitle = computed(() => (plant.value ? plantTitle(plant.value, locale.value) : undefined));
+
+// The save button narrates the three phases it can be in, because they feel very different to a user:
+// pushing bytes (a real %), waiting while the server resizes and stores the photos (which can take a
+// while and would otherwise look like a frozen idle button), and idle.
+const saveLabel = computed(() => {
+  if (uploadPercent.value !== null) return t('upload.uploading', { percent: uploadPercent.value });
+  if (saving.value) return files.value.length ? t('upload.processingPhotos') : t('common.saving');
+  return t('progress.saveProgress');
+});
 
 function toggleTag(key: string) {
   const i = selectedTags.value.indexOf(key);
@@ -58,6 +70,7 @@ async function save() {
   if (!health.value) { error.value = t('progress.errorSelectHealth'); return; }
   saving.value = true;
   error.value = '';
+  uploadPercent.value = null;
   try {
     const form = new FormData();
     form.append('health', health.value);
@@ -65,7 +78,11 @@ async function save() {
     if (recordSize.value && sizeCm.value !== null) form.append('sizeCm', String(sizeCm.value));
     if (selectedTags.value.length) form.append('tags', JSON.stringify(selectedTags.value));
     for (const f of files.value) form.append('photos', f);
-    await api.logProgress(id, form);
+    await api.logProgress(id, form, (percent) => {
+      // Only meaningful while there are photos to push; at 100% the bytes are out and the backend is
+      // still resizing/uploading them, so we drop back to a plain spinner rather than freeze at "100%".
+      uploadPercent.value = files.value.length && percent < 100 ? percent : null;
+    });
     // Progress re-anchors (drops off the care rows) and a new entry appears in the timeline — invalidate
     // both keys so the detail page shows fresh data the moment we navigate back, no stale flash.
     await refreshNuxtData([`plant-${id}`, `care-${id}`, `history-${id}`, `photos-${id}`]);
@@ -91,6 +108,7 @@ async function save() {
     }
   } finally {
     saving.value = false;
+    uploadPercent.value = null;
   }
 }
 </script>
@@ -187,7 +205,7 @@ async function save() {
 
       <div class="mp-progress__actions">
         <UiButton type="button" color="neutral" variant="ghost" @click="goBack">{{ $t('common.cancel') }}</UiButton>
-        <UiButton type="submit" color="primary" block :loading="saving" :disabled="saving">{{ $t('progress.saveProgress') }}</UiButton>
+        <UiButton type="submit" color="primary" block :loading="saving" :disabled="saving">{{ saveLabel }}</UiButton>
       </div>
     </form>
   </div>

@@ -175,51 +175,72 @@ const driver: ChatDriver = {
 // Every key is REQUIRED and the thunk is never merged with the package's English defaults — a partial set is
 // a compile error rather than a silently half-translated screen. That is what surfaced the five labels below
 // (session, stopped, truncated, file change, unsupported event) as English leaks we had never noticed.
-const transcriptLabels = computed<TranscriptLabels>(() => ({
-  rateLimitNotice: t('knowledgeEngine.rateLimitReached'),
-  // Notice kinds we do not translate individually; the package renders the notice's own text. Empty is a
-  // real answer here, not a gap.
-  noticeLabels: {},
-  commandLabels: {
-    succeeded: chatLabels.value.commandSucceeded,
-    failed: chatLabels.value.commandFailed,
-    refused: chatLabels.value.commandRefused,
-  },
-  quotaUsageLabel: chatLabels.value.quotaUsage,
-  quotaResetsLabel: chatLabels.value.quotaResets,
-  // The package's default reset formatter is `toLocaleTimeString()` with no locale, so it follows the
-  // SERVER/BROWSER locale rather than the app's — which rendered "se renueva 3:00:00 PM": a 12-hour clock,
-  // with seconds, inside Spanish copy. A reset time is a clock reading, so give it the app's locale and drop
-  // the seconds (nobody's quota resets on a particular second). Receives epoch MILLISECONDS.
-  //
-  // `hourCycle` is set EXPLICITLY, and that is the whole point: `es-MX` defaults to a 12-hour clock (it
-  // renders "03:00 p.m."), so naming the locale alone does not get you a 24-hour time — Mexico writes 24h
-  // in this kind of UI, and the CLDR default disagrees. en-US keeps h12, which is correct for it.
-  formatQuotaReset: (ms: number) =>
-    new Date(ms).toLocaleTimeString(locale.value === 'es' ? 'es-MX' : 'en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: locale.value === 'es' ? 'h23' : 'h12',
-    }),
-  sessionLabel: t('knowledgeEngine.console.session'),
-  runDoneLabel: chatLabels.value.runDone,
-  // NEW in 2.1.0. A command that failed used to close under the green "done" line — the screen asserted a
-  // success the log never claimed. It now closes "✗ falló", and this is the word it uses. The RUN still
-  // succeeded (the process ran and exited 0): the run and the command are different facts, and only the
-  // rendered line changed. Our DB and every count are untouched.
-  runFailedLabel: t('knowledgeEngine.console.runFailed'),
-  formatTurns: chatLabels.value.formatTurns,
-  formatDuration: chatLabels.value.formatDuration,
-  formatCost: chatLabels.value.formatCost,
-  tokensLabel: chatLabels.value.tokens,
-  stoppedNote: t('knowledgeEngine.console.stopped'),
-  truncatedNote: t('knowledgeEngine.console.truncated'),
-  fileChangeLabel: t('knowledgeEngine.console.fileChange'),
-  unsupportedEventLabel: t('knowledgeEngine.console.unsupportedEvent'),
-  // The package groups thousands with a fixed en-US separator so two machines render alike. We can do better:
-  // this is the APP's locale, which is the one the reader is actually looking at.
-  formatNumber: (n: number) => n.toLocaleString(locale.value === 'es' ? 'es-MX' : 'en-US'),
-}));
+//
+// THE TRAP, and why every formatter below is PINNED to a captured locale. The package snapshots the label set
+// once per turn — but a snapshot only freezes the STRINGS. A FUNCTION is captured by reference and runs when
+// the package calls it, which for the close line is when the run ENDS. So a formatter that reads `locale.value`
+// at call time would answer with the locale of whoever is looking, not the one the turn was born in: start a
+// run in English, switch to Spanish before it finishes, and the close line renders "✓ done (1 turno, 3s)" —
+// half the sentence in each language. Pinning the locale at thunk-read time makes the whole snapshot coherent
+// and keeps the package's promise: a turn in flight speaks the language it started in.
+const transcriptLabels = computed<TranscriptLabels>(() => {
+  const loc = locale.value;
+  const intl = loc === 'es' ? 'es-MX' : 'en-US';
+  // Translate against the PINNED locale, not the live one — same reason as above.
+  const at = (key: string, named?: Record<string, unknown>) => t(key, named ?? {}, { locale: loc });
+
+  return {
+    rateLimitNotice: at('knowledgeEngine.rateLimitReached'),
+    // Notice kinds we do not translate individually; the package renders the notice's own text. Empty is a
+    // real answer here, not a gap — it is exactly what the package's own defaults carry.
+    noticeLabels: {},
+    commandLabels: {
+      succeeded: at('knowledgeEngine.command.succeeded'),
+      failed: at('knowledgeEngine.command.failed'),
+      refused: at('knowledgeEngine.command.refused'),
+    },
+    quotaUsageLabel: at('knowledgeEngine.console.quotaUsage'),
+    quotaResetsLabel: at('knowledgeEngine.console.quotaResets'),
+    // The package's default reset formatter is `toLocaleTimeString()` with no locale, so it follows the
+    // SERVER/BROWSER locale rather than the app's — which rendered "se renueva 3:00:00 PM": a 12-hour clock,
+    // with seconds, inside Spanish copy. A reset time is a clock reading, so give it the app's locale and drop
+    // the seconds (nobody's quota resets on a particular second). Receives epoch MILLISECONDS.
+    //
+    // `hourCycle` is set EXPLICITLY, and that is the whole point: `es-MX` defaults to a 12-hour clock (it
+    // renders "03:00 p.m."), so naming the locale alone does not get you a 24-hour time — Mexico writes 24h
+    // in this kind of UI, and the CLDR default disagrees. en-US keeps h12, which is correct for it.
+    formatQuotaReset: (ms: number) =>
+      new Date(ms).toLocaleTimeString(intl, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: loc === 'es' ? 'h23' : 'h12',
+      }),
+    sessionLabel: at('knowledgeEngine.console.session'),
+    runDoneLabel: at('knowledgeEngine.console.runDone'),
+    // NEW in 2.1.0. A command that failed used to close under the green "done" line — the screen asserted a
+    // success the log never claimed. It now closes "✗ falló", and this is the word it uses. The RUN still
+    // succeeded (the process ran and exited 0): the run and the command are different facts, and only the
+    // rendered line changed. Our DB and every count are untouched.
+    runFailedLabel: at('knowledgeEngine.console.runFailed'),
+    // Anything shaped by a NUMBER is a function, because the package cannot guess a plural rule (English has
+    // 2 forms, Polish 3, Japanese 1) — it hands us the count and renders what we return.
+    formatTurns: (n: number) =>
+      n === 1 ? at('knowledgeEngine.console.turnOne') : at('knowledgeEngine.console.turnOther', { n }),
+    formatDuration: (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}min`),
+    // Claude publishes a price; Codex publishes NO price anywhere in its protocol, so that field is simply
+    // absent on a Codex run and the package renders nothing. We never substitute a zero — "$0.0000" would tell
+    // the user the run was free.
+    formatCost: (usd: number) => `$${usd.toFixed(4)}`,
+    tokensLabel: at('knowledgeEngine.console.tokens'),
+    stoppedNote: at('knowledgeEngine.console.stopped'),
+    truncatedNote: at('knowledgeEngine.console.truncated'),
+    fileChangeLabel: at('knowledgeEngine.console.fileChange'),
+    unsupportedEventLabel: at('knowledgeEngine.console.unsupportedEvent'),
+    // The package groups thousands with a fixed en-US separator so two machines render alike. We can do better:
+    // this is the APP's locale, which is the one the reader is actually looking at.
+    formatNumber: (n: number) => n.toLocaleString(intl),
+  };
+});
 
 const chat = useAgentChat({
   socketUrl,

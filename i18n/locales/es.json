@@ -255,6 +255,45 @@
       "tempRange": "{min}–{max} °C"
     }
   },
+  "measure": {
+    "infoAria": "Cómo medir esta planta",
+    "generic": {
+      "title": "Cómo medir",
+      "body": "Mide la dimensión más larga de la planta — normalmente su altura desde la superficie de la tierra hasta el punto de crecimiento más alto. Si la planta cuelga o se arrastra, mide el tallo más largo desde el borde de la maceta hasta la punta."
+    },
+    "upright": {
+      "title": "Medir una planta erguida",
+      "body": "Mide la altura desde la superficie de la tierra hacia arriba hasta la punta de la hoja o el brote más alto. Mantén la cinta vertical — no sigas un tallo inclinado."
+    },
+    "climber": {
+      "title": "Medir una trepadora",
+      "body": "Mide a lo largo del tallo principal desde la tierra hasta la punta de crecimiento, siguiendo el tallo aunque esté atado a un tutor o enrejado."
+    },
+    "trailing": {
+      "title": "Medir una planta colgante",
+      "body": "Mide el tallo más largo desde el borde de la maceta hasta su punta. Deja que cuelgue o estíralo recto — no sumes los tallos."
+    },
+    "clumping": {
+      "title": "Medir una planta en mata",
+      "body": "Mide la hoja o el tallo más alto desde la tierra hasta la punta. La mata se extiende a lo ancho, así que la altura es el número que cambia al crecer."
+    },
+    "rosette": {
+      "title": "Medir una roseta",
+      "body": "Mide el diámetro por la parte más ancha de la roseta, de punta de hoja a punta de hoja opuesta, por encima de la planta."
+    },
+    "tree": {
+      "title": "Medir una forma de árbol",
+      "body": "Mide la altura desde la superficie de la tierra hasta la parte de arriba de la copa. Ignora la maceta — mide la planta."
+    },
+    "shrub": {
+      "title": "Medir un arbusto",
+      "body": "Mide la altura desde la tierra hasta la punta de la rama más alta. Si es más ancho que alto, anota el ancho en tus observaciones."
+    },
+    "other": {
+      "title": "Cómo medir",
+      "body": "Mide la dimensión más larga de la planta — normalmente la altura desde la tierra hasta el punto de crecimiento más alto; si es colgante, el tallo más largo desde el borde de la maceta hasta la punta."
+    }
+  },
   "plantProfile": {
     "title": "Detalles de la planta",
     "subtitle": "Datos opcionales sobre esta planta en particular. Llena lo que sepas.",

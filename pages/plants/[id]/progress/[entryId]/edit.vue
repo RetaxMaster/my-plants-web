@@ -89,6 +89,7 @@ async function onRetry(photoId: string) {
       :saving="saving"
       :save-label="saveLabel"
       :error="error"
+      :species-growth-habit="plant?.speciesGrowthHabit ?? null"
       @submit="onSubmit"
       @delete="onDelete"
       @retry="onRetry"

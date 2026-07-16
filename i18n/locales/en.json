@@ -255,6 +255,45 @@
       "tempRange": "{min}–{max} °C"
     }
   },
+  "measure": {
+    "infoAria": "How to measure this plant",
+    "generic": {
+      "title": "How to measure",
+      "body": "Measure the plant's longest dimension — usually its height from the soil surface to the tallest growing point. For a plant that trails or hangs, measure the longest stem from the pot rim to its tip."
+    },
+    "upright": {
+      "title": "Measuring an upright plant",
+      "body": "Measure the height from the soil surface straight up to the tallest leaf tip or growing point. Hold the tape vertical — don't follow a leaning stem."
+    },
+    "climber": {
+      "title": "Measuring a climber",
+      "body": "Measure along the main vine from the soil to its growing tip, following the stem even where it's tied to a pole or trellis."
+    },
+    "trailing": {
+      "title": "Measuring a trailing plant",
+      "body": "Measure the single longest stem from the pot rim to its tip. Let the vine hang or lay it straight — don't add the stems together."
+    },
+    "clumping": {
+      "title": "Measuring a clumping plant",
+      "body": "Measure the tallest leaf or stem from the soil to its tip. The clump spreads sideways, so height is the number that changes as it grows."
+    },
+    "rosette": {
+      "title": "Measuring a rosette",
+      "body": "Measure the diameter across the widest part of the rosette, from leaf tip to opposite leaf tip over the top of the plant."
+    },
+    "tree": {
+      "title": "Measuring a tree form",
+      "body": "Measure the height from the soil surface to the top of the canopy. Ignore the pot — measure the plant itself."
+    },
+    "shrub": {
+      "title": "Measuring a shrub",
+      "body": "Measure the height from the soil to the tallest branch tip. If it's wider than it is tall, note the width in your observations."
+    },
+    "other": {
+      "title": "How to measure",
+      "body": "Measure the plant's longest dimension — usually height from the soil to the tallest growing point; for a trailing plant, the longest stem from the pot rim to the tip."
+    }
+  },
   "plantProfile": {
     "title": "Plant details",
     "subtitle": "Optional facts about this specific plant. Fill in what you know.",

@@ -15,6 +15,8 @@ const props = defineProps<{
   saving?: boolean;
   saveLabel: string; // the parent owns the phase-aware button copy
   error?: string;
+  // The species' growth habit (spec §2.4) — drives the measure modal. Null → generic guide.
+  speciesGrowthHabit?: import('@retaxmaster/my-plants-species-schema/plant-profile-constants').GrowthHabit | null;
 }>();
 const emit = defineEmits<{
   submit: [payload: UpdateProgressPayload];
@@ -47,6 +49,7 @@ const sizeCm = ref<number | null>(props.initial?.sizeCm ?? 45);
 const selectedTags = ref<string[]>(props.initial?.tags.map((tg) => tg.key) ?? []);
 const files = ref<File[]>([]); // NEW photos to add
 const removePhotoIds = ref<string[]>([]); // edit only
+const measureInfoOpen = ref(false);
 
 // The catalog for the chips (same async key the create page used). NOT awaited — a client-only form
 // never needs to block its own render on the tag catalog; the chips simply populate a beat later.
@@ -220,7 +223,17 @@ defineExpose({
       <!-- Size (optional, gated behind a toggle so sizeCm stays optional) -->
       <div class="mp-progress-form__size">
         <div class="mp-progress-form__size-head">
-          <span class="mp-progress-form__size-label">{{ $t('progress.size') }}</span>
+          <span class="mp-progress-form__size-label">
+            {{ $t('progress.size') }}
+            <button
+              type="button"
+              class="mp-progress-form__size-info"
+              :aria-label="$t('measure.infoAria')"
+              @click="measureInfoOpen = true"
+            >
+              <UiAppIcon name="information-circle" :size="18" />
+            </button>
+          </span>
           <label class="mp-progress-form__size-switch">
             <UiSwitch v-model="recordSize" :aria-label="$t('progress.recordSizeAria')" />
             <span>{{ $t('progress.recordSize') }}</span>
@@ -277,6 +290,8 @@ defineExpose({
       <UiButton type="submit" color="primary" block :loading="saving" :disabled="saving">{{ saveLabel }}</UiButton>
     </div>
   </form>
+
+  <UiMeasureInfoModal v-model:open="measureInfoOpen" :growth-habit="speciesGrowthHabit ?? null" />
 </template>
 
 <style scoped>
@@ -464,10 +479,39 @@ defineExpose({
 }
 
 .mp-progress-form__size-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   color: var(--text-strong);
+}
+
+.mp-progress-form__size-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+
+.mp-progress-form__size-info:hover {
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+}
+
+.mp-progress-form__size-info:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .mp-progress-form__size-switch {

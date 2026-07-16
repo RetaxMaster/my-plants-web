@@ -94,6 +94,7 @@ async function save(payload: UpdateProgressPayload) {
       :saving="saving"
       :save-label="saveLabel"
       :error="error"
+      :species-growth-habit="plant?.speciesGrowthHabit ?? null"
       @submit="save"
       @cancel="goBack"
     />

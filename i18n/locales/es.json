@@ -722,6 +722,7 @@
       "truncated": "truncado",
       "fileChange": "cambio de archivo",
       "unsupportedEvent": "evento no soportado",
+      "noOutput": "(sin salida)",
       "tokens": "tokens",
       "turnOne": "1 turno",
       "turnOther": "{n} turnos"
@@ -740,6 +741,11 @@
       "refused": "comando rechazado",
       "groupLabel": "Comandos",
       "unsupported": "no soportado"
+    },
+    "rejectionReasons": {
+      "unsupportedCommand": "Este comando no está permitido en este chat.",
+      "unknownCommand": "Ese comando no existe para este agente.",
+      "catalogUnavailable": "El catálogo de comandos no está disponible ahora mismo."
     },
     "agent": {
       "select": "Agente",

@@ -199,6 +199,17 @@ const transcriptLabels = computed<TranscriptLabels>(() => {
       failed: at('knowledgeEngine.command.failed'),
       refused: at('knowledgeEngine.command.refused'),
     },
+    // NEW in 2.2.0. A refused command carries a machine-readable CODE alongside the engine's English prose, and
+    // a code we CAN translate. We map only the three codes whose sentence is OURS to author: the refused set
+    // (`/clear`), an unknown command, an unharvestable catalog. The other two codes — `provider_unsupported`
+    // (the agent CLI's own words) and `host_refused` (already in the host's language) — we deliberately DO NOT
+    // map, so the package falls back to the engine's prose (`rejectionReasons?.[code] ?? reason`): we never
+    // translate a sentence we did not write.
+    rejectionReasons: {
+      unsupported_command: at('knowledgeEngine.rejectionReasons.unsupportedCommand'),
+      unknown_command: at('knowledgeEngine.rejectionReasons.unknownCommand'),
+      catalog_unavailable: at('knowledgeEngine.rejectionReasons.catalogUnavailable'),
+    },
     quotaUsageLabel: at('knowledgeEngine.console.quotaUsage'),
     quotaResetsLabel: at('knowledgeEngine.console.quotaResets'),
     // The package's default reset formatter is `toLocaleTimeString()` with no locale, so it follows the
@@ -236,6 +247,9 @@ const transcriptLabels = computed<TranscriptLabels>(() => {
     truncatedNote: at('knowledgeEngine.console.truncated'),
     fileChangeLabel: at('knowledgeEngine.console.fileChange'),
     unsupportedEventLabel: at('knowledgeEngine.console.unsupportedEvent'),
+    // Empty tool output. The package's default is the English "(no output)"; give it the app's words. It lives
+    // in the labels thunk (not a useAgentChat option) because it is a per-turn transcript label like the rest.
+    noOutputNote: at('knowledgeEngine.console.noOutput'),
     // The package groups thousands with a fixed en-US separator so two machines render alike. We can do better:
     // this is the APP's locale, which is the one the reader is actually looking at.
     formatNumber: (n: number) => n.toLocaleString(intl),
@@ -247,8 +261,15 @@ const chat = useAgentChat({
   fetchTicket: (runId) => runs.mintSocketTicket(runId),
   driver,
   initialProvider: props.initialProvider ?? undefined,
-  userLabel: t('knowledgeEngine.you'),
+  // userLabel is a THUNK (not a baked string) on purpose: client 2.2.0 repaints already-rendered turns when a
+  // locale source changes, but only for the thunks you actually pass. A seeded/live user bubble stays frozen in
+  // the language it was born in unless its label is a thunk — so switching EN↔ES would leave old bubbles reading
+  // "You"/"Tú". It follows the LIVE locale (unlike the per-turn formatters above), which is what makes it reflow.
+  userLabel: () => t('knowledgeEngine.you'),
   labels: () => transcriptLabels.value,
+  // The auto-retry system note (↻) the package writes on a retryable failure. As a thunk it is both translated
+  // (the default is the English "Retrying…") and armed for repaint on a live language switch, like userLabel.
+  retryNote: () => t('knowledgeEngine.composer.retrying'),
 });
 
 // The composer's `/` autocomplete. The package NEVER fetches this itself — our API proxies the engine's
@@ -338,7 +359,7 @@ async function submit() {
   // A command turn leads with the ENGINE's `command.started`, never an optimistic user bubble — that is what
   // makes it render identically live and on replay, and never twice. So: push a bubble for a prompt, and only
   // for a prompt.
-  if (!command) chat.pushUserPrompt(text.trim(), t('knowledgeEngine.you'));
+  if (!command) chat.pushUserPrompt(text.trim(), () => t('knowledgeEngine.you'));
   draft.value = '';
   try {
     // useAgentChat re-parses the raw text and hands the driver `{ command }`; we pass the text through
@@ -396,7 +417,7 @@ function attachActiveRun() {
   if (!active) return;
   // A command turn has no user bubble to restore — the engine's replayed `command.started` leads it. Only a
   // PROMPT turn needs its bubble re-pushed (seeded history holds only TERMINAL turns, by design).
-  if (active.prompt) chat.pushUserPrompt(active.prompt, t('knowledgeEngine.you'));
+  if (active.prompt) chat.pushUserPrompt(active.prompt, () => t('knowledgeEngine.you'));
   chat.connect(String(active.runId)); // runId MUST be a string — the server authorizes STOP by strict ===
 }
 

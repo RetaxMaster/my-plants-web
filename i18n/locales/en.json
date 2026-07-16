@@ -493,6 +493,10 @@
     "signOut": "Sign out",
     "languageSub": "Choose English or Spanish"
   },
+  "lightbox": {
+    "prev": "Previous photo",
+    "next": "Next photo"
+  },
   "login": {
     "welcome": "Welcome back",
     "subtitle": "Sign in to tend your plants.",

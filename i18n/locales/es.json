@@ -493,6 +493,10 @@
     "signOut": "Cerrar sesión",
     "languageSub": "Elige inglés o español"
   },
+  "lightbox": {
+    "prev": "Foto anterior",
+    "next": "Foto siguiente"
+  },
   "login": {
     "welcome": "Bienvenida de nuevo",
     "subtitle": "Inicia sesión para cuidar tus plantas.",

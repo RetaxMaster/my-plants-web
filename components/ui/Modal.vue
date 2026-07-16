@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue';
+import { useOverlay } from '../../composables/useOverlay';
 
 defineOptions({ inheritAttrs: false });
 
@@ -9,84 +10,13 @@ const open = defineModel<boolean>({ default: false });
 
 const titleId = useId();
 const panelRef = ref<HTMLElement | null>(null);
-let previouslyFocused: HTMLElement | null = null;
-
-const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function focusableElements(): HTMLElement[] {
-  if (!panelRef.value) return [];
-  return Array.from(panelRef.value.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (el) => el.offsetParent !== null || el === document.activeElement,
-  );
-}
 
 function close() {
   open.value = false;
 }
 
-function onBackdrop(event: MouseEvent) {
-  if (event.target === event.currentTarget) close();
-}
-
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') {
-    event.stopPropagation();
-    close();
-    return;
-  }
-  if (event.key === 'Tab') {
-    const focusables = focusableElements();
-    if (focusables.length === 0) {
-      // Keep focus on the panel itself.
-      event.preventDefault();
-      panelRef.value?.focus();
-      return;
-    }
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    const activeEl = document.activeElement as HTMLElement | null;
-    if (event.shiftKey) {
-      if (activeEl === first || !panelRef.value?.contains(activeEl)) {
-        event.preventDefault();
-        last.focus();
-      }
-    } else {
-      if (activeEl === last || !panelRef.value?.contains(activeEl)) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-  }
-}
-
-function lockScroll(lock: boolean) {
-  if (import.meta.client) {
-    document.body.style.overflow = lock ? 'hidden' : '';
-  }
-}
-
-watch(
-  open,
-  async (isOpen) => {
-    if (!import.meta.client) return;
-    if (isOpen) {
-      previouslyFocused = document.activeElement as HTMLElement | null;
-      lockScroll(true);
-      await nextTick();
-      const focusables = focusableElements();
-      (focusables[0] ?? panelRef.value)?.focus();
-    } else {
-      lockScroll(false);
-      previouslyFocused?.focus?.();
-      previouslyFocused = null;
-    }
-  },
-);
-
-onBeforeUnmount(() => {
-  lockScroll(false);
-});
+// Scroll-lock, focus save/restore, Escape, Tab-trap, backdrop close — all shared with UiImageLightbox.
+const { onKeydown, onBackdrop } = useOverlay(open, panelRef, { onClose: close });
 </script>
 
 <template>

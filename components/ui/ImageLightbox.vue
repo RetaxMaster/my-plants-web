@@ -51,6 +51,7 @@ const { onKeydown, onBackdrop } = useOverlay(open, panelRef, { onClose: close, o
           aria-modal="true"
           :aria-label="current?.alt"
           tabindex="-1"
+          @mousedown="onBackdrop"
         >
           <button
             type="button"

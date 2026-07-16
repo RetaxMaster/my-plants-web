@@ -353,6 +353,8 @@
   },
   "progress": {
     "back": "Back to plant",
+    "date": "Date",
+    "dateHint": "Optional — defaults to today.",
     "photosProcessing": "We're still processing your photos.",
     "photosFailed": "{n} photo couldn't be processed. | {n} photos couldn't be processed.",
     "editRecord": "Edit record",

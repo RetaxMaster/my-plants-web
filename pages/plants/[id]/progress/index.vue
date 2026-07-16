@@ -42,6 +42,7 @@ async function save(payload: UpdateProgressPayload) {
     const form = new FormData();
     // Create semantics: append only present/non-empty fields — never send an empty field.
     form.append('health', payload.health);
+    if (payload.occurredOn) form.append('occurredOn', payload.occurredOn); // empty → the server defaults to today
     if (payload.observations) form.append('observations', payload.observations);
     if (payload.sizeCm !== null) form.append('sizeCm', String(payload.sizeCm));
     if (payload.tags.length) form.append('tags', JSON.stringify(payload.tags));

@@ -142,6 +142,12 @@ defineExpose({
         </div>
       </UiFormGroup>
 
+      <!-- Journal date (backdatable) — shared by create + edit so a wrong date can be corrected (spec §2.4);
+           editing it moves the paired CareEvent server-side. Create: empty → the server defaults to today. -->
+      <UiFormGroup :label="$t('progress.date')" :hint="$t('progress.dateHint')">
+        <UiInput v-model="occurredOn" type="date" />
+      </UiFormGroup>
+
       <!-- Photos (optional) -->
       <UiFormGroup :label="$t('progress.photos')" :hint="$t('progress.photosHint')">
         <!-- Existing photos (edit only) — per Spec 1's photo-state contract (spec §3.2). RECOVERING is

@@ -120,14 +120,25 @@ describe('ImageLightbox', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false]);
   });
 
-  it('backdrop click closes; a click on the panel does not', async () => {
+  it('the dark area around the image closes; the image itself does not (backdrop-close actually works)', async () => {
     const wrapper = mountLightbox({ modelValue: true, index: 0, images: THREE });
-    const panel = document.body.querySelector('.mp-lightbox__panel') as HTMLElement;
-    panel.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); // target != backdrop → no close
+    // Clicking the IMAGE must NOT close (target = img, not a currentTarget the handler gates on).
+    const img = document.body.querySelector('.mp-lightbox__img') as HTMLElement;
+    img.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     await wrapper.vm.$nextTick();
     expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+    // Clicking the panel's own dark area (target === panel) CLOSES — the panel fills the viewport, so this is
+    // what "click outside the image" actually hits. Its @mousedown="onBackdrop" gates on target===currentTarget.
+    const panel = document.body.querySelector('.mp-lightbox__panel') as HTMLElement;
+    panel.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false]);
+  });
+
+  it('the thin backdrop padding strip also closes (target === backdrop)', async () => {
+    const wrapper = mountLightbox({ modelValue: true, index: 0, images: THREE });
     const backdrop = document.body.querySelector('.mp-lightbox__backdrop') as HTMLElement;
-    backdrop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); // target == currentTarget → close
+    backdrop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     await wrapper.vm.$nextTick();
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false]);
   });

@@ -51,6 +51,22 @@ const editing = ref(false);
 const entryOpen = ref(false);
 const activeEntryId = ref<string | null>(null);
 
+// Photo lightbox (spec §4): the gallery photo click opens a full-screen viewer, NOT the entry modal. The
+// viewer pages across the WHOLE gallery (photos.value), so the alt/date list is built from all photos; the
+// v-for index over the collapsed slice equals the absolute index because the slice is a prefix (slice(0,N)).
+const lightboxOpen = ref(false);
+const lightboxIndex = ref(0);
+const lightboxImages = computed(() =>
+  (photos.value ?? []).map((ph) => ({
+    src: ph.imageUrl,
+    alt: t('photos.alt', { date: d(ymdToLocalDate(ph.occurredOn), 'short') }),
+  })),
+);
+function openLightbox(index: number) {
+  lightboxIndex.value = index;
+  lightboxOpen.value = true;
+}
+
 // Cover-photo editing (hero affordance). We hold the picked File in local state and upload immediately
 // (we DO have a plantId here) via setCoverPhoto; deleteCoverPhoto clears it. Errors surface non-blockingly.
 const coverOpen = ref(false);
@@ -401,8 +417,8 @@ function confirmRepotPostpone(reason: string) {
           </UiCard>
           <UiCard v-else padded>
             <ul class="mp-detail__gallery">
-              <li v-for="ph in visiblePhotos" :key="ph.id">
-                <button type="button" class="mp-detail__thumb" @click="openEntry(ph.entryId)">
+              <li v-for="(ph, index) in visiblePhotos" :key="ph.id">
+                <button type="button" class="mp-detail__thumb" @click="openLightbox(index)">
                   <img :src="ph.imageUrl" :alt="$t('photos.alt', { date: $d(ymdToLocalDate(ph.occurredOn), 'short') })" loading="lazy" />
                 </button>
               </li>
@@ -519,6 +535,7 @@ function confirmRepotPostpone(reason: string) {
       @saved="onEdited"
     />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
+    <UiImageLightbox v-model="lightboxOpen" v-model:index="lightboxIndex" :images="lightboxImages" />
     <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
     <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" :repot-signs="taskInfoRepotSigns" />
 

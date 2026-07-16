@@ -34,6 +34,19 @@ export default defineNuxtConfig({
   typescript: { strict: true, typeCheck: false, tsConfig: { compilerOptions: { types: ['node'] } } },
   app: {
     head: {
+      // Disable the mobile browser's pinch/auto-zoom. Primarily to stop iOS Safari's zoom-on-focus of
+      // text inputs (it zooms when a focused field's font-size is < 16px, and our controls use 14px).
+      // NOTE: this overrides Nuxt's default `width=device-width, initial-scale=1`. Trade-off owned by
+      // the product owner: it also suppresses pinch-to-zoom app-wide (a per-image zoom is a future
+      // feature). Caveat: modern iOS ignores `user-scalable=no`; `maximum-scale=1` is what actually
+      // curbs the focus-zoom there.
+      meta: [
+        {
+          name: 'viewport',
+          content:
+            'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no',
+        },
+      ],
       // The chat console references Hanken Grotesk / JetBrains Mono / Newsreader; the client package
       // never injects font <link>s (privacy/CSP), so we load them here.
       link: [

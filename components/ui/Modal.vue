@@ -79,7 +79,12 @@ const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onC
 .mp-modal__panel {
   width: 100%;
   max-width: 480px;
+  /* Bound to the VISIBLE viewport: `dvh` (dynamic viewport height) shrinks with the mobile browser
+     chrome / on-screen keyboard, unlike `vh` (which is the largest, chrome-hidden height and would push
+     the header behind the URL bar and the footer behind the bottom nav). `vh` first as the fallback for
+     engines without `dvh`. */
   max-height: calc(100vh - var(--space-8));
+  max-height: calc(100dvh - var(--space-8));
   display: flex;
   flex-direction: column;
   background: var(--surface-card);
@@ -94,6 +99,8 @@ const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onC
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  /* Never shrink: the close (X) stays pinned + visible at the top no matter how tall the body is. */
+  flex: none;
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -131,8 +138,15 @@ const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onC
 }
 
 .mp-modal__body {
+  /* Take the leftover height between the fixed header/footer, and scroll INSIDE that box.
+     `min-height: 0` is essential: a flex item defaults to `min-height: auto` (won't shrink below its
+     content), which would keep the body at full content height and push the footer out of the clipped
+     panel — the exact bug where the buttons vanished with no scroll to reach them. */
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--space-5);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* momentum scrolling on iOS */
 }
 
 .mp-modal__footer {
@@ -140,6 +154,8 @@ const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onC
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
+  /* Never shrink: Cancel/Save stay pinned + visible at the bottom regardless of body height. */
+  flex: none;
   padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--border-subtle);
 }

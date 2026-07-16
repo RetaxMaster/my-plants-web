@@ -57,8 +57,13 @@ async function onSubmit(payload: UpdateProgressPayload) {
   } finally { saving.value = false; uploadPercent.value = null; }
 }
 
-async function onDelete() {
-  if (!confirm(t('progress.deleteConfirm'))) return;
+// Delete confirmation via the in-app design-system modal (UiModal), NOT the native window.confirm (DS-first).
+// @delete opens it; Cancel / Escape / backdrop dismiss it (no delete); only "Delete" commits.
+const confirmOpen = ref(false);
+function onDelete() { confirmOpen.value = true; }
+
+async function confirmDelete() {
+  confirmOpen.value = false;
   saving.value = true; error.value = '';
   try {
     await api.deleteProgress(id, entryId);
@@ -94,6 +99,16 @@ async function onRetry(photoId: string) {
       @delete="onDelete"
       @retry="onRetry"
       @cancel="goBack"
+    />
+
+    <!-- Delete confirmation via the design-system confirm modal (replaces the native window.confirm). -->
+    <UiConfirmModal
+      v-model="confirmOpen"
+      :title="$t('progress.deleteTitle')"
+      :message="$t('progress.deleteConfirm')"
+      :confirm-label="$t('progress.delete')"
+      confirm-icon="trash"
+      @confirm="confirmDelete"
     />
   </div>
 </template>

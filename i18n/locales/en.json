@@ -353,6 +353,7 @@
   },
   "progress": {
     "back": "Back to plant",
+    "deleteTitle": "Delete this record?",
     "date": "Date",
     "dateHint": "Optional — defaults to today.",
     "photosProcessing": "We're still processing your photos.",

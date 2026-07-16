@@ -33,6 +33,12 @@ watch([open, () => props.entryId], async ([isOpen, id]) => {
     if (token === requestToken) loading.value = false;
   }
 });
+
+function goEdit() {
+  if (!props.entryId) return;
+  open.value = false;
+  return navigateTo(`/plants/${props.plantId}/progress/${props.entryId}/edit`);
+}
 </script>
 
 <template>
@@ -41,7 +47,10 @@ watch([open, () => props.entryId], async ([isOpen, id]) => {
     <div v-else-if="entry" class="mp-entry">
       <div class="mp-entry__head">
         <strong>{{ healthLabel(entry.health) }}</strong>
-        <span class="mp-entry__date">{{ $d(ymdToLocalDate(entry.occurredOn), 'short') }}</span>
+        <div class="mp-entry__head-right">
+          <span class="mp-entry__date">{{ $d(ymdToLocalDate(entry.occurredOn), 'short') }}</span>
+          <UiButton size="xs" variant="soft" color="neutral" icon="pencil-square" @click="goEdit">{{ $t('common.edit') }}</UiButton>
+        </div>
       </div>
 
       <div v-if="readyPhotos.length" class="mp-entry__photos">
@@ -61,7 +70,8 @@ watch([open, () => props.entryId], async ([isOpen, id]) => {
 <style scoped>
 .mp-entry { display: grid; gap: var(--space-3); }
 .mp-entry__loading { color: var(--text-muted); font-family: var(--font-sans); }
-.mp-entry__head { display: flex; align-items: baseline; justify-content: space-between; font-family: var(--font-sans); color: var(--text-strong); }
+.mp-entry__head { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-sans); color: var(--text-strong); }
+.mp-entry__head-right { display: flex; align-items: center; gap: var(--space-2); }
 .mp-entry__date { font-size: var(--text-xs); color: var(--text-faint); }
 .mp-entry__photos { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .mp-entry__photos img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-md); }

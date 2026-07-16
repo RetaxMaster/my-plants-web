@@ -10,7 +10,9 @@
     "loading": "Loading…",
     "yes": "Yes",
     "no": "No",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "saveChanges": "Save changes",
+    "remove": "Remove"
   },
   "nav": {
     "today": "Today",
@@ -333,7 +335,18 @@
     "errorPhotosUnavailable": "Photos can't be uploaded right now — you can save without a photo.",
     "errorPhotoProcess": "We could not process one of your photos. Please try a different image.",
     "errorSave": "Could not save progress. Please try again.",
-    "photoTooLarge": "\"{name}\" is too large to upload — try a smaller photo."
+    "photoTooLarge": "\"{name}\" is too large to upload — try a smaller photo.",
+    "editTitle": "Edit progress",
+    "delete": "Delete",
+    "photoProcessing": "Processing…",
+    "photoProcessingWait": "Wait until it finishes processing",
+    "photoFailedGeneric": "Photo",
+    "retryPhoto": "Retry",
+    "photoLimitReached": "You've reached the 8-photo limit.",
+    "deleteConfirm": "Delete this progress entry? This can't be undone.",
+    "errorPhotoProcessing": "A photo is still processing — try again in a moment.",
+    "errorTooManyPhotos": "A progress entry can hold at most 8 photos.",
+    "errorNotRetryable": "That photo can't be retried — remove it instead."
   },
   "places": {
     "title": "Places",
@@ -777,6 +790,10 @@
     "progress": {
       "title": "Progress log",
       "description": "Log how your plant is doing, with photos, size, and notes for its care journal."
+    },
+    "progressEdit": {
+      "title": "Edit progress",
+      "description": "Edit a progress entry — health, photos, size, and notes."
     },
     "postEditor": {
       "title": "Post editor",

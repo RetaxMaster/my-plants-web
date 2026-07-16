@@ -10,7 +10,9 @@
     "loading": "Cargando…",
     "yes": "Sí",
     "no": "No",
-    "saving": "Guardando…"
+    "saving": "Guardando…",
+    "saveChanges": "Guardar cambios",
+    "remove": "Quitar"
   },
   "nav": {
     "today": "Hoy",
@@ -333,7 +335,18 @@
     "errorPhotosUnavailable": "Ahora no se pueden subir fotos — puedes guardar sin foto.",
     "errorPhotoProcess": "No pudimos procesar una de tus fotos. Prueba con otra imagen.",
     "errorSave": "No se pudo guardar el progreso. Inténtalo de nuevo.",
-    "photoTooLarge": "\"{name}\" es demasiado grande para subirla — intenta con una foto más pequeña."
+    "photoTooLarge": "\"{name}\" es demasiado grande para subirla — intenta con una foto más pequeña.",
+    "editTitle": "Editar registro",
+    "delete": "Eliminar",
+    "photoProcessing": "Procesando…",
+    "photoProcessingWait": "Espera a que termine de procesarse",
+    "photoFailedGeneric": "Foto",
+    "retryPhoto": "Reintentar",
+    "photoLimitReached": "Llegaste al límite de 8 fotos.",
+    "deleteConfirm": "¿Eliminar este registro de progreso? Esta acción no se puede deshacer.",
+    "errorPhotoProcessing": "Una foto sigue procesándose — inténtalo de nuevo en un momento.",
+    "errorTooManyPhotos": "Un registro de progreso admite máximo 8 fotos.",
+    "errorNotRetryable": "Esa foto no se puede reintentar — mejor elimínala."
   },
   "places": {
     "title": "Lugares",
@@ -777,6 +790,10 @@
     "progress": {
       "title": "Registro de progreso",
       "description": "Registra cómo va tu planta, con fotos, tamaño y notas para su bitácora de cuidado."
+    },
+    "progressEdit": {
+      "title": "Editar registro",
+      "description": "Edita un registro de progreso — salud, fotos, tamaño y notas."
     },
     "postEditor": {
       "title": "Editor de entrada",

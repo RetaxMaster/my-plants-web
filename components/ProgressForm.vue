@@ -140,7 +140,9 @@ defineExpose({
 
       <!-- Photos (optional) -->
       <UiFormGroup :label="$t('progress.photos')" :hint="$t('progress.photosHint')">
-        <!-- Existing photos (edit only) — Task 7 fills the per-status tiles here. -->
+        <!-- Existing photos (edit only) — per Spec 1's photo-state contract (spec §3.2). RECOVERING is
+             treated identically to PROCESSING: still-not-ready, no imageUrl, remove disabled (a claimed
+             row can't be hard-deleted). -->
         <div v-if="mode === 'edit' && initial" class="mp-progress-form__existing">
           <div
             v-for="p in initial.photos"
@@ -149,16 +151,50 @@ defineExpose({
             class="mp-progress-form__ptile"
             :class="{ 'is-removed': removePhotoIds.includes(p.id) }"
           >
-            <img v-if="p.status === 'READY'" :src="p.imageUrl!" :alt="$t('progress.photoAlt')" />
-            <span v-else class="mp-progress-form__pproc">{{ $t('progress.photoProcessing') }}</span>
-            <button
-              type="button"
-              data-act="remove"
-              :aria-label="$t('common.remove')"
-              @click="markRemove(p.id)"
-            >
-              <UiAppIcon name="x-mark" :size="14" color="currentColor" />
-            </button>
+            <!-- READY: thumbnail + remove -->
+            <template v-if="p.status === 'READY'">
+              <img :src="p.imageUrl!" :alt="$t('progress.photoAlt')" />
+              <button type="button" data-act="remove" :aria-label="$t('common.remove')" @click="markRemove(p.id)">
+                <UiAppIcon name="x-mark" :size="14" color="currentColor" />
+              </button>
+            </template>
+            <!-- PENDING: processing placeholder, remove ENABLED (no object exists yet) -->
+            <template v-else-if="p.status === 'PENDING'">
+              <span class="mp-progress-form__pproc">{{ $t('progress.photoProcessing') }}</span>
+              <button type="button" data-act="remove" :aria-label="$t('common.remove')" @click="markRemove(p.id)">
+                <UiAppIcon name="x-mark" :size="14" color="currentColor" />
+              </button>
+            </template>
+            <!-- PROCESSING / RECOVERING: processing placeholder, remove DISABLED (claimed, can't hard-delete) -->
+            <template v-else-if="p.status === 'PROCESSING' || p.status === 'RECOVERING'">
+              <span class="mp-progress-form__pproc">{{ $t('progress.photoProcessing') }}</span>
+              <button
+                type="button"
+                data-act="remove"
+                disabled
+                :title="$t('progress.photoProcessingWait')"
+                :aria-label="$t('progress.photoProcessingWait')"
+              >
+                <UiAppIcon name="x-mark" :size="14" color="currentColor" />
+              </button>
+            </template>
+            <!-- FAILED + retryable (transient): name + retry + remove -->
+            <template v-else-if="p.status === 'FAILED' && p.retryable">
+              <span class="mp-progress-form__pfail">{{ p.originalName ?? $t('progress.photoFailedGeneric') }}</span>
+              <button type="button" data-act="retry" :aria-label="$t('progress.retryPhoto')" @click="emit('retry', p.id)">
+                <UiAppIcon name="arrow-path" :size="14" color="currentColor" />
+              </button>
+              <button type="button" data-act="remove" :aria-label="$t('common.remove')" @click="markRemove(p.id)">
+                <UiAppIcon name="x-mark" :size="14" color="currentColor" />
+              </button>
+            </template>
+            <!-- FAILED + not retryable (permanent, or expired transient): name + remove only -->
+            <template v-else-if="p.status === 'FAILED'">
+              <span class="mp-progress-form__pfail">{{ p.originalName ?? $t('progress.photoFailedGeneric') }}</span>
+              <button type="button" data-act="remove" :aria-label="$t('common.remove')" @click="markRemove(p.id)">
+                <UiAppIcon name="x-mark" :size="14" color="currentColor" />
+              </button>
+            </template>
           </div>
         </div>
         <p v-if="mode === 'edit' && remainingSlots <= 0" class="mp-progress-form__slots">

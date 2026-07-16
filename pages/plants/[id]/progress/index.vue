@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { UpdateProgressPayload } from '../../../types/api.js';
-import { plantTitle } from '../../../utils/displayName.js';
+import type { UpdateProgressPayload } from '../../../../types/api.js';
+import { plantTitle } from '../../../../utils/displayName.js';
 
 const { t, locale } = useI18n();
 const route = useRoute();

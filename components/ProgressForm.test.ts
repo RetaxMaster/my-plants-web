@@ -58,10 +58,13 @@ function mountForm(props: Record<string, unknown>) {
     // pass it, but the spread of a loose `Record<string, unknown>` defeats vue-tsc's structural check.
     props: { saveLabel: 'Save', ...props } as InstanceType<typeof ProgressForm>['$props'],
     global: {
-      stubs: {
-        UiCard: true, UiFormGroup: true, UiSwitch: true, UiAppIcon: true,
-        UiTagChip: true, UiButton: true, UiSlider: true, UiImageDropzone: true,
-      },
+      // Only stub components whose OWN behavior would otherwise get in the way (a real UiButton/UiSlider
+      // has no reactivity to fake here; UiImageDropzone manages its own object-URL previews we don't want
+      // spun up in a test). Everything else (UiCard, UiFormGroup, UiSwitch, UiAppIcon, and the raw
+      // <button>/<img>/<span> photo-manager markup) is NOT globally registered outside Nuxt's build
+      // pipeline, so it falls back to a plain native tag — which, unlike an explicit `true` stub, still
+      // renders its slot content. That's what the photo-manager DOM assertions below rely on.
+      stubs: { UiTagChip: true, UiButton: true, UiSlider: true, UiImageDropzone: true },
       mocks: { $t: (k: string) => k },
     },
   });
@@ -120,5 +123,54 @@ describe('ProgressForm', () => {
       expect((w.vm as any).files).toEqual([unknown]); // over-limit dropped, unreadable passes through
       expect((w.vm as any).pixelError).toContain('huge.jpg'); // rejected with its name
     }
+  });
+});
+
+const photo = (id: string, status: string, extra: Record<string, unknown> = {}) => ({
+  id, status, imageUrl: status === 'READY' ? `${id}.jpg` : null, sortOrder: 0,
+  originalName: `${id}.jpg`, failureKind: null, failureCode: null, retryable: false, ...extra,
+});
+
+describe('ProgressForm — edit photo manager', () => {
+  it('renders the correct control per photo status', () => {
+    const photos = [
+      photo('r', 'READY'), photo('pe', 'PENDING'), photo('pr', 'PROCESSING'), photo('rc', 'RECOVERING'),
+      photo('ft', 'FAILED', { failureKind: 'transient', retryable: true }),
+      photo('fp', 'FAILED', { failureKind: 'permanent', retryable: false }),
+    ];
+    const w = mountForm({ mode: 'edit', initial: { ...initialEntry, photos } });
+    const tile = (id: string) => w.get(`[data-photo="${id}"]`);
+    expect(tile('r').find('img').exists()).toBe(true);
+    expect(tile('r').get('[data-act="remove"]').attributes('disabled')).toBeUndefined(); // READY remove enabled
+    expect(tile('pe').get('[data-act="remove"]').attributes('disabled')).toBeUndefined(); // PENDING remove enabled
+    expect(tile('pr').get('[data-act="remove"]').attributes('disabled')).toBeDefined(); // PROCESSING remove disabled
+    expect(tile('rc').get('[data-act="remove"]').attributes('disabled')).toBeDefined(); // RECOVERING remove disabled
+    expect(tile('ft').find('[data-act="retry"]').exists()).toBe(true); // transient → retry offered
+    expect(tile('fp').find('[data-act="retry"]').exists()).toBe(false); // permanent → no retry
+  });
+
+  it('remove marks the id (tile shows is-removed) and the submit payload carries it', async () => {
+    const w = mountForm({ mode: 'edit', initial: { ...initialEntry, photos: [photo('r', 'READY')] } });
+    await w.get('[data-photo="r"] [data-act="remove"]').trigger('click');
+    expect(w.get('[data-photo="r"]').classes()).toContain('is-removed');
+    (w.vm as any).submit();
+    expect((w.emitted('submit')![0][0] as any).removePhotoIds).toEqual(['r']);
+  });
+
+  it('retry emits "retry" with the photo id immediately (does not wait for submit)', async () => {
+    const photos = [photo('ft', 'FAILED', { failureKind: 'transient', retryable: true })];
+    const w = mountForm({ mode: 'edit', initial: { ...initialEntry, photos } });
+    await w.get('[data-photo="ft"] [data-act="retry"]').trigger('click');
+    expect(w.emitted('retry')?.[0]).toEqual(['ft']);
+    expect(w.emitted('submit')).toBeUndefined(); // fired immediately, not on submit
+  });
+
+  it('remaining-slots cap reflects existing − pending-removals + newly-added', async () => {
+    const photos = Array.from({ length: 6 }, (_, i) => photo(`p${i}`, 'READY'));
+    const w = mountForm({ mode: 'edit', initial: { ...initialEntry, photos } });
+    (w.vm as any).markRemove('p0'); // remove 1 → 5 remain
+    (w.vm as any).files = [new File(['a'], 'a.jpg'), new File(['b'], 'b.jpg')]; // add 2
+    await w.vm.$nextTick();
+    expect((w.vm as any).remainingSlots).toBe(1); // 8 - 5 - 2 = 1
   });
 });

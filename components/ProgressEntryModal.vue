@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ProgressEntryDetail } from '../types/api.js';
+import type { ProgressEntryDetail, ProgressPhoto } from '../types/api.js';
 import { ymdToLocalDate } from '../utils/localDate.js';
 
 const props = defineProps<{ plantId: string; entryId: string | null }>();
@@ -9,6 +9,14 @@ const api = useApi();
 const { healthLabel } = useTaskMeta();
 const entry = ref<ProgressEntryDetail | null>(null);
 const loading = ref(false);
+
+// Gallery is READY-only (spec §5.3): only a READY photo has a non-null imageUrl. The narrowing predicate
+// keeps `p.imageUrl` a `string` for the <img>. (Task 14 adds the "still processing"/"failed" states.)
+const readyPhotos = computed(() =>
+  (entry.value?.photos ?? []).filter(
+    (p): p is ProgressPhoto & { imageUrl: string } => p.status === 'READY' && p.imageUrl != null,
+  ),
+);
 
 // Request token: opening entry A then quickly switching to entry B must not let A's slower response
 // overwrite B. Each fetch stamps a token; a response only lands if it is still the latest request.
@@ -36,8 +44,8 @@ watch([open, () => props.entryId], async ([isOpen, id]) => {
         <span class="mp-entry__date">{{ $d(ymdToLocalDate(entry.occurredOn), 'short') }}</span>
       </div>
 
-      <div v-if="entry.photos.length" class="mp-entry__photos">
-        <img v-for="p in entry.photos" :key="p.id" :src="p.imageUrl" :alt="$t('progress.photoAlt')" />
+      <div v-if="readyPhotos.length" class="mp-entry__photos">
+        <img v-for="p in readyPhotos" :key="p.id" :src="p.imageUrl" :alt="$t('progress.photoAlt')" />
       </div>
 
       <p v-if="entry.observations" class="mp-entry__obs">{{ entry.observations }}</p>

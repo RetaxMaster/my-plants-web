@@ -12,7 +12,8 @@
     "no": "No",
     "saving": "Guardando…",
     "saveChanges": "Guardar cambios",
-    "remove": "Quitar"
+    "remove": "Quitar",
+    "refresh": "Actualizar"
   },
   "nav": {
     "today": "Hoy",
@@ -352,6 +353,9 @@
   },
   "progress": {
     "back": "Volver a la planta",
+    "photosProcessing": "Aún estamos procesando tus fotos.",
+    "photosFailed": "{n} foto no se pudo procesar. | {n} fotos no se pudieron procesar.",
+    "editRecord": "Editar registro",
     "title": "Registrar progreso",
     "healthQuestion": "¿Cómo está tu planta?",
     "photos": "Fotos",

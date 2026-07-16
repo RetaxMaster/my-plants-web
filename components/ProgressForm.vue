@@ -101,6 +101,10 @@ const addCap = computed(() => (props.mode === 'edit' ? Math.max(0, 8 - remaining
 function markRemove(id: string) {
   if (!removePhotoIds.value.includes(id)) removePhotoIds.value.push(id);
 }
+// Removal is reversible until save: a removed tile dims and shows an "Undo" (Deshacer) affordance.
+function undoRemove(id: string) {
+  removePhotoIds.value = removePhotoIds.value.filter((x) => x !== id);
+}
 
 // Health is required (spec §2). Validate INSIDE the shared form: a submit with no health selected must show
 // a visible, localized error (the extraction moved this out of the page, which silently dropped it — a
@@ -123,7 +127,7 @@ function submit() {
 
 defineExpose({
   health, observations, selectedTags, occurredOn, recordSize, sizeCm, files, pixelError, healthError,
-  remainingSlots, submit, markRemove, onFilesPicked,
+  remainingSlots, submit, markRemove, undoRemove, onFilesPicked,
 });
 </script>
 
@@ -212,6 +216,19 @@ defineExpose({
                 <UiAppIcon name="x-mark" :size="14" color="currentColor" />
               </button>
             </template>
+
+            <!-- Removal is reversible until save: a dimmed removed tile shows a centered "Undo" (Deshacer)
+                 button on top of the scrim; the corner remove/retry controls are hidden while removed. -->
+            <button
+              v-if="removePhotoIds.includes(p.id)"
+              type="button"
+              data-act="undo"
+              class="mp-progress-form__undo"
+              @click="undoRemove(p.id)"
+            >
+              <UiAppIcon name="arrow-uturn-left" :size="14" color="currentColor" />
+              {{ $t('progress.undoRemove') }}
+            </button>
           </div>
         </div>
         <p v-if="mode === 'edit' && remainingSlots <= 0" class="mp-progress-form__slots">
@@ -406,8 +423,42 @@ defineExpose({
   border-radius: var(--radius-md);
 }
 
-.mp-progress-form__ptile.is-removed {
-  opacity: 0.4;
+/* A removed tile is dimmed by a translucent scrim (NOT tile opacity — that would also fade the Undo button,
+   since a child cannot exceed its parent's opacity). The corner remove/retry controls hide while removed;
+   the centered Undo button sits above the scrim, fully opaque and clickable. */
+.mp-progress-form__ptile.is-removed::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-card) 62%, transparent);
+}
+.mp-progress-form__ptile.is-removed [data-act='remove'],
+.mp-progress-form__ptile.is-removed [data-act='retry'] {
+  display: none;
+}
+.mp-progress-form__undo {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-strong);
+  cursor: pointer;
+}
+.mp-progress-form__undo:focus-visible {
+  outline: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-focus);
 }
 
 .mp-progress-form__ptile [data-act='remove'] {

@@ -354,6 +354,7 @@
   "progress": {
     "back": "Back to plant",
     "deleteTitle": "Delete this record?",
+    "undoRemove": "Undo",
     "date": "Date",
     "dateHint": "Optional — defaults to today.",
     "photosProcessing": "We're still processing your photos.",

@@ -175,6 +175,25 @@ describe('ProgressForm — edit photo manager', () => {
     expect((w.emitted('submit')![0][0] as any).removePhotoIds).toEqual(['r']);
   });
 
+  it('removal is reversible: Remove reveals an Undo affordance that un-marks the photo (QA finding 3)', async () => {
+    const w = mountForm({ mode: 'edit', initial: { ...initialEntry, photos: [photo('r', 'READY')] } });
+    const tileR = () => w.get('[data-photo="r"]');
+    // Before removal: a Remove control, no Undo.
+    expect(tileR().find('[data-act="remove"]').exists()).toBe(true);
+    expect(tileR().find('[data-act="undo"]').exists()).toBe(false);
+    // Remove → tile dims + an Undo control appears (Remove hidden in markup by the removed branch).
+    await tileR().get('[data-act="remove"]').trigger('click');
+    expect(tileR().classes()).toContain('is-removed');
+    expect(tileR().find('[data-act="undo"]').exists()).toBe(true);
+    // Undo → reverts: not removed, Remove back, Undo gone, and the submit payload no longer drops it.
+    await tileR().get('[data-act="undo"]').trigger('click');
+    expect(tileR().classes()).not.toContain('is-removed');
+    expect(tileR().find('[data-act="undo"]').exists()).toBe(false);
+    expect(tileR().find('[data-act="remove"]').exists()).toBe(true);
+    (w.vm as any).submit();
+    expect((w.emitted('submit')![0][0] as any).removePhotoIds).toEqual([]);
+  });
+
   it('retry emits "retry" with the photo id immediately (does not wait for submit)', async () => {
     const photos = [photo('ft', 'FAILED', { failureKind: 'transient', retryable: true })];
     const w = mountForm({ mode: 'edit', initial: { ...initialEntry, photos } });

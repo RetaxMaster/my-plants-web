@@ -354,6 +354,7 @@
   "progress": {
     "back": "Volver a la planta",
     "deleteTitle": "¿Eliminar este registro?",
+    "undoRemove": "Deshacer",
     "date": "Fecha",
     "dateHint": "Opcional — hoy por defecto.",
     "photosProcessing": "Aún estamos procesando tus fotos.",

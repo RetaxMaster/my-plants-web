@@ -42,6 +42,7 @@ const entry: HistoryItem = {
   occurredOn: '2026-07-13',
   health: 'GOOD',
   photoCount: 2,
+  processingCount: 0,
   tagCount: 0,
 };
 

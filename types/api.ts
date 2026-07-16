@@ -4,6 +4,7 @@ import type {
   PotType, SoilMix, GrowthHabit, WindowDist,
 } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
+import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -145,7 +146,24 @@ export interface ProgressTag { key: string; label: string; group: ProgressTagGro
 // Only the KEY type lives on the web; label/group data comes from GET /progress/catalog (not duplicated).
 export type ProgressTagKey = string;
 
-export interface ProgressPhoto { id: string; imageUrl: string; sortOrder: number }
+// These unions MUST equal the shared arrays exactly — enforced by photo-contract.parity.test.ts. The web
+// treats RECOVERING identically to PROCESSING (spec §6.3): still-not-ready, no imageUrl, counts toward
+// processingCount, no remove control.
+export type PhotoStatus = (typeof PHOTO_STATUSES)[number];
+export type PhotoFailureKind = (typeof PHOTO_FAILURE_KINDS)[number];
+export type PhotoFailureCode = (typeof PHOTO_FAILURE_CODES)[number];
+
+export interface ProgressPhoto {
+  id: string;
+  status: PhotoStatus;
+  imageUrl: string | null;        // present only when READY
+  sortOrder: number;
+  originalName: string | null;
+  failureKind: PhotoFailureKind | null;
+  failureCode: PhotoFailureCode | null;
+  retryable: boolean;
+}
+
 export interface ProgressEntryDetail {
   id: string;
   plantId: string;
@@ -155,13 +173,15 @@ export interface ProgressEntryDetail {
   sizeCm: number | null;
   tags: ProgressTag[];         // resolved key+label+group
   photos: ProgressPhoto[];
+  processingCount: number;
+  failedCount: number;
 }
 
 // The six species-scheduled care tasks (PROGRESS excluded — it is the richer 'progress' item).
 export type CareActionTask = Exclude<TaskCode, 'PROGRESS'>;
 
 export type HistoryItem =
-  | { kind: 'progress'; entryId: string; occurredOn: string; health: ProgressHealth; photoCount: number; tagCount: number }
+  | { kind: 'progress'; entryId: string; occurredOn: string; health: ProgressHealth; photoCount: number; processingCount: number; tagCount: number }
   | { kind: 'action'; task: CareActionTask; type: 'DONE'; occurredOn: string };
 
 // Admin knowledge-engine chat (spec 3). Sessions are a shared admin pool; addressed by internal cuid id.

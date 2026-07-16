@@ -104,7 +104,10 @@ async function save() {
       <UiFormGroup :label="$t('plantProfile.potType')">
         <UiSelectField v-model="potType" :options="withNotSet(potTypeOptions)" />
       </UiFormGroup>
-      <UiFormGroup :label="$t('plantProfile.potSize')">
+      <!-- potSizeCm is the pot's RIM DIAMETER — the engine's assumption (see docs/care-engine.md: it feeds the
+           watering pot-factor and the crowding index R = heightCm / potSizeCm). The label + hint make that
+           explicit so a user never enters the radius, which would halve every downstream calc. -->
+      <UiFormGroup :label="$t('plantProfile.potSize')" :hint="$t('plantProfile.potSizeHint')">
         <UiSlider
           v-model="potSizeCm"
           :min="POT_SIZE_MIN"

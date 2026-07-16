@@ -5,6 +5,8 @@ import type {
 } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
+import type { ProgressTagKey } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
+export type { ProgressTagKey };
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -38,6 +40,8 @@ export interface Plant {
   id: string; ownerId: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
   speciesScientificName: string; speciesCommonNameEs: string | null; speciesCommonNameEn: string | null;
   coverImageUrl: string | null;
+  // The species' growth habit (spec §2.4) — drives the measure-info modal. Null for an un-curated species.
+  speciesGrowthHabit: GrowthHabit | null;
 }
 
 export interface Viability { level: ViabilityLevel; reasons: string[] }
@@ -142,9 +146,10 @@ export interface PlantCare {
 // --- Care History ---
 export type ProgressHealth = 'SICK' | 'POOR' | 'GOOD' | 'EXCELLENT';
 export type ProgressTagGroup = 'positive' | 'negative';
-export interface ProgressTag { key: string; label: string; group: ProgressTagGroup }
-// Only the KEY type lives on the web; label/group data comes from GET /progress/catalog (not duplicated).
-export type ProgressTagKey = string;
+// label removed — the API sends only { key, group }; the label is resolved on the web via i18n on the
+// key (useProgressTagMeta), never duplicated here. ProgressTagKey is the shared closed union re-exported
+// above — never re-typed as a bare `string` (fork-prevention).
+export interface ProgressTag { key: ProgressTagKey; group: ProgressTagGroup }
 
 // These unions MUST equal the shared arrays exactly — enforced by photo-contract.parity.test.ts. The web
 // treats RECOVERING identically to PROCESSING (spec §6.3): still-not-ready, no imageUrl, counts toward
@@ -171,7 +176,7 @@ export interface ProgressEntryDetail {
   health: ProgressHealth;
   observations: string | null;
   sizeCm: number | null;
-  tags: ProgressTag[];         // resolved key+label+group
+  tags: ProgressTag[];         // { key, group } — the label is resolved on the web via i18n
   photos: ProgressPhoto[];
   processingCount: number;
   failedCount: number;

@@ -24,16 +24,20 @@ vi.stubGlobal('computed', computed);
 
 vi.stubGlobal('useI18n', () => ({
   t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${JSON.stringify(params)}` : key),
+  te: () => true, // useProgressTagMeta()/MeasureInfoModal-style lookups just need a key to "exist"
   locale: { value: 'en' },
 }));
 vi.stubGlobal('useTaskMeta', () => ({
   healthLabel: (code: string) => `health.${code}`,
 }));
+vi.stubGlobal('useProgressTagMeta', () => ({
+  tagLabel: (key: string) => key,
+}));
 vi.stubGlobal('useApi', () => ({
   getProgressCatalog: () => Promise.resolve([
-    { key: 'NEW_LEAF', label: 'New leaf', group: 'positive' },
-    { key: 'SEEDLING', label: 'Seedling', group: 'positive' },
-    { key: 'PESTS', label: 'Pests', group: 'negative' },
+    { key: 'NEW_LEAF', group: 'positive' },
+    { key: 'SEEDLING', group: 'positive' },
+    { key: 'PESTS', group: 'negative' },
   ]),
 }));
 // A minimal stand-in for Nuxt's useAsyncData: resolves the fetcher and exposes `data` as a ref, without

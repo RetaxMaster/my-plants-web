@@ -7,6 +7,7 @@ const open = defineModel<boolean>({ default: false });
 
 const api = useApi();
 const { healthLabel } = useTaskMeta();
+const { tagLabel } = useProgressTagMeta();
 const entry = ref<ProgressEntryDetail | null>(null);
 const loading = ref(false);
 
@@ -61,7 +62,7 @@ function goEdit() {
       <p v-if="entry.sizeCm != null" class="mp-entry__size">{{ $t('progress.sizeValue', { n: entry.sizeCm }) }}</p>
 
       <div v-if="entry.tags.length" class="mp-entry__chips">
-        <UiTagChip v-for="t in entry.tags" :key="t.key" :label="t.label" :group="t.group" :active="true" readonly />
+        <UiTagChip v-for="tag in entry.tags" :key="tag.key" :label="tagLabel(tag.key)" :group="tag.group" :active="true" readonly />
       </div>
     </div>
   </UiModal>

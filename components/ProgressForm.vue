@@ -25,6 +25,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const { healthLabel } = useTaskMeta();
+const { tagLabel } = useProgressTagMeta();
 
 // Labels come from the shared health.* key set via healthLabel() — no fork of the wording.
 const HEALTH_OPTIONS: { value: ProgressHealth; icon: string }[] = [
@@ -242,7 +243,7 @@ defineExpose({
           <UiTagChip
             v-for="tag in positiveTags"
             :key="tag.key"
-            :label="tag.label"
+            :label="tagLabel(tag.key)"
             group="positive"
             :active="selectedTags.includes(tag.key)"
             @toggle="toggleTag(tag.key)"
@@ -250,7 +251,7 @@ defineExpose({
           <UiTagChip
             v-for="tag in negativeTags"
             :key="tag.key"
-            :label="tag.label"
+            :label="tagLabel(tag.key)"
             group="negative"
             :active="selectedTags.includes(tag.key)"
             @toggle="toggleTag(tag.key)"

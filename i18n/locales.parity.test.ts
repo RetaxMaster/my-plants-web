@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import en from './locales/en.json';
 import es from './locales/es.json';
+import { PROGRESS_TAG_KEYS } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
 
 type Tree = { [k: string]: string | Tree };
 
@@ -46,5 +47,20 @@ describe('REPOT inspection keys (spec F.7)', () => {
     expect(es.tasks.labels.REPOT).toBe('Revisar las raíces');
     expect(en.tasks.labels.REPOT).not.toBe('Repot');
     expect(es.tasks.labels.REPOT).not.toBe('Trasplantar');
+  });
+});
+
+describe('progress tag chip i18n (spec §1.2/§1.3)', () => {
+  it('every catalog key resolves to a non-empty label in BOTH locales', () => {
+    for (const key of PROGRESS_TAG_KEYS) {
+      expect((en.progress.tags as Record<string, string>)[key]).toBeTruthy();
+      expect((es.progress.tags as Record<string, string>)[key]).toBeTruthy();
+    }
+  });
+
+  it('defines the localized generic fallback (never humanized English)', () => {
+    expect(en.progress.tags.unknown).toBeTruthy();
+    expect(es.progress.tags.unknown).toBeTruthy();
+    expect(es.progress.tags.unknown).not.toBe(en.progress.tags.unknown); // Spanish is actually translated
   });
 });

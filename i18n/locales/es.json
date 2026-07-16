@@ -346,7 +346,27 @@
     "deleteConfirm": "¿Eliminar este registro de progreso? Esta acción no se puede deshacer.",
     "errorPhotoProcessing": "Una foto sigue procesándose — inténtalo de nuevo en un momento.",
     "errorTooManyPhotos": "Un registro de progreso admite máximo 8 fotos.",
-    "errorNotRetryable": "Esa foto no se puede reintentar — mejor elimínala."
+    "errorNotRetryable": "Esa foto no se puede reintentar — mejor elimínala.",
+    "tags": {
+      "NEW_LEAF": "Hoja nueva",
+      "FLOWERING": "Floreciendo",
+      "SEEDLING": "Plántula",
+      "LARGE_LEAVES": "Hojas grandes",
+      "NEW_SHOOTS": "Brotes nuevos",
+      "BLOOM_COMPLETED": "Floración terminada",
+      "FALLEN_LEAF": "Hoja caída",
+      "DROOPING": "Decaída",
+      "DRY_LEAVES": "Hojas secas",
+      "YELLOWING_LEAVES": "Hojas amarillentas",
+      "NOT_GROWING": "Sin crecer",
+      "STUNTED_GROWTH": "Crecimiento detenido",
+      "LEANING": "Inclinada",
+      "PESTS": "Plagas",
+      "FUNGUS": "Hongos",
+      "SPOTS": "Manchas",
+      "DISCOLORATION": "Decoloración",
+      "unknown": "Etiqueta"
+    }
   },
   "places": {
     "title": "Lugares",

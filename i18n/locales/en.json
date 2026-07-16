@@ -346,7 +346,27 @@
     "deleteConfirm": "Delete this progress entry? This can't be undone.",
     "errorPhotoProcessing": "A photo is still processing — try again in a moment.",
     "errorTooManyPhotos": "A progress entry can hold at most 8 photos.",
-    "errorNotRetryable": "That photo can't be retried — remove it instead."
+    "errorNotRetryable": "That photo can't be retried — remove it instead.",
+    "tags": {
+      "NEW_LEAF": "New leaf",
+      "FLOWERING": "Flowering",
+      "SEEDLING": "Seedling",
+      "LARGE_LEAVES": "Large leaves",
+      "NEW_SHOOTS": "New shoots",
+      "BLOOM_COMPLETED": "Bloom completed",
+      "FALLEN_LEAF": "Fallen leaf",
+      "DROOPING": "Drooping",
+      "DRY_LEAVES": "Dry leaves",
+      "YELLOWING_LEAVES": "Yellowing leaves",
+      "NOT_GROWING": "Not growing",
+      "STUNTED_GROWTH": "Stunted growth",
+      "LEANING": "Leaning",
+      "PESTS": "Pests",
+      "FUNGUS": "Fungus",
+      "SPOTS": "Spots",
+      "DISCOLORATION": "Discoloration",
+      "unknown": "Tag"
+    }
   },
   "places": {
     "title": "Places",

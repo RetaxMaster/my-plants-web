@@ -50,7 +50,7 @@ export function useApi() {
   const upload = async <T>(
     path: string,
     form: FormData,
-    opts: { method?: 'POST' | 'PUT'; onProgress?: (percent: number) => void } = {},
+    opts: { method?: 'POST' | 'PUT' | 'PATCH'; onProgress?: (percent: number) => void } = {},
   ): Promise<T> => {
     const rejection = checkUploadLimits(form);
     if (rejection) throw makeUploadError(rejection.code, t(`upload.${rejection.code}`, rejection.params));
@@ -152,6 +152,16 @@ export function useApi() {
       upload<ProgressEntryDetail>(`/plants/${plantId}/progress`, form, { onProgress }),
     getProgressEntry: (plantId: string, entryId: string) =>
       api<ProgressEntryDetail>(`/plants/${plantId}/progress/${entryId}`),
+    // Edit an entry: changed fields + new `photos` files + `removePhotoIds` in ONE multipart PATCH. Goes
+    // through the XHR upload path (files + a real progress %), exactly like logProgress.
+    updateProgress: (plantId: string, entryId: string, form: FormData, onProgress?: (percent: number) => void) =>
+      upload<ProgressEntryDetail>(`/plants/${plantId}/progress/${entryId}`, form, { method: 'PATCH', onProgress }),
+    // Retry a transient-failed photo. No body; returns the refreshed entry. Not an upload — plain api().
+    retryProgressPhoto: (plantId: string, entryId: string, photoId: string) =>
+      api<ProgressEntryDetail>(`/plants/${plantId}/progress/${entryId}/photos/${photoId}/retry`, { method: 'POST' }),
+    // Delete the whole entry (204). Returns nothing.
+    deleteProgress: (plantId: string, entryId: string) =>
+      api<void>(`/plants/${plantId}/progress/${entryId}`, { method: 'DELETE' }),
     getPlantHistory: (plantId: string) => api<HistoryItem[]>(`/plants/${plantId}/history`),
 
     simulateMove: (latitude: number, longitude: number) =>

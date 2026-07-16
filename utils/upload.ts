@@ -105,7 +105,7 @@ export function checkUploadLimits(form: FormData): UploadRejection | null {
 export function uploadFormData<T>(
   url: string,
   form: FormData,
-  opts: { method?: 'POST' | 'PUT'; onProgress?: (percent: number) => void } = {},
+  opts: { method?: 'POST' | 'PUT' | 'PATCH'; onProgress?: (percent: number) => void } = {},
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest();

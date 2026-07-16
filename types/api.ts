@@ -177,6 +177,19 @@ export interface ProgressEntryDetail {
   failedCount: number;
 }
 
+// What the edit view sends (serialized into a multipart PATCH). `removePhotoIds` are ids of existing
+// photos to drop; `files` are new photos to add. A cleared optional field is sent EMPTY (''/'[]'), an
+// unchanged-required field (health/occurredOn) is always sent. See spec §2.1 / §3.1.
+export interface UpdateProgressPayload {
+  health: ProgressHealth;
+  occurredOn: string;               // YYYY-MM-DD
+  observations: string;             // '' clears
+  sizeCm: number | null;            // null clears
+  tags: string[];                   // [] clears
+  files: File[];                    // new photos
+  removePhotoIds: string[];
+}
+
 // The six species-scheduled care tasks (PROGRESS excluded — it is the richer 'progress' item).
 export type CareActionTask = Exclude<TaskCode, 'PROGRESS'>;
 

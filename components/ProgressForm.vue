@@ -102,8 +102,14 @@ function markRemove(id: string) {
   if (!removePhotoIds.value.includes(id)) removePhotoIds.value.push(id);
 }
 
+// Health is required (spec §2). Validate INSIDE the shared form: a submit with no health selected must show
+// a visible, localized error (the extraction moved this out of the page, which silently dropped it — a
+// code-review regression). Cleared the moment a health tile is chosen.
+const healthError = ref('');
+watch(health, (v) => { if (v) healthError.value = ''; });
+
 function submit() {
-  if (!health.value) return; // the parent surfaces the "select health" error; keep the guard here too
+  if (!health.value) { healthError.value = t('progress.errorSelectHealth'); return; }
   emit('submit', {
     health: health.value,
     occurredOn: occurredOn.value,
@@ -116,7 +122,7 @@ function submit() {
 }
 
 defineExpose({
-  health, observations, selectedTags, occurredOn, recordSize, sizeCm, files, pixelError,
+  health, observations, selectedTags, occurredOn, recordSize, sizeCm, files, pixelError, healthError,
   remainingSlots, submit, markRemove, onFilesPicked,
 });
 </script>
@@ -140,6 +146,7 @@ defineExpose({
             <span>{{ healthLabel(opt.value) }}</span>
           </button>
         </div>
+        <p v-if="healthError" class="mp-progress-form__health-error">{{ healthError }}</p>
       </UiFormGroup>
 
       <!-- Journal date (backdatable) — shared by create + edit so a wrong date can be corrected (spec §2.4);
@@ -449,6 +456,11 @@ defineExpose({
 }
 
 .mp-progress-form__pixel-error {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--care-poor);
+}
+.mp-progress-form__health-error {
   margin: var(--space-2) 0 0;
   font-size: var(--text-xs);
   color: var(--care-poor);

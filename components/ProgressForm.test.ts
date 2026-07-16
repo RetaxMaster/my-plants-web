@@ -8,7 +8,7 @@
 // boundary so the courtesy pixel check is deterministic.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import ProgressForm from './ProgressForm.vue';
 
 const readImageSizeMock = vi.fn();
@@ -21,6 +21,7 @@ vi.mock('../composables/useReadImageSize', () => ({ readImageSize: (f: File) => 
 // as globals, same technique as the useI18n stub below, rather than change the component's convention.
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
+vi.stubGlobal('watch', watch);
 
 vi.stubGlobal('useI18n', () => ({
   t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${JSON.stringify(params)}` : key),
@@ -89,6 +90,19 @@ describe('ProgressForm', () => {
       health: 'GOOD', occurredOn: '', observations: 'first note',
       sizeCm: null, tags: ['NEW_LEAF', 'SEEDLING'], files: [], removePhotoIds: [],
     });
+  });
+
+  it('submitting without a health selection shows a visible error and emits nothing (code-review regression fix)', async () => {
+    const w = mountForm({ mode: 'create' });
+    (w.vm as any).submit();
+    expect(w.emitted('submit')).toBeUndefined();          // nothing emitted → the parent never saves
+    expect((w.vm as any).healthError).toBeTruthy();        // a localized error is surfaced in the form
+    // choosing a health tile clears the error and lets the submit through
+    (w.vm as any).health = 'GOOD';
+    await w.vm.$nextTick();
+    expect((w.vm as any).healthError).toBe('');
+    (w.vm as any).submit();
+    expect(w.emitted('submit')).toHaveLength(1);
   });
 
   it('edit mode: prefills every field from `initial`', () => {

@@ -332,7 +332,8 @@
     "errorSelectHealth": "Selecciona cómo está la planta.",
     "errorPhotosUnavailable": "Ahora no se pueden subir fotos — puedes guardar sin foto.",
     "errorPhotoProcess": "No pudimos procesar una de tus fotos. Prueba con otra imagen.",
-    "errorSave": "No se pudo guardar el progreso. Inténtalo de nuevo."
+    "errorSave": "No se pudo guardar el progreso. Inténtalo de nuevo.",
+    "photoTooLarge": "\"{name}\" es demasiado grande para subirla — intenta con una foto más pequeña."
   },
   "places": {
     "title": "Lugares",

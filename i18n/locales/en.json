@@ -332,7 +332,8 @@
     "errorSelectHealth": "Please select how the plant is doing.",
     "errorPhotosUnavailable": "Photos can't be uploaded right now — you can save without a photo.",
     "errorPhotoProcess": "We could not process one of your photos. Please try a different image.",
-    "errorSave": "Could not save progress. Please try again."
+    "errorSave": "Could not save progress. Please try again.",
+    "photoTooLarge": "\"{name}\" is too large to upload — try a smaller photo."
   },
   "places": {
     "title": "Places",

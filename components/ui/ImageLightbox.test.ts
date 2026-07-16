@@ -143,7 +143,12 @@ describe('ImageLightbox', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([false]);
   });
 
-  it('moves focus into the panel on open and restores it to the opener on close', async () => {
+  it('moves focus into the panel on open, and keeps focus IN the dialog on close (no mid-fade escape to the opener)', async () => {
+    // The two-Escape bug: focus used to jump back to the background opener the instant `open` flipped false,
+    // while the dialog was still visibly fading out — reading as "Escape didn't close it". Focus must stay
+    // inside the dialog until the leave transition ends (restoreFocus runs in @after-leave; proven end-to-end
+    // by the Playwright check and deterministically by useOverlay.test.ts). Here we pin the anti-regression:
+    // focus is NOT restored to the opener the moment the model flips false.
     const opener = document.createElement('button');
     opener.id = 'opener';
     document.body.appendChild(opener);
@@ -156,9 +161,9 @@ describe('ImageLightbox', () => {
     const panel = document.body.querySelector('.mp-lightbox__panel') as HTMLElement;
     expect(panel.contains(document.activeElement)).toBe(true); // focus pulled into the overlay
 
-    await wrapper.setProps({ modelValue: false });  // triggers restore
+    await wrapper.setProps({ modelValue: false });  // close: focus must NOT eagerly jump to the opener
     await wrapper.vm.$nextTick();
-    expect(document.activeElement).toBe(opener);
+    expect(document.activeElement).not.toBe(opener); // still in-dialog while it fades — no mid-fade escape
   });
 
   it('traps Tab within the panel (forward Tab from the last control wraps to the first)', async () => {

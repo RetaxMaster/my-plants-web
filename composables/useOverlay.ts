@@ -96,6 +96,18 @@ export function useOverlay(isOpen: Ref<boolean>, panelRef: Ref<HTMLElement | nul
     if (event.target === event.currentTarget) options.onClose();
   }
 
+  // Return focus to the element that opened the overlay. Called from the consumer's Transition `@after-leave`
+  // — i.e. when the dialog has ACTUALLY left the screen — NOT eagerly when `isOpen` flips false. Eager
+  // restore moved focus (and the focus ring) to the background opener while the dialog was still visibly
+  // fading out (~--dur-normal), which reads as "Escape didn't close it" and provokes a second press. Keeping
+  // focus inside the dialog until it is gone, then restoring, makes a single Escape close cleanly with focus
+  // correctly back on the opener.
+  function restoreFocus() {
+    if (!import.meta.client) return;
+    previouslyFocused?.focus?.();
+    previouslyFocused = null;
+  }
+
   watch(isOpen, async (open) => {
     if (!import.meta.client) return;
     if (open) {
@@ -105,13 +117,15 @@ export function useOverlay(isOpen: Ref<boolean>, panelRef: Ref<HTMLElement | nul
       const focusables = focusableWithin(panelRef.value);
       (focusables[0] ?? panelRef.value)?.focus();
     } else {
+      // Scroll-lock releases immediately (the page must not scroll behind a fading dialog); focus restoration
+      // is deferred to `restoreFocus()` in the leave transition's `@after-leave`.
       releaseLock();
-      previouslyFocused?.focus?.();
-      previouslyFocused = null;
     }
   });
 
-  onBeforeUnmount(() => releaseLock()); // an overlay unmounted while open still releases its single hold
+  // An overlay UNMOUNTED while still open (e.g. a route change) never runs its leave transition, so restore
+  // focus here as a safety net. On a normal close, @after-leave already nulled previouslyFocused → no-op.
+  onBeforeUnmount(() => { releaseLock(); restoreFocus(); });
 
-  return { onKeydown, onBackdrop };
+  return { onKeydown, onBackdrop, restoreFocus };
 }

@@ -16,12 +16,12 @@ function close() {
 }
 
 // Scroll-lock, focus save/restore, Escape, Tab-trap, backdrop close — all shared with UiImageLightbox.
-const { onKeydown, onBackdrop } = useOverlay(open, panelRef, { onClose: close });
+const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onClose: close });
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="mp-modal-fade">
+    <Transition name="mp-modal-fade" @after-leave="restoreFocus">
       <div
         v-if="open"
         class="mp-modal__backdrop"

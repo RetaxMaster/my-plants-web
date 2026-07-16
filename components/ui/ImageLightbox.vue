@@ -32,12 +32,12 @@ function step(direction: -1 | 1) {
   index.value = target;
 }
 
-const { onKeydown, onBackdrop } = useOverlay(open, panelRef, { onClose: close, onArrow: step });
+const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onClose: close, onArrow: step });
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="mp-lightbox-fade">
+    <Transition name="mp-lightbox-fade" @after-leave="restoreFocus">
       <div
         v-if="open"
         class="mp-lightbox__backdrop"

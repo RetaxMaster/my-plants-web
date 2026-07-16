@@ -6,6 +6,7 @@ const props = defineProps<{ plantId: string; entryId: string | null }>();
 const open = defineModel<boolean>({ default: false });
 
 const api = useApi();
+const { t, d } = useI18n();
 const { healthLabel } = useTaskMeta();
 const { tagLabel } = useProgressTagMeta();
 const entry = ref<ProgressEntryDetail | null>(null);
@@ -18,6 +19,22 @@ const readyPhotos = computed(() =>
     (p): p is ProgressPhoto & { imageUrl: string } => p.status === 'READY' && p.imageUrl != null,
   ),
 );
+
+// Open the SAME shared lightbox (spec §4.3) from the entry's own READY photos — a nested overlay over
+// UiModal; useOverlay's module-level lock refcount (Task 2) keeps the body locked until BOTH close.
+const lightboxOpen = ref(false);
+const lightboxIndex = ref(0);
+const lightboxImages = computed(() =>
+  // The entry carries one date; every photo of the entry shares it.
+  readyPhotos.value.map((p) => ({
+    src: p.imageUrl,
+    alt: entry.value ? t('photos.alt', { date: d(ymdToLocalDate(entry.value.occurredOn), 'short') }) : '',
+  })),
+);
+function openPhoto(i: number) {
+  lightboxIndex.value = i;
+  lightboxOpen.value = true;
+}
 
 // Request token: opening entry A then quickly switching to entry B must not let A's slower response
 // overwrite B. Each fetch stamps a token; a response only lands if it is still the latest request.
@@ -56,44 +73,56 @@ function goEdit() {
 </script>
 
 <template>
-  <UiModal v-model="open" :title="$t('progress.entryTitle')">
-    <div v-if="loading" class="mp-entry__loading">{{ $t('common.loading') }}</div>
-    <div v-else-if="entry" class="mp-entry">
-      <div class="mp-entry__head">
-        <strong>{{ healthLabel(entry.health) }}</strong>
-        <div class="mp-entry__head-right">
-          <span class="mp-entry__date">{{ $d(ymdToLocalDate(entry.occurredOn), 'short') }}</span>
-          <UiButton size="xs" variant="soft" color="neutral" icon="pencil-square" @click="goEdit">{{ $t('common.edit') }}</UiButton>
+  <div>
+    <UiModal v-model="open" :title="$t('progress.entryTitle')">
+      <div v-if="loading" class="mp-entry__loading">{{ $t('common.loading') }}</div>
+      <div v-else-if="entry" class="mp-entry">
+        <div class="mp-entry__head">
+          <strong>{{ healthLabel(entry.health) }}</strong>
+          <div class="mp-entry__head-right">
+            <span class="mp-entry__date">{{ $d(ymdToLocalDate(entry.occurredOn), 'short') }}</span>
+            <UiButton size="xs" variant="soft" color="neutral" icon="pencil-square" @click="goEdit">{{ $t('common.edit') }}</UiButton>
+          </div>
+        </div>
+
+        <div v-if="readyPhotos.length" class="mp-entry__photos">
+          <button
+            v-for="(p, i) in readyPhotos"
+            :key="p.id"
+            type="button"
+            class="mp-entry__photo-btn"
+            @click="openPhoto(i)"
+          >
+            <img :src="p.imageUrl" :alt="$t('progress.photoAlt')" />
+          </button>
+        </div>
+
+        <!-- Still-processing (drive off the rollup, never by scanning the array): a placeholder + a manual
+             "Actualizar" that re-reads the entry on demand. RECOVERING already counts toward processingCount. -->
+        <div v-if="entry.processingCount > 0" class="mp-entry__processing">
+          <p class="mp-entry__processing-text">{{ $t('progress.photosProcessing') }}</p>
+          <UiButton size="xs" variant="soft" color="neutral" :loading="refreshing" @click="refreshEntry">
+            {{ $t('common.refresh') }}
+          </UiButton>
+        </div>
+
+        <!-- Failed notice → the edit view (Spec 2 owns per-photo retry/remove; here it is just the notice + link). -->
+        <p v-if="entry.failedCount > 0" class="mp-entry__failed">
+          {{ $t('progress.photosFailed', { n: entry.failedCount }, entry.failedCount) }}
+          <NuxtLink :to="editLink" class="mp-entry__failed-link">{{ $t('progress.editRecord') }}</NuxtLink>
+        </p>
+
+        <p v-if="entry.observations" class="mp-entry__obs">{{ entry.observations }}</p>
+        <p v-if="entry.sizeCm != null" class="mp-entry__size">{{ $t('progress.sizeValue', { n: entry.sizeCm }) }}</p>
+
+        <div v-if="entry.tags.length" class="mp-entry__chips">
+          <UiTagChip v-for="tag in entry.tags" :key="tag.key" :label="tagLabel(tag.key)" :group="tag.group" :active="true" readonly />
         </div>
       </div>
+    </UiModal>
 
-      <div v-if="readyPhotos.length" class="mp-entry__photos">
-        <img v-for="p in readyPhotos" :key="p.id" :src="p.imageUrl" :alt="$t('progress.photoAlt')" />
-      </div>
-
-      <!-- Still-processing (drive off the rollup, never by scanning the array): a placeholder + a manual
-           "Actualizar" that re-reads the entry on demand. RECOVERING already counts toward processingCount. -->
-      <div v-if="entry.processingCount > 0" class="mp-entry__processing">
-        <p class="mp-entry__processing-text">{{ $t('progress.photosProcessing') }}</p>
-        <UiButton size="xs" variant="soft" color="neutral" :loading="refreshing" @click="refreshEntry">
-          {{ $t('common.refresh') }}
-        </UiButton>
-      </div>
-
-      <!-- Failed notice → the edit view (Spec 2 owns per-photo retry/remove; here it is just the notice + link). -->
-      <p v-if="entry.failedCount > 0" class="mp-entry__failed">
-        {{ $t('progress.photosFailed', { n: entry.failedCount }, entry.failedCount) }}
-        <NuxtLink :to="editLink" class="mp-entry__failed-link">{{ $t('progress.editRecord') }}</NuxtLink>
-      </p>
-
-      <p v-if="entry.observations" class="mp-entry__obs">{{ entry.observations }}</p>
-      <p v-if="entry.sizeCm != null" class="mp-entry__size">{{ $t('progress.sizeValue', { n: entry.sizeCm }) }}</p>
-
-      <div v-if="entry.tags.length" class="mp-entry__chips">
-        <UiTagChip v-for="tag in entry.tags" :key="tag.key" :label="tagLabel(tag.key)" :group="tag.group" :active="true" readonly />
-      </div>
-    </div>
-  </UiModal>
+    <UiImageLightbox v-model="lightboxOpen" v-model:index="lightboxIndex" :images="lightboxImages" />
+  </div>
 </template>
 
 <style scoped>
@@ -103,7 +132,9 @@ function goEdit() {
 .mp-entry__head-right { display: flex; align-items: center; gap: var(--space-2); }
 .mp-entry__date { font-size: var(--text-xs); color: var(--text-faint); }
 .mp-entry__photos { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.mp-entry__photos img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-md); }
+.mp-entry__photo-btn { display: block; padding: 0; border: none; background: transparent; cursor: pointer; border-radius: var(--radius-md); }
+.mp-entry__photo-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.mp-entry__photos img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-md); display: block; }
 .mp-entry__processing { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-sans); }
 .mp-entry__processing-text { margin: 0; font-size: var(--text-sm); color: var(--text-muted); }
 .mp-entry__failed { margin: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-strong); display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; }

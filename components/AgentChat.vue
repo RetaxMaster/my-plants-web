@@ -8,7 +8,7 @@ import {
 import type { TranscriptLabels } from '@retaxmaster/agents-realtime-client';
 import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
-import type { KnowledgeChatProvider, KnowledgeChatTurn } from '../types/api';
+import type { ChatRunsAdapter, ChatSessionsAdapter, KnowledgeChatProvider, KnowledgeChatTurn } from '../types/api';
 
 const props = defineProps<{
   // Our internal cuid session id; null for a brand-new chat not yet created.
@@ -18,6 +18,18 @@ const props = defineProps<{
   initialProvider: KnowledgeChatProvider | null;
   initialProviderSessionId: string | null;
   initialTurns: KnowledgeChatTurn[];
+  // --- Injected scope (fork-prevention: one component, per-consumer dependencies) ---
+  // The sessions source (KE pool or a plant-scoped doctor); shaped by ChatSessionsAdapter.
+  sessions: ChatSessionsAdapter;
+  // The runs source (mints the socket ticket for this consumer's routes).
+  runs: ChatRunsAdapter;
+  // The engine's Socket.IO URL for THIS consumer (KE engine vs doctor engine).
+  socketUrl: string;
+  // The i18n namespace whose subtree carries this consumer's copy ('knowledgeEngine' | 'diagnose'). Every
+  // string is resolved as `${i18nNamespace}.<suffix>`, so both namespaces expose the same leaf-key shape.
+  i18nNamespace: string;
+  // A per-consumer theme storage key so the two chats don't fight over one persisted preference.
+  themeStorageKey?: string;
 }>();
 
 const emit = defineEmits<{
@@ -28,74 +40,76 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
-const sessions = useKnowledgeChatSessions();
-const runs = useKnowledgeChatRuns();
-const socketUrl = useRuntimeConfig().public.knowledgeChatSocketUrl;
+const sessions = props.sessions;
+const runs = props.runs;
+const socketUrl = props.socketUrl;
+// Namespaced translate: resolves this consumer's copy. Use everywhere a bare knowledgeEngine.* key was read.
+const tns = (key: string, named?: Record<string, unknown>) => t(`${props.i18nNamespace}.${key}`, named ?? {});
 
 // Every user-facing string the package renders is INJECTED — it ships English defaults and no product
 // copy. ONE merged set feeds the Console, the Composer, the AgentSelector and the failure notice, so a
 // live locale switch re-translates all of them (hence a computed).
 const chatLabels = computed(() => ({
-  promptLabel: t('knowledgeEngine.composer.promptLabel'),
-  promptPlaceholder: t('knowledgeEngine.composer.promptPlaceholder'),
-  send: t('knowledgeEngine.composer.send'),
-  stop: t('knowledgeEngine.composer.stop'),
-  running: t('knowledgeEngine.composer.running'),
-  stopping: t('knowledgeEngine.composer.stopping'),
-  enterToSend: t('knowledgeEngine.composer.enterToSend'),
-  shiftEnterNewline: t('knowledgeEngine.composer.shiftEnterNewline'),
-  genericError: t('knowledgeEngine.composer.genericError'),
-  connected: t('knowledgeEngine.composer.connected'),
-  reconnecting: t('knowledgeEngine.composer.reconnecting'),
-  disconnected: t('knowledgeEngine.composer.disconnected'),
-  you: t('knowledgeEngine.you'),
+  promptLabel: tns('composer.promptLabel'),
+  promptPlaceholder: tns('composer.promptPlaceholder'),
+  send: tns('composer.send'),
+  stop: tns('composer.stop'),
+  running: tns('composer.running'),
+  stopping: tns('composer.stopping'),
+  enterToSend: tns('composer.enterToSend'),
+  shiftEnterNewline: tns('composer.shiftEnterNewline'),
+  genericError: tns('composer.genericError'),
+  connected: tns('composer.connected'),
+  reconnecting: tns('composer.reconnecting'),
+  disconnected: tns('composer.disconnected'),
+  you: tns('you'),
   // Console chrome. In 0.x these were UNREACHABLE: Console read its labels from a private injection whose
   // Symbol was not exported, so the transcript's own affordances leaked English. 1.0.0 gives Console a
   // `labels` prop, so that leak is closed here.
-  jumpToLatest: t('knowledgeEngine.console.jumpToLatest'),
-  thinking: t('knowledgeEngine.console.thinking'),
-  expandText: t('knowledgeEngine.console.expandText'),
-  collapse: t('knowledgeEngine.console.collapse'),
-  seeAll: t('knowledgeEngine.console.seeAll'),
-  copy: t('knowledgeEngine.console.copy'),
-  copied: t('knowledgeEngine.console.copied'),
+  jumpToLatest: tns('console.jumpToLatest'),
+  thinking: tns('console.thinking'),
+  expandText: tns('console.expandText'),
+  collapse: tns('console.collapse'),
+  seeAll: tns('console.seeAll'),
+  copy: tns('console.copy'),
+  copied: tns('console.copied'),
   // Failure + retry.
-  overloaded: t('knowledgeEngine.composer.overloaded'),
-  retrying: t('knowledgeEngine.composer.retrying'),
-  retry: t('knowledgeEngine.composer.retry'),
-  runFailed: t('knowledgeEngine.runFailed'),
+  overloaded: tns('composer.overloaded'),
+  retrying: tns('composer.retrying'),
+  retry: tns('composer.retry'),
+  runFailed: tns('runFailed'),
   // The agent picker's own chrome.
-  selectProvider: t('knowledgeEngine.agent.select'),
-  notInstalled: t('knowledgeEngine.agent.notInstalled'),
-  notAuthenticated: t('knowledgeEngine.agent.notAuthenticated'),
-  authCta: t('knowledgeEngine.agent.authCta'),
-  providerLockedLabel: t('knowledgeEngine.agent.locked'),
-  noProviderAvailable: t('knowledgeEngine.agent.noneAvailable'),
+  selectProvider: tns('agent.select'),
+  notInstalled: tns('agent.notInstalled'),
+  notAuthenticated: tns('agent.notAuthenticated'),
+  authCta: tns('agent.authCta'),
+  providerLockedLabel: tns('agent.locked'),
+  noProviderAvailable: tns('agent.noneAvailable'),
   // Transcript chrome (the scroll region is keyboard-focusable in 2.0.0 and needs an accessible name).
-  transcriptLabel: t('knowledgeEngine.console.transcriptLabel'),
+  transcriptLabel: tns('console.transcriptLabel'),
   // Quota. `quota.updated` is a SNAPSHOT on the turn's meta line — "· cuota 84% · se renueva 18:40" — and it
   // is NOT an alarm. The alarm is a separate notice, and it now fires only when the quota is truly exhausted.
-  quotaUsage: t('knowledgeEngine.console.quotaUsage'),
-  quotaResets: t('knowledgeEngine.console.quotaResets'),
+  quotaUsage: tns('console.quotaUsage'),
+  quotaResets: tns('console.quotaResets'),
   // The close line. The WORDS are strings; anything shaped by a NUMBER is a function, because the package
   // cannot guess a plural rule (English has 2 forms, Polish 3, Japanese 1) — so it hands us the count and
   // renders what we return. Note the default changed: a one-turn run used to render the wrong "1 turns".
-  runDone: t('knowledgeEngine.console.runDone'),
-  tokens: t('knowledgeEngine.console.tokens'),
+  runDone: tns('console.runDone'),
+  tokens: tns('console.tokens'),
   formatTurns: (n: number) =>
-    n === 1 ? t('knowledgeEngine.console.turnOne') : t('knowledgeEngine.console.turnOther', { n }),
+    n === 1 ? tns('console.turnOne') : tns('console.turnOther', { n }),
   formatDuration: (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}min`),
   // Claude publishes a price; Codex publishes NO price anywhere in its protocol, so that field is simply
   // absent on a Codex run and the package renders nothing. We never substitute a zero — "$0.0000" would tell
   // the user the run was free.
   formatCost: (usd: number) => `$${usd.toFixed(4)}`,
   // Commands.
-  commandLead: t('knowledgeEngine.command.lead'),
-  commandSucceeded: t('knowledgeEngine.command.succeeded'),
-  commandFailed: t('knowledgeEngine.command.failed'),
-  commandRefused: t('knowledgeEngine.command.refused'),
-  commandsGroupLabel: t('knowledgeEngine.command.groupLabel'),
-  commandUnsupported: t('knowledgeEngine.command.unsupported'),
+  commandLead: tns('command.lead'),
+  commandSucceeded: tns('command.succeeded'),
+  commandFailed: tns('command.failed'),
+  commandRefused: tns('command.refused'),
+  commandsGroupLabel: tns('command.groupLabel'),
+  commandUnsupported: tns('command.unsupported'),
 }));
 
 // Display names for the picker (the package falls back to the bare protocol id, e.g. "codex").
@@ -111,7 +125,7 @@ const { theme, setTheme } = useTheme({
   target: themeRoot,
   defaultTheme: 'auto',
   persist: true,
-  storageKey: 'crt-theme-knowledge',
+  storageKey: props.themeStorageKey ?? 'crt-theme-agent',
 });
 
 const currentSessionId = ref<string | null>(props.sessionId);
@@ -186,18 +200,19 @@ const driver: ChatDriver = {
 const transcriptLabels = computed<TranscriptLabels>(() => {
   const loc = locale.value;
   const intl = loc === 'es' ? 'es-MX' : 'en-US';
-  // Translate against the PINNED locale, not the live one — same reason as above.
-  const at = (key: string, named?: Record<string, unknown>) => t(key, named ?? {}, { locale: loc });
+  // Translate against the PINNED locale (not the live one), under this consumer's namespace.
+  const at = (key: string, named?: Record<string, unknown>) =>
+    t(`${props.i18nNamespace}.${key}`, named ?? {}, { locale: loc });
 
   return {
-    rateLimitNotice: at('knowledgeEngine.rateLimitReached'),
+    rateLimitNotice: at('rateLimitReached'),
     // Notice kinds we do not translate individually; the package renders the notice's own text. Empty is a
     // real answer here, not a gap — it is exactly what the package's own defaults carry.
     noticeLabels: {},
     commandLabels: {
-      succeeded: at('knowledgeEngine.command.succeeded'),
-      failed: at('knowledgeEngine.command.failed'),
-      refused: at('knowledgeEngine.command.refused'),
+      succeeded: at('command.succeeded'),
+      failed: at('command.failed'),
+      refused: at('command.refused'),
     },
     // NEW in 2.2.0. A refused command carries a machine-readable CODE alongside the engine's English prose, and
     // a code we CAN translate. We map only the three codes whose sentence is OURS to author: the refused set
@@ -206,12 +221,12 @@ const transcriptLabels = computed<TranscriptLabels>(() => {
     // map, so the package falls back to the engine's prose (`rejectionReasons?.[code] ?? reason`): we never
     // translate a sentence we did not write.
     rejectionReasons: {
-      unsupported_command: at('knowledgeEngine.rejectionReasons.unsupportedCommand'),
-      unknown_command: at('knowledgeEngine.rejectionReasons.unknownCommand'),
-      catalog_unavailable: at('knowledgeEngine.rejectionReasons.catalogUnavailable'),
+      unsupported_command: at('rejectionReasons.unsupportedCommand'),
+      unknown_command: at('rejectionReasons.unknownCommand'),
+      catalog_unavailable: at('rejectionReasons.catalogUnavailable'),
     },
-    quotaUsageLabel: at('knowledgeEngine.console.quotaUsage'),
-    quotaResetsLabel: at('knowledgeEngine.console.quotaResets'),
+    quotaUsageLabel: at('console.quotaUsage'),
+    quotaResetsLabel: at('console.quotaResets'),
     // The package's default reset formatter is `toLocaleTimeString()` with no locale, so it follows the
     // SERVER/BROWSER locale rather than the app's — which rendered "se renueva 3:00:00 PM": a 12-hour clock,
     // with seconds, inside Spanish copy. A reset time is a clock reading, so give it the app's locale and drop
@@ -226,30 +241,30 @@ const transcriptLabels = computed<TranscriptLabels>(() => {
         minute: '2-digit',
         hourCycle: loc === 'es' ? 'h23' : 'h12',
       }),
-    sessionLabel: at('knowledgeEngine.console.session'),
-    runDoneLabel: at('knowledgeEngine.console.runDone'),
+    sessionLabel: at('console.session'),
+    runDoneLabel: at('console.runDone'),
     // NEW in 2.1.0. A command that failed used to close under the green "done" line — the screen asserted a
     // success the log never claimed. It now closes "✗ falló", and this is the word it uses. The RUN still
     // succeeded (the process ran and exited 0): the run and the command are different facts, and only the
     // rendered line changed. Our DB and every count are untouched.
-    runFailedLabel: at('knowledgeEngine.console.runFailed'),
+    runFailedLabel: at('console.runFailed'),
     // Anything shaped by a NUMBER is a function, because the package cannot guess a plural rule (English has
     // 2 forms, Polish 3, Japanese 1) — it hands us the count and renders what we return.
     formatTurns: (n: number) =>
-      n === 1 ? at('knowledgeEngine.console.turnOne') : at('knowledgeEngine.console.turnOther', { n }),
+      n === 1 ? at('console.turnOne') : at('console.turnOther', { n }),
     formatDuration: (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}min`),
     // Claude publishes a price; Codex publishes NO price anywhere in its protocol, so that field is simply
     // absent on a Codex run and the package renders nothing. We never substitute a zero — "$0.0000" would tell
     // the user the run was free.
     formatCost: (usd: number) => `$${usd.toFixed(4)}`,
-    tokensLabel: at('knowledgeEngine.console.tokens'),
-    stoppedNote: at('knowledgeEngine.console.stopped'),
-    truncatedNote: at('knowledgeEngine.console.truncated'),
-    fileChangeLabel: at('knowledgeEngine.console.fileChange'),
-    unsupportedEventLabel: at('knowledgeEngine.console.unsupportedEvent'),
+    tokensLabel: at('console.tokens'),
+    stoppedNote: at('console.stopped'),
+    truncatedNote: at('console.truncated'),
+    fileChangeLabel: at('console.fileChange'),
+    unsupportedEventLabel: at('console.unsupportedEvent'),
     // Empty tool output. The package's default is the English "(no output)"; give it the app's words. It lives
     // in the labels thunk (not a useAgentChat option) because it is a per-turn transcript label like the rest.
-    noOutputNote: at('knowledgeEngine.console.noOutput'),
+    noOutputNote: at('console.noOutput'),
     // The package groups thousands with a fixed en-US separator so two machines render alike. We can do better:
     // this is the APP's locale, which is the one the reader is actually looking at.
     formatNumber: (n: number) => n.toLocaleString(intl),
@@ -265,11 +280,11 @@ const chat = useAgentChat({
   // locale source changes, but only for the thunks you actually pass. A seeded/live user bubble stays frozen in
   // the language it was born in unless its label is a thunk — so switching EN↔ES would leave old bubbles reading
   // "You"/"Tú". It follows the LIVE locale (unlike the per-turn formatters above), which is what makes it reflow.
-  userLabel: () => t('knowledgeEngine.you'),
+  userLabel: () => tns('you'),
   labels: () => transcriptLabels.value,
   // The auto-retry system note (↻) the package writes on a retryable failure. As a thunk it is both translated
   // (the default is the English "Retrying…") and armed for repaint on a live language switch, like userLabel.
-  retryNote: () => t('knowledgeEngine.composer.retrying'),
+  retryNote: () => tns('composer.retrying'),
 });
 
 // The composer's `/` autocomplete. The package NEVER fetches this itself — our API proxies the engine's
@@ -335,7 +350,7 @@ async function loadProviders(force = false) {
 // we say where to do it and offer a re-probe for when they have.
 const authNotice = ref<string | null>(null);
 function onAuthRequest(provider: AgentProvider) {
-  authNotice.value = t('knowledgeEngine.agent.authHint', { agent: providerLabels[provider] ?? provider });
+  authNotice.value = tns('agent.authHint', { agent: providerLabels[provider] ?? provider });
 }
 async function recheckProviders() {
   authNotice.value = null;
@@ -353,13 +368,13 @@ async function submit() {
   const command = parseCommandInput(text);
 
   if (command && !chat.sessionId.value) {
-    error.value = t('knowledgeEngine.commandNeedsConversation');
+    error.value = tns('commandNeedsConversation');
     return;
   }
   // A command turn leads with the ENGINE's `command.started`, never an optimistic user bubble — that is what
   // makes it render identically live and on replay, and never twice. So: push a bubble for a prompt, and only
   // for a prompt.
-  if (!command) chat.pushUserPrompt(text.trim(), () => t('knowledgeEngine.you'));
+  if (!command) chat.pushUserPrompt(text.trim(), () => tns('you'));
   draft.value = '';
   try {
     // useAgentChat re-parses the raw text and hands the driver `{ command }`; we pass the text through
@@ -373,10 +388,10 @@ async function submit() {
     const status = (e as { statusCode?: number; response?: { status?: number } })?.statusCode
       ?? (e as { response?: { status?: number } })?.response?.status;
     error.value = status === 409
-      ? t('knowledgeEngine.runInProgress')
+      ? tns('runInProgress')
       : status === 422 || status === 400
-        ? t('knowledgeEngine.sendRejected')
-        : t('knowledgeEngine.sendError');
+        ? tns('sendRejected')
+        : tns('sendError');
   }
 }
 
@@ -417,7 +432,7 @@ function attachActiveRun() {
   if (!active) return;
   // A command turn has no user bubble to restore — the engine's replayed `command.started` leads it. Only a
   // PROMPT turn needs its bubble re-pushed (seeded history holds only TERMINAL turns, by design).
-  if (active.prompt) chat.pushUserPrompt(active.prompt, () => t('knowledgeEngine.you'));
+  if (active.prompt) chat.pushUserPrompt(active.prompt, () => tns('you'));
   chat.connect(String(active.runId)); // runId MUST be a string — the server authorizes STOP by strict ===
 }
 
@@ -453,13 +468,13 @@ onBeforeUnmount(() => chat.close());
     <p v-if="authNotice" class="mp-kchat__note">
       {{ authNotice }}
       <button type="button" class="mp-kchat__recheck" @click="recheckProviders">
-        {{ $t('knowledgeEngine.agent.recheck') }}
+        {{ $t(`${i18nNamespace}.agent.recheck`) }}
       </button>
     </p>
 
     <Console
       :entries="entries"
-      :agent-label="$t('knowledgeEngine.agentLabel')"
+      :agent-label="$t(`${i18nNamespace}.agentLabel`)"
       :labels="chatLabels"
       :busy="streaming"
     />
@@ -475,14 +490,14 @@ onBeforeUnmount(() => chat.close());
     />
 
     <p v-if="agentSessionMissing" class="mp-kchat__note">
-      {{ $t('knowledgeEngine.agentSessionMissing') }}
+      {{ $t(`${i18nNamespace}.agentSessionMissing`) }}
     </p>
     <p v-else-if="transcriptUnavailable" class="mp-kchat__note">
-      {{ $t('knowledgeEngine.transcriptUnavailable') }}
+      {{ $t(`${i18nNamespace}.transcriptUnavailable`) }}
     </p>
 
     <p v-if="needsFirstTurnRetry" class="mp-kchat__note">
-      {{ $t('knowledgeEngine.firstTurnFailed') }}
+      {{ $t(`${i18nNamespace}.firstTurnFailed`) }}
     </p>
 
     <Composer

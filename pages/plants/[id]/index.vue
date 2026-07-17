@@ -409,6 +409,19 @@ function confirmRepotPostpone(reason: string) {
           </UiCard>
         </div>
 
+        <!-- Plant Doctor entry (always available, even before the first progress entry) -->
+        <div class="mp-detail__diagnose">
+          <UiButton
+            block
+            variant="soft"
+            color="cafe"
+            icon="heart"
+            :to="`/plants/${id}/diagnose`"
+          >
+            {{ $t('plantDetail.diagnose') }}
+          </UiButton>
+        </div>
+
         <!-- Photos gallery -->
         <div>
           <UiSectionTitle>{{ $t('photos.title') }}</UiSectionTitle>

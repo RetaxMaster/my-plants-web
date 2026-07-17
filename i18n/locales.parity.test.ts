@@ -50,6 +50,18 @@ describe('REPOT inspection keys (spec F.7)', () => {
   });
 });
 
+describe('diagnose namespace mirrors the shared chat component keys', () => {
+  it('defines every knowledgeEngine leaf key the shared AgentChat resolves', () => {
+    // The shared component (AgentChat.vue) resolves strings as `${i18nNamespace}.<suffix>`. The KE view
+    // passes namespace 'knowledgeEngine'; the diagnose view passes 'diagnose'. So diagnose MUST cover
+    // every knowledgeEngine leaf, or a doctor screen renders raw key paths instead of copy.
+    const keKeys = keyPaths((en as Tree).knowledgeEngine as Tree);
+    const diagKeys = new Set(keyPaths((en as Tree).diagnose as Tree));
+    const missing = keKeys.filter((k) => !diagKeys.has(k));
+    expect(missing).toEqual([]);
+  });
+});
+
 describe('progress tag chip i18n (spec §1.2/§1.3)', () => {
   it('every catalog key resolves to a non-empty label in BOTH locales', () => {
     for (const key of PROGRESS_TAG_KEYS) {

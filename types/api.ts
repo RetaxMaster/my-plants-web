@@ -1,4 +1,4 @@
-import type { AgentCommand, CommandCatalog, SessionHistory } from '@retaxmaster/agents-realtime-protocol';
+import type { AgentCommand, AgentProviderStatus, CommandCatalog, SessionHistory } from '@retaxmaster/agents-realtime-protocol';
 import type { TaskCode } from '../utils/tasks.js';
 import type {
   PotType, SoilMix, GrowthHabit, WindowDist,
@@ -209,9 +209,17 @@ export type KnowledgeChatRunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILE
 // value the API persists is the value it sends the engine, so this stays a plain string union.
 export type KnowledgeChatProvider = 'claude' | 'codex';
 
+// A chat session's scope. KNOWLEDGE = the admin Knowledge Engine pool; DOCTOR = a per-plant diagnosis.
+// Present on doctor sessions; absent/KNOWLEDGE on the KE pool.
+export type ChatSessionKind = 'KNOWLEDGE' | 'DOCTOR';
+
 export interface KnowledgeChatSessionSummary {
   id: string;
   provider: KnowledgeChatProvider;
+  // Scope, returned by the doctor endpoints; the KE endpoints omit it (⇒ KNOWLEDGE).
+  kind?: ChatSessionKind;
+  // The pinned plant for a DOCTOR session; null/absent for a KNOWLEDGE session.
+  plantId?: string | null;
   // The AGENT's own session id (Claude's UUID / Codex's thread id); null until the first run establishes
   // one — a conversation with none can never be resumed.
   providerSessionId: string | null;
@@ -241,6 +249,10 @@ export interface KnowledgeChatSessionDetail {
   id: string;
   title: string;
   provider: KnowledgeChatProvider;
+  // Scope, returned by the doctor endpoints; the KE endpoints omit it (⇒ KNOWLEDGE).
+  kind?: ChatSessionKind;
+  // The pinned plant for a DOCTOR session; null/absent for a KNOWLEDGE session.
+  plantId?: string | null;
   providerSessionId: string | null;
   turns: KnowledgeChatTurn[];
 }
@@ -252,6 +264,34 @@ export type KnowledgeChatHistory = SessionHistory & { agentSessionMissing?: bool
 export interface CreateKnowledgeSessionResponse { sessionId: string; runId: string; ticket: string }
 export interface ResumeKnowledgeRunResponse { runId: string; ticket: string }
 export interface KnowledgeSocketTicketResponse { ticket: string }
+
+// What the shared <AgentChat> needs from a "sessions" source — the intersection the component actually
+// calls (create/resume/history/providers/commands). Both useKnowledgeChatSessions() and
+// useDoctorChatSessions() return a superset of this, so either satisfies it structurally (fork-prevention:
+// one component, injected scope). `list`/`fetch`/`remove` are used by the PAGE, not the component, so they
+// are deliberately absent here.
+export interface ChatSessionsAdapter {
+  create: (prompt: string, provider: KnowledgeChatProvider) => Promise<CreateKnowledgeSessionResponse>;
+  resume: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) => Promise<ResumeKnowledgeRunResponse>;
+  history: (id: string) => Promise<KnowledgeChatHistory>;
+  providers: (force?: boolean) => Promise<AgentProviderStatus[]>;
+  commands: (provider: KnowledgeChatProvider) => Promise<CommandCatalog>;
+}
+
+// What the shared <AgentChatWorkspace> SHELL needs — a SUPERSET of ChatSessionsAdapter that also includes
+// the list / fetch / remove the session list + selection use (the inner <AgentChat> does not call these,
+// which is why ChatSessionsAdapter omits them). Both useKnowledgeChatSessions() and useDoctorChatSessions()
+// return this exact shape, so either satisfies it structurally (fork-prevention: one shell, injected scope).
+export interface ChatWorkspaceSessionsAdapter extends ChatSessionsAdapter {
+  list: () => Promise<KnowledgeChatSessionSummary[]>;
+  fetch: (id: string) => Promise<KnowledgeChatSessionDetail>;
+  remove: (id: string) => Promise<unknown>;
+}
+
+// What the shared <AgentChat> / <AgentChatWorkspace> need from a "runs" source.
+export interface ChatRunsAdapter {
+  mintSocketTicket: (runId: string) => Promise<string>;
+}
 
 // --- Blog & media (Spec 3; mirrors the API read-models in Spec 1) ---
 

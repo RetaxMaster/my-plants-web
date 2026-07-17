@@ -201,6 +201,7 @@
     "poorTitle": "Este lugar no le queda bien",
     "poorDesc": "Considera mover esta planta a un lugar con luz más suave y más humedad.",
     "notes": "Notas y salud",
+    "diagnose": "Diagnosticar mi planta",
     "care": "Cuidados",
     "careEmpty": "Nada por hacer por ahora. 🌿",
     "history": "Historial",
@@ -681,6 +682,12 @@
     "deleteError": "No se pudo eliminar — puede haber una ejecución activa."
   },
   "knowledgeEngine": {
+    "newChat": "Nuevo chat",
+    "noConversations": "Aún no hay conversaciones.",
+    "turns": "{n} turno | {n} turnos",
+    "deleteConversation": "Eliminar conversación",
+    "loadingChat": "Cargando chat…",
+    "deleteError": "No se pudo eliminar — puede haber una ejecución activa.",
     "runInProgress": "Ya hay una ejecución en curso para esta conversación.",
     "sendError": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
     "rateLimitReached": "el agente se quedó sin cuota",
@@ -762,6 +769,99 @@
     "sendRejected": "No se pudo enviar ese mensaje (puede ser demasiado largo).",
     "commandNeedsConversation": "Manda un mensaje primero — un comando necesita una conversación en curso.",
     "agentSessionMissing": "El agente ya no tiene la sesión de esta conversación, así que no se puede mostrar ni continuar. Abre un chat nuevo para retomar el tema."
+  },
+  "diagnose": {
+    "eyebrow": "Doctor de Plantas",
+    "title": "Diagnosticar",
+    "subtitle": "Describe lo que estás viendo y el doctor evaluará esta planta.",
+    "forPlant": "Diagnosticando {plant}",
+    "newChat": "Nuevo diagnóstico",
+    "noConversations": "Aún no hay diagnósticos.",
+    "turns": "{n} turno | {n} turnos",
+    "deleteConversation": "Eliminar diagnóstico",
+    "loadingChat": "Cargando diagnóstico…",
+    "deleteError": "No se pudo eliminar — puede haber una ejecución activa.",
+    "runInProgress": "Ya hay una ejecución en curso para este diagnóstico.",
+    "sendError": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
+    "rateLimitReached": "el agente se quedó sin cuota",
+    "composer": {
+      "promptLabel": "Mensaje",
+      "promptPlaceholder": "Describe los síntomas de tu planta…",
+      "send": "Enviar",
+      "stop": "Detener",
+      "running": "Ejecutando…",
+      "stopping": "Deteniendo…",
+      "enterToSend": "Enter para enviar",
+      "shiftEnterNewline": "Shift+Enter para un salto de línea",
+      "genericError": "Algo salió mal. Inténtalo de nuevo.",
+      "connected": "Conectado",
+      "reconnecting": "Reconectando…",
+      "disconnected": "Desconectado",
+      "overloaded": "El agente está saturado",
+      "retrying": "Reintentando…",
+      "retry": "Reintentar"
+    },
+    "agentLabel": "Doctor de Plantas",
+    "you": "Tú",
+    "runFailed": "La ejecución falló.",
+    "console": {
+      "jumpToLatest": "Ir a lo más reciente",
+      "thinking": "pensando",
+      "expandText": "Ver más",
+      "collapse": "Ver menos",
+      "seeAll": "Ver todo",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "transcriptLabel": "Transcripción de la conversación",
+      "quotaUsage": "cuota",
+      "quotaResets": "se renueva",
+      "runDone": "listo",
+      "runFailed": "falló",
+      "session": "sesión",
+      "stopped": "detenido por el usuario",
+      "truncated": "truncado",
+      "fileChange": "cambio de archivo",
+      "unsupportedEvent": "evento no soportado",
+      "noOutput": "(sin salida)",
+      "tokens": "tokens",
+      "turnOne": "1 turno",
+      "turnOther": "{n} turnos"
+    },
+    "runStatus": {
+      "QUEUED": "en cola",
+      "RUNNING": "ejecutando",
+      "SUCCEEDED": "completado",
+      "FAILED": "falló",
+      "CANCELLED": "cancelado"
+    },
+    "command": {
+      "lead": "Comando",
+      "succeeded": "comando completado",
+      "failed": "comando falló",
+      "refused": "comando rechazado",
+      "groupLabel": "Comandos",
+      "unsupported": "no soportado"
+    },
+    "rejectionReasons": {
+      "unsupportedCommand": "Este comando no está permitido en este chat.",
+      "unknownCommand": "Ese comando no existe para este agente.",
+      "catalogUnavailable": "El catálogo de comandos no está disponible por ahora."
+    },
+    "agent": {
+      "select": "Agente",
+      "notInstalled": "no instalado",
+      "notAuthenticated": "sesión cerrada",
+      "authCta": "Iniciar sesión",
+      "locked": "fijo para esta conversación",
+      "noneAvailable": "No hay ningún agente disponible por ahora.",
+      "authHint": "Inicia sesión de {agent} en el servidor (corre su CLI ahí) y vuelve a verificar.",
+      "recheck": "Volver a verificar"
+    },
+    "transcriptUnavailable": "La transcripción de esta conversación ya no se puede mostrar — es anterior al motor de chat actual.",
+    "firstTurnFailed": "El primer turno de esta conversación nunca llegó a un agente. Envíalo de nuevo — también puedes cambiar de agente primero.",
+    "sendRejected": "Ese mensaje no se pudo enviar (puede ser demasiado largo).",
+    "commandNeedsConversation": "Envía un mensaje primero — un comando necesita una conversación en curso.",
+    "agentSessionMissing": "El agente ya no tiene la sesión de esta conversación, así que no se puede mostrar ni continuar. Inicia un nuevo diagnóstico para retomar el tema."
   },
   "citySearch": {
     "placeholder": "Busca una ciudad…",
@@ -852,6 +952,10 @@
     "knowledgeEngine": {
       "title": "Knowledge Engine",
       "description": "Chatea con el asistente de investigación para curar nuevos registros de especies."
+    },
+    "diagnose": {
+      "title": "Doctor de Plantas",
+      "description": "Diagnostica tu planta con el asistente Doctor de Plantas."
     },
     "media": {
       "title": "Medios",

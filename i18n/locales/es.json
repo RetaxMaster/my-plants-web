@@ -773,6 +773,7 @@
   "diagnose": {
     "eyebrow": "Doctor de Plantas",
     "title": "Diagnosticar",
+    "notFound": "Planta no encontrada",
     "subtitle": "Describe lo que estás viendo y el doctor evaluará esta planta.",
     "forPlant": "Diagnosticando {plant}",
     "newChat": "Nuevo diagnóstico",

@@ -773,6 +773,7 @@
   "diagnose": {
     "eyebrow": "Plant Doctor",
     "title": "Diagnose",
+    "notFound": "Plant not found",
     "subtitle": "Describe what you're seeing and the doctor will assess this plant.",
     "forPlant": "Diagnosing {plant}",
     "newChat": "New diagnosis",

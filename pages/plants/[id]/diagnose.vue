@@ -6,8 +6,18 @@ const route = useRoute();
 const api = useApi();
 const id = route.params.id as string;
 
-// The plant itself — proves ownership (the API 404s otherwise) and gives the header its name.
-const { data: plant } = await useAsyncData(`diagnose-plant-${id}`, () => api.getPlant(id));
+// The plant itself — proves ownership (the API 404s a plant this owner doesn't own) and gives the header its
+// name. useAsyncData CAPTURES a thrown 404 into `error` instead of propagating it, so a nonexistent/foreign
+// plant would otherwise render an empty diagnose workspace. Re-throw it as a real Nuxt error so the page
+// 404s, per the "loads only when the plant is owned" contract (Spec 3 §5.1).
+const { data: plant, error } = await useAsyncData(`diagnose-plant-${id}`, () => api.getPlant(id));
+if (error.value) {
+  throw createError({
+    statusCode: (error.value as { statusCode?: number }).statusCode ?? 404,
+    statusMessage: t('diagnose.notFound'),
+    fatal: true,
+  });
+}
 
 useHead(() => ({ title: t('meta.diagnose.title') }));
 useSeoMeta({ description: () => t('meta.diagnose.description') });

@@ -81,6 +81,13 @@ export default defineNuxtConfig({
       // (the Nitro proxy is HTTP-only and cannot proxy a WS upgrade). Access is gated by the
       // single-use admin-minted ticket. A production WS reverse-proxy is a deferred deploy concern.
       knowledgeChatSocketUrl: process.env.NUXT_PUBLIC_KNOWLEDGE_CHAT_SOCKET_URL ?? 'http://127.0.0.1:8010',
+      // The Plant Doctor engine's localhost Socket.IO (a SECOND agents-realtime engine, doctor cwd/role;
+      // Spec 3 §2/§5.1). Same direct-connect + single-use-ticket model as the KE socket. Dev = the doctor
+      // engine's dev port `8400` (claimed by the API plan in PORTS.md, from the free range 8400–8790 — the KE
+      // engine's 8010 is taken and 8011 is NOT free); prod = the doctor wss subdomain. It MUST equal the
+      // API's PLANT_DOCTOR_CHAT_ENGINE_PORT. If §2 collapses the two engines into one, this equals
+      // knowledgeChatSocketUrl.
+      plantDoctorSocketUrl: process.env.NUXT_PUBLIC_PLANT_DOCTOR_SOCKET_URL ?? 'http://127.0.0.1:8400',
     },
   },
   devServer: { port: 8001 },

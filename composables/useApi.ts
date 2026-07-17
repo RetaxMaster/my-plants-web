@@ -204,6 +204,27 @@ export function useApi() {
     // its own admin auth; the package never fetches it itself.
     getKnowledgeCommands: (provider: KnowledgeChatProvider) =>
       api<CommandCatalog>(`/knowledge-chat/commands?provider=${provider}`),
+
+    // --- Plant Doctor chat (owner-scoped; API enforces plant ownership, 404 otherwise). Same response
+    //     shapes as the knowledge-chat endpoints — the API reuses KnowledgeChatService. ---
+    listDoctorSessions: (plantId: string) =>
+      api<KnowledgeChatSessionSummary[]>(`/plants/${plantId}/diagnose/sessions`),
+    createDoctorSession: (plantId: string, prompt: string, provider: KnowledgeChatProvider) =>
+      api<CreateKnowledgeSessionResponse>(`/plants/${plantId}/diagnose/sessions`, { method: 'POST', body: { prompt, provider } }),
+    getDoctorSession: (plantId: string, id: string) =>
+      api<KnowledgeChatSessionDetail>(`/plants/${plantId}/diagnose/sessions/${id}`),
+    getDoctorSessionHistory: (plantId: string, id: string) =>
+      api<KnowledgeChatHistory>(`/plants/${plantId}/diagnose/sessions/${id}/history`),
+    resumeDoctorSession: (plantId: string, id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) =>
+      api<ResumeKnowledgeRunResponse>(`/plants/${plantId}/diagnose/sessions/${id}/runs`, { method: 'POST', body: { ...input, provider } }),
+    deleteDoctorSession: (plantId: string, id: string) =>
+      api<{ ok: true }>(`/plants/${plantId}/diagnose/sessions/${id}`, { method: 'DELETE' }),
+    listDoctorProviders: (plantId: string, force = false) =>
+      api<AgentProviderStatus[]>(`/plants/${plantId}/diagnose/provider-status${force ? '?force=1' : ''}`),
+    getDoctorCommands: (plantId: string, provider: KnowledgeChatProvider) =>
+      api<CommandCatalog>(`/plants/${plantId}/diagnose/commands?provider=${provider}`),
+    mintDoctorSocketTicket: (plantId: string, runId: string) =>
+      api<KnowledgeSocketTicketResponse>(`/plants/${plantId}/diagnose/runs/${runId}/socket-ticket`, { method: 'POST' }),
     // Raw NDJSON transcript. The endpoint returns text/plain; ofetch yields the string as-is.
 
     listOwners: () => api<OwnerSummary[]>('/owners'),

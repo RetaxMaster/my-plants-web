@@ -8,7 +8,10 @@ import {
 import type { TranscriptLabels } from '@retaxmaster/agents-realtime-client';
 import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
-import type { ChatRunsAdapter, ChatSessionsAdapter, KnowledgeChatProvider, KnowledgeChatTurn } from '../types/api';
+import type {
+  ChatProposalsAdapter, ChatRunsAdapter, ChatSessionsAdapter, DoctorProposal,
+  DoctorProposalConflictStatus, KnowledgeChatProvider, KnowledgeChatTurn,
+} from '../types/api';
 
 const props = defineProps<{
   // Our internal cuid session id; null for a brand-new chat not yet created.
@@ -30,6 +33,10 @@ const props = defineProps<{
   i18nNamespace: string;
   // A per-consumer theme storage key so the two chats don't fight over one persisted preference.
   themeStorageKey?: string;
+  // The doctor's write-proposal source. OPTIONAL: the Knowledge Engine injects nothing and therefore has
+  // no approval surface at all — not a hidden one, an absent one. Injected scope, one component (the same
+  // fork-prevention shape as `sessions` and `runs` above).
+  proposals?: ChatProposalsAdapter;
 }>();
 
 const emit = defineEmits<{
@@ -436,14 +443,146 @@ function attachActiveRun() {
   chat.connect(String(active.runId)); // runId MUST be a string — the server authorizes STOP by strict ===
 }
 
+// --- Doctor write proposals (spec 2026-07-18 §5.3, §5.3.1, §6.2, §6.4) ---------------------------------
+//
+// The agent cannot write anything. It files a proposal; the owner approves it here. Everything rendered
+// comes from the SERVER (the canonical operation list), never from the agent's prose summary.
+
+const pendingProposal = ref<DoctorProposal | null>(null);
+// The id the owner dismissed. Dismiss is NOT a decline (§5.3): it only closes the banner. The proposal
+// stays PENDING server-side and the server expires it when the next run starts — so we track WHICH id was
+// dismissed rather than a bare boolean, and a genuinely new proposal reopens the banner on its own.
+const dismissedProposalId = ref<string | null>(null);
+const proposalBusy = ref(false);
+const proposalError = ref<string | null>(null);
+const skipPermissions = ref(false);
+const skipBusy = ref(false);
+const skipError = ref<string | null>(null);
+
+// Truthiness, NOT `!== null`. The wire has already produced one value that is neither a proposal nor
+// `null` (an empty 200 body arrives as `''`), and an adapter is an INJECTED interface this component does
+// not own, so it cannot assume the declared `DoctorProposal | null` holds at runtime. A `!== null` guard
+// waves `undefined` straight through into `.id` and throws inside a computed — where the failure surfaces
+// as an unhandled rejection rather than a visible error, which is the silent-degradation mode §5.3.1
+// exists to prevent. `refreshProposal` normalizes on assignment too; this is the second line.
+const showProposalBanner = computed(
+  () => !!pendingProposal.value && pendingProposal.value.id !== dismissedProposalId.value,
+);
+
+function resolutionErrorMessage(e: unknown): string {
+  const status = (e as { statusCode?: number })?.statusCode
+    ?? (e as { response?: { status?: number } })?.response?.status;
+  if (status !== 409) return tns('proposal.applyError');
+  // §5.3.1: the server is authoritative and the button is only a request. A 409 carries the TERMINAL
+  // status, so we can tell the owner which of the two races they lost instead of a generic failure.
+  // Read the STATUS, never the message — the two endpoints answer in one shape precisely so the UI does
+  // not have to parse prose. Note the status is NOT confined to the proposal-status enum: the API sends
+  // 'UNKNOWN' when the row has vanished entirely, which falls through to the generic "already resolved".
+  const terminal = (e as { data?: { status?: DoctorProposalConflictStatus } })?.data?.status;
+  return terminal === 'EXPIRED' ? tns('proposal.conflict.expired') : tns('proposal.conflict.resolved');
+}
+
+// THE ONLY read path. Called from exactly two places — onMounted and the run-terminal watcher below —
+// which is the whole delivery model (§6.2). There is no timer in this component and there must never be
+// one: polling a database for a state that already announces itself on `done` is waste plus latency.
+async function refreshProposal() {
+  if (!props.proposals || !currentSessionId.value) return;
+  try {
+    // `?? null` keeps the ref's declared invariant TRUE at runtime rather than merely on paper: the
+    // adapter is injected, so "it cannot return undefined" is a claim about someone else's code.
+    const next = (await props.proposals.pending(currentSessionId.value)) ?? null;
+    pendingProposal.value = next;
+    // A NEW proposal is a new request for consent: an earlier dismissal must not silently swallow it.
+    if (next && next.id !== dismissedProposalId.value) dismissedProposalId.value = null;
+  } catch {
+    // A failed read leaves the previous banner alone rather than blanking it: the chat keeps working and
+    // the next `done` re-reads. It is a missing notification, never a wrong one.
+  }
+}
+
+async function loadSkipPermissions() {
+  if (!props.proposals || !currentSessionId.value) return;
+  try {
+    const settings = await props.proposals.getSettings(currentSessionId.value);
+    skipPermissions.value = settings.skipPermissions;
+  } catch {
+    skipError.value = tns('proposal.settingsError');
+  }
+}
+
+async function approveProposal() {
+  if (!props.proposals || !currentSessionId.value || !pendingProposal.value) return;
+  proposalBusy.value = true;
+  proposalError.value = null;
+  try {
+    await props.proposals.approve(currentSessionId.value, pendingProposal.value.id);
+    pendingProposal.value = null;
+    dismissedProposalId.value = null;
+  } catch (e: unknown) {
+    // FAIL VISIBLY (§5.3.1). Approving an expired proposal must tell the owner the request died and the
+    // doctor may re-issue it — a silent no-op would let them believe the change landed.
+    proposalError.value = resolutionErrorMessage(e);
+    await refreshProposal();
+  } finally {
+    proposalBusy.value = false;
+  }
+}
+
+async function declineProposal() {
+  if (!props.proposals || !currentSessionId.value || !pendingProposal.value) return;
+  proposalBusy.value = true;
+  proposalError.value = null;
+  try {
+    await props.proposals.decline(currentSessionId.value, pendingProposal.value.id);
+    pendingProposal.value = null;
+    dismissedProposalId.value = null;
+  } catch (e: unknown) {
+    proposalError.value = resolutionErrorMessage(e);
+    await refreshProposal();
+  } finally {
+    proposalBusy.value = false;
+  }
+}
+
+// Dismiss sends NOTHING. It closes the banner and leaves the proposal PENDING; the server expires it when
+// the next run starts and tells the agent, which may then re-issue it.
+function dismissProposal() {
+  if (!pendingProposal.value) return;
+  dismissedProposalId.value = pendingProposal.value.id;
+  proposalError.value = null;
+}
+
+async function setSkipPermissions(value: boolean) {
+  if (!props.proposals || !currentSessionId.value) return;
+  skipBusy.value = true;
+  skipError.value = null;
+  try {
+    // The rendered value follows the SERVER's answer, never the click: a rejected PATCH must not leave the
+    // screen claiming the gate is off while it is on.
+    const settings = await props.proposals.setSettings(currentSessionId.value, value);
+    skipPermissions.value = settings.skipPermissions;
+  } catch {
+    skipError.value = tns('skipPermissions.error');
+  } finally {
+    skipBusy.value = false;
+  }
+}
+
 // A run just went terminal → the session list's status chip is stale. (Covers success, failure and
 // cancellation alike.)
 watch(streaming, (isStreaming, was) => {
-  if (was && !isStreaming) emit('changed');
+  if (!was || isStreaming) return;
+  emit('changed');
+  // TRIGGER 2 of 2 (§6.2). `done` is the run-finished event the client already subscribes to; at this
+  // component's level it surfaces as the state leaving the streaming set. A proposal is filed at the END
+  // of a turn by construction, so this is the moment it becomes visible. No polling anywhere.
+  void refreshProposal();
 });
 
 onMounted(async () => {
-  await Promise.all([loadProviders(), restore()]);
+  // TRIGGER 1 of 2 (§6.2): mount covers a reload, a closed laptop, a new device and a dropped socket —
+  // the proposal lives in the database, so it survives all of them.
+  await Promise.all([loadProviders(), restore(), refreshProposal(), loadSkipPermissions()]);
   attachActiveRun();
 });
 onBeforeUnmount(() => chat.close());
@@ -464,6 +603,18 @@ onBeforeUnmount(() => chat.close());
       />
       <ThemeSelector :model-value="theme" :labels="chatLabels" @update:model-value="setTheme" />
     </div>
+
+    <!-- Above the chat, per §6.4. Disabled until a session exists, because the setting is stored PER
+         SESSION and a brand-new conversation has no row to hold it yet. -->
+    <AgentSkipPermissions
+      v-if="proposals"
+      :model-value="skipPermissions"
+      :i18n-namespace="i18nNamespace"
+      :busy="skipBusy"
+      :disabled="!currentSessionId"
+      :error-message="skipError"
+      @update:model-value="setSkipPermissions"
+    />
 
     <p v-if="authNotice" class="mp-kchat__note">
       {{ authNotice }}
@@ -498,6 +649,29 @@ onBeforeUnmount(() => chat.close());
 
     <p v-if="needsFirstTurnRetry" class="mp-kchat__note">
       {{ $t(`${i18nNamespace}.firstTurnFailed`) }}
+    </p>
+
+    <!-- The platform's OWN notice zone — outside the package's Console, where RunFailureNotice and the
+         transcript notes already live. The consent surface must never be a transcript entry: the agent
+         writes the transcript. -->
+    <AgentProposalBanner
+      v-if="proposals && showProposalBanner && pendingProposal"
+      :proposal="pendingProposal"
+      :i18n-namespace="i18nNamespace"
+      :busy="proposalBusy"
+      :error-message="proposalError"
+      @approve="approveProposal"
+      @decline="declineProposal"
+      @dismiss="dismissProposal"
+    />
+
+    <!-- The banner is gone but the attempt failed: the failure must still be on screen, or an approve that
+         hit an expired proposal would look exactly like an approve that worked (§5.3.1). -->
+    <p v-if="proposals && proposalError && !showProposalBanner" class="mp-kchat__note" role="alert">
+      {{ proposalError }}
+      <button type="button" class="mp-kchat__recheck" @click="proposalError = null">
+        {{ $t('common.close') }}
+      </button>
     </p>
 
     <Composer

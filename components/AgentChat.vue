@@ -12,6 +12,10 @@ import type {
   ChatProposalsAdapter, ChatRunsAdapter, ChatSessionsAdapter, DoctorProposal,
   DoctorProposalConflictStatus, KnowledgeChatProvider, KnowledgeChatTurn,
 } from '../types/api';
+// Explicit, not via Nuxt's `utils/` auto-import: this component is mounted under plain Vitest (no Nuxt
+// module graph), so an auto-imported helper would be `undefined` at runtime in exactly the tests that
+// exercise the conflict path.
+import { upstreamErrorCode, upstreamErrorStatus } from '../utils/upstreamError.js';
 
 const props = defineProps<{
   // Our internal cuid session id; null for a brand-new chat not yet created.
@@ -470,15 +474,20 @@ const showProposalBanner = computed(
 );
 
 function resolutionErrorMessage(e: unknown): string {
-  const status = (e as { statusCode?: number })?.statusCode
-    ?? (e as { response?: { status?: number } })?.response?.status;
-  if (status !== 409) return tns('proposal.applyError');
+  if (upstreamErrorCode(e) !== 409) return tns('proposal.applyError');
   // §5.3.1: the server is authoritative and the button is only a request. A 409 carries the TERMINAL
   // status, so we can tell the owner which of the two races they lost instead of a generic failure.
   // Read the STATUS, never the message — the two endpoints answer in one shape precisely so the UI does
   // not have to parse prose. Note the status is NOT confined to the proposal-status enum: the API sends
   // 'UNKNOWN' when the row has vanished entirely, which falls through to the generic "already resolved".
-  const terminal = (e as { data?: { status?: DoctorProposalConflictStatus } })?.data?.status;
+  //
+  // ⚠️ Read it through `upstreamErrorStatus`, NEVER as `e.data.status`. Every call in this app is proxied
+  // by the Nuxt BFF, which re-wraps the upstream body under h3's own `data` key — so the field the API's
+  // e2e sees at the top level sits one level deeper in the browser. `e.data.status` is `undefined` here
+  // in every real run, which silently collapsed the EXPIRED branch: the owner was told "someone else
+  // resolved this" when in fact the agent had superseded the proposal with a newer one, and
+  // `proposal.conflict.expired` was dead copy. `server/api/proxy.wire.test.ts` pins the real shape.
+  const terminal = upstreamErrorStatus(e) as DoctorProposalConflictStatus | undefined;
   return terminal === 'EXPIRED' ? tns('proposal.conflict.expired') : tns('proposal.conflict.resolved');
 }
 
@@ -713,11 +722,46 @@ onBeforeUnmount(() => chat.close());
   flex-wrap: wrap;
   flex: none;
 }
-/* Let the embedded console take the remaining height and scroll internally. */
+/* Let the embedded console take the remaining height and scroll internally.
+ *
+ * ⚠️ `min-height: 0` here was a MEASURED defect, not a theoretical one. With the consent banner present
+ * the column's free space goes negative, and `min-height: 0` let this track shrink to LITERALLY ZERO —
+ * while its child `.crt-console` cannot: that element is `box-sizing: border-box` with `padding: 1rem`,
+ * so its used height FLOORS at 32px no matter what its `height: 100%` resolves to. A 32px child inside a
+ * 0px `overflow: visible` parent paints 32px past its own track, straight over the block below it.
+ * Measured in Chromium on the real page: console track 352→352, console element 352→384, banner heading
+ * 377→398 — a 7px overlap across the heading of the most safety-critical component in the app.
+ *
+ * Two independent guards, because either one alone leaves a hole:
+ *   `min-height` — the transcript must never collapse to nothing; the owner reads it to decide.
+ *   `overflow: hidden` — whatever the track's height, the console can never paint outside it. This is
+ *      what protects EVERY sibling below, not just today's banner (the same collapse put the mobile
+ *      "first turn never reached an agent" notice under the console too — one root cause, one fix).
+ *      Safe for the package's own UI: `.crt-console__jump` is absolutely positioned INSIDE this wrap
+ *      (which is `position: relative`), and `.crt-console` keeps its own `overflow-y: auto`.
+ */
+/*
+ * `flex-basis: 0` (not `auto`) is what makes the CONSENT SURFACE win the space fight, and it is the
+ * difference between a usable banner and a token one. Under `auto` both tracks shrink in proportion to
+ * their content, so the transcript — whose content is effectively unbounded — claimed most of the column
+ * and squeezed the banner to 64px of a 692px proposal: measured. With basis 0 the console asks for
+ * NOTHING and simply absorbs whatever is left over, so the banner shrinks only after the console has
+ * reached the `min-height` floor below. Re-measured: banner 310px, console 96px, nothing clipped.
+ * No effect when there is no banner — the console still grows to fill the whole column (418px, identical
+ * to before), because with nothing to compete with, "all the leftover space" IS the whole column.
+ */
 .mp-kchat :deep(.crt-console-wrap) {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 6rem;
   min-width: 0;
+  overflow: hidden;
+}
+/* The composer is the owner's only way to answer the agent. It must never be the thing that gets
+   squeezed out: the parent card is `overflow: hidden`, so a pushed-down composer is not merely small,
+   it is GONE. Measured alongside the overlap above — with the banner open the composer sat 270px below
+   the panel and was clipped away entirely. */
+.mp-kchat :deep(.crt-composer) {
+  flex: none;
 }
 .mp-kchat :deep(.crt-console) {
   height: 100%;
@@ -727,6 +771,16 @@ onBeforeUnmount(() => chat.close());
   flex: none;
   font: 13px var(--font-sans);
   color: var(--care-caution-text);
+}
+/* On a phone the column is far tighter (the toolbar and the Skip Permissions switch both wrap, costing
+   ~300px more than on desktop), and the transcript is the one thing here that is ALSO reachable by
+   scrolling within itself. So its floor drops and the consent surface keeps the difference. The floor
+   stays non-zero on purpose: at zero the console's `box-sizing: border-box` padding would again make the
+   element taller than its track and paint over whatever sits below it — the exact defect above. */
+@media (max-width: 720px) {
+  .mp-kchat :deep(.crt-console-wrap) {
+    min-height: 3rem;
+  }
 }
 .mp-kchat__recheck {
   background: none;

@@ -37,20 +37,62 @@ const detail = ref<KnowledgeChatSessionDetail | null>(null);
 const loadingDetail = ref(false);
 const newChatSeq = ref(0);
 
+// The selected conversation lives in the URL as `?session=<id>`, so a reload lands back on the same
+// conversation instead of the default "new chat".
+//
+// This is a SAFETY property on the doctor surface, not a convenience: a pending write proposal renders
+// only once its session's detail is loaded, so an owner who left a destructive proposal un-decided and
+// then reloaded would land on a blank chat and might never be shown that request again. The state was
+// always durable server-side; what was missing was any way back to it.
+//
+// `router.replace` (never `push`) keeps every sync out of the Back-button history — clicking through a
+// dozen conversations must not fill Back with a dozen stops. Every OTHER query param is preserved.
+const route = useRoute();
+const router = useRouter();
+
+function setSessionQuery(sid: string | null) {
+  const current = route.query.session;
+  const currentStr = typeof current === 'string' ? current : null;
+  if (currentStr === sid) return; // no-op: avoid a redundant history entry
+  const query = { ...route.query };
+  if (sid === null) delete query.session;
+  else query.session = sid;
+  void router.replace({ query });
+}
+
 async function openSession(sid: string | null) {
   selected.value = sid;
+  setSessionQuery(sid);
   if (sid === null) { detail.value = null; return; }
   loadingDetail.value = true;
-  try { detail.value = await props.sessions.fetch(sid); } finally { loadingDetail.value = false; }
+  try {
+    detail.value = await props.sessions.fetch(sid);
+  } catch {
+    // The pinned session id is stale (deleted, or belongs to another owner — the API 404s it either way).
+    // Degrade to the new-chat state rather than rendering a broken panel under a lying URL.
+    selected.value = null;
+    detail.value = null;
+    setSessionQuery(null);
+  } finally {
+    loadingDetail.value = false;
+  }
 }
 function newChat() { newChatSeq.value += 1; void openSession(null); }
-async function onCreated(sessionId: string) { selected.value = sessionId; await refresh(); }
+async function onCreated(sessionId: string) { selected.value = sessionId; setSessionQuery(sessionId); await refresh(); }
 async function onChanged() { await refresh(); }
 async function removeSession(sid: string) {
   try { await props.sessions.remove(sid); }
   catch { if (import.meta.client) alert(tns('deleteError')); return; }
   if (selected.value === sid) { newChatSeq.value += 1; await openSession(null); }
   await refresh();
+}
+
+// Restore the selected conversation from the URL on mount. A non-empty `session` query param wins over the
+// default "new chat" state; a failed restore is handled inside openSession() itself (falls back + strips
+// the param), so this call can never throw or leave a stale param behind.
+const initialSessionId = route.query.session;
+if (typeof initialSessionId === 'string' && initialSessionId.length > 0) {
+  await openSession(initialSessionId);
 }
 // Brand-new chats mount under 'new-N'; existing under their id. Adopting a new id (onCreated) does NOT
 // change the key mid-stream (the live stream is already running).
@@ -140,6 +182,13 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
 
 @media (max-width: 720px) {
   .mp-kchat-layout { grid-template-columns: 1fr; }
-  .mp-kchat-panel { height: 70vh; }
+  /* 70vh was too small once a real consent banner had to share this column. MEASURED on a 390x844
+     viewport: the chat's own chrome costs 383px here (the agent/theme toolbar wraps to 134px and the Skip
+     Permissions switch to 76px, against 32px and 40px on desktop), which left a 692px proposal just 28px
+     of a 70vh panel — a scroll window too small to read one line of. This panel already sits below the
+     fold on a phone, so the page scrolls to it either way; taking a larger share of the viewport costs
+     nothing and is what makes the approval surface legible. Re-measured at 85vh: the banner gets a usable
+     share and still scrolls internally, with nothing clipped. */
+  .mp-kchat-panel { height: 85vh; }
 }
 </style>

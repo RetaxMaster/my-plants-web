@@ -29,7 +29,10 @@ function importMetaClientPlugin(): Plugin {
 export default defineConfig({
   plugins: [importMetaClientPlugin(), vue()],
   test: {
-    include: ['utils/**/*.test.ts', 'i18n/**/*.test.ts', 'components/**/*.test.ts', 'types/**/*.test.ts', 'composables/**/*.test.ts'],
+    // `server/**` carries the BFF proxy's wire test: it boots the REAL event handler over a REAL socket,
+    // because the shape the browser receives is produced by the proxy and is invisible to both the API's
+    // e2e and to any component test that stubs the adapter. Four defects of that family have shipped.
+    include: ['utils/**/*.test.ts', 'i18n/**/*.test.ts', 'components/**/*.test.ts', 'types/**/*.test.ts', 'composables/**/*.test.ts', 'server/**/*.test.ts'],
     // Node stays the DEFAULT (keeps util/i18n tests hermetic); component test files opt into a DOM
     // per-file via `// @vitest-environment happy-dom` at the top of the file.
     environment: 'node',

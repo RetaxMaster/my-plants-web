@@ -105,8 +105,23 @@ const hasDestructive = computed(() => props.proposal.operations.some((op) => op.
 </template>
 
 <style scoped>
+/* The banner lives inside a FIXED-HEIGHT, `overflow: hidden` chat panel, and a real proposal is tall —
+ * measured at 692px against a 708px panel. `flex: none` therefore did not protect it, it protected the
+ * WRONG thing: the column overflowed, and the composer below was pushed out of the panel and clipped
+ * away completely.
+ *
+ * So the banner takes what it can and scrolls the REST internally rather than pushing anything out of the
+ * card. `min-height: 0` is what actually permits the shrink (a flex item's automatic minimum size is its
+ * content, so without it the item refuses to shrink and `overflow-y` never engages).
+ *
+ * Nothing about the consent decision is hidden by this: the operation list, the agent's caption, any
+ * error line and all three buttons stay inside ONE scrollable region, so scrolling reaches every one of
+ * them. What it removes is the previous behaviour, where the buttons were rendered outside the visible
+ * card and could not be reached at all. */
 .mp-proposal {
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .mp-proposal__hint {

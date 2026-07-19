@@ -165,8 +165,28 @@ function makeProposals(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// ⚠️ THIS DOUBLE MUST MIRROR THE PROXIED WIRE, NOT THE API's OWN RESPONSE.
+//
+// It used to build `{ statusCode: 409, data: { status } }` — the shape NestJS emits and the shape the
+// API's e2e asserts. The browser never sees that shape: every call goes through the Nuxt BFF
+// (`server/api/[...].ts`), which re-throws with h3's `createError({ data: <upstream body> })`, so the
+// upstream body arrives ONE LEVEL DEEPER, at `err.data.data`. The old double was therefore more
+// convenient than reality and made a broken `e.data.status` read look correct: `conflict.expired` was
+// dead copy in production while these tests were green — the exact "a double that cannot fail the
+// property it proves" trap this project keeps hitting.
+//
+// The real envelope is measured, not assumed: `server/api/proxy.wire.test.ts` drives the actual handler
+// over a real socket and pins it. Keep the two in step — if that test's expectations change, so must this.
 const conflict = (status: string) =>
-  Object.assign(new Error('conflict'), { statusCode: 409, data: { status } });
+  Object.assign(new Error('conflict'), {
+    statusCode: 409,
+    data: {
+      statusCode: 409,
+      statusMessage: 'Conflict',
+      message: 'Conflict',
+      data: { message: 'proposal is no longer pending', status },
+    },
+  });
 
 beforeEach(() => { chatStub.state.value = 'idle'; });
 afterEach(async () => {

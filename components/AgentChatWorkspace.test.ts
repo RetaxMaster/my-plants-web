@@ -10,7 +10,7 @@
 // `useI18n`/`useAsyncData` are bare Nuxt auto-imports the shell calls at setup; outside Nuxt's build they are
 // stubbed as globals (same technique as ProgressForm.test / HistoryTimeline.test). The shell `await`s
 // useAsyncData, so it is an ASYNC-setup component — mounted under <Suspense> and flushed.
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, computed, defineComponent, h, Suspense } from 'vue';
 import AgentChatWorkspace from './AgentChatWorkspace.vue';
@@ -38,6 +38,27 @@ function makeScope(sessions: Array<{ id: string; title: string; status: string |
   const runsApi = { mintSocketTicket: vi.fn() };
   return { sessionsApi, runsApi };
 }
+
+// --- B5: `?session=<id>` URL sync ------------------------------------------------------------------------
+//
+// Fake vue-router env, swapped in per test via `routeEnv` (same per-test-mutable-closure technique the
+// file already uses for sessionsApi/runsApi). `router.replace` mutates `route.query` in place so a test can
+// mount, act, then read `routeEnv.route.query` to see the settled URL — mirroring how a real replace()
+// updates the current route. `push` is stubbed too (and asserted never called) so an accidental push doesn't
+// silently pass by falling through to `replace`'s mock.
+function makeRouteEnv(initialQuery: Record<string, string> = {}) {
+  const route: { query: Record<string, unknown> } = { query: { ...initialQuery } };
+  const replace = vi.fn((to: { query?: Record<string, unknown> }) => {
+    if (to?.query) route.query = { ...to.query };
+  });
+  const push = vi.fn();
+  return { route, replace, push };
+}
+// Existing tests (predating B5) never touch routeEnv at all — default it to an empty-query env so they mount
+// exactly as before. Tests below reassign it before mounting to control the starting `?session=` value.
+let routeEnv = makeRouteEnv();
+vi.stubGlobal('useRoute', () => routeEnv.route);
+vi.stubGlobal('useRouter', () => ({ replace: routeEnv.replace, push: routeEnv.push }));
 
 // Explicit AgentChat stub declaring the injected props so we can read exactly what the shell forwarded.
 const AgentChatStub = defineComponent({
@@ -207,5 +228,148 @@ describe('AgentChatWorkspace — the optional proposals adapter', () => {
 
     expect(docChat.props('proposals')).toBe(proposals);
     expect(keChat.props('proposals')).toBeUndefined();
+  });
+});
+
+// B5 (LOW/UX): reloading the diagnose page used to drop the selected conversation because the session id
+// lived only in component state, not the URL. An owner who reloaded mid-approval landed on a blank
+// "new chat" and never saw the pending-proposal banner again. Fixed ONCE in the shared shell (`?session=`),
+// so both the doctor page and the KE admin page inherit it — per the anti-fork rule, no per-consumer copy.
+describe('AgentChatWorkspace — session id in the URL (B5: reload keeps the pinned conversation)', () => {
+  // Every mount in this block is tracked and torn down in afterEach — a leaked mount from an earlier test
+  // (e.g. a stray socket/localStorage listener inside AgentChat) is exactly the false-green class this file
+  // already guards against in the LAUNCHING loop tests above (explicit unmount there too).
+  let mounted: Array<Awaited<ReturnType<typeof mountShell>>>;
+  beforeEach(() => { mounted = []; });
+  afterEach(() => { for (const w of mounted) w.unmount(); });
+
+  async function mountTracked(props: Record<string, unknown>) {
+    const wrapper = await mountShell(props);
+    mounted.push(wrapper);
+    return wrapper;
+  }
+
+  it('restores the conversation pinned in ?session=<id> on mount', async () => {
+    routeEnv = makeRouteEnv({ session: 's2' });
+    const { sessionsApi, runsApi } = makeScope([
+      { id: 's1', title: 'First', status: null, turns: 1 },
+      { id: 's2', title: 'Second', status: null, turns: 3 },
+    ]);
+    const wrapper = await mountTracked({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+    });
+
+    expect(sessionsApi.fetch).toHaveBeenCalledWith('s2');
+    expect(wrapper.findComponent(AgentChatStub).props('sessionId')).toBe('s2');
+    const items = wrapper.findAll('.mp-kchat-list__item');
+    expect(items[0].classes()).not.toContain('is-active');
+    expect(items[1].classes()).toContain('is-active');
+    // The URL already matched the restored id, so no redundant replace() fired on mount.
+    expect(routeEnv.replace).not.toHaveBeenCalled();
+  });
+
+  it('a FAILING restore falls back to new-chat AND clears the stale session param', async () => {
+    routeEnv = makeRouteEnv({ session: 'ghost' });
+    const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'First', status: null, turns: 1 }]);
+    sessionsApi.fetch.mockRejectedValueOnce(new Error('404 Not Found'));
+
+    const wrapper = await mountTracked({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+    });
+
+    expect(sessionsApi.fetch).toHaveBeenCalledWith('ghost');
+    // Degraded to the new-chat state — no broken panel pinned to a dead id.
+    expect(wrapper.findComponent(AgentChatStub).props('sessionId')).toBeNull();
+    expect(wrapper.findAll('.mp-kchat-list__item.is-active')).toHaveLength(0);
+    // And the stale param is stripped from the URL, via replace (never push).
+    expect(routeEnv.replace).toHaveBeenCalledWith({ query: {} });
+    expect(routeEnv.route.query.session).toBeUndefined();
+    expect(routeEnv.push).not.toHaveBeenCalled();
+  });
+
+  it('selecting a conversation syncs the URL via replace(), never push()', async () => {
+    routeEnv = makeRouteEnv({});
+    const { sessionsApi, runsApi } = makeScope([
+      { id: 's1', title: 'First', status: null, turns: 1 },
+      { id: 's2', title: 'Second', status: null, turns: 3 },
+    ]);
+    const wrapper = await mountTracked({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+    });
+
+    await wrapper.findAll('.mp-kchat-list__open')[1].trigger('click');
+
+    expect(routeEnv.replace).toHaveBeenCalledWith({ query: { session: 's2' } });
+    expect(routeEnv.route.query.session).toBe('s2');
+    expect(routeEnv.push).not.toHaveBeenCalled();
+  });
+
+  it('adopting a newly-created conversation (onCreated) puts its id in the URL', async () => {
+    routeEnv = makeRouteEnv({});
+    const { sessionsApi, runsApi } = makeScope([]);
+    const wrapper = await mountTracked({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+    });
+
+    wrapper.findComponent(AgentChatStub).vm.$emit('created', 'brand-new-id');
+    await flushPromises();
+
+    expect(routeEnv.replace).toHaveBeenCalledWith({ query: { session: 'brand-new-id' } });
+    expect(routeEnv.route.query.session).toBe('brand-new-id');
+    expect(routeEnv.push).not.toHaveBeenCalled();
+  });
+
+  it('starting a new chat clears the session param from the URL', async () => {
+    routeEnv = makeRouteEnv({ session: 's1' });
+    const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'First', status: null, turns: 1 }]);
+    const wrapper = await mountTracked({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+    });
+    expect(routeEnv.route.query.session).toBe('s1'); // sanity: the restore ran first
+
+    // The "New chat" control is the UiButton stub above the session list (stubbed as `true`, which still
+    // forwards the fallthrough @click listener onto the stub's root element — verified empirically).
+    await wrapper.find('ui-button-stub').trigger('click');
+
+    expect(routeEnv.route.query.session).toBeUndefined();
+    expect(routeEnv.push).not.toHaveBeenCalled();
+  });
+
+  it('deleting the selected conversation clears the session param from the URL', async () => {
+    routeEnv = makeRouteEnv({ session: 's1' });
+    const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'First', status: null, turns: 1 }]);
+    const wrapper = await mountTracked({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+    });
+    expect(routeEnv.route.query.session).toBe('s1'); // sanity: the restore ran first
+
+    await wrapper.find('.mp-kchat-list__del').trigger('click');
+    await flushPromises();
+
+    expect(sessionsApi.remove).toHaveBeenCalledWith('s1');
+    expect(routeEnv.route.query.session).toBeUndefined();
+  });
+
+  it('preserves unrelated query params when syncing the session id', async () => {
+    routeEnv = makeRouteEnv({ session: 's1', tab: 'notes' });
+    const { sessionsApi, runsApi } = makeScope([
+      { id: 's1', title: 'First', status: null, turns: 1 },
+      { id: 's2', title: 'Second', status: null, turns: 3 },
+    ]);
+    const wrapper = await mountTracked({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+    });
+
+    await wrapper.findAll('.mp-kchat-list__open')[1].trigger('click');
+
+    expect(routeEnv.replace).toHaveBeenLastCalledWith({ query: { tab: 'notes', session: 's2' } });
+    expect(routeEnv.route.query).toEqual({ tab: 'notes', session: 's2' });
   });
 });

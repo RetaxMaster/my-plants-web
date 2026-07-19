@@ -195,10 +195,28 @@ watch(() => props.proposal.id, async () => {
  *
  * `overflow: hidden` here (not `visible`) is the same guard the console track needed: it stops the inner
  * region from painting outside the banner's own box when the flex shrink is severe. */
+/* ⚠️ NO `min-height: 0` HERE, DELIBERATELY — and this is the subtle half of the degraded-path fix.
+ *
+ * `min-height: 0` waives a flex item's AUTOMATIC MINIMUM SIZE, i.e. its promise not to shrink below what
+ * its own content needs. Combined with the `overflow: hidden` below, that let this banner be shrunk to
+ * 203px while its content minimum was 302px — and the 99px it clipped were the action buttons. Measured
+ * on the degraded path at 390x844: the reading region correctly held its 128px floor, and the buttons
+ * were cut off anyway, because the floor was being enforced INSIDE a box that had been allowed to shrink
+ * beneath it.
+ *
+ * ⚠️ AND NO `overflow: hidden` EITHER — the two are the same mistake wearing different clothes. A flex
+ * item whose `overflow` is anything but `visible` ALSO gets an automatic minimum size of zero, by the
+ * same rule. So clipping this box silently re-granted permission to shrink beneath its content: removing
+ * `min-height: 0` alone changed nothing, and the buttons stayed cut off at exactly 203px of a 302px
+ * minimum. Both had to go together.
+ *
+ * The clip was there to stop the inner region painting outside this box under a severe shrink. That job
+ * now belongs to the floor on `.mp-proposal__scroll` plus this element's restored automatic minimum: the
+ * box can no longer BE smaller than its content, so there is nothing to clip. The column overflows
+ * instead, and `.mp-kchat`'s `overflow-y` turns that into a scroll — "it does not fit" must resolve to
+ * "the owner scrolls", never to "the controls are silently cut off". */
 .mp-proposal {
   flex: 0 1 auto;
-  min-height: 0;
-  overflow: hidden;
 }
 
 /* UiAlert lays its icon and body out as a ROW. For the body to become the vertical scroll+footer chain,
@@ -211,14 +229,29 @@ watch(() => props.proposal.id, async () => {
   overflow: hidden;
 }
 
+/* Same reasoning as the banner root: NO `min-height: 0`. The body must carry its children's minimum
+ * upward — reading floor + cue + actions — or the banner root's automatic minimum computes as zero and
+ * the guard above is defeated one level down. */
 .mp-proposal :deep(.mp-alert__body) {
   flex: 1 1 auto;
-  min-height: 0;
 }
 
+/* A FLOOR THAT IS NOT CURRENTLY LOAD-BEARING — kept deliberately, and labelled so nobody mistakes it for
+ * the guard that is.
+ *
+ * Mutation-tested: setting this back to `min-height: 0` changes nothing today, because the banner root
+ * above no longer shrinks below its content, so this region is never squeezed in the first place. What
+ * actually fixed the degraded path was removing that root's `min-height: 0` AND its `overflow: hidden`.
+ *
+ * It stays because it is the floor for the failure that has now happened twice — a `min-height: 0` flex
+ * item being the thing destroyed when the budget does not fit (round 1: the transcript console collapsed
+ * to 0px; round 2: this region collapsed to 17px of 1018px, leaving the owner a live "Approve changes"
+ * button and not one word of the change list). If anything ever constrains the banner root again, this is
+ * what stops that from being total. It is insurance, not the mechanism — do not read its presence as
+ * proof the surface is safe. */
 .mp-proposal__scroll {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 8rem;
   overflow-y: auto;
   /* Keep the scrollbar's space reserved so the content does not reflow the moment the region becomes
      scrollable, and show a thin one where the platform draws them at all. The visible cue below is what

@@ -713,6 +713,22 @@ onBeforeUnmount(() => chat.close());
   flex: 1 1 auto;
   height: 100%;
   --crt-height: 100%;
+  /* ⚠️ LOAD-BEARING ON THE DEGRADED PATH — mutation-proven, do not remove as redundant.
+   *
+   * The consent banner refuses to shrink below its own content, so on a browser without `:has()` (where
+   * the card stays a fixed-height cage) this column outgrows the card. The card is `overflow: hidden`,
+   * and that would silently discard everything past its edge — including the action buttons and the
+   * "this permanently deletes the entry" warning. "It does not fit" must resolve to "the owner scrolls",
+   * never to "the controls are gone".
+   *
+   * Removing this line makes all three buttons UNREACHABLE at 280x653 with a 10-operation proposal.
+   * Verifying that requires care: `overflow: hidden` boxes are still PROGRAMMATICALLY scrollable, so a
+   * naive `scrollIntoView` reports the buttons as reachable when no human could ever get to them. The
+   * check must undo any scroll applied to a `hidden` ancestor before measuring.
+   *
+   * A no-op in both supported cases: with `:has()` the card sizes to its content, and with no proposal
+   * every child shrinks to fit — `scrollHeight` never exceeds `clientHeight`, so no scrollbar appears. */
+  overflow-y: auto;
 }
 .mp-kchat__toolbar {
   display: flex;

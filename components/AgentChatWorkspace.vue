@@ -197,11 +197,20 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
  * card its `height: 100%` resolves to `auto`, and the transcript would grow without bound — making the
  * page as tall as the entire conversation.
  *
- * `:has()` degrades in exactly the right direction. A browser without it keeps the fixed-height card,
- * where the banner's pinned action buttons and its overflow cue still guarantee that nothing — least of
- * all the destructive-delete warning — is ever hidden UNMARKED. That fallback is load-bearing, not
- * decorative: it is what makes this rule an improvement rather than the only thing standing between the
- * owner and an invisible warning. */
+ * ⚠️ ON THE DEGRADED PATH (a browser without `:has()` — Firefox <121, Safari <15.4, Chrome/Edge <105)
+ * THE CARD STAYS A FIXED-HEIGHT CAGE, AND THAT PATH IS ONLY SAFE BECAUSE OF TWO GUARDS THAT LIVE
+ * ELSEWHERE. This comment previously claimed the rule "degrades in exactly the right direction" full
+ * stop. That was FALSE as written, and measurably so: with these rules removed at 390x844 the banner's
+ * reading region was 17px of 1018px — the owner got a live "Approve changes" button and not one word of
+ * the change list, destructive-delete warning included. The degradation is benign ONLY because of two
+ * things that live in OTHER files, both mutation-proven:
+ *   1. the banner root carries NEITHER `min-height: 0` NOR `overflow: hidden`, so it can no longer be
+ *      shrunk below its own content and then clipped (AgentProposalBanner.vue) — this is the actual fix;
+ *   2. `.mp-kchat` scrolls, so the column that consequently outgrows this cage stays reachable instead of
+ *      being discarded by the card's own `overflow: hidden` (AgentChat.vue).
+ * Remove either and the owner gets a live "Approve changes" button with no disclosure at all. Verified
+ * with the `:has()` rules stripped at 1440x900, 390x844 AND 280x653, on a 10-operation proposal
+ * containing a permanent delete. */
 .mp-kchat-panel:has(.mp-proposal) { height: auto; min-height: 30rem; }
 .mp-kchat-panel:has(.mp-proposal) .mp-kchat { height: auto; }
 .mp-kchat-panel:has(.mp-proposal) :deep(.crt-console-wrap) { flex: none; height: 16rem; }

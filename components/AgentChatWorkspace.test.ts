@@ -14,6 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, computed, defineComponent, h, Suspense } from 'vue';
 import AgentChatWorkspace from './AgentChatWorkspace.vue';
+import type { KnowledgeChatRunStatus } from '../types/api';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -102,8 +103,19 @@ describe('AgentChatWorkspace (the shared shell)', () => {
   //
   // Every ACTIVE status is asserted, not just the one that was missing: the defect was a hand-written
   // list drifting from the API's, and a test that checks only LAUNCHING would drift the same way.
+  // ⚠️ EXHAUSTIVE BY CONSTRUCTION. Two hand-written arrays (active / terminal) would be satisfied by any
+  // subset, so a seventh status could be added to the union and tested by neither — the same shape of
+  // omission that let LAUNCHING ship unhandled. This Record is keyed by the union, so a new status is a
+  // COMPILE error here (web `typecheck` covers test files) until someone classifies it.
+  const EXPECT_BUSY: Record<KnowledgeChatRunStatus, boolean> = {
+    QUEUED: true, LAUNCHING: true, RUNNING: true,
+    SUCCEEDED: false, FAILED: false, CANCELLED: false,
+  };
+  const statusesWhere = (busy: boolean) =>
+    (Object.keys(EXPECT_BUSY) as KnowledgeChatRunStatus[]).filter((s) => EXPECT_BUSY[s] === busy);
+
   it('treats every ACTIVE run status — including LAUNCHING — as busy', async () => {
-    for (const status of ['QUEUED', 'LAUNCHING', 'RUNNING']) {
+    for (const status of statusesWhere(true)) {
       const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'S1', status, turns: 1 }]);
       const wrapper = await mountShell({
         sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
@@ -116,7 +128,7 @@ describe('AgentChatWorkspace (the shared shell)', () => {
   });
 
   it('leaves delete enabled once the run reaches a terminal status', async () => {
-    for (const status of ['SUCCEEDED', 'FAILED', 'CANCELLED']) {
+    for (const status of statusesWhere(false)) {
       const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'S1', status, turns: 1 }]);
       const wrapper = await mountShell({
         sessions: sessionsApi, runs: runsApi, socketUrl: 'x',

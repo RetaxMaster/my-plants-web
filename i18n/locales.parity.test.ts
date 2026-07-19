@@ -130,7 +130,14 @@ describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
   // ⚠️ Derived from the type union, never hand-listed: LAUNCHING shipped on the wire while the web knew
   // only five statuses, and a hand-written list here would have been copied from the same stale union.
   it('labels every run status in both chat namespaces', () => {
-    const statuses: KnowledgeChatRunStatus[] = ['QUEUED', 'LAUNCHING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'];
+    // ⚠️ EXHAUSTIVE BY CONSTRUCTION, not by hand. A plain `KnowledgeChatRunStatus[]` literal is satisfied
+    // by any SUBSET, so adding a seventh status to the union would leave this list — and this test —
+    // silently stale, which is exactly how LAUNCHING went missing in the first place. A Record keyed by
+    // the union makes an omission a COMPILE error (`npm run typecheck` covers test files).
+    const EXPECTED: Record<KnowledgeChatRunStatus, true> = {
+      QUEUED: true, LAUNCHING: true, RUNNING: true, SUCCEEDED: true, FAILED: true, CANCELLED: true,
+    };
+    const statuses = Object.keys(EXPECTED) as KnowledgeChatRunStatus[];
     for (const cat of [en, es] as unknown as Tree[]) {
       for (const ns of ['diagnose', 'knowledgeEngine']) {
         const runStatus = ((cat[ns] as Tree).runStatus ?? {}) as Tree;

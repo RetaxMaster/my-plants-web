@@ -860,6 +860,42 @@
     },
     "transcriptUnavailable": "La transcripción de esta conversación ya no se puede mostrar — es anterior al motor de chat actual.",
     "firstTurnFailed": "El primer turno de esta conversación nunca llegó a un agente. Envíalo de nuevo — también puedes cambiar de agente primero.",
+    "proposal": {
+      "title": "El doctor quiere cambiar el registro de esta planta",
+      "reviewHint": "Todavía no se ha cambiado nada. Revisa cada cambio y luego apruébalo o recházalo.",
+      "agentSays": "Nota del doctor",
+      "approve": "Aprobar cambios",
+      "decline": "Rechazar",
+      "dismiss": "Ahora no",
+      "applying": "Aplicando…",
+      "emptyValue": "—",
+      "staleNote": "Esto cambió desde que el doctor lo revisó. Él vio:",
+      "destructive": "Esto elimina la entrada y sus fotos de forma permanente. No se puede deshacer.",
+      "applyError": "No se pudieron aplicar los cambios. No se modificó nada.",
+      "declineError": "No se pudo registrar tu rechazo. Inténtalo de nuevo.",
+      "settingsError": "No se pudo cargar la configuración de esta conversación.",
+      "conflict": {
+        "expired": "Esta solicitud expiró: un mensaje más reciente la cerró, así que ya no se puede aprobar. Pídele al doctor que la proponga otra vez.",
+        "resolved": "Esta solicitud ya se había resuelto en otro lado, así que ahora no se aplicó nada."
+      },
+      "opType": {
+        "profileUpdate": "Actualizar el perfil de cuidado",
+        "plantUpdate": "Actualizar la planta",
+        "progressCreate": "Agregar una entrada de progreso",
+        "progressUpdate": "Editar una entrada de progreso",
+        "progressDelete": "Eliminar una entrada de progreso",
+        "frequencySet": "Definir la frecuencia de una tarea",
+        "frequencyClear": "Quitar la frecuencia personalizada de una tarea",
+        "careDone": "Marcar una tarea de cuidado como hecha"
+      }
+    },
+    "skipPermissions": {
+      "label": "Omitir permisos (peligroso)",
+      "hint": "El doctor aplica sus cambios de inmediato, sin preguntarte antes. Aplica solo a esta conversación.",
+      "activeTitle": "Las aprobaciones están desactivadas en esta conversación",
+      "activeBody": "Cada cambio que decida el doctor se aplica de inmediato a esta planta. Desactiva esto para revisar los cambios antes de que se apliquen.",
+      "error": "No se pudo cambiar esta opción. Sigue desactivada."
+    },
     "sendRejected": "Ese mensaje no se pudo enviar (puede ser demasiado largo).",
     "commandNeedsConversation": "Envía un mensaje primero — un comando necesita una conversación en curso.",
     "agentSessionMissing": "El agente ya no tiene la sesión de esta conversación, así que no se puede mostrar ni continuar. Inicia un nuevo diagnóstico para retomar el tema."

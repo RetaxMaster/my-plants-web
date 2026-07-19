@@ -860,6 +860,42 @@
     },
     "transcriptUnavailable": "This conversation's transcript can no longer be shown — it predates the current chat engine.",
     "firstTurnFailed": "This conversation's first turn never reached an agent. Send it again — you can also switch agents first.",
+    "proposal": {
+      "title": "The doctor wants to change this plant's record",
+      "reviewHint": "Nothing has been changed yet. Review each change below, then approve or decline.",
+      "agentSays": "The doctor's note",
+      "approve": "Approve changes",
+      "decline": "Decline",
+      "dismiss": "Not now",
+      "applying": "Applying…",
+      "emptyValue": "—",
+      "staleNote": "This changed since the doctor looked. It saw:",
+      "destructive": "This permanently deletes the entry and its photos. It cannot be undone.",
+      "applyError": "The changes could not be applied. Nothing was changed.",
+      "declineError": "Your decline could not be recorded. Please try again.",
+      "settingsError": "Could not load this conversation's settings.",
+      "conflict": {
+        "expired": "This request expired — a newer message ended it, so it can no longer be approved. Ask the doctor to propose it again.",
+        "resolved": "This request was already resolved elsewhere, so nothing was applied now."
+      },
+      "opType": {
+        "profileUpdate": "Update the care profile",
+        "plantUpdate": "Update the plant",
+        "progressCreate": "Add a progress entry",
+        "progressUpdate": "Edit a progress entry",
+        "progressDelete": "Delete a progress entry",
+        "frequencySet": "Set a task's frequency",
+        "frequencyClear": "Remove a task's frequency override",
+        "careDone": "Mark a care task as done"
+      }
+    },
+    "skipPermissions": {
+      "label": "Dangerously skip permissions",
+      "hint": "The doctor applies its changes right away, without asking you first. It applies to this conversation only.",
+      "activeTitle": "Approvals are off for this conversation",
+      "activeBody": "Every change the doctor decides on is applied to this plant immediately. Turn this off to review changes before they land.",
+      "error": "Could not change this setting. It is still off."
+    },
     "sendRejected": "That message could not be sent (it may be too long).",
     "commandNeedsConversation": "Send a message first — a command needs an ongoing conversation.",
     "agentSessionMissing": "The agent no longer has this conversation's session, so it can't be shown or continued. Start a new diagnosis to pick the topic back up."

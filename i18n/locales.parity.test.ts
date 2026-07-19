@@ -76,3 +76,59 @@ describe('progress tag chip i18n (spec §1.2/§1.3)', () => {
     expect(es.progress.tags.unknown).not.toBe(en.progress.tags.unknown); // Spanish is actually translated
   });
 });
+
+describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
+  const OP_KEYS = [
+    'profileUpdate', 'plantUpdate', 'progressCreate', 'progressUpdate',
+    'progressDelete', 'frequencySet', 'frequencyClear', 'careDone',
+  ] as const;
+
+  it('both locales define the banner copy, including every operation-type label', () => {
+    for (const cat of [en, es] as unknown as Tree[]) {
+      const proposal = ((cat.diagnose as Tree).proposal ?? {}) as Tree;
+      // `settingsError` is in this list even though the plan's own list omitted it: AgentChat resolves it
+      // when the settings read fails, so leaving it unpinned would let that path render a raw key path.
+      for (const k of ['title', 'reviewHint', 'agentSays', 'approve', 'decline', 'dismiss',
+                       'applying', 'emptyValue', 'staleNote', 'destructive',
+                       'applyError', 'declineError', 'settingsError']) {
+        expect(proposal[k], `diagnose.proposal.${k}`).toBeTruthy();
+      }
+      const conflict = (proposal.conflict ?? {}) as Tree;
+      expect(conflict.expired).toBeTruthy();
+      expect(conflict.resolved).toBeTruthy();
+      const opType = (proposal.opType ?? {}) as Tree;
+      for (const k of OP_KEYS) expect(opType[k], `diagnose.proposal.opType.${k}`).toBeTruthy();
+    }
+  });
+
+  it('both locales define the Dangerously Skip Permissions copy', () => {
+    for (const cat of [en, es] as unknown as Tree[]) {
+      const skip = ((cat.diagnose as Tree).skipPermissions ?? {}) as Tree;
+      for (const k of ['label', 'hint', 'activeTitle', 'activeBody', 'error']) {
+        expect(skip[k], `diagnose.skipPermissions.${k}`).toBeTruthy();
+      }
+    }
+  });
+
+  // The eight camelCase keys are a MAPPING of the API's dotted discriminants ('profile.update' → 
+  // 'profileUpdate'), and the map lives in AgentProposalBanner.vue. A dot inside an i18n leaf key is read
+  // by vue-i18n as a nesting separator, so the wire value can never be used as a key directly. If the API
+  // ever adds a ninth operation type, this list and that map both have to grow — pinning the count here is
+  // what makes the omission fail a test instead of rendering a raw key path in front of the owner.
+  it('defines exactly one label per operation type in the API union', () => {
+    for (const cat of [en, es] as unknown as Tree[]) {
+      const opType = (((cat.diagnose as Tree).proposal as Tree).opType ?? {}) as Tree;
+      expect(Object.keys(opType).sort()).toEqual([...OP_KEYS].sort());
+    }
+  });
+
+  // Spanish must be genuinely translated, not the English string copied across. The catalogue-wide parity
+  // test only proves the key trees match — it would stay green on a wholesale copy-paste.
+  it('translates the banner copy into Spanish rather than mirroring English', () => {
+    const enProposal = ((en as unknown as Tree).diagnose as Tree).proposal as Tree;
+    const esProposal = ((es as unknown as Tree).diagnose as Tree).proposal as Tree;
+    for (const k of ['title', 'reviewHint', 'approve', 'decline', 'dismiss', 'destructive']) {
+      expect(esProposal[k], `diagnose.proposal.${k}`).not.toBe(enProposal[k]);
+    }
+  });
+});

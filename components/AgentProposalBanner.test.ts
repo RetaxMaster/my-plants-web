@@ -4,11 +4,13 @@
 // structured operation list, not the agent's prose. If consent were based on `summary`, an agent could
 // describe a harmless edit over a destructive operation set and the platform gate would be a prompt gate.
 import { describe, it, expect, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
-import { computed } from 'vue';
+import { flushPromises, mount } from '@vue/test-utils';
 import AgentProposalBanner from './AgentProposalBanner.vue';
 
-vi.stubGlobal('computed', computed);
+// No `vi.stubGlobal('computed', ...)` and no stubs for `ref`/`watch`/`onMounted`: the component imports
+// its Vue APIs EXPLICITLY. Stubbing them here meant every new reactivity primitive the component reached
+// for broke all 15 of these tests with `ref is not defined` — a test-harness failure disguised as a
+// component failure, and a standing tax on changing the component at all.
 vi.stubGlobal('useI18n', () => ({ t: (k: string) => k }));
 
 const PROPOSAL = {
@@ -174,5 +176,73 @@ describe('AgentProposalBanner', () => {
     expect(w.text()).toContain('diagnose.proposal.opType.careDone');
     expect(w.text()).toContain('WATER');
     expect(w.find('.changes').exists()).toBe(false);
+  });
+
+  // --- The overflow structure (spec: a destructive proposal must never hide its warning or its
+  // controls below an unmarked fold) -------------------------------------------------------------
+  //
+  // These are STRUCTURAL assertions on purpose. Whether the content actually overflows is a question
+  // about layout, and happy-dom has no layout engine — `scrollHeight` is always 0 here, so a test that
+  // claimed to prove "the cue appears when clipped" would be proving nothing. What CAN be proven here,
+  // and is the invariant that matters, is that the controls are not inside the thing that clips.
+  describe('the scroll region and the pinned controls', () => {
+    it('keeps every action button OUTSIDE the scrolling region', () => {
+      const w = mountBanner();
+      const scroll = w.find('.mp-proposal__scroll');
+      expect(scroll.exists()).toBe(true);
+      const actions = w.find('.mp-proposal__actions');
+      expect(actions.exists()).toBe(true);
+      // Containment, not CSS: if the actions were ever nested back inside the scroll region, a proposal
+      // taller than the column would hide Approve/Decline/Not now behind a scrollbar the platform may
+      // not even draw. That is the exact regression this asserts against.
+      expect(scroll.element.contains(actions.element)).toBe(false);
+      for (const btn of w.findAll('button')) {
+        expect(scroll.element.contains(btn.element)).toBe(false);
+      }
+    });
+
+    it('keeps the failure message outside the scrolling region too', () => {
+      const w = mountBanner({ errorMessage: 'it failed' });
+      const alert = w.find('[role="alert"]');
+      expect(alert.exists()).toBe(true);
+      // An explanation that an approve just failed must not be something the owner has to scroll to find.
+      expect(w.find('.mp-proposal__scroll').element.contains(alert.element)).toBe(false);
+    });
+
+    it('puts the operation list and the doctor note INSIDE the scrolling region', () => {
+      const w = mountBanner();
+      const scroll = w.find('.mp-proposal__scroll');
+      expect(scroll.element.contains(w.find('.mp-proposal__ops').element)).toBe(true);
+      expect(scroll.element.contains(w.find('.mp-proposal__summary').element)).toBe(true);
+    });
+
+    // ⚠️ These two MUST await a flush. The cue is computed in `onMounted`, and Vue applies the resulting
+    // DOM update on the next tick — so asserting straight after `mount()` reads the PRE-UPDATE DOM and
+    // passes no matter what the component decided. Caught by mutation: hard-coding `hasMoreBelow = true`
+    // left the synchronous version of this test green, i.e. it was proving nothing at all.
+    it('shows no overflow cue when nothing is clipped', async () => {
+      const w = mountBanner();
+      await flushPromises();
+      expect(w.find('[data-scroll-affordance]').exists()).toBe(false);
+    });
+
+    // happy-dom has no layout engine, so overflow is SIMULATED by defining the two metrics the component
+    // reads. That is honest here because the component's rule is a pure function of those numbers — the
+    // browser check is what proves the numbers themselves are real.
+    it('announces the overflow when the region is clipped', async () => {
+      const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+      const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+      Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get: () => 600 });
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 200 });
+      try {
+        const w = mountBanner();
+        await flushPromises();
+        expect(w.find('[data-scroll-affordance]').exists()).toBe(true);
+        expect(w.text()).toContain('diagnose.proposal.moreBelow');
+      } finally {
+        if (scrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeight);
+        if (clientHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight);
+      }
+    });
   });
 });

@@ -873,6 +873,7 @@
       "emptyValue": "—",
       "staleNote": "This changed since the doctor looked. It saw:",
       "destructive": "This permanently deletes the entry and its photos. It cannot be undone.",
+      "moreBelow": "Scroll to see the rest of this request.",
       "applyError": "The changes could not be applied. Nothing was changed.",
       "declineError": "Your decline could not be recorded. Please try again.",
       "settingsError": "Could not load this conversation's settings.",

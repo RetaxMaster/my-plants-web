@@ -180,6 +180,32 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
 .mp-kchat-panel :deep(.mp-card__body) { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .mp-kchat-main__loading { font: 14px var(--font-sans); color: var(--text-muted); }
 
+/* ⚠️ A PENDING PROPOSAL IS NOT ALLOWED TO BE CAGED BY THIS CARD.
+ *
+ * Normally this panel is a fixed-height cage so the transcript scrolls INSIDE it instead of growing the
+ * page — right for a chat. It is wrong for a consent surface. Measured: a four-operation proposal needs
+ * 591px of reading, and the cage could offer 185px on a 1440x900 desktop and 17px on a 390x844 phone,
+ * because the chat's own chrome costs 268px and 383px respectively. No redistribution of that budget
+ * fixes it — on a phone the SIMPLEST possible proposal (one nickname change) already needs 325px.
+ *
+ * So while a proposal is pending the card stops being a cage: it grows to fit, the banner sizes to its
+ * CONTENT with no internal scroll, and the page scrolls — the native way any viewport shows something
+ * taller than itself. The spec's "the chat is never blocked" (§5.3) still holds: the composer is still
+ * there and still usable, it is simply below the decision rather than above a clipped one.
+ *
+ * The console MUST be pinned to a definite height here, and that is not optional: with an auto-height
+ * card its `height: 100%` resolves to `auto`, and the transcript would grow without bound — making the
+ * page as tall as the entire conversation.
+ *
+ * `:has()` degrades in exactly the right direction. A browser without it keeps the fixed-height card,
+ * where the banner's pinned action buttons and its overflow cue still guarantee that nothing — least of
+ * all the destructive-delete warning — is ever hidden UNMARKED. That fallback is load-bearing, not
+ * decorative: it is what makes this rule an improvement rather than the only thing standing between the
+ * owner and an invisible warning. */
+.mp-kchat-panel:has(.mp-proposal) { height: auto; min-height: 30rem; }
+.mp-kchat-panel:has(.mp-proposal) .mp-kchat { height: auto; }
+.mp-kchat-panel:has(.mp-proposal) :deep(.crt-console-wrap) { flex: none; height: 16rem; }
+
 @media (max-width: 720px) {
   .mp-kchat-layout { grid-template-columns: 1fr; }
   /* 70vh was too small once a real consent banner had to share this column. MEASURED on a 390x844
@@ -190,5 +216,10 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
      nothing and is what makes the approval surface legible. Re-measured at 85vh: the banner gets a usable
      share and still scrolls internally, with nothing clipped. */
   .mp-kchat-panel { height: 85vh; }
+
+  /* A phone has far less room for the transcript once the decision is on screen, and the transcript is
+     the one thing here that is also reachable by scrolling within itself. */
+  .mp-kchat-panel:has(.mp-proposal) { min-height: 70vh; }
+  .mp-kchat-panel:has(.mp-proposal) :deep(.crt-console-wrap) { height: 10rem; }
 }
 </style>

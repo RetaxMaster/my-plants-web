@@ -873,6 +873,7 @@
       "emptyValue": "—",
       "staleNote": "Esto cambió desde que el doctor lo revisó. Él vio:",
       "destructive": "Esto elimina la entrada y sus fotos de forma permanente. No se puede deshacer.",
+      "moreBelow": "Desplázate para ver el resto de esta solicitud.",
       "applyError": "No se pudieron aplicar los cambios. No se modificó nada.",
       "declineError": "No se pudo registrar tu rechazo. Inténtalo de nuevo.",
       "settingsError": "No se pudo cargar la configuración de esta conversación.",

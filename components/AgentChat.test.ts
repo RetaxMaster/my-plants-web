@@ -64,6 +64,7 @@ vi.mock('@retaxmaster/agents-realtime-client', () => ({}));
 vi.mock('@retaxmaster/agents-realtime-protocol', () => ({ parseCommandInput: () => null }));
 
 import AgentChat from './AgentChat.vue';
+import type { ChatProposalsAdapter } from '../types/api';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -91,9 +92,15 @@ const PENDING = {
 function makeSessions() {
   return {
     create: vi.fn(), resume: vi.fn(),
-    history: vi.fn(async () => ({ turns: [], agentSessionMissing: false })),
+    // The FULL SessionHistory shape. A partial object here type-errors under `nuxt typecheck`, which
+    // covers test files — and it should: a double looser than the real contract is how a test goes
+    // green against code that could never receive that shape in production.
+    history: vi.fn(async () => ({
+      turns: [], provider: 'claude' as const, providerSessionId: 'agent-session-1',
+      agentSessionMissing: false,
+    })),
     providers: vi.fn(async () => []),
-    commands: vi.fn(async () => ({ commands: [] })),
+    commands: vi.fn(async () => ({ provider: 'claude' as const, commands: [] })),
   };
 }
 
@@ -133,7 +140,11 @@ function mountChatInner(proposals: Record<string, unknown> | undefined, extra: R
       runs: { mintSocketTicket: vi.fn() },
       socketUrl: 'http://doctor:8400',
       i18nNamespace: 'diagnose',
-      ...(proposals ? { proposals } : {}),
+      // Cast at the boundary. One test below deliberately hands over an adapter that BREAKS its declared
+      // contract (resolving `undefined` where `DoctorProposal | null` is promised) to prove the runtime
+      // hardening — a violation the type system cannot express by construction, since the type is the
+      // very thing being violated.
+      ...(proposals ? { proposals: proposals as unknown as ChatProposalsAdapter } : {}),
       ...extra,
     },
     global: {

@@ -2,8 +2,9 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import ChangeList from './ChangeList.vue';
+import type { DoctorProposalChange } from '../../types/api';
 
-function mountList(changes: unknown[]) {
+function mountList(changes: DoctorProposalChange[]) {
   return mount(ChangeList, {
     props: { changes, emptyValue: 'EMPTY', staleLabel: 'STALE:' },
     global: { stubs: { AppIcon: true } },

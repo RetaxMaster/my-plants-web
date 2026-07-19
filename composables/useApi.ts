@@ -8,6 +8,7 @@ import type {
   PlantDetail, PlantProfile, PlantProfileUpdate, PlantPhotoItem,
   BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
+  DoctorProposal, DoctorSessionSettings,
 } from '../types/api.js';
 
 export function useApi() {
@@ -225,6 +226,35 @@ export function useApi() {
       api<CommandCatalog>(`/plants/${plantId}/diagnose/commands?provider=${provider}`),
     mintDoctorSocketTicket: (plantId: string, runId: string) =>
       api<KnowledgeSocketTicketResponse>(`/plants/${plantId}/diagnose/runs/${runId}/socket-ticket`, { method: 'POST' }),
+
+    // --- Plant Doctor write proposals (spec 2026-07-18 §5.5.1) ---
+    // The doctor agent has NO write access: it files a proposal and the owner resolves it here. All five
+    // routes are effective-owner routes (the owner's own session, or an ADMIN acting-as them) — a
+    // doctor-scoped token gets a 403, and a proposal from another plant/owner is a 404, never a 403.
+    //
+    // The response is typed `unknown` ON PURPOSE. "Nothing is pending" is a 200 with an empty body, which
+    // ofetch delivers as the empty STRING — so `DoctorProposal | null` would be a type the wire does not
+    // honour, and every consumer would inherit the trap. `normalizePendingProposal` collapses it here,
+    // once, and the honest `DoctorProposal | null` starts at this boundary.
+    getDoctorPendingProposal: async (plantId: string, sessionId: string) =>
+      normalizePendingProposal(
+        await api<unknown>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/pending`),
+      ),
+    // Approve and decline take an EMPTY body by contract — a non-empty body is a 400. So no `body` key.
+    // A 409 means the proposal is no longer PENDING (expired by a newer turn, or already resolved), and
+    // the terminal status travels in the error payload so the UI can explain WHICH happened.
+    approveDoctorProposal: (plantId: string, sessionId: string, proposalId: string) =>
+      api<DoctorProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/approve`, { method: 'POST' }),
+    declineDoctorProposal: (plantId: string, sessionId: string, proposalId: string) =>
+      api<DoctorProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/decline`, { method: 'POST' }),
+    // Dangerously Skip Permissions, persisted PER SESSION. Owner-writable only.
+    getDoctorSessionSettings: (plantId: string, sessionId: string) =>
+      api<DoctorSessionSettings>(`/plants/${plantId}/diagnose/sessions/${sessionId}/settings`),
+    updateDoctorSessionSettings: (plantId: string, sessionId: string, skipPermissions: boolean) =>
+      api<DoctorSessionSettings>(`/plants/${plantId}/diagnose/sessions/${sessionId}/settings`, {
+        method: 'PATCH',
+        body: { skipPermissions },
+      }),
     // Raw NDJSON transcript. The endpoint returns text/plain; ofetch yields the string as-is.
 
     listOwners: () => api<OwnerSummary[]>('/owners'),

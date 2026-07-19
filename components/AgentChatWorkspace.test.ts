@@ -95,6 +95,38 @@ describe('AgentChatWorkspace (the shared shell)', () => {
     expect(sessionsApi.remove).toHaveBeenCalledWith('s2');
   });
 
+  // ⚠️ LAUNCHING is the launch-lease state and is on the wire (the API's ACTIVE_RUN_STATUSES holds
+  // QUEUED, LAUNCHING and RUNNING). The web knew only five statuses, so a LAUNCHING session rendered the
+  // raw key path `runStatus.LAUNCHING` and — worse — left delete ENABLED during the one window in which
+  // the server is guaranteed to refuse it, turning a disabled button into an avoidable error toast.
+  //
+  // Every ACTIVE status is asserted, not just the one that was missing: the defect was a hand-written
+  // list drifting from the API's, and a test that checks only LAUNCHING would drift the same way.
+  it('treats every ACTIVE run status — including LAUNCHING — as busy', async () => {
+    for (const status of ['QUEUED', 'LAUNCHING', 'RUNNING']) {
+      const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'S1', status, turns: 1 }]);
+      const wrapper = await mountShell({
+        sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+        i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+      });
+      const del = wrapper.find('.mp-kchat-list__del');
+      expect(del.attributes('disabled'), `delete must be disabled while ${status}`).toBeDefined();
+      wrapper.unmount();
+    }
+  });
+
+  it('leaves delete enabled once the run reaches a terminal status', async () => {
+    for (const status of ['SUCCEEDED', 'FAILED', 'CANCELLED']) {
+      const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'S1', status, turns: 1 }]);
+      const wrapper = await mountShell({
+        sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+        i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+      });
+      expect(wrapper.find('.mp-kchat-list__del').attributes('disabled'), `delete must be enabled when ${status}`).toBeUndefined();
+      wrapper.unmount();
+    }
+  });
+
   it('drives KE vs Doctor consumers off the SAME shell with their OWN scope — never cross-wired', async () => {
     const ke = makeScope([{ id: 'k1', title: 'KE', status: null, turns: 0 }]);
     const keChat = (await mountShell({

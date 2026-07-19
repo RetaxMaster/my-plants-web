@@ -736,6 +736,7 @@
     },
     "runStatus": {
       "QUEUED": "en cola",
+      "LAUNCHING": "iniciando",
       "RUNNING": "ejecutando",
       "SUCCEEDED": "completado",
       "FAILED": "falló",
@@ -830,6 +831,7 @@
     },
     "runStatus": {
       "QUEUED": "en cola",
+      "LAUNCHING": "iniciando",
       "RUNNING": "ejecutando",
       "SUCCEEDED": "completado",
       "FAILED": "falló",

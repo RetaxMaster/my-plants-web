@@ -203,7 +203,18 @@ export type HistoryItem =
   | { kind: 'action'; task: CareActionTask; type: 'DONE'; occurredOn: string };
 
 // Admin knowledge-engine chat (spec 3). Sessions are a shared admin pool; addressed by internal cuid id.
-export type KnowledgeChatRunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+// ⚠️ `LAUNCHING` is the launch-lease state and IS on the wire: a run that won the QUEUED -> LAUNCHING
+// conditional update reports it until it registers its pid. It belongs to the API's ACTIVE_RUN_STATUSES
+// alongside QUEUED and RUNNING, so anything gating on "is this session busy" must include it.
+//
+// Omitting it was the dangerous half of the asymmetry rule: for a value we READ, a type NARROWER than
+// what the server can emit lies to the compiler about what can arrive. It rendered the raw key path
+// `runStatus.LAUNCHING` at the owner and left the delete button enabled during the one window where the
+// server is guaranteed to refuse the delete.
+export type KnowledgeChatRunStatus = 'QUEUED' | 'LAUNCHING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+
+/** The statuses in which a session is busy — mirrors the API's `ACTIVE_RUN_STATUSES`. */
+export const ACTIVE_RUN_STATUSES: readonly KnowledgeChatRunStatus[] = ['QUEUED', 'LAUNCHING', 'RUNNING'];
 
 // Which agent runs a conversation. Mirrors the agents-realtime `AgentProvider` wire vocabulary — the
 // value the API persists is the value it sends the engine, so this stays a plain string union.

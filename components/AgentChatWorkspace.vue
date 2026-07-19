@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import type { ChatProposalsAdapter, ChatRunsAdapter, ChatWorkspaceSessionsAdapter, KnowledgeChatSessionDetail } from '../types/api';
+import type { ChatProposalsAdapter, ChatRunsAdapter, ChatWorkspaceSessionsAdapter, KnowledgeChatRunStatus, KnowledgeChatSessionDetail } from '../types/api';
+import { ACTIVE_RUN_STATUSES } from '../types/api';
+
+// "The session is busy." Mirrors the API's ACTIVE_RUN_STATUSES rather than listing statuses inline:
+// LAUNCHING was missing from the old inline pair, which left the delete button enabled during the exact
+// window the server refuses the delete. One list, so a future status cannot be added to some checks only.
+const isRunActive = (status: KnowledgeChatRunStatus | null | undefined): boolean =>
+  !!status && ACTIVE_RUN_STATUSES.includes(status);
 
 const props = defineProps<{
   // The scoped sessions source (list/fetch/create/resume/remove/history/providers/commands). Both
@@ -64,14 +71,14 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
             <button type="button" class="mp-kchat-list__open" @click="openSession(s.id)">
               <span class="mp-kchat-list__title">{{ s.title }}</span>
               <span class="mp-kchat-list__meta">
-                <UiBadge v-if="s.status" :color="s.status === 'RUNNING' ? 'green' : 'neutral'" size="xs">{{ $t(`${i18nNamespace}.runStatus.${s.status}`) }}</UiBadge>
+                <UiBadge v-if="s.status" :color="isRunActive(s.status) ? 'green' : 'neutral'" size="xs">{{ $t(`${i18nNamespace}.runStatus.${s.status}`) }}</UiBadge>
                 <span class="mp-kchat-list__turns">{{ $t(`${i18nNamespace}.turns`, { n: s.turns }, s.turns) }}</span>
               </span>
             </button>
             <button
               type="button"
               class="mp-kchat-list__del"
-              :disabled="s.status === 'RUNNING' || s.status === 'QUEUED'"
+              :disabled="isRunActive(s.status)"
               :title="$t(`${i18nNamespace}.deleteConversation`)"
               @click="removeSession(s.id)"
             >

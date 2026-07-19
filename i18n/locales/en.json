@@ -736,6 +736,7 @@
     },
     "runStatus": {
       "QUEUED": "queued",
+      "LAUNCHING": "launching",
       "RUNNING": "running",
       "SUCCEEDED": "succeeded",
       "FAILED": "failed",
@@ -830,6 +831,7 @@
     },
     "runStatus": {
       "QUEUED": "queued",
+      "LAUNCHING": "launching",
       "RUNNING": "running",
       "SUCCEEDED": "succeeded",
       "FAILED": "failed",

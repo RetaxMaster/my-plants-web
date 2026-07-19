@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import en from './locales/en.json';
 import es from './locales/es.json';
 import { PROGRESS_TAG_KEYS } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
+import type { KnowledgeChatRunStatus } from '../types/api';
 
 type Tree = { [k: string]: string | Tree };
 
@@ -119,6 +120,22 @@ describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
     for (const cat of [en, es] as unknown as Tree[]) {
       const opType = (((cat.diagnose as Tree).proposal as Tree).opType ?? {}) as Tree;
       expect(Object.keys(opType).sort()).toEqual([...OP_KEYS].sort());
+    }
+  });
+
+  // Every run status the API can emit needs a label in BOTH chat namespaces, in BOTH locales. The status
+  // is interpolated straight into the key (`runStatus.${s.status}`), so a missing one does not fail a
+  // build — it renders the raw key path `runStatus.LAUNCHING` at the owner.
+  //
+  // ⚠️ Derived from the type union, never hand-listed: LAUNCHING shipped on the wire while the web knew
+  // only five statuses, and a hand-written list here would have been copied from the same stale union.
+  it('labels every run status in both chat namespaces', () => {
+    const statuses: KnowledgeChatRunStatus[] = ['QUEUED', 'LAUNCHING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'];
+    for (const cat of [en, es] as unknown as Tree[]) {
+      for (const ns of ['diagnose', 'knowledgeEngine']) {
+        const runStatus = ((cat[ns] as Tree).runStatus ?? {}) as Tree;
+        expect(Object.keys(runStatus).sort(), `${ns}.runStatus`).toEqual([...statuses].sort());
+      }
     }
   });
 

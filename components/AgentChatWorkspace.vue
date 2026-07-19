@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChatRunsAdapter, ChatWorkspaceSessionsAdapter, KnowledgeChatSessionDetail } from '../types/api';
+import type { ChatProposalsAdapter, ChatRunsAdapter, ChatWorkspaceSessionsAdapter, KnowledgeChatSessionDetail } from '../types/api';
 
 const props = defineProps<{
   // The scoped sessions source (list/fetch/create/resume/remove/history/providers/commands). Both
@@ -10,6 +10,9 @@ const props = defineProps<{
   i18nNamespace: string;              // 'knowledgeEngine' | 'diagnose' — every shell string resolves as `${ns}.<suffix>`
   themeStorageKey: string;            // distinct per consumer so the two chats don't fight over one preference
   scopeKey: string;                   // unique useAsyncData cache key ('knowledge' | `diagnose-${plantId}`)
+  // Optional, forwarded verbatim to the inner <AgentChat>: the doctor page injects a plant-scoped
+  // proposals adapter, the Knowledge Engine injects nothing and therefore has no approval surface.
+  proposals?: ChatProposalsAdapter;
 }>();
 
 const { t } = useI18n();
@@ -94,6 +97,7 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
               :socket-url="socketUrl"
               :i18n-namespace="i18nNamespace"
               :theme-storage-key="themeStorageKey"
+              :proposals="proposals"
               @created="onCreated"
               @changed="onChanged"
             />

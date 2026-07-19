@@ -27,6 +27,9 @@ useSeoMeta({ description: () => t('meta.diagnose.description') });
 // this page only supplies the dependencies + the plant-name header.
 const sessionsApi = useDoctorChatSessions(id);
 const runsApi = useDoctorChatRuns(id);
+// The doctor's write-proposal surface: the agent has no write access, so every change it wants reaches
+// the owner as a proposal to approve here. Plant-scoped, exactly like the sessions/runs adapters.
+const proposalsApi = useDoctorChatProposals(id);
 const socketUrl = useRuntimeConfig().public.plantDoctorSocketUrl;
 
 const heading = computed(() =>
@@ -38,6 +41,7 @@ const heading = computed(() =>
   <AgentChatWorkspace
     :sessions="sessionsApi"
     :runs="runsApi"
+    :proposals="proposalsApi"
     :socket-url="socketUrl"
     i18n-namespace="diagnose"
     theme-storage-key="crt-theme-diagnose"

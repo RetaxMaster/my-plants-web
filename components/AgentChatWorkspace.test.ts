@@ -41,7 +41,7 @@ function makeScope(sessions: Array<{ id: string; title: string; status: string |
 // Explicit AgentChat stub declaring the injected props so we can read exactly what the shell forwarded.
 const AgentChatStub = defineComponent({
   name: 'AgentChat',
-  props: ['sessionId', 'initialProvider', 'initialProviderSessionId', 'initialTurns', 'sessions', 'runs', 'socketUrl', 'i18nNamespace', 'themeStorageKey'],
+  props: ['sessionId', 'initialProvider', 'initialProviderSessionId', 'initialTurns', 'sessions', 'runs', 'socketUrl', 'i18nNamespace', 'themeStorageKey', 'proposals'],
   template: '<div class="agent-chat-stub" />',
 });
 const slotStub = (name: string) => defineComponent({ name, template: '<div><slot /></div>' });
@@ -113,5 +113,55 @@ describe('AgentChatWorkspace (the shared shell)', () => {
     expect(docChat.props('i18nNamespace')).toBe('diagnose');
     expect(docChat.props('socketUrl')).toBe('http://doctor:8400');
     expect(docChat.props('sessions')).toBe(doc.sessionsApi);
+  });
+});
+
+describe('AgentChatWorkspace — the optional proposals adapter', () => {
+  const proposalsApi = () => ({
+    pending: vi.fn(), approve: vi.fn(), decline: vi.fn(), getSettings: vi.fn(), setSettings: vi.fn(),
+  });
+
+  it('forwards the doctor adapter through to the inner chat, as the SAME object', async () => {
+    const { sessionsApi, runsApi } = makeScope([{ id: 's1', title: 'S1', status: null, turns: 1 }]);
+    const proposals = proposalsApi();
+    const chat = (await mountShell({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'http://doctor:8400',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+      proposals,
+    })).findComponent(AgentChatStub);
+    expect(chat.props('proposals')).toBe(proposals);
+  });
+
+  // The other direction, and the one that actually matters: the Knowledge Engine injects NO adapter, so
+  // its chat cannot render an approval surface at all. Not hidden by a flag — absent. A shell that
+  // defaulted or fabricated an adapter would silently give the KE a consent UI for a capability its agent
+  // does not have, and no KE test would notice.
+  it('forwards NOTHING when the consumer injects no adapter (the Knowledge Engine)', async () => {
+    const { sessionsApi, runsApi } = makeScope([{ id: 'k1', title: 'KE', status: null, turns: 1 }]);
+    const chat = (await mountShell({
+      sessions: sessionsApi, runs: runsApi, socketUrl: 'http://ke:8300',
+      i18nNamespace: 'knowledgeEngine', themeStorageKey: 'k2', scopeKey: 'knowledge',
+    })).findComponent(AgentChatStub);
+    expect(chat.props('proposals')).toBeUndefined();
+  });
+
+  // Two consumers off one shell must not leak into each other: mounting the doctor first must not leave
+  // the KE holding its adapter.
+  it('keeps the two consumers independent when both are mounted', async () => {
+    const doc = makeScope([{ id: 'd1', title: 'Doc', status: null, turns: 0 }]);
+    const proposals = proposalsApi();
+    const docChat = (await mountShell({
+      sessions: doc.sessionsApi, runs: doc.runsApi, socketUrl: 'http://doctor:8400',
+      i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1', proposals,
+    })).findComponent(AgentChatStub);
+
+    const ke = makeScope([{ id: 'k1', title: 'KE', status: null, turns: 0 }]);
+    const keChat = (await mountShell({
+      sessions: ke.sessionsApi, runs: ke.runsApi, socketUrl: 'http://ke:8300',
+      i18nNamespace: 'knowledgeEngine', themeStorageKey: 'k2', scopeKey: 'knowledge',
+    })).findComponent(AgentChatStub);
+
+    expect(docChat.props('proposals')).toBe(proposals);
+    expect(keChat.props('proposals')).toBeUndefined();
   });
 });

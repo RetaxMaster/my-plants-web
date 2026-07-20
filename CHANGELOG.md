@@ -49,6 +49,14 @@ where you do that.
 - If a request cannot be sent at all, the failure is shown on screen rather than silently dropped.
 - **A queued message returns to you if its turn doesn't end cleanly.** If the run it was waiting on fails
   or is cancelled, the message is not lost — it reappears in the composer so you can send it again.
+- **Leaving a conversation discards its queued message, silently.** Opening a different conversation,
+  starting a new chat, or deleting the one you currently have open all drop whatever was still queued —
+  with no confirmation and no way to get it back. This is deliberate: without it, a message queued in one
+  conversation could resurface and be sent into a *different* one you open within the queue's one-hour
+  window — on the doctor surface, that would mean one plant's draft leaking into another plant's chat.
+  Two things do **not** count as leaving and never touch your queued message: deleting a *different*
+  conversation from the list while yours stays open, and simply re-clicking the conversation you already
+  have open.
 - **Sending a queued message starts a fresh turn, and a fresh turn always clears whatever proposal was
   still waiting on you.** If an approval banner is on screen when your queued message goes out, it will
   disappear — not because anyone approved or declined it behind your back (nothing is ever applied

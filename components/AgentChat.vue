@@ -121,6 +121,27 @@ const chatLabels = computed(() => ({
   commandRefused: tns('command.refused'),
   commandsGroupLabel: tns('command.groupLabel'),
   commandUnsupported: tns('command.unsupported'),
+  // The sixteen strings 3.0.0 added. NOTE: none of these are compile-enforced — they live in
+  // ChatPanelLabels, the Composer prop is Partial, and every key is optional with a `??` English fallback.
+  // i18n/chat-labels.completeness.test.ts is the ONLY guard; do not "fix" this with types.
+  systemMessageLabel: tns('composer.systemMessageLabel'),
+  attachmentsLabel: tns('composer.attachmentsLabel'),
+  attachmentRestored: tns('composer.attachmentRestored'),
+  attach: tns('composer.attach'),
+  removeAttachment: tns('composer.removeAttachment'),
+  attachmentTooLarge: tns('composer.attachmentTooLarge'),
+  attachmentTypeNotAllowed: tns('composer.attachmentTypeNotAllowed'),
+  attachmentCountExceeded: tns('composer.attachmentCountExceeded'),
+  attachmentTotalExceeded: tns('composer.attachmentTotalExceeded'),
+  attachmentsUnavailable: tns('composer.attachmentsUnavailable'),
+  queuedLabel: tns('composer.queuedLabel'),
+  queuedHint: tns('composer.queuedHint'),
+  queuedCancel: tns('composer.queuedCancel'),
+  queuedEdit: tns('composer.queuedEdit'),
+  queuedAttachmentsDropped: tns('composer.queuedAttachmentsDropped'),
+  queuedReturned: tns('composer.queuedReturned'),
+  // OURS, not one of the package's sixteen: the dismiss button on the two notices Task 20 renders.
+  dismiss: tns('composer.dismiss'),
 }));
 
 // Display names for the picker (the package falls back to the bare protocol id, e.g. "codex").
@@ -292,6 +313,9 @@ const chat = useAgentChat({
   // the language it was born in unless its label is a thunk — so switching EN↔ES would leave old bubbles reading
   // "You"/"Tú". It follows the LIVE locale (unlike the per-turn formatters above), which is what makes it reflow.
   userLabel: () => tns('you'),
+  // The author name on a host-originated system bubble. It belongs to the SYSTEM-MESSAGE feature, not to
+  // attachments or the queue — without it the Spanish UI labels the new bubble "System".
+  systemLabel: () => tns('composer.systemMessageLabel'),
   labels: () => transcriptLabels.value,
   // The auto-retry system note (↻) the package writes on a retryable failure. As a thunk it is both translated
   // (the default is the English "Retrying…") and armed for repaint on a live language switch, like userLabel.

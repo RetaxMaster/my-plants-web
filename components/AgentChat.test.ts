@@ -39,6 +39,11 @@ const chatStub = await vi.hoisted(async () => {
   };
 });
 
+// A spy over the package's `useAgentChat` call itself (not just its returned stub), so a test can assert
+// on the OPTIONS object AgentChat hands it — e.g. `systemLabel`, which is a useAgentChat option, not a
+// Composer prop.
+const useAgentChatSpy = vi.hoisted(() => vi.fn());
+
 vi.mock('@retaxmaster/agents-realtime-client/vue', async () => {
   const { defineComponent: dc, ref: r } = await import('vue');
   const stub = (name: string, cls: string) =>
@@ -57,7 +62,7 @@ vi.mock('@retaxmaster/agents-realtime-client/vue', async () => {
     RunFailureNotice: stub('RunFailureNotice', 'stub-failure'),
     ThemeSelector: stub('ThemeSelector', 'stub-theme'),
     useTheme: () => ({ theme: r('auto'), setTheme: vi.fn() }),
-    useAgentChat: () => chatStub,
+    useAgentChat: (options: unknown) => { useAgentChatSpy(options); return chatStub; },
   };
 });
 vi.mock('@retaxmaster/agents-realtime-client', () => ({}));
@@ -188,7 +193,7 @@ const conflict = (status: string) =>
     },
   });
 
-beforeEach(() => { chatStub.state.value = 'idle'; });
+beforeEach(() => { chatStub.state.value = 'idle'; useAgentChatSpy.mockClear(); });
 afterEach(async () => {
   while (mounted.length) mounted.pop()!.unmount();
   await flushPromises();
@@ -463,5 +468,31 @@ describe('AgentChat — the doctor approval surface', () => {
     chatStub.state.value = 'done';
     await flushPromises();
     expect(w.emitted('changed')).toBeTruthy();
+  });
+
+  // The sixteen strings 3.0.0 added to ChatPanelLabels are ALL optional on the Composer's `labels` prop,
+  // each with an English `??` fallback — so omitting them is not a compile error and would silently ship
+  // untranslated English into this EN/ES app. i18n/chat-labels.completeness.test.ts guards the TRANSLATION
+  // strings exist; this guards they actually reach the Composer.
+  it('passes every new 3.0.0 label through to the Composer', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    const labels = w.findComponent({ name: 'Composer' }).props('labels') as Record<string, string>;
+
+    for (const key of [
+      'systemMessageLabel', 'attachmentsLabel', 'attach', 'removeAttachment',
+      'queuedLabel', 'queuedHint', 'queuedCancel', 'queuedEdit',
+      'queuedAttachmentsDropped', 'queuedReturned',
+    ]) {
+      expect(labels[key], `missing label: ${key}`).toBeTruthy();
+    }
+  });
+
+  it('passes systemMessageLabel into useAgentChat so the system bubble is not named "System" in Spanish', async () => {
+    mountChat(undefined);
+    await flushPromises();
+    // systemLabel is a useAgentChat OPTION, not a Composer prop — it names the author of a host-originated
+    // system bubble. Without it the Spanish UI labels the new bubble "System".
+    expect(useAgentChatSpy.mock.calls[0][0]).toHaveProperty('systemLabel');
   });
 });

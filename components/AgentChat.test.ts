@@ -9,7 +9,7 @@
 // wiring, not about re-testing a third-party transcript renderer.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { ref, computed, watch, defineComponent } from 'vue';
+import { ref, computed, watch, defineComponent, nextTick } from 'vue';
 
 // `vi.hoisted` runs BEFORE the imports above, so it cannot use the top-level `ref` — it imports `vue`
 // itself. This package is ESM ("type": "module"), so it must be a dynamic `import()`, never `require()`;
@@ -36,6 +36,20 @@ const chatStub = await vi.hoisted(async () => {
     resume: vi.fn(),
     seedHistory: vi.fn(),
     relabel: vi.fn(),
+    // The message-queue members (Task 20). Refs, not `undefined` — AgentChat.vue reads them as the real
+    // factory's `UseAgentChatInstance` guarantees (non-optional), so a stub that omitted them would throw
+    // at render time in every test in this file, not just the queue ones. Typed explicitly (rather than
+    // left to `r(null)`'s inferred `Ref<null>`) because several tests assign a real payload later.
+    queuedMessage: r<{ text: string; attachments: unknown[] } | null>(null),
+    returnedToComposer: r<{ text: string; attachments: unknown[] } | null>(null),
+    restoredDraft: r<{ text: string; attachmentsDropped: boolean } | null>(null),
+    clearReturned: vi.fn(),
+    clearRestored: vi.fn(),
+    enqueueMessage: vi.fn(),
+    cancelQueued: vi.fn(),
+    // Not wired by Task 20 (that is Task 21's `abandonConversation()` + the workspace exits) — added now
+    // so Task 21 finds it already on the stub.
+    abandonConversation: vi.fn(),
   };
 });
 
@@ -100,7 +114,20 @@ vi.stubGlobal('computed', computed);
 vi.stubGlobal('watch', watch);
 vi.stubGlobal('onMounted', (fn: () => unknown) => { void fn(); });
 vi.stubGlobal('onBeforeUnmount', () => {});
-vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, locale: ref('en') }));
+// The catalogue's REAL thirteen `composer.errors.<code>` codes (verified in en.json/es.json under both
+// namespaces) — mirrored here only to give the stub `te()` something honest to answer against. `t` stays
+// an identity function on purpose (Ruling 1): asserting on the RESOLVED KEY, not translated prose, is what
+// keeps this a component test rather than an i18n test.
+const KNOWN_ERROR_CODES = new Set([
+  'attachment_corrupt', 'attachment_count_exceeded', 'attachment_too_large', 'attachment_total_exceeded',
+  'attachment_type_not_allowed', 'attachment_write_failed', 'attachments_unavailable', 'message_too_long',
+  'payload_too_large', 'request_failed', 'send_network', 'send_no_response', 'send_stalled',
+]);
+vi.stubGlobal('useI18n', () => ({
+  t: (k: string) => k,
+  te: (k: string) => KNOWN_ERROR_CODES.has(k.split('.').pop() ?? ''),
+  locale: ref('en'),
+}));
 
 const PENDING = {
   id: 'prop-1',
@@ -217,7 +244,20 @@ const conflict = (status: string) =>
     },
   });
 
-beforeEach(() => { chatStub.state.value = 'idle'; useAgentChatSpy.mockClear(); });
+beforeEach(() => {
+  chatStub.state.value = 'idle';
+  // The queue refs are MODULE-LEVEL shared state (see the leak warning below) — a test that sets
+  // `returnedToComposer`/`restoredDraft` and forgets to reset it would leak its notice into every
+  // later test's `w.text()` assertion.
+  chatStub.queuedMessage.value = null;
+  chatStub.returnedToComposer.value = null;
+  chatStub.restoredDraft.value = null;
+  useAgentChatSpy.mockClear();
+  chatStub.enqueueMessage.mockClear();
+  chatStub.cancelQueued.mockClear();
+  chatStub.start.mockClear();
+  chatStub.resume.mockClear();
+});
 afterEach(async () => {
   while (mounted.length) mounted.pop()!.unmount();
   await flushPromises();
@@ -552,5 +592,144 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(composer.props('attachmentsEnabled')).toBe(true);
     expect(composer.props('attachmentCaps')).toMatchObject({ maxCount: 6 });
     expect(composer.props('urlRegistry')).toBeTruthy();
+  });
+});
+
+// Task 20: turning the package's queue on. `useAgentChat` already queues by default; the gap was OUR OWN
+// gate (`canSend = !streaming && …`) and `submit()`'s early return, which meant a mid-run message was
+// refused before the queue ever saw it. Spec §5: a mid-run submit QUEUES instead of being refused, and is
+// sent automatically when the turn ends CLEANLY — a failed or cancelled turn returns it to the composer,
+// intact and editable, with a notice.
+describe('the message queue', () => {
+  it('QUEUES a mid-run submit instead of refusing it', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.state.value = 'streaming';
+    await flushPromises();
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'while you think', []);
+    await flushPromises();
+
+    expect(chatStub.enqueueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'while you think' }),
+    );
+    expect(chatStub.start).not.toHaveBeenCalled();
+    expect(chatStub.resume).not.toHaveBeenCalled();
+  });
+
+  it('renders an auto-sent queued message WITHOUT a refresh — bubble and thumbnails', async () => {
+    mountChat(undefined);
+    await flushPromises();
+    const onQueuedMessageSent = useAgentChatSpy.mock.calls[0][0].onQueuedMessageSent;
+
+    const attachment = { id: 'a1', filename: 'x.png', mimeType: 'image/png', blob: new Blob(['x']) };
+    onQueuedMessageSent({ text: 'queued one', attachments: [attachment] });
+
+    // A send-only assertion passes straight through the failure: the handler must MINT the transcript's
+    // object urls as well as push the bubble, or the message appears only after a refresh.
+    expect(chatStub.pushUserPrompt).toHaveBeenCalledWith(
+      'queued one',
+      expect.anything(),
+      expect.objectContaining({ attachments: [expect.objectContaining({ previewUrl: expect.any(String) })] }),
+    );
+  });
+
+  // Ruling 1: the test i18n stub is an IDENTITY function (`t: (k) => k`), so `tns('composer.queuedReturned')`
+  // renders the literal namespaced key, never the English prose. Asserting the KEY still genuinely fails
+  // when the notice is not rendered at all — which is the property this test exists to prove.
+  it("surfaces the returned-to-composer notice on a failed or cancelled turn", async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.returnedToComposer.value = { text: 'came back', attachments: [] };
+    await nextTick();
+
+    expect(w.text()).toContain('composer.queuedReturned');
+  });
+
+  it('surfaces the dropped-attachments notice on a RESTORED queued message', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.restoredDraft.value = { text: 'restored', attachmentsDropped: true };
+    await nextTick();
+
+    // Persistence is text-only, so a restored message has lost its attachments and must SAY SO — this
+    // asserts the notice is DISPLAYED, not merely present in the catalogue.
+    expect(w.text()).toContain('composer.queuedAttachmentsDropped');
+  });
+
+  // The notice must NOT render for a restored draft that carried no attachments to begin with — otherwise
+  // every page reload of a plain-text draft would falsely warn about lost images.
+  it('does not surface the dropped-attachments notice when nothing was dropped', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.restoredDraft.value = { text: 'restored', attachmentsDropped: false };
+    await nextTick();
+
+    expect(w.text()).not.toContain('composer.queuedAttachmentsDropped');
+  });
+
+  it('passes the queue state through to the Composer', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.queuedMessage.value = { text: 'queued text', attachments: [{} as never, {} as never] };
+    await nextTick();
+
+    const composer = w.findComponent({ name: 'Composer' });
+    expect(composer.props('queuedText')).toBe('queued text');
+    expect(composer.props('queuedAttachmentCount')).toBe(2);
+    expect(composer.props('queueingEnabled')).toBe(true);
+  });
+
+  it('cancelling the queued message calls cancelQueued', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    await w.findComponent({ name: 'Composer' }).vm.$emit('cancel-queued');
+    expect(chatStub.cancelQueued).toHaveBeenCalledTimes(1);
+  });
+
+  // Editing the queued message must not just clear it — the text and attachments must come BACK into the
+  // composer, or "edit" is indistinguishable from "cancel".
+  it('editing the queued message returns its text and attachments to the composer draft', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    const queuedAttachment = { id: 'q1', filename: 'q.png', mimeType: 'image/png', blob: new Blob(['q']) };
+    chatStub.cancelQueued.mockReturnValueOnce({ text: 'edit me', attachments: [queuedAttachment] });
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('edit-queued');
+    await nextTick();
+
+    const composer = w.findComponent({ name: 'Composer' });
+    expect(composer.props('modelValue')).toBe('edit me');
+    expect(composer.props('attachments')).toEqual([queuedAttachment]);
+  });
+
+  // `translateSendError` (AgentChat.vue, local — Ruling 2) must never let a raw snake_case code reach the
+  // owner. A 409 "run already in progress" conflict carries NO `code` field at all (Nest's default
+  // ConflictException body), which is exactly the "absent code" case the fallback exists for.
+  it('falls back to the generic error and never renders a raw code for an unrecognised send failure', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.resume.mockRejectedValueOnce(Object.assign(new Error('conflict'), { statusCode: 409 }));
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'hello', []);
+    await flushPromises();
+
+    expect(w.findComponent({ name: 'Composer' }).props('error')).toBe('diagnose.composer.genericError');
+  });
+
+  // The positive case: a RECOGNISED code (one of the thirteen at `<namespace>.composer.errors.<code>`)
+  // resolves to ITS OWN key, never the generic fallback — proving the lookup is real, not always-generic.
+  it('resolves a recognised send-failure code to its own translated key', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.resume.mockRejectedValueOnce(
+      Object.assign(new Error('too large'), { statusCode: 413, data: { code: 'attachment_too_large' } }),
+    );
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'hello', []);
+    await flushPromises();
+
+    expect(w.findComponent({ name: 'Composer' }).props('error'))
+      .toBe('diagnose.composer.errors.attachment_too_large');
   });
 });

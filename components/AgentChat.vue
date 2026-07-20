@@ -17,7 +17,7 @@ import type {
 // Explicit, not via Nuxt's `utils/` auto-import: this component is mounted under plain Vitest (no Nuxt
 // module graph), so an auto-imported helper would be `undefined` at runtime in exactly the tests that
 // exercise the conflict path.
-import { upstreamErrorCode, upstreamErrorStatus } from '../utils/upstreamError.js';
+import { upstreamErrorBody, upstreamErrorCode, upstreamErrorStatus } from '../utils/upstreamError.js';
 import { CHAT_ATTACHMENT_CAPS } from '../utils/chatSend.js';
 
 const props = defineProps<{
@@ -53,7 +53,7 @@ const emit = defineEmits<{
   (e: 'changed'): void;
 }>();
 
-const { t, locale } = useI18n();
+const { t, te, locale } = useI18n();
 const sessions = props.sessions;
 const runs = props.runs;
 const socketUrl = props.socketUrl;
@@ -345,6 +345,9 @@ const chat = useAgentChat({
   // The auto-retry system note (↻) the package writes on a retryable failure. As a thunk it is both translated
   // (the default is the English "Retrying…") and armed for repaint on a live language switch, like userLabel.
   retryNote: () => tns('composer.retrying'),
+  // Fires once a QUEUED message has actually been sent (the turn it was waiting on ended cleanly). Defined
+  // ABOVE this call (needs `chat` — declared via a hoisted function so the ordering works either way).
+  onQueuedMessageSent,
 });
 
 // The composer's `/` autocomplete. The package NEVER fetches this itself — our API proxies the engine's
@@ -391,7 +394,15 @@ const needsFirstTurnRetry = computed(
 const noProviderAvailable = computed(
   () => providers.value.length > 0 && !providers.value.some((p) => p.available),
 );
-const canSend = computed(() => !streaming.value && !noProviderAvailable.value && !agentSessionMissing.value);
+// The streaming term is deliberately GONE (spec §5): submitting while a run is in flight now QUEUES the
+// message instead of being refused, and the package's own queue is what handles the in-flight case — our
+// old `!streaming` gate was the reason the queue never saw a message at all. `queueingEnabled: true` below
+// tells the Composer itself to keep accepting input while `running` is true; verified against the
+// package's own `Composer` implementation (`ge` computed, dist/vue/index.js): its internal submit gate is
+// `(!running || queueingEnabled) && canSend && …`, so dropping `!streaming` from OUR `canSend` cannot open
+// a second concurrent send — the package still requires `queueingEnabled` for a running submit to pass,
+// and it is US, not the package, that routes a mid-run submit into `enqueueMessage` before any driver call.
+const canSend = computed(() => !noProviderAvailable.value && !agentSessionMissing.value);
 
 async function loadProviders(force = false) {
   try {
@@ -417,29 +428,81 @@ async function recheckProviders() {
   await loadProviders(true); // force: bypass the ~30s probe cache — they just signed in
 }
 
+/**
+ * Maps any chat-send failure to a translated string. Covers BOTH code families, because they arrive on the
+ * same catch: the API's mapped codes (`attachment_too_large`, `message_too_long`, `request_failed`, …) and
+ * `utils/chatSend.ts`'s own client-side codes (`attachment_count_exceeded`, `send_stalled`, …). Anything
+ * unrecognised — including a genuine 409 "run already in progress" race, whose Nest `ConflictException`
+ * body carries no `code` field at all — falls back to the generic message rather than surfacing a raw code
+ * to the owner.
+ *
+ * `upstreamErrorBody` (not the narrower `upstreamErrorCode`/`upstreamErrorStatus`) is what this needs: it
+ * already reads through the BFF's nested-vs-flat envelope, so the same lookup works whether the failure was
+ * proxied from the API (nested one level under the h3 envelope) or raised locally by our own pre-flight
+ * check / `chatSend.ts`'s watchdog (flat, un-nested).
+ */
+function translateSendError(e: unknown): string {
+  const code = upstreamErrorBody(e)?.code;
+  const key = typeof code === 'string' ? `composer.errors.${code}` : null;
+  return key && te(`${props.i18nNamespace}.${key}`) ? tns(key) : tns('composer.genericError');
+}
+
+/** Mints preview urls through OUR registry — no object url ever crosses the package boundary. */
+function renderFor(items: readonly LocalAttachment[]) {
+  return items.map((item) => ({
+    id: item.id,
+    filename: item.filename,
+    mimeType: item.mimeType,
+    previewUrl: urlRegistry.urlFor('transcript', item),
+  }));
+}
+
+/**
+ * The auto-send handler (spec §5): the package sends a QUEUED message itself once the current turn ends
+ * cleanly, and calls this so the host can render the optimistic bubble and mint any preview urls — the
+ * composable is headless and owns no object-url registry of its own.
+ *
+ * NOTE its throw is swallowed-and-logged upstream and NEVER rolled back, so this must not assume it can
+ * fail safely — do nothing here that leaves the transcript half-updated.
+ */
+function onQueuedMessageSent(message: { text: string; attachments: LocalAttachment[] }) {
+  chat.pushUserPrompt(message.text, () => tns('you'), { attachments: renderFor(message.attachments) });
+}
+
 // `text`/`submitted` are the Composer's `@submit` payload — its own draft/attachments when omitted (a
-// direct call, e.g. a retry). The full rewrite of this function — queue routing, translateSendError,
-// clearing every piece of state — is Task 20's; this is the minimal change needed to carry attachments.
+// direct call, e.g. a retry).
 async function submit(text?: string, submitted?: LocalAttachment[]) {
-  text = text ?? draft.value;
-  const sentAttachments = submitted ?? attachments.value;
-  if (!text.trim() || !canSend.value) return;
+  const body = text ?? draft.value;
+  const items = submitted ?? attachments.value;
+  if ((!body.trim() && items.length === 0) || !canSend.value) return;
   error.value = null;
 
   // The SAME function the engine's /execute validator uses. Two implementations of "is this a command?" is
   // two chances to disagree about where a command starts — and the `/` must be at index 0 (a leading space
   // is prose), which is exactly the rule a host that composes prompts can accidentally break.
-  const command = parseCommandInput(text);
+  const command = parseCommandInput(body);
 
   if (command && !chat.sessionId.value) {
     error.value = tns('commandNeedsConversation');
     return;
   }
+
+  // A run is in flight (spec §5): hand the message to the package's QUEUE rather than refusing it. It is
+  // sent automatically when the turn ends CLEANLY (→ onQueuedMessageSent above); a failed or cancelled turn
+  // returns it to the composer, intact and editable, with a notice — that is the design, not a defect.
+  if (streaming.value) {
+    chat.enqueueMessage({ text: body.trim(), attachments: items });
+    draft.value = '';
+    attachments.value = [];
+    return;
+  }
+
   // A command turn leads with the ENGINE's `command.started`, never an optimistic user bubble — that is what
   // makes it render identically live and on replay, and never twice. So: push a bubble for a prompt, and only
   // for a prompt.
-  if (!command) chat.pushUserPrompt(text.trim(), () => tns('you'));
+  if (!command) chat.pushUserPrompt(body.trim(), () => tns('you'), { attachments: renderFor(items) });
   draft.value = '';
+  attachments.value = [];
   try {
     // useAgentChat re-parses the raw text and hands the driver `{ command }`; we pass the text through
     // untouched. Never trim, never prepend — a prepended character decapitates a command.
@@ -449,19 +512,20 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
     //
     // `attachments` here is the ChatInputOptions seam — Blob-backed, LocalAttachment[] — which THIS
     // package base64-encodes before handing it to our driver (the ChatSendOptions seam, already encoded).
-    if (chat.sessionId.value) await chat.resume(chat.sessionId.value, text, { attachments: sentAttachments });
-    else await chat.start(text, { attachments: sentAttachments });
-    // Clear only on a successful submit — an attached image must not silently ride the NEXT turn too.
-    attachments.value = [];
+    if (chat.sessionId.value) await chat.resume(chat.sessionId.value, body, { attachments: items });
+    else await chat.start(body, { attachments: items });
   } catch (e: unknown) {
-    const status = (e as { statusCode?: number; response?: { status?: number } })?.statusCode
-      ?? (e as { response?: { status?: number } })?.response?.status;
-    error.value = status === 409
-      ? tns('runInProgress')
-      : status === 422 || status === 400
-        ? tns('sendRejected')
-        : tns('sendError');
+    error.value = translateSendError(e);
   }
+}
+
+function onCancelQueued() { chat.cancelQueued(); }
+
+function onEditQueued() {
+  const queued = chat.cancelQueued();
+  if (!queued) return;
+  draft.value = queued.text;
+  attachments.value = [...queued.attachments];
 }
 
 // Rebuild the conversation from the engine's CANONICAL history (the same AgentEvents a live turn
@@ -741,6 +805,22 @@ onBeforeUnmount(() => chat.close());
       </button>
     </p>
 
+    <!-- Spec §5's two notices, reusing the existing `.mp-kchat__note` + `.mp-kchat__recheck` shapes rather
+         than inventing a `.chat-notice` class (both already carry the design tokens; see the four other
+         notices above). -->
+    <p v-if="chat.returnedToComposer.value" class="mp-kchat__note" role="status">
+      {{ chatLabels.queuedReturned }}
+      <button type="button" class="mp-kchat__recheck" @click="chat.clearReturned()">
+        {{ chatLabels.dismiss }}
+      </button>
+    </p>
+    <p v-if="chat.restoredDraft.value?.attachmentsDropped" class="mp-kchat__note" role="status">
+      {{ chatLabels.queuedAttachmentsDropped }}
+      <button type="button" class="mp-kchat__recheck" @click="chat.clearRestored()">
+        {{ chatLabels.dismiss }}
+      </button>
+    </p>
+
     <Composer
       v-model="draft"
       v-model:attachments="attachments"
@@ -753,8 +833,13 @@ onBeforeUnmount(() => chat.close());
       :attachments-enabled="true"
       :attachment-caps="CHAT_ATTACHMENT_CAPS"
       :url-registry="urlRegistry"
+      :queued-text="chat.queuedMessage.value?.text ?? null"
+      :queued-attachment-count="chat.queuedMessage.value?.attachments.length ?? 0"
+      :queueing-enabled="true"
       @submit="submit"
       @stop="chat.stop()"
+      @cancel-queued="onCancelQueued"
+      @edit-queued="onEditQueued"
     />
   </div>
 </template>

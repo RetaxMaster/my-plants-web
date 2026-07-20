@@ -27,6 +27,15 @@ where you do that.
   its changes immediately without asking. It is off by default, only you can turn it on, and while it is
   on a warning stays on screen for the whole conversation with no way to dismiss it.
 - **The chat is never blocked.** You can keep typing and send messages with a banner open.
+- **Attach photos to a message.** Both the admin knowledge-engine chat and the per-plant diagnosis chat can
+  now attach images to what you send — up to 6 photos per message, 10 MiB each and 20 MiB total, in PNG,
+  JPEG, GIF or WebP.
+- **Keep typing while the agent is busy.** Sending a message mid-turn no longer refuses it: it queues, with
+  its own indicator in the composer, and is sent automatically the instant the current turn ends. You can
+  cancel it or pull it back into the composer to edit it, any time before that happens.
+- **System notices get their own bubble.** A platform notice to the agent — such as telling it you declined
+  a proposal — now shows in its own labelled bubble instead of arriving glued to the front of whatever you
+  typed next.
 
 ### Changed
 
@@ -38,3 +47,15 @@ where you do that.
   ask the doctor to propose it again — or it had already been answered somewhere else, in which case
   nothing was applied now.
 - If a request cannot be sent at all, the failure is shown on screen rather than silently dropped.
+- **A queued message returns to you if its turn doesn't end cleanly.** If the run it was waiting on fails
+  or is cancelled, the message is not lost — it reappears in the composer so you can send it again.
+- **Sending a queued message starts a fresh turn, and a fresh turn always clears whatever proposal was
+  still waiting on you.** If an approval banner is on screen when your queued message goes out, it will
+  disappear — not because anyone approved or declined it behind your back (nothing is ever applied
+  automatically), but because your own message started a new turn, and the doctor can only have one
+  proposal pending at a time. Ask it again if you still want that change.
+- **After a reload, or when you reopen an older conversation, an attached image shows as a filename with a
+  document icon instead of the picture itself.** This is expected, not a bug: your browser has the
+  message's text but never kept the image bytes or a link to them (attachments live for 24 hours on the
+  engine and are never part of the conversation's permanent record), so showing a broken image in their
+  place would be worse. There is no setting to change this.

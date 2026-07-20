@@ -429,22 +429,36 @@ async function recheckProviders() {
 }
 
 /**
- * Maps any chat-send failure to a translated string. Covers BOTH code families, because they arrive on the
- * same catch: the API's mapped codes (`attachment_too_large`, `message_too_long`, `request_failed`, …) and
- * `utils/chatSend.ts`'s own client-side codes (`attachment_count_exceeded`, `send_stalled`, …). Anything
- * unrecognised — including a genuine 409 "run already in progress" race, whose Nest `ConflictException`
- * body carries no `code` field at all — falls back to the generic message rather than surfacing a raw code
- * to the owner.
+ * Maps any chat-send failure to a translated string, THREE TIERS deep — a generic fallback is only correct
+ * once nothing more specific is known, and a status code is more specific than nothing (spec §7's rule,
+ * applied here rather than only to the API's own error mapping):
  *
- * `upstreamErrorBody` (not the narrower `upstreamErrorCode`/`upstreamErrorStatus`) is what this needs: it
- * already reads through the BFF's nested-vs-flat envelope, so the same lookup works whether the failure was
- * proxied from the API (nested one level under the h3 envelope) or raised locally by our own pre-flight
- * check / `chatSend.ts`'s watchdog (flat, un-nested).
+ *   1. A recognised `code` from `upstreamErrorBody(e)` → `<namespace>.composer.errors.<code>`. Covers BOTH
+ *      code families, because they arrive on the same catch: the API's mapped codes (`attachment_too_large`,
+ *      `message_too_long`, `request_failed`, …) and `utils/chatSend.ts`'s own client-side codes
+ *      (`attachment_count_exceeded`, `send_stalled`, …).
+ *   2. No `code` at all, but a recognisable HTTP status — `upstreamErrorCode(e)`. A genuine 409 ("a run is
+ *      already in progress") is exactly this shape: Nest's `ConflictException` carries no `code` field, only
+ *      a status, and that status alone is a more actionable answer than the generic message. 422/400 without
+ *      a `code` similarly means "that message could not be sent", which `sendRejected` says and `genericError`
+ *      does not.
+ *   3. Otherwise `composer.genericError`. Never a raw code, never raw prose.
+ *
+ * `upstreamErrorBody` (not `upstreamErrorCode` alone) is what tier 1 needs: it already reads through the
+ * BFF's nested-vs-flat envelope, so the same lookup works whether the failure was proxied from the API
+ * (nested one level under the h3 envelope) or raised locally by our own pre-flight check / `chatSend.ts`'s
+ * watchdog (flat, un-nested).
  */
 function translateSendError(e: unknown): string {
   const code = upstreamErrorBody(e)?.code;
-  const key = typeof code === 'string' ? `composer.errors.${code}` : null;
-  return key && te(`${props.i18nNamespace}.${key}`) ? tns(key) : tns('composer.genericError');
+  const codeKey = typeof code === 'string' ? `composer.errors.${code}` : null;
+  if (codeKey && te(`${props.i18nNamespace}.${codeKey}`)) return tns(codeKey);
+
+  const status = upstreamErrorCode(e);
+  if (status === 409) return tns('runInProgress');
+  if (status === 422 || status === 400) return tns('sendRejected');
+
+  return tns('composer.genericError');
 }
 
 /** Mints preview urls through OUR registry — no object url ever crosses the package boundary. */
@@ -502,7 +516,6 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
   // for a prompt.
   if (!command) chat.pushUserPrompt(body.trim(), () => tns('you'), { attachments: renderFor(items) });
   draft.value = '';
-  attachments.value = [];
   try {
     // useAgentChat re-parses the raw text and hands the driver `{ command }`; we pass the text through
     // untouched. Never trim, never prepend — a prepended character decapitates a command.
@@ -514,6 +527,10 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
     // package base64-encodes before handing it to our driver (the ChatSendOptions seam, already encoded).
     if (chat.sessionId.value) await chat.resume(chat.sessionId.value, body, { attachments: items });
     else await chat.start(body, { attachments: items });
+    // Clear only on a successful submit — a failed send (a stalled socket, a 413, a dead connection; Task
+    // 18 exists because this CAN happen) must leave the images attached and retryable rather than making
+    // the owner re-find and re-attach every one of them, having done nothing wrong.
+    attachments.value = [];
   } catch (e: unknown) {
     error.value = translateSendError(e);
   }

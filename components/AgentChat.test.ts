@@ -19,7 +19,9 @@ const chatStub = await vi.hoisted(async () => {
   return {
     entries: r([]),
     state: r('idle'),
-    sessionId: r('agent-session-1'),
+    // Typed explicitly (not left to `r('agent-session-1')`'s inferred `Ref<string>`): the "brand-new
+    // conversation" queue test nulls this out to force `submit()`'s `chat.start` branch.
+    sessionId: r<string | null>('agent-session-1'),
     selectedProvider: r('claude'),
     providerLocked: r(false),
     providerBusy: r(false),
@@ -246,6 +248,7 @@ const conflict = (status: string) =>
 
 beforeEach(() => {
   chatStub.state.value = 'idle';
+  chatStub.sessionId.value = 'agent-session-1';
   // The queue refs are MODULE-LEVEL shared state (see the leak warning below) — a test that sets
   // `returnedToComposer`/`restoredDraft` and forgets to reset it would leak its notice into every
   // later test's `w.text()` assertion.
@@ -704,12 +707,12 @@ describe('the message queue', () => {
   });
 
   // `translateSendError` (AgentChat.vue, local — Ruling 2) must never let a raw snake_case code reach the
-  // owner. A 409 "run already in progress" conflict carries NO `code` field at all (Nest's default
-  // ConflictException body), which is exactly the "absent code" case the fallback exists for.
-  it('falls back to the generic error and never renders a raw code for an unrecognised send failure', async () => {
+  // owner. This fixture carries NEITHER a `code` NOR a status any tier recognises (500, no `data`), so it
+  // must fall all the way through to tier 3 — the generic message.
+  it('falls back to the generic error and never renders a raw code for a wholly unrecognised send failure', async () => {
     const w = mountChat(undefined);
     await flushPromises();
-    chatStub.resume.mockRejectedValueOnce(Object.assign(new Error('conflict'), { statusCode: 409 }));
+    chatStub.resume.mockRejectedValueOnce(Object.assign(new Error('boom'), { statusCode: 500 }));
 
     await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'hello', []);
     await flushPromises();
@@ -731,5 +734,86 @@ describe('the message queue', () => {
 
     expect(w.findComponent({ name: 'Composer' }).props('error'))
       .toBe('diagnose.composer.errors.attachment_too_large');
+  });
+
+  // TIER 2: a genuine 409 "run already in progress" race carries NO `code` field at all (Nest's default
+  // `ConflictException` body is `{statusCode, message, error}`) — but the STATUS alone is more specific
+  // than the generic message, and the project's own rule (spec §7) is that a generic fallback is only
+  // correct once nothing more specific is known. 422/400 without a `code` gets the same treatment
+  // (`sendRejected`), proven by the second assertion so both surviving status branches are pinned, not
+  // just one of them.
+  it('resolves a codeless 409 to "run in progress" and a codeless 422 to "send rejected" — tier 2', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.resume.mockRejectedValueOnce(Object.assign(new Error('conflict'), { statusCode: 409 }));
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'hello', []);
+    await flushPromises();
+    expect(w.findComponent({ name: 'Composer' }).props('error')).toBe('diagnose.runInProgress');
+
+    chatStub.resume.mockRejectedValueOnce(Object.assign(new Error('unprocessable'), { statusCode: 422 }));
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'hello again', []);
+    await flushPromises();
+    expect(w.findComponent({ name: 'Composer' }).props('error')).toBe('diagnose.sendRejected');
+  });
+
+  // A failed send must leave the images ATTACHED AND RETRYABLE — clearing them unconditionally would make
+  // the owner re-find and re-attach every one of them after doing nothing wrong (Task 18 exists because a
+  // large attachment send CAN fail: a stalled socket, a 413, a dead connection). Only the QUEUE branch
+  // clears unconditionally, because there the message really did move into the queue.
+  it('keeps the attachments in the composer when a non-queued send fails', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    const attachment = { id: 'a1', filename: 'x.png', mimeType: 'image/png', blob: new Blob(['x']) };
+    chatStub.resume.mockRejectedValueOnce(new Error('offline'));
+
+    // Mirror the real Composer: it keeps its OWN attachment state synced up through `v-model:attachments`
+    // (`update:attachments`) as the user attaches files, and passes that same state as `submit`'s second
+    // argument — so the ref this test must find non-empty AFTER the failure is the v-model ref, not the
+    // `submit()` call's own local parameter (which the earlier "forwards attachments…" tests already cover).
+    const composer = w.findComponent({ name: 'Composer' });
+    await composer.vm.$emit('update:attachments', [attachment]);
+    await nextTick();
+    await composer.vm.$emit('submit', 'hello', [attachment]);
+    await flushPromises();
+
+    expect(w.findComponent({ name: 'Composer' }).props('attachments')).toEqual([attachment]);
+  });
+
+  // The seam Task 19's own test never exercised: Task 19 pulls `driver` off the `useAgentChat` spy and calls
+  // `driver.start(...)` directly, so nothing in the suite ever drove attachments through the REAL path — a
+  // Composer `submit` event, through `submit()`, onto `chat.start`/`chat.resume`. That is exactly where an
+  // attachment could be silently dropped between the click and the wire.
+  it('forwards attachments from a Composer submit into chat.start for a brand-new conversation', async () => {
+    // `chat.sessionId` (the AGENT session id `submit()` branches on) is chatStub-level, not the component's
+    // own `currentSessionId` — it defaults to a truthy value module-wide, so the "start" branch needs it
+    // explicitly nulled for this one test (restored in the outer beforeEach for every other test).
+    chatStub.sessionId.value = null;
+    const w = mountChat(undefined);
+    await flushPromises();
+    const attachment = { id: 'a1', filename: 'x.png', mimeType: 'image/png', blob: new Blob(['x']) };
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'look at this', [attachment]);
+    await flushPromises();
+
+    expect(chatStub.start).toHaveBeenCalledWith(
+      'look at this',
+      expect.objectContaining({ attachments: [attachment] }),
+    );
+  });
+
+  it('forwards attachments from a Composer submit into chat.resume for an existing conversation', async () => {
+    const w = mountChat(undefined); // default chatStub.sessionId.value === 'agent-session-1' (truthy)
+    await flushPromises();
+    const attachment = { id: 'a2', filename: 'y.png', mimeType: 'image/png', blob: new Blob(['y']) };
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'and this', [attachment]);
+    await flushPromises();
+
+    expect(chatStub.resume).toHaveBeenCalledWith(
+      'agent-session-1',
+      'and this',
+      expect.objectContaining({ attachments: [attachment] }),
+    );
   });
 });

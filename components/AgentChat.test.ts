@@ -52,7 +52,8 @@ vi.mock('@retaxmaster/agents-realtime-client/vue', async () => {
       inheritAttrs: false,
       props: ['entries', 'labels', 'busy', 'agentLabel', 'running', 'canSend', 'disabled', 'error',
               'commands', 'failure', 'retrying', 'providers', 'selected', 'locked', 'providerLabels',
-              'modelValue'],
+              'modelValue', 'attachmentsEnabled', 'attachmentCaps', 'urlRegistry', 'attachments',
+              'queuedText', 'queuedAttachmentCount', 'queueingEnabled'],
       template: `<div class="${cls}" />`,
     });
   return {
@@ -65,8 +66,31 @@ vi.mock('@retaxmaster/agents-realtime-client/vue', async () => {
     useAgentChat: (options: unknown) => { useAgentChatSpy(options); return chatStub; },
   };
 });
-vi.mock('@retaxmaster/agents-realtime-client', () => ({}));
-vi.mock('@retaxmaster/agents-realtime-protocol', () => ({ parseCommandInput: () => null }));
+// `createObjectUrlRegistry` is a real `vi.fn()` (not a bare literal) so a later test can spy on
+// `releaseAll` / assert `urlFor`'s minted value — Tasks 20/21 need that, this task only needs the shape.
+const urlRegistryStub = {
+  urlFor: vi.fn((_surface: string, item: { id: string }) => `blob:stub-${item.id}`),
+  release: vi.fn(),
+  releaseSurface: vi.fn(),
+  releaseAll: vi.fn(),
+  dispose: vi.fn(),
+  size: 0,
+  onTurnSealed: vi.fn(),
+  onTurnSuperseded: vi.fn(),
+};
+vi.mock('@retaxmaster/agents-realtime-client', () => ({
+  createObjectUrlRegistry: vi.fn(() => urlRegistryStub),
+}));
+// AgentChat.vue now pulls CHAT_ATTACHMENT_CAPS from utils/chatSend.ts, which imports these constants
+// straight from the protocol package (never retyped) — so the mock must carry them too, or importing
+// chatSend.ts throws before a single test in this file can run.
+vi.mock('@retaxmaster/agents-realtime-protocol', () => ({
+  parseCommandInput: () => null,
+  DEFAULT_ATTACHMENT_MAX_COUNT: 6,
+  DEFAULT_ATTACHMENT_MAX_FILE_BYTES: 10 * 1024 * 1024,
+  DEFAULT_ATTACHMENT_MAX_TOTAL_BYTES: 20 * 1024 * 1024,
+  IMAGE_MIME_ALLOWLIST: new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+}));
 
 import AgentChat from './AgentChat.vue';
 import type { ChatProposalsAdapter } from '../types/api';
@@ -494,5 +518,39 @@ describe('AgentChat — the doctor approval surface', () => {
     // systemLabel is a useAgentChat OPTION, not a Composer prop — it names the author of a host-originated
     // system bubble. Without it the Spanish UI labels the new bubble "System".
     expect(useAgentChatSpy.mock.calls[0][0]).toHaveProperty('systemLabel');
+  });
+
+  // `useAgentChat` is mocked wholesale in this file (it returns `chatStub`, whose `start`/`resume` are
+  // bare `vi.fn()`s), so the real package never invokes OUR driver. The driver is unit-tested directly by
+  // pulling it off the options `useAgentChat` was called with — exactly how the `systemLabel` test below
+  // reaches a useAgentChat OPTION that has no Composer-prop equivalent either.
+  it('forwards attachments from the Composer through the driver to the API', async () => {
+    const sessions = {
+      ...makeSessions(),
+      create: vi.fn(async () => ({ sessionId: 's1', runId: 'r1', ticket: 't' })),
+    };
+    // A brand-new conversation (no session yet), so `driver.start` takes the `sessions.create` branch —
+    // mirroring the plan's `sessionsAdapter.create` assertion.
+    mountChat(undefined, { sessions, sessionId: null, initialProviderSessionId: null });
+    await flushPromises();
+
+    const driver = useAgentChatSpy.mock.calls[useAgentChatSpy.mock.calls.length - 1][0].driver;
+    const encoded = [{ id: 'a1', filename: 'fern.png', mimeType: 'image/png', data: 'eA==' }];
+    // The driver used to read only opts.command and DROP opts.attachments silently.
+    await driver.start('claude', 'look at this', { attachments: encoded });
+
+    expect(sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'look at this', attachments: encoded }),
+      'claude',
+    );
+  });
+
+  it('enables attachments on the Composer and hands it the caps and a url registry', async () => {
+    const w = mountChat(undefined);
+    const composer = w.findComponent({ name: 'Composer' });
+
+    expect(composer.props('attachmentsEnabled')).toBe(true);
+    expect(composer.props('attachmentCaps')).toMatchObject({ maxCount: 6 });
+    expect(composer.props('urlRegistry')).toBeTruthy();
   });
 });

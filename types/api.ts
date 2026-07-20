@@ -251,8 +251,20 @@ export interface KnowledgeChatTurn {
   logUrl: string;
 }
 
+/** One attachment as it crosses OUR wire: base64 bytes plus the metadata the API validates. */
+export interface ChatAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  data: string; // base64
+}
+
 // What a send carries. The union is the point: there is no shape in which a command rides inside a prompt.
-export type KnowledgeChatSendInput = { prompt: string } | { command: AgentCommand };
+// Commands never carry attachments — the API answers 400 to a body with both, so the union makes the
+// combination unrepresentable rather than discovering it at runtime.
+export type KnowledgeChatSendInput =
+  | { prompt: string; attachments?: ChatAttachment[] }
+  | { command: AgentCommand };
 
 export type { CommandCatalog };
 
@@ -282,7 +294,7 @@ export interface KnowledgeSocketTicketResponse { ticket: string }
 // one component, injected scope). `list`/`fetch`/`remove` are used by the PAGE, not the component, so they
 // are deliberately absent here.
 export interface ChatSessionsAdapter {
-  create: (prompt: string, provider: KnowledgeChatProvider) => Promise<CreateKnowledgeSessionResponse>;
+  create: (input: KnowledgeChatSendInput, provider: KnowledgeChatProvider) => Promise<CreateKnowledgeSessionResponse>;
   resume: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) => Promise<ResumeKnowledgeRunResponse>;
   history: (id: string) => Promise<KnowledgeChatHistory>;
   providers: (force?: boolean) => Promise<AgentProviderStatus[]>;

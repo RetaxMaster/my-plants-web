@@ -9,7 +9,7 @@ export function useKnowledgeChatSessions() {
     list: () => api.listKnowledgeSessions(),
     fetch: (id: string) => api.getKnowledgeSession(id),
     // Creating a conversation picks its agent; resuming never does (the conversation owns it).
-    create: (prompt: string, provider: KnowledgeChatProvider) => api.createKnowledgeSession(prompt, provider),
+    create: (input: KnowledgeChatSendInput, provider: KnowledgeChatProvider) => api.createKnowledgeSession(input, provider),
     resume: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) =>
       api.resumeKnowledgeSession(id, input, provider),
     remove: (id: string) => api.deleteKnowledgeSession(id),

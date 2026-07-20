@@ -6,6 +6,8 @@ import {
 // The transcript's label set is a CORE type (the Vue layer only re-exports the components), and it is the
 // contract the `labels` thunk must satisfy in full.
 import type { TranscriptLabels } from '@retaxmaster/agents-realtime-client';
+import { createObjectUrlRegistry } from '@retaxmaster/agents-realtime-client';
+import type { LocalAttachment } from '@retaxmaster/agents-realtime-client';
 import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
 import type {
@@ -16,6 +18,7 @@ import type {
 // module graph), so an auto-imported helper would be `undefined` at runtime in exactly the tests that
 // exercise the conflict path.
 import { upstreamErrorCode, upstreamErrorStatus } from '../utils/upstreamError.js';
+import { CHAT_ATTACHMENT_CAPS } from '../utils/chatSend.js';
 
 const props = defineProps<{
   // Our internal cuid session id; null for a brand-new chat not yet created.
@@ -162,6 +165,15 @@ const { theme, setTheme } = useTheme({
 
 const currentSessionId = ref<string | null>(props.sessionId);
 const draft = ref('');
+const attachments = ref<LocalAttachment[]>([]);
+// WE own the registry, because we drive a STANDALONE Composer rather than ChatPanel.
+//
+// ChatPanel owns one and passes it down, and its abandonConversation wrapper RELEASES the urls before
+// returning the blobs. A standalone Composer mints and disposes only its OWN, and
+// useAgentChat.abandonConversation() returns blobs while releasing nothing. Without an owner at our level,
+// a long-lived tab that switches conversations repeatedly LEAKS object urls.
+const urlRegistry = createObjectUrlRegistry();
+onBeforeUnmount(() => urlRegistry.dispose());
 const error = ref<string | null>(null);
 const providers = ref<AgentProviderStatus[]>([]);
 // True when the DB says this conversation HAS settled turns but the engine could restore none of them.
@@ -184,11 +196,20 @@ const driver: ChatDriver = {
     // treats the next send as a fresh start. That must RETRY that conversation's opening turn — possibly
     // on a different agent — not silently create a second conversation and orphan the first.
     if (currentSessionId.value) {
-      const res = await sessions.resume(currentSessionId.value, { prompt }, provider as KnowledgeChatProvider);
+      const res = await sessions.resume(
+        currentSessionId.value,
+        // opts.attachments arrives already base64-encoded by the package at this seam (ChatSendOptions),
+        // so it goes straight onto our wire shape. Previously this silently dropped them.
+        { prompt, ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}) },
+        provider as KnowledgeChatProvider,
+      );
       emit('changed');
       return { runId: res.runId };
     }
-    const res = await sessions.create(prompt, provider as KnowledgeChatProvider);
+    const res = await sessions.create(
+      { prompt, ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}) },
+      provider as KnowledgeChatProvider,
+    );
     currentSessionId.value = res.sessionId;
     emit('created', res.sessionId);
     emit('changed');
@@ -199,9 +220,13 @@ const driver: ChatDriver = {
     // session row, so a resume can never be pointed at another agent's memory.
     if (!currentSessionId.value) throw new Error('Cannot resume without a session');
     // The command travels in its OWN field, exactly as it arrived. We never rebuild it into text.
+    // opts.attachments arrives already base64-encoded by the package at this seam (ChatSendOptions), so it
+    // goes straight onto our wire shape. Previously this silently dropped them.
     const res = await sessions.resume(
       currentSessionId.value,
-      opts?.command ? { command: opts.command } : { prompt },
+      opts?.command
+        ? { command: opts.command }
+        : { prompt, ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}) },
     );
     emit('changed');
     return { runId: res.runId };
@@ -392,8 +417,12 @@ async function recheckProviders() {
   await loadProviders(true); // force: bypass the ~30s probe cache — they just signed in
 }
 
-async function submit() {
-  const text = draft.value;
+// `text`/`submitted` are the Composer's `@submit` payload — its own draft/attachments when omitted (a
+// direct call, e.g. a retry). The full rewrite of this function — queue routing, translateSendError,
+// clearing every piece of state — is Task 20's; this is the minimal change needed to carry attachments.
+async function submit(text?: string, submitted?: LocalAttachment[]) {
+  text = text ?? draft.value;
+  const sentAttachments = submitted ?? attachments.value;
   if (!text.trim() || !canSend.value) return;
   error.value = null;
 
@@ -417,8 +446,13 @@ async function submit() {
     //
     // The agent session id IS the conversation's memory: present → continue it; absent → this is a
     // brand-new conversation and the driver creates it.
-    if (chat.sessionId.value) await chat.resume(chat.sessionId.value, text);
-    else await chat.start(text);
+    //
+    // `attachments` here is the ChatInputOptions seam — Blob-backed, LocalAttachment[] — which THIS
+    // package base64-encodes before handing it to our driver (the ChatSendOptions seam, already encoded).
+    if (chat.sessionId.value) await chat.resume(chat.sessionId.value, text, { attachments: sentAttachments });
+    else await chat.start(text, { attachments: sentAttachments });
+    // Clear only on a successful submit — an attached image must not silently ride the NEXT turn too.
+    attachments.value = [];
   } catch (e: unknown) {
     const status = (e as { statusCode?: number; response?: { status?: number } })?.statusCode
       ?? (e as { response?: { status?: number } })?.response?.status;
@@ -709,12 +743,16 @@ onBeforeUnmount(() => chat.close());
 
     <Composer
       v-model="draft"
+      v-model:attachments="attachments"
       :running="streaming"
       :can-send="canSend"
       :disabled="noProviderAvailable"
       :error="noProviderAvailable ? chatLabels.noProviderAvailable : (error ?? undefined)"
       :labels="chatLabels"
       :commands="commands"
+      :attachments-enabled="true"
+      :attachment-caps="CHAT_ATTACHMENT_CAPS"
+      :url-registry="urlRegistry"
       @submit="submit"
       @stop="chat.stop()"
     />

@@ -196,8 +196,11 @@ export function useApi() {
     listKnowledgeSessions: () => api<KnowledgeChatSessionSummary[]>('/knowledge-chat/sessions'),
     // The agent is chosen at CREATION and owned by the conversation from then on — resume never carries
     // one (the API reads it off the session row).
-    createKnowledgeSession: (prompt: string, provider: KnowledgeChatProvider) =>
-      sendChat<CreateKnowledgeSessionResponse>('/knowledge-chat/sessions', { prompt, provider }),
+    // `input` is a prompt (optionally carrying attachments) — a command can never OPEN a conversation, but
+    // it is typed with the same union as `resume` for consistency; `sendChat` routes an attachment-carrying
+    // body through the watchdogged XHR path automatically.
+    createKnowledgeSession: (input: KnowledgeChatSendInput, provider: KnowledgeChatProvider) =>
+      sendChat<CreateKnowledgeSessionResponse>('/knowledge-chat/sessions', { ...input, provider }),
     getKnowledgeSession: (id: string) =>
       api<KnowledgeChatSessionDetail>(`/knowledge-chat/sessions/${id}`),
     // The conversation's transcript as CANONICAL AgentEvents, ready to seed straight into the chat. The
@@ -229,8 +232,8 @@ export function useApi() {
     //     shapes as the knowledge-chat endpoints — the API reuses KnowledgeChatService. ---
     listDoctorSessions: (plantId: string) =>
       api<KnowledgeChatSessionSummary[]>(`/plants/${plantId}/diagnose/sessions`),
-    createDoctorSession: (plantId: string, prompt: string, provider: KnowledgeChatProvider) =>
-      sendChat<CreateKnowledgeSessionResponse>(`/plants/${plantId}/diagnose/sessions`, { prompt, provider }),
+    createDoctorSession: (plantId: string, input: KnowledgeChatSendInput, provider: KnowledgeChatProvider) =>
+      sendChat<CreateKnowledgeSessionResponse>(`/plants/${plantId}/diagnose/sessions`, { ...input, provider }),
     getDoctorSession: (plantId: string, id: string) =>
       api<KnowledgeChatSessionDetail>(`/plants/${plantId}/diagnose/sessions/${id}`),
     getDoctorSessionHistory: (plantId: string, id: string) =>

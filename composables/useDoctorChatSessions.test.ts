@@ -33,8 +33,8 @@ describe('useDoctorChatSessions', () => {
     await s.fetch('sess-9');
     expect(spies.getDoctorSession).toHaveBeenCalledWith('plant-1', 'sess-9');
 
-    await s.create('hello', 'claude');
-    expect(spies.createDoctorSession).toHaveBeenCalledWith('plant-1', 'hello', 'claude');
+    await s.create({ prompt: 'hello' }, 'claude');
+    expect(spies.createDoctorSession).toHaveBeenCalledWith('plant-1', { prompt: 'hello' }, 'claude');
 
     await s.resume('sess-9', { prompt: 'more' }, 'claude');
     expect(spies.resumeDoctorSession).toHaveBeenCalledWith('plant-1', 'sess-9', { prompt: 'more' }, 'claude');

@@ -9,7 +9,7 @@ export function useDoctorChatSessions(plantId: string) {
   return {
     list: () => api.listDoctorSessions(plantId),
     fetch: (id: string) => api.getDoctorSession(plantId, id),
-    create: (prompt: string, provider: KnowledgeChatProvider) => api.createDoctorSession(plantId, prompt, provider),
+    create: (input: KnowledgeChatSendInput, provider: KnowledgeChatProvider) => api.createDoctorSession(plantId, input, provider),
     resume: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) =>
       api.resumeDoctorSession(plantId, id, input, provider),
     remove: (id: string) => api.deleteDoctorSession(plantId, id),

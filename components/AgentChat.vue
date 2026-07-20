@@ -6,7 +6,7 @@ import {
 // The transcript's label set is a CORE type (the Vue layer only re-exports the components), and it is the
 // contract the `labels` thunk must satisfy in full.
 import type { TranscriptLabels } from '@retaxmaster/agents-realtime-client';
-import { createObjectUrlRegistry } from '@retaxmaster/agents-realtime-client';
+import { createObjectUrlRegistry, mergeIntoComposer } from '@retaxmaster/agents-realtime-client';
 import type { LocalAttachment } from '@retaxmaster/agents-realtime-client';
 import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
@@ -166,6 +166,11 @@ const { theme, setTheme } = useTheme({
 const currentSessionId = ref<string | null>(props.sessionId);
 const draft = ref('');
 const attachments = ref<LocalAttachment[]>([]);
+// Template ref onto the standalone Composer, needed ONLY to restore the caret after a merge (see
+// `mergeIntoDraft` below). It is read defensively everywhere it is used: under plain Vitest the Composer is
+// stubbed as a bare `<div>` with no textarea, and even in the real app the ref may not have resolved yet on
+// the same tick a merge runs — mirrors the package's own `ChatPanel`, which faces the exact same seam.
+const composerRef = ref<InstanceType<typeof Composer> | null>(null);
 // WE own the registry, because we drive a STANDALONE Composer rather than ChatPanel.
 //
 // ChatPanel owns one and passes it down, and its abandonConversation wrapper RELEASES the urls before
@@ -536,13 +541,66 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
   }
 }
 
+// --- Merging a payload BACK into the composer (spec §5 / QA round 2, BUG 1) -----------------------------
+//
+// Three seams hand the host a `{ text, attachments }` payload it must put back into the composer without
+// destroying whatever the owner already typed: a queued message the package RETURNS after the turn it was
+// waiting on fails or is cancelled (`returnedToComposer`), a DRAFT restored from a previous page load
+// (`restoredDraft`), and the owner explicitly asking for a queued message back (`onEditQueued`). Before this
+// fix, the first two only read their ref as a BOOLEAN to gate a notice — the actual payload was never
+// written anywhere, so "your message was returned to the box" was a lie: the message was destroyed, not
+// saved. The third (`onEditQueued`) DID write the payload, but by OVERWRITING `draft`/`attachments`, which
+// silently threw away anything the owner had typed since queuing.
+//
+// All three now funnel through this ONE helper, which delegates to the package's OWN `mergeIntoComposer` —
+// never a local reimplementation — so the merge rule lives in exactly one place: the returned text is
+// PREPENDED ahead of whatever is already in the box (separated by a blank line; an empty box degenerates to
+// plain restoration), attachments are unioned by id, and the caret lands at the end so the owner can keep
+// typing right where they left off.
+const showQueuedReturnedNotice = ref(false);
+const showQueuedAttachmentsDroppedNotice = ref(false);
+
+function mergeIntoDraft(payload: { text: string; attachments: LocalAttachment[] }) {
+  const merged = mergeIntoComposer(payload, { text: draft.value, attachments: attachments.value });
+  draft.value = merged.text;
+  attachments.value = merged.attachments;
+  nextTick(() => {
+    const textarea = composerRef.value?.$el?.querySelector?.('textarea');
+    textarea?.setSelectionRange(merged.caret, merged.caret);
+  });
+}
+
+// A queued message HANDED BACK by the package on a failed/cancelled turn. The notice is LOCAL state
+// (`showQueuedReturnedNotice`), never a direct read of `chat.returnedToComposer.value`: this watcher calls
+// `clearReturned()` right after merging, which nulls the package's own ref — a template gated on that ref
+// would flash the notice for one tick and then lose it, right as the owner needed to read it.
+watch(() => chat.returnedToComposer.value, (payload) => {
+  if (payload == null) return;
+  mergeIntoDraft(payload);
+  showQueuedReturnedNotice.value = true;
+  chat.clearReturned();
+});
+
+// A draft restored from a PREVIOUS page load. Persistence is text-only (attachments never survive a
+// reload), hence the separate `attachmentsDropped` notice. `{ immediate: true }` mirrors the package's own
+// `ChatPanel`: a restore can already be pending the instant this component mounts, and the watcher must
+// catch that first tick, not only later changes.
+watch(() => chat.restoredDraft.value, (payload) => {
+  if (payload == null) return;
+  mergeIntoDraft({ text: payload.text, attachments: [] });
+  if (payload.attachmentsDropped) showQueuedAttachmentsDroppedNotice.value = true;
+  chat.clearRestored();
+}, { immediate: true });
+
 function onCancelQueued() { chat.cancelQueued(); }
 
 function onEditQueued() {
   const queued = chat.cancelQueued();
   if (!queued) return;
-  draft.value = queued.text;
-  attachments.value = [...queued.attachments];
+  // MERGE, not overwrite — this used to stomp `draft`/`attachments` with the cancelled payload, destroying
+  // anything the owner had typed since queuing it. No notice here (unlike the two watchers above): the
+  // owner explicitly asked for the message back, so there is nothing to announce.
+  mergeIntoDraft(queued);
 }
 
 // Rebuild the conversation from the engine's CANONICAL history (the same AgentEvents a live turn
@@ -841,21 +899,25 @@ defineExpose({
 
     <!-- Spec §5's two notices, reusing the existing `.mp-kchat__note` + `.mp-kchat__recheck` shapes rather
          than inventing a `.chat-notice` class (both already carry the design tokens; see the four other
-         notices above). -->
-    <p v-if="chat.returnedToComposer.value" class="mp-kchat__note" role="status">
+         notices above). Gated on LOCAL state (`showQueuedReturnedNotice` / `showQueuedAttachmentsDroppedNotice`),
+         NOT on `chat.returnedToComposer.value` / `chat.restoredDraft.value` directly — the watchers that set
+         these clear the package's own refs right after merging, so a template reading those refs would lose
+         the notice the instant it appeared. Dismiss now clears the LOCAL flag; the package ref is already null. -->
+    <p v-if="showQueuedReturnedNotice" class="mp-kchat__note" role="status">
       {{ chatLabels.queuedReturned }}
-      <button type="button" class="mp-kchat__recheck" @click="chat.clearReturned()">
+      <button type="button" class="mp-kchat__recheck" @click="showQueuedReturnedNotice = false">
         {{ chatLabels.dismiss }}
       </button>
     </p>
-    <p v-if="chat.restoredDraft.value?.attachmentsDropped" class="mp-kchat__note" role="status">
+    <p v-if="showQueuedAttachmentsDroppedNotice" class="mp-kchat__note" role="status">
       {{ chatLabels.queuedAttachmentsDropped }}
-      <button type="button" class="mp-kchat__recheck" @click="chat.clearRestored()">
+      <button type="button" class="mp-kchat__recheck" @click="showQueuedAttachmentsDroppedNotice = false">
         {{ chatLabels.dismiss }}
       </button>
     </p>
 
     <Composer
+      ref="composerRef"
       v-model="draft"
       v-model:attachments="attachments"
       :running="streaming"

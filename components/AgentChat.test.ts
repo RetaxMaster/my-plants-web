@@ -94,9 +94,17 @@ const urlRegistryStub = {
   onTurnSealed: vi.fn(),
   onTurnSuperseded: vi.fn(),
 };
-vi.mock('@retaxmaster/agents-realtime-client', () => ({
-  createObjectUrlRegistry: vi.fn(() => urlRegistryStub),
-}));
+// `createObjectUrlRegistry` is stubbed (a test must never mint a real object url), but `mergeIntoComposer`
+// is left as the REAL package export via `importOriginal` — a hand-rolled stub of the merge rule would
+// prove nothing about the fix this file exists to guard (the project's own lesson: several shipped defects
+// trace back to fixtures shaped by hand rather than by the real system they stand in for).
+vi.mock('@retaxmaster/agents-realtime-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@retaxmaster/agents-realtime-client')>();
+  return {
+    ...actual,
+    createObjectUrlRegistry: vi.fn(() => urlRegistryStub),
+  };
+});
 // AgentChat.vue now pulls CHAT_ATTACHMENT_CAPS from utils/chatSend.ts, which imports these constants
 // straight from the protocol package (never retyped) — so the mock must carry them too, or importing
 // chatSend.ts throws before a single test in this file can run.
@@ -116,6 +124,10 @@ vi.stubGlobal('computed', computed);
 vi.stubGlobal('watch', watch);
 vi.stubGlobal('onMounted', (fn: () => unknown) => { void fn(); });
 vi.stubGlobal('onBeforeUnmount', () => {});
+// `mergeIntoDraft` (the shared merge helper behind BUG 1's fix) uses Nuxt's auto-imported `nextTick` to
+// restore the caret after a merge — stubbed the same way as the other auto-imports above, or every path
+// that calls it throws `ReferenceError: nextTick is not defined` under plain Vitest.
+vi.stubGlobal('nextTick', nextTick);
 // The catalogue's REAL thirteen `composer.errors.<code>` codes (verified in en.json/es.json under both
 // namespaces) — mirrored here only to give the stub `te()` something honest to answer against. `t` stays
 // an identity function on purpose (Ruling 1): asserting on the RESOLVED KEY, not translated prose, is what
@@ -258,6 +270,12 @@ beforeEach(() => {
   useAgentChatSpy.mockClear();
   chatStub.enqueueMessage.mockClear();
   chatStub.cancelQueued.mockClear();
+  // Reset the two clear-callbacks as well. Without this, a `toHaveBeenCalledTimes(1)` assertion on either
+  // one is only correct because its test happens to be the FIRST in the file to trigger that seam —
+  // inserting a test above it would silently inflate the count and turn a real assertion vacuous. That is
+  // this project's single most repeated failure class; two lines buy immunity from it.
+  chatStub.clearReturned.mockClear();
+  chatStub.clearRestored.mockClear();
   chatStub.start.mockClear();
   chatStub.resume.mockClear();
 });
@@ -640,21 +658,65 @@ describe('the message queue', () => {
   // Ruling 1: the test i18n stub is an IDENTITY function (`t: (k) => k`), so `tns('composer.queuedReturned')`
   // renders the literal namespaced key, never the English prose. Asserting the KEY still genuinely fails
   // when the notice is not rendered at all — which is the property this test exists to prove.
-  it("surfaces the returned-to-composer notice on a failed or cancelled turn", async () => {
+  //
+  // This is the REGRESSION test for the silent-loss defect: a returned queued message used to render this
+  // exact notice while the payload itself was thrown away (never merged into `draft`/`attachments`, never
+  // in localStorage, never sent — just gone). So this test asserts the WHOLE contract, not just the notice:
+  // the text and attachments must actually land back in the composer, `clearReturned()` must be called, and
+  // — the part a naive fix gets wrong — the notice must SURVIVE that clear rather than flashing and vanishing
+  // (a template gated directly on `chat.returnedToComposer.value` goes null the instant `clearReturned()`
+  // runs, so this is the one assertion that catches "moved the merge in but left the template as-is").
+  it('merges a returned queued message into the draft and attachments, and the notice survives the clear', async () => {
     const w = mountChat(undefined);
     await flushPromises();
+
+    const attachment = { id: 'r1', filename: 'r.png', mimeType: 'image/png', blob: new Blob(['r']) };
+    chatStub.returnedToComposer.value = { text: 'came back', attachments: [attachment] };
+    await nextTick();
+
+    const composer = w.findComponent({ name: 'Composer' });
+    expect(composer.props('modelValue')).toBe('came back');
+    expect(composer.props('attachments')).toEqual([attachment]);
+    expect(chatStub.clearReturned).toHaveBeenCalledTimes(1);
+
+    // clearReturned() already ran (the watcher calls it synchronously after merging) — a package ref that
+    // is now null must not be what the notice depends on.
+    chatStub.returnedToComposer.value = null;
+    await nextTick();
+    expect(w.text()).toContain('composer.queuedReturned');
+
+    const note = w.findAll('.mp-kchat__note').find((n) => n.text().includes('composer.queuedReturned'));
+    expect(note).toBeTruthy();
+    await note!.find('button').trigger('click');
+    await nextTick();
+    expect(w.text()).not.toContain('composer.queuedReturned');
+  });
+
+  // The merge rule is NOT "replace the composer" — `mergeIntoComposer` (the real package function, per the
+  // `importOriginal` mock above) PREPENDS the returned text ahead of whatever the owner already typed,
+  // separated by a blank line. A test built on a hand-written stub of this rule would not catch a host that
+  // merely overwrote the draft, which is exactly the pre-fix behaviour for `onEditQueued` below.
+  it('merges rather than overwrites: existing draft text is preserved with the returned text prepended', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('update:modelValue', 'still typing');
+    await nextTick();
+
     chatStub.returnedToComposer.value = { text: 'came back', attachments: [] };
     await nextTick();
 
-    expect(w.text()).toContain('composer.queuedReturned');
+    expect(w.findComponent({ name: 'Composer' }).props('modelValue')).toBe('came back\n\nstill typing');
   });
 
-  it('surfaces the dropped-attachments notice on a RESTORED queued message', async () => {
+  it('a restored draft lands in the composer and clearRestored is called', async () => {
     const w = mountChat(undefined);
     await flushPromises();
     chatStub.restoredDraft.value = { text: 'restored', attachmentsDropped: true };
     await nextTick();
 
+    expect(w.findComponent({ name: 'Composer' }).props('modelValue')).toBe('restored');
+    expect(chatStub.clearRestored).toHaveBeenCalledTimes(1);
     // Persistence is text-only, so a restored message has lost its attachments and must SAY SO — this
     // asserts the notice is DISPLAYED, not merely present in the catalogue.
     expect(w.text()).toContain('composer.queuedAttachmentsDropped');
@@ -704,6 +766,30 @@ describe('the message queue', () => {
     const composer = w.findComponent({ name: 'Composer' });
     expect(composer.props('modelValue')).toBe('edit me');
     expect(composer.props('attachments')).toEqual([queuedAttachment]);
+  });
+
+  // `onEditQueued` used to OVERWRITE `draft`/`attachments` with the cancelled queued payload — so anything
+  // the owner had typed since queuing it was silently destroyed. It must go through the same merge as the
+  // other two paths (prepend, union attachments by id), and — per the reference implementation it mirrors —
+  // it shows NO notice: the owner explicitly asked for the message back, so there is nothing to announce.
+  it('editing the queued message MERGES into an already-non-empty draft instead of overwriting it, and shows no notice', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('update:modelValue', 'still typing');
+    await nextTick();
+
+    const queuedAttachment = { id: 'q1', filename: 'q.png', mimeType: 'image/png', blob: new Blob(['q']) };
+    chatStub.cancelQueued.mockReturnValueOnce({ text: 'edit me', attachments: [queuedAttachment] });
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('edit-queued');
+    await nextTick();
+
+    const composer = w.findComponent({ name: 'Composer' });
+    expect(composer.props('modelValue')).toBe('edit me\n\nstill typing');
+    expect(composer.props('attachments')).toEqual([queuedAttachment]);
+    expect(w.text()).not.toContain('composer.queuedReturned');
+    expect(w.text()).not.toContain('composer.queuedAttachmentsDropped');
   });
 
   // `translateSendError` (AgentChat.vue, local — Ruling 2) must never let a raw snake_case code reach the

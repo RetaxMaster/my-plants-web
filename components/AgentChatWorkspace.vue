@@ -68,10 +68,10 @@ function setSessionQuery(sid: string | null) {
 const chatRef = ref<{ abandonConversation: () => unknown } | null>(null);
 
 /**
- * Every point that counts as LEAVING a conversation calls this. The four are: selecting a different
- * session, starting a new chat, deleting the current session, and the fallback when the selected session
- * disappears. It lives here — the one place that owns selection — so BOTH surfaces (KE + doctor) are
- * covered by a single implementation (fork-prevention).
+ * `chatRef` always points at the CURRENTLY MOUNTED `<AgentChat>` — i.e. the conversation the owner is
+ * actively viewing, never one merely referenced by an id passed around in the same call. So this must only
+ * be called at a point that is GENUINELY leaving the active conversation, never just because some session id
+ * (which might belong to a different, unrelated conversation) is involved in the call.
  *
  * The package's own docs say a host that never calls this can have a first-turn queued message resurface in
  * a DIFFERENT conversation within its one-hour TTL — a remount (this component is keyed on the session id)
@@ -86,7 +86,11 @@ function leaveConversation(): void {
 }
 
 async function openSession(sid: string | null) {
-  leaveConversation();
+  // Guarded: re-clicking the ALREADY-open conversation (sid === selected.value) is not an exit — chatRef
+  // still points at that exact conversation, and abandoning it here would silently destroy its own queued
+  // draft and revoke the blob urls it is currently rendering, for no reason at all. Only a REAL switch (a
+  // different id, including to/from null) counts as leaving.
+  if (sid !== selected.value) leaveConversation();
   selected.value = sid;
   setSessionQuery(sid);
   if (sid === null) { detail.value = null; return; }
@@ -103,17 +107,26 @@ async function openSession(sid: string | null) {
     loadingDetail.value = false;
   }
 }
-// newChat() and removeSession() both route through openSession(null), so leaveConversation() fires TWICE on
-// those paths. That is known and benign: a second abandonConversation() call on an already-abandoned
-// conversation returns null — do not "optimise" this into a single call site, the duplication is harmless
-// and removing it risks missing the direct exit (e.g. deleting a DIFFERENT session than the selected one).
+// Starting a new chat is ALWAYS an exit — even from another already-new, unsaved chat — because chatRef
+// still points at that unsaved chat's own AgentChat instance and it may hold its own queued draft. This is
+// the one call site that must NOT rely on openSession(null)'s internal guard above: when selected.value is
+// already null (already in a new chat), that guard would skip its own call, so this fires explicitly and
+// unconditionally instead. A second, guarded-out call from the subsequent openSession(null) would be
+// harmless if it ever fired (an already-abandoned conversation just returns null again) — but here it
+// legitimately does NOT fire a second time, and that is fine: the explicit call above already did the job.
 function newChat() { leaveConversation(); newChatSeq.value += 1; void openSession(null); }
 async function onCreated(sessionId: string) { selected.value = sessionId; setSessionQuery(sessionId); await refresh(); }
 async function onChanged() { await refresh(); }
 async function removeSession(sid: string) {
-  leaveConversation();
   try { await props.sessions.remove(sid); }
   catch { if (import.meta.client) alert(tns('deleteError')); return; }
+  // Deleting a DIFFERENT (non-selected) conversation must NEVER touch the one the owner is actively
+  // viewing — chatRef points at THAT one, not at `sid`. So there is deliberately NO unconditional
+  // leaveConversation() call here. When `sid` IS the current session, this branch calls openSession(null),
+  // whose own guard above (`null !== selected.value`, true here since selected.value === sid still) fires
+  // the abandon at exactly the right moment: after the delete has genuinely succeeded (a failed remove()
+  // returns above and never reaches here — nothing was deleted, so the owner never left) and while chatRef
+  // still points at the conversation actually being left.
   if (selected.value === sid) { newChatSeq.value += 1; await openSession(null); }
   await refresh();
 }

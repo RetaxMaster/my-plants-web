@@ -493,4 +493,75 @@ describe('AgentChatWorkspace — abandonConversation on every conversation exit 
     expect(abandonSpy.mock.invocationCallOrder[0])
       .toBeLessThan(sessionsApi.fetch.mock.invocationCallOrder.at(-1)!);
   });
+
+  // ⚠️ THE REGRESSION GUARD FOR THE REAL BUG (caught in review, not by the tests above). `chatRef` always
+  // points at the CURRENTLY MOUNTED AgentChat — the conversation the owner is actively viewing — never at
+  // whatever session id merely happens to be the argument of a call. An earlier version called
+  // `leaveConversation()` unconditionally at the top of `removeSession()`, so deleting an UNRELATED
+  // conversation from the sidebar silently abandoned the owner's OWN active draft and revoked the blob urls
+  // their transcript was rendering right now — with zero error, because the return value is deliberately
+  // discarded. Nothing about deleting conversation B may ever touch conversation A.
+  it('does NOT call abandonConversation when deleting a DIFFERENT (non-selected) conversation', async () => {
+    const { wrapper } = await mountWorkspace(); // 'a' is the open/selected conversation
+    abandonSpy.mockClear();
+
+    await wrapper.find('[data-test="delete-session-b"]').trigger('click');
+    await flushPromises();
+
+    expect(abandonSpy).not.toHaveBeenCalled();
+  });
+
+  // The same class of bug, the other call site: `openSession()` used to fire unconditionally too, so
+  // re-clicking the conversation you are ALREADY reading — an entirely ordinary, always-available click —
+  // self-inflicted the identical damage (abandoning your own draft, revoking your own images) for no reason.
+  // Re-selecting the conversation you are already in is not leaving it.
+  it('does NOT call abandonConversation when re-selecting the already-open conversation', async () => {
+    const { wrapper } = await mountWorkspace(); // 'a' is already open
+    abandonSpy.mockClear();
+
+    await wrapper.find('[data-test="session-item-a"]').trigger('click');
+    await flushPromises();
+
+    expect(abandonSpy).not.toHaveBeenCalled();
+  });
+
+  // The one exit that must NOT be guarded: starting a new chat is ALWAYS a real exit, even when the owner is
+  // already sitting in an unsaved "new chat" (selected.value already null) — that unsaved chat has its OWN
+  // AgentChat instance and may hold its own queued draft. `openSession(null)`'s internal guard would SKIP
+  // its call here (null === null), so newChat() must fire its own call unconditionally and NOT rely on it.
+  it('starting a new chat from an already-new, unsaved chat still abandons (the explicit, unconditional call)', async () => {
+    const { wrapper } = await mountWorkspace();
+    await wrapper.find('[data-test="new-chat"]').trigger('click'); // enter the "new chat" state first
+    await flushPromises();
+    abandonSpy.mockClear();
+
+    await wrapper.find('[data-test="new-chat"]').trigger('click'); // new chat AGAIN, from within a new chat
+    await flushPromises();
+
+    expect(abandonSpy).toHaveBeenCalled();
+  });
+
+  // ⚠️ WHY THIS TEST EXISTS ON ITS OWN, SEPARATE FROM THE PARAMETERISED "deleting the current session" CASE
+  // ABOVE: that case deletes the SELECTED session, so it also routes through `openSession(null)` — and
+  // `openSession(null)`'s OWN internal call is what actually fires, not anything specific to
+  // `removeSession()`. Reviewed and confirmed by mutation: removing `removeSession`'s
+  // `if (selected.value === sid) { … await openSession(null); }` branch (or the call inside it) DOES turn
+  // that parameterised case red — see the mutation note in the Task 21 report — but a reviewer who only read
+  // that one test could still wonder whether it was pinning the right call site. This test makes the ORDER
+  // explicit and unmistakable: the abandon must happen strictly AFTER the delete request resolves (a failed
+  // delete must never abandon anything, since nothing was actually left), by asserting `sessions.remove` was
+  // called before `abandonConversation` was.
+  it('abandons the current session only AFTER its delete has resolved, never before', async () => {
+    const { wrapper, sessionsApi } = await mountWorkspace(); // 'a' is selected
+    abandonSpy.mockClear();
+    sessionsApi.remove.mockClear();
+
+    await wrapper.find('[data-test="delete-session-a"]').trigger('click');
+    await flushPromises();
+
+    expect(sessionsApi.remove).toHaveBeenCalledWith('a');
+    expect(abandonSpy).toHaveBeenCalled();
+    expect(sessionsApi.remove.mock.invocationCallOrder[0])
+      .toBeLessThan(abandonSpy.mock.invocationCallOrder.at(-1)!);
+  });
 });

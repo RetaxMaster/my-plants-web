@@ -132,4 +132,24 @@ describe('sendChatJson watchdogs', () => {
 
     await expect(promise).rejects.toMatchObject({ data: { code: 'send_no_response' } });
   });
+
+  it('fails visibly on a 2xx carrying a NON-JSON body, instead of stranding the promise forever', async () => {
+    // The one remaining path that could hang. By the time the body is parsed, `settled` is already true
+    // and BOTH watchdogs have been disarmed — so an unguarded `JSON.parse` throw escapes into the XHR
+    // event handler rather than the promise executor, and nothing is left to ever settle the promise.
+    // Reachable trigger: a proxy answering 200 with an HTML error page, or a truncated response.
+    const { sendChatJson, CHAT_STALL_TIMEOUT_MS, CHAT_RESPONSE_TIMEOUT_MS } = await import('./chatSend.js');
+    const xhr = makeFakeXhr();
+    const promise = sendChatJson('/api/x', { prompt: 'hi' }, { xhrFactory: () => xhr as unknown as XMLHttpRequest });
+
+    xhr.status = 200;
+    xhr.responseText = '<html><body>502 Bad Gateway</body></html>';
+    xhr.onload?.();
+
+    // Guards the guard: prove no watchdog is what rescues this. Advancing well past BOTH budgets must not
+    // be what settles the promise — otherwise this test would pass even with the parse left unguarded.
+    vi.advanceTimersByTime(CHAT_STALL_TIMEOUT_MS + CHAT_RESPONSE_TIMEOUT_MS + 1);
+
+    await expect(promise).rejects.toMatchObject({ data: { code: 'send_network' } });
+  });
 });

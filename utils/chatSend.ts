@@ -121,7 +121,23 @@ export async function sendChatJson<T>(
       settled = true;
       clearWatchdog();
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(xhr.responseText ? (JSON.parse(xhr.responseText) as T) : (undefined as T));
+        // ⚠️ THE PARSE MUST BE GUARDED, AND THE ORDER IS WHY.
+        //
+        // `settled` and `clearWatchdog()` already ran above, so a throw from here escapes into the XHR
+        // event handler — NOT into the promise executor — and the promise NEVER settles, with both
+        // watchdogs already disarmed. That is precisely the never-settling request this file exists to
+        // eliminate (see the header: a browser fetch() left in that state hangs forever, which this
+        // project has already shipped once). A 2xx carrying a non-JSON body — an HTML error page from a
+        // proxy, a truncated response — is the reachable trigger. The error branch below already guards
+        // its parse; this one did not.
+        let parsed: T;
+        try {
+          parsed = xhr.responseText ? (JSON.parse(xhr.responseText) as T) : (undefined as T);
+        } catch {
+          reject(makeChatSendError('send_network', xhr.status));
+          return;
+        }
+        resolve(parsed);
       } else {
         let parsed: unknown;
         try { parsed = JSON.parse(xhr.responseText); } catch { parsed = undefined; }

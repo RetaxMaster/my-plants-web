@@ -734,6 +734,23 @@ onMounted(async () => {
   attachActiveRun();
 });
 onBeforeUnmount(() => chat.close());
+
+/**
+ * The workspace owns conversation SELECTION but cannot reach this component's chat instance, so we expose
+ * the call the way ChatPanel does. The package explicitly CANNOT infer a switch from a remount — without
+ * this, a message queued in conversation A can be restored into conversation B in the same tab within the
+ * one-hour persistence window.
+ *
+ * We release the object urls here too: ChatPanel's own wrapper does it before returning the blobs, and a
+ * standalone Composer disposes only its own.
+ */
+defineExpose({
+  abandonConversation(): { text: string; attachments: LocalAttachment[] } | null {
+    const abandoned = chat.abandonConversation?.() ?? null;
+    urlRegistry.releaseAll();
+    return abandoned;
+  },
+});
 </script>
 
 <template>

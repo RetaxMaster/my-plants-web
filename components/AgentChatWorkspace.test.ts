@@ -61,9 +61,15 @@ vi.stubGlobal('useRoute', () => routeEnv.route);
 vi.stubGlobal('useRouter', () => ({ replace: routeEnv.replace, push: routeEnv.push }));
 
 // Explicit AgentChat stub declaring the injected props so we can read exactly what the shell forwarded.
+// Also exposes `abandonConversation` as a method (Task 21): the shell now calls `chatRef.value?.
+// abandonConversation()` unconditionally from every conversation-exit path (openSession/newChat/
+// removeSession), so any test mounting a real `ref="chatRef"` template ref onto this stub needs the method
+// to exist even when the test itself has nothing to say about abandonment — otherwise EVERY test in this
+// file that clicks a session/new-chat/delete control would throw "abandonConversation is not a function".
 const AgentChatStub = defineComponent({
   name: 'AgentChat',
   props: ['sessionId', 'initialProvider', 'initialProviderSessionId', 'initialTurns', 'sessions', 'runs', 'socketUrl', 'i18nNamespace', 'themeStorageKey', 'proposals'],
+  methods: { abandonConversation: () => null },
   template: '<div class="agent-chat-stub" />',
 });
 const slotStub = (name: string) => defineComponent({ name, template: '<div><slot /></div>' });
@@ -371,5 +377,120 @@ describe('AgentChatWorkspace — session id in the URL (B5: reload keeps the pin
 
     expect(routeEnv.replace).toHaveBeenLastCalledWith({ query: { tab: 'notes', session: 's2' } });
     expect(routeEnv.route.query).toEqual({ tab: 'notes', session: 's2' });
+  });
+});
+
+// Task 21: AgentChatWorkspace owns conversation SELECTION for BOTH surfaces (KE + doctor), so the
+// leak-prevention call belongs here ONCE rather than forked per consumer. Without it, the agents-realtime
+// package's own docs warn that a first-turn queued message can resurface in a DIFFERENT conversation within
+// its one-hour persistence window — a remount (this shell keys <AgentChat> on the session id) is NOT enough
+// for the package to infer a switch on its own.
+//
+// `AgentChat` is mounted here as a STUB, so `urlRegistry.releaseAll()` — the OTHER half of the exposed
+// `abandonConversation()` contract — can never genuinely run in this file (the real component's
+// `defineExpose` body never executes). That half is proven instead in AgentChat.test.ts against the REAL
+// component. What IS genuinely observable here, and is what this suite asserts: every one of the four
+// "leaving a conversation" call sites reaches the exposed method, and the call happens BEFORE the next
+// session's detail is fetched.
+describe('AgentChatWorkspace — abandonConversation on every conversation exit (Task 21)', () => {
+  const abandonSpy = vi.fn();
+  beforeEach(() => { abandonSpy.mockReset(); });
+
+  // A stub that ALSO exposes abandonConversation as a method — Options API components expose their public
+  // methods on the instance by default, which is what lets `ref="chatRef"` in AgentChatWorkspace.vue
+  // actually resolve to something callable. The shared, prop-only AgentChatStub above cannot serve this
+  // suite: it declares no methods, so a template ref to it would resolve to an instance with no
+  // `abandonConversation` at all — indistinguishable, from this test's point of view, from the call being
+  // missing in production.
+  const AgentChatStubWithAbandon = defineComponent({
+    name: 'AgentChat',
+    props: ['sessionId', 'initialProvider', 'initialProviderSessionId', 'initialTurns', 'sessions', 'runs', 'socketUrl', 'i18nNamespace', 'themeStorageKey', 'proposals'],
+    methods: { abandonConversation: abandonSpy },
+    template: '<div class="agent-chat-stub" />',
+  });
+
+  // The file-level UiButton stub (`true`) renders a shallow `<ui-button-stub>` whose fallthrough attrs catch
+  // a native click (existing tests rely on exactly that quirk), but that trick cannot prove a SPY was
+  // called on click — for that the element must genuinely dispatch a click Vue's runtime observes. Swap in
+  // a stub that renders a real `<button>` instead, scoped to this describe only.
+  const ClickableUiButton = defineComponent({
+    name: 'UiButton',
+    template: '<button type="button" v-bind="$attrs"><slot /></button>',
+  });
+
+  async function mountWorkspace() {
+    const { sessionsApi, runsApi } = makeScope([
+      { id: 'a', title: 'A', status: null, turns: 1 },
+      { id: 'b', title: 'B', status: null, turns: 1 },
+    ]);
+    // 'a' restores as the open conversation on mount, so every exit below has a real "current conversation"
+    // to leave.
+    routeEnv = makeRouteEnv({ session: 'a' });
+    const stubs = {
+      AgentChat: AgentChatStubWithAbandon,
+      ClientOnly: slotStub('ClientOnly'),
+      UiCard: slotStub('UiCard'),
+      UiEmptyState: slotStub('UiEmptyState'),
+      UiButton: ClickableUiButton, UiBadge: true, UiAppIcon: true,
+    };
+    const Wrapper = defineComponent({
+      render() {
+        return h(Suspense, null, {
+          default: () => h(AgentChatWorkspace as unknown as Parameters<typeof h>[0], {
+            sessions: sessionsApi, runs: runsApi, socketUrl: 'x',
+            i18nNamespace: 'diagnose', themeStorageKey: 'k', scopeKey: 'diagnose-p1',
+          }),
+          fallback: () => h('div'),
+        });
+      },
+    });
+    const wrapper = mount(Wrapper, { global: { stubs, mocks: { $t: (k: string) => k } } });
+    await flushPromises();
+    return { wrapper, sessionsApi, runsApi };
+  }
+
+  // PARAMETERISED OVER THE LIST on purpose, so an exit added later FAILS this test instead of silently
+  // skipping the call. Testing one member verifies the mechanism but not the wiring — and a missed call on
+  // "delete the current session" reproduces exactly the cross-conversation leak this exists to prevent.
+  const exits: Array<{ name: string; trigger: (ctx: Awaited<ReturnType<typeof mountWorkspace>>) => Promise<void> }> = [
+    { name: 'selecting a different session', trigger: async ({ wrapper }) => { await wrapper.find('[data-test="session-item-b"]').trigger('click'); } },
+    { name: 'starting a new chat', trigger: async ({ wrapper }) => { await wrapper.find('[data-test="new-chat"]').trigger('click'); } },
+    { name: 'deleting the current session', trigger: async ({ wrapper }) => { await wrapper.find('[data-test="delete-session-a"]').trigger('click'); } },
+    { name: 'the disappeared-session fallback', trigger: async ({ wrapper, sessionsApi }) => {
+        sessionsApi.fetch.mockRejectedValueOnce(new Error('gone'));
+        await wrapper.find('[data-test="session-item-b"]').trigger('click');
+      } },
+  ];
+
+  for (const exit of exits) {
+    it(`calls abandonConversation when ${exit.name}`, async () => {
+      const ctx = await mountWorkspace();
+      abandonSpy.mockClear();
+      await exit.trigger(ctx);
+      await flushPromises();
+      expect(abandonSpy).toHaveBeenCalled();
+    });
+  }
+
+  // NOTE WHAT IS ASSERTED, AND WHY IT IS NOT `wrapper.text()`. The obvious version —
+  // `expect(wrapper.text()).not.toContain('draft from A')` — is UNFALSIFIABLE here: AgentChat is mounted as
+  // a STUB that renders no composer, so that string can never appear no matter how broken the wiring is.
+  // It would pass with the whole feature deleted.
+  //
+  // The real claim is ORDERING: the draft cannot leak into B if the conversation was abandoned before B's
+  // detail was fetched. That is observable, and it actually fails when the call is moved after the fetch —
+  // see the mutation check run alongside this task.
+  it('on an A to B switch, abandon fires BEFORE B loads', async () => {
+    const { wrapper, sessionsApi } = await mountWorkspace();
+    abandonSpy.mockClear();
+    sessionsApi.fetch.mockClear();
+
+    await wrapper.find('[data-test="session-item-b"]').trigger('click');
+    await flushPromises();
+
+    expect(abandonSpy).toHaveBeenCalled();
+    expect(sessionsApi.fetch).toHaveBeenCalledWith('b');
+    expect(abandonSpy.mock.invocationCallOrder[0])
+      .toBeLessThan(sessionsApi.fetch.mock.invocationCallOrder.at(-1)!);
   });
 });

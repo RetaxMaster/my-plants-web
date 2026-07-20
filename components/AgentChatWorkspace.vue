@@ -60,7 +60,33 @@ function setSessionQuery(sid: string | null) {
   void router.replace({ query });
 }
 
+// The workspace owns conversation SELECTION but cannot reach the inner AgentChat's own chat instance
+// directly, so that component exposes `abandonConversation()` (Task 21) and we hold a template ref to it.
+// `AgentChat` sits behind `v-if="!loadingDetail"` inside `<ClientOnly>`, so `chatRef.value` can legitimately
+// be null at some moments (SSR fallback, mid-load) — the optional chaining below is load-bearing, not
+// defensive filler.
+const chatRef = ref<{ abandonConversation: () => unknown } | null>(null);
+
+/**
+ * Every point that counts as LEAVING a conversation calls this. The four are: selecting a different
+ * session, starting a new chat, deleting the current session, and the fallback when the selected session
+ * disappears. It lives here — the one place that owns selection — so BOTH surfaces (KE + doctor) are
+ * covered by a single implementation (fork-prevention).
+ *
+ * The package's own docs say a host that never calls this can have a first-turn queued message resurface in
+ * a DIFFERENT conversation within its one-hour TTL — a remount (this component is keyed on the session id)
+ * is NOT enough for the package to infer a switch on its own.
+ *
+ * The call RETURNS the abandoned draft and we DISCARD it DELIBERATELY, not by omission: silently ignoring
+ * the return value is how a user's typed message disappears with no trace, so the discard is named.
+ */
+function leaveConversation(): void {
+  const abandonedDraftDiscardedDeliberately = chatRef.value?.abandonConversation();
+  void abandonedDraftDiscardedDeliberately;
+}
+
 async function openSession(sid: string | null) {
+  leaveConversation();
   selected.value = sid;
   setSessionQuery(sid);
   if (sid === null) { detail.value = null; return; }
@@ -77,10 +103,15 @@ async function openSession(sid: string | null) {
     loadingDetail.value = false;
   }
 }
-function newChat() { newChatSeq.value += 1; void openSession(null); }
+// newChat() and removeSession() both route through openSession(null), so leaveConversation() fires TWICE on
+// those paths. That is known and benign: a second abandonConversation() call on an already-abandoned
+// conversation returns null — do not "optimise" this into a single call site, the duplication is harmless
+// and removing it risks missing the direct exit (e.g. deleting a DIFFERENT session than the selected one).
+function newChat() { leaveConversation(); newChatSeq.value += 1; void openSession(null); }
 async function onCreated(sessionId: string) { selected.value = sessionId; setSessionQuery(sessionId); await refresh(); }
 async function onChanged() { await refresh(); }
 async function removeSession(sid: string) {
+  leaveConversation();
   try { await props.sessions.remove(sid); }
   catch { if (import.meta.client) alert(tns('deleteError')); return; }
   if (selected.value === sid) { newChatSeq.value += 1; await openSession(null); }
@@ -104,13 +135,13 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
     <slot name="header" />
     <div class="mp-kchat-layout">
       <aside class="mp-kchat-list">
-        <UiButton size="sm" variant="solid" color="neutral" block @click="newChat">{{ $t(`${i18nNamespace}.newChat`) }}</UiButton>
+        <UiButton size="sm" variant="solid" color="neutral" block data-test="new-chat" @click="newChat">{{ $t(`${i18nNamespace}.newChat`) }}</UiButton>
         <UiCard v-if="!sessionList?.length" padded>
           <UiEmptyState>{{ $t(`${i18nNamespace}.noConversations`) }}</UiEmptyState>
         </UiCard>
         <ul v-else class="mp-kchat-list__items">
           <li v-for="s in sessionList" :key="s.id" class="mp-kchat-list__item" :class="{ 'is-active': s.id === selected }">
-            <button type="button" class="mp-kchat-list__open" @click="openSession(s.id)">
+            <button type="button" class="mp-kchat-list__open" :data-test="`session-item-${s.id}`" @click="openSession(s.id)">
               <span class="mp-kchat-list__title">{{ s.title }}</span>
               <span class="mp-kchat-list__meta">
                 <UiBadge v-if="s.status" :color="isRunActive(s.status) ? 'green' : 'neutral'" size="xs">{{ $t(`${i18nNamespace}.runStatus.${s.status}`) }}</UiBadge>
@@ -120,6 +151,7 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
             <button
               type="button"
               class="mp-kchat-list__del"
+              :data-test="`delete-session-${s.id}`"
               :disabled="isRunActive(s.status)"
               :title="$t(`${i18nNamespace}.deleteConversation`)"
               @click="removeSession(s.id)"
@@ -136,6 +168,7 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
             <div v-if="loadingDetail" class="mp-kchat-main__loading">{{ $t('common.loading') }}</div>
             <AgentChat
               v-else
+              ref="chatRef"
               :key="chatKey"
               :session-id="detail?.id ?? null"
               :initial-provider="detail?.provider ?? null"

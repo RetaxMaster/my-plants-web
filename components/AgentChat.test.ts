@@ -817,3 +817,25 @@ describe('the message queue', () => {
     );
   });
 });
+
+// Task 21: the workspace shell owns conversation SELECTION but cannot reach this component's chat instance
+// (`chat`, the useAgentChat() return value) directly — so it must be exposed. This is the seam
+// AgentChatWorkspace.test.ts's stub fakes; here we prove the REAL exposed method actually does both halves
+// of its job: forwards to the package's own abandonConversation() so the queued-message TTL entry is
+// cleared, AND releases every object url this component minted — because a standalone Composer (unlike
+// ChatPanel) owns its urlRegistry itself, so nothing else will ever release them on a conversation switch.
+describe('AgentChat — defineExpose(abandonConversation) (Task 21)', () => {
+  it('calls chat.abandonConversation() AND urlRegistry.releaseAll(), and returns the abandoned payload', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    const abandoned = { text: 'draft in progress', attachments: [] };
+    chatStub.abandonConversation.mockReturnValueOnce(abandoned);
+    urlRegistryStub.releaseAll.mockClear();
+
+    const result = (w.vm as unknown as { abandonConversation: () => unknown }).abandonConversation();
+
+    expect(chatStub.abandonConversation).toHaveBeenCalledTimes(1);
+    expect(urlRegistryStub.releaseAll).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(abandoned);
+  });
+});

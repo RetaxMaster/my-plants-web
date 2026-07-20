@@ -52,8 +52,22 @@ describe('checkChatSendLimits (the pre-flight)', () => {
     expect(checkChatSendLimits('hello', many)?.code).toBe('attachment_count_exceeded');
   });
 
-  it('refuses an over-total payload', () => {
-    expect(checkChatSendLimits('hello', [att(CHAT_MAX_TOTAL_BYTES + 1)])?.code).toBe('attachment_total_exceeded');
+  it('refuses an over-total payload split across files that each stay under the per-file cap', () => {
+    // Three 8 MiB files: 24 MiB total (over the 20 MiB total cap) while each individual file (8 MiB) stays
+    // under the 10 MiB per-file cap. This is the ONLY way to isolate the total branch: a single file big
+    // enough to break the total cap alone (20 MiB) is also always big enough to break the per-file cap
+    // (10 MiB, since the total cap is exactly 2x the file cap) — see the single-oversized-file test below
+    // for why that overlap case must report 'attachment_too_large', not this code.
+    const eightMiB = 8 * 1024 * 1024;
+    const attachments = [att(eightMiB, 'a1'), att(eightMiB, 'a2'), att(eightMiB, 'a3')];
+    expect(checkChatSendLimits('hello', attachments)?.code).toBe('attachment_total_exceeded');
+  });
+
+  it('reports a single oversized file as attachment_too_large, never attachment_total_exceeded, even though it also breaks the total cap', () => {
+    // Regression guard for the reorder that was tried and reverted: checking total BEFORE per-file made a
+    // user holding exactly one oversized image get told "those images are too large together, try fewer" —
+    // wrong advice for someone with one file. Per-file must win this overlap case.
+    expect(checkChatSendLimits('hello', [realAtt(CHAT_MAX_TOTAL_BYTES + 1)])?.code).toBe('attachment_too_large');
   });
 
   it('refuses a disallowed MIME type', () => {

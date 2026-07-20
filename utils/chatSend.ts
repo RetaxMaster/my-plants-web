@@ -67,18 +67,19 @@ export function checkChatSendLimits(
   attachments: readonly ChatAttachmentPayload[],
 ): { code: ChatSendErrorCode } | null {
   if (attachments.length > CHAT_MAX_ATTACHMENT_COUNT) return { code: 'attachment_count_exceeded' };
-  // Total checked BEFORE the per-file loop, deliberately: CHAT_MAX_TOTAL_BYTES is exactly
-  // 2 * CHAT_MAX_FILE_BYTES, so a single attachment that alone breaks the total cap also always breaks the
-  // per-file cap — the two are indistinguishable in that case. Checking total first reports the coarser,
-  // more informative "these are too heavy together" for that overlap case, while a genuine single-file
-  // overage (an attachment over its own cap but the set still under the total) still reaches the per-file
-  // check below and reports 'attachment_too_large'.
-  const total = attachments.reduce((sum, a) => sum + decodedBytes(a.data), 0);
-  if (total > CHAT_MAX_TOTAL_BYTES) return { code: 'attachment_total_exceeded' };
+  // Per-file checked BEFORE the total, deliberately — the reverse order was tried and reverted (see the
+  // feature ledger). CHAT_MAX_TOTAL_BYTES is exactly 2 * CHAT_MAX_FILE_BYTES, so a single attachment that
+  // alone breaks the total cap always also breaks the per-file cap. Reporting 'attachment_total_exceeded'
+  // in that case is a NEUTRAL-fallback violation: told to a user holding exactly ONE oversized image,
+  // "those images are too large together, try fewer" is not a coarser answer, it is a WRONG one the user
+  // cannot act on (§7's rule: a sibling fallback in the right family is still wrong, never a substitute for
+  // the specific code). Per-file-first guarantees a single oversized file is always named for what it is.
   for (const a of attachments) {
     if (!CHAT_ALLOWED_MIMES.includes(a.mimeType)) return { code: 'attachment_type_not_allowed' };
     if (decodedBytes(a.data) > CHAT_MAX_FILE_BYTES) return { code: 'attachment_too_large' };
   }
+  const total = attachments.reduce((sum, a) => sum + decodedBytes(a.data), 0);
+  if (total > CHAT_MAX_TOTAL_BYTES) return { code: 'attachment_total_exceeded' };
   return null;
 }
 

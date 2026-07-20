@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@retaxmaster/agents-realtime-client": "github:RetaxMaster/agents-realtime-client#v3.0.1",
+    "@retaxmaster/agents-realtime-protocol": "github:RetaxMaster/agents-realtime-protocol#v3.0.0",
     "@retaxmaster/my-plants-species-schema": "file:../my-plants-species-schema/retaxmaster-my-plants-species-schema-0.9.0.tgz",
     "isomorphic-dompurify": "^3.18.0",
     "marked": "^18.0.5",

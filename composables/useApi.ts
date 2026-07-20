@@ -1,4 +1,5 @@
 import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
+import { checkChatSendLimits, sendChatJson, type ChatAttachmentPayload } from '../utils/chatSend.js';
 import type {
   City, CitySearchResult, CommandCatalog, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
   DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSendInput, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
@@ -72,6 +73,27 @@ export function useApi() {
       if (e?.statusCode === 413) {
         e.data = { ...(e.data ?? {}), code: 'upload_rejected_by_server', message: t('upload.upload_rejected_by_server') };
       }
+      throw e;
+    }
+  };
+
+  // A send with attachments must fail VISIBLY: it goes through the watchdogged XHR path, never a bare
+  // fetch() that can hang forever on a hop that closes the socket mid-upload (see utils/chatSend.ts). A
+  // send with no attachments keeps the existing $fetch path unchanged — it is exactly as light as any other
+  // JSON call, so it gets none of the XHR/watchdog machinery.
+  const sendChat = async <T>(path: string, body: Record<string, unknown>): Promise<T> => {
+    const attachments = (body.attachments ?? []) as ChatAttachmentPayload[];
+    // Cast needed only because `api`'s own generic T, forwarded through a SECOND generic function (this
+    // one), loses ofetch's route-typing machinery down to an opaque conditional type TS can no longer prove
+    // reduces to T — a generic-forwarding quirk, not a real type mismatch (every other call site here calls
+    // `api<Concrete>()` directly, where the conditional type collapses cleanly).
+    if (attachments.length === 0) return api<T>(path, { method: 'POST', body }) as Promise<T>;
+    const rejection = checkChatSendLimits(String(body.prompt ?? ''), attachments);
+    if (rejection) throw createError({ statusCode: 400, data: { code: rejection.code } });
+    try {
+      return await sendChatJson<T>(`/api${path}`, body);
+    } catch (e: any) {
+      await handle401(e);
       throw e;
     }
   };
@@ -175,7 +197,7 @@ export function useApi() {
     // The agent is chosen at CREATION and owned by the conversation from then on — resume never carries
     // one (the API reads it off the session row).
     createKnowledgeSession: (prompt: string, provider: KnowledgeChatProvider) =>
-      api<CreateKnowledgeSessionResponse>('/knowledge-chat/sessions', { method: 'POST', body: { prompt, provider } }),
+      sendChat<CreateKnowledgeSessionResponse>('/knowledge-chat/sessions', { prompt, provider }),
     getKnowledgeSession: (id: string) =>
       api<KnowledgeChatSessionDetail>(`/knowledge-chat/sessions/${id}`),
     // The conversation's transcript as CANONICAL AgentEvents, ready to seed straight into the chat. The
@@ -189,10 +211,7 @@ export function useApi() {
     // `input` is a prompt OR a command — never both. A command is an instruction to the agent's runtime, and
     // it has its own field at every hop precisely so no host can accidentally bury it inside a prompt string.
     resumeKnowledgeSession: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) =>
-      api<ResumeKnowledgeRunResponse>(`/knowledge-chat/sessions/${id}/runs`, {
-        method: 'POST',
-        body: { ...input, provider },
-      }),
+      sendChat<ResumeKnowledgeRunResponse>(`/knowledge-chat/sessions/${id}/runs`, { ...input, provider }),
     deleteKnowledgeSession: (id: string) =>
       api<{ ok: true }>(`/knowledge-chat/sessions/${id}`, { method: 'DELETE' }),
     // Per-agent availability, proxied by our API behind its own admin auth (the browser never touches the
@@ -211,13 +230,13 @@ export function useApi() {
     listDoctorSessions: (plantId: string) =>
       api<KnowledgeChatSessionSummary[]>(`/plants/${plantId}/diagnose/sessions`),
     createDoctorSession: (plantId: string, prompt: string, provider: KnowledgeChatProvider) =>
-      api<CreateKnowledgeSessionResponse>(`/plants/${plantId}/diagnose/sessions`, { method: 'POST', body: { prompt, provider } }),
+      sendChat<CreateKnowledgeSessionResponse>(`/plants/${plantId}/diagnose/sessions`, { prompt, provider }),
     getDoctorSession: (plantId: string, id: string) =>
       api<KnowledgeChatSessionDetail>(`/plants/${plantId}/diagnose/sessions/${id}`),
     getDoctorSessionHistory: (plantId: string, id: string) =>
       api<KnowledgeChatHistory>(`/plants/${plantId}/diagnose/sessions/${id}/history`),
     resumeDoctorSession: (plantId: string, id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) =>
-      api<ResumeKnowledgeRunResponse>(`/plants/${plantId}/diagnose/sessions/${id}/runs`, { method: 'POST', body: { ...input, provider } }),
+      sendChat<ResumeKnowledgeRunResponse>(`/plants/${plantId}/diagnose/sessions/${id}/runs`, { ...input, provider }),
     deleteDoctorSession: (plantId: string, id: string) =>
       api<{ ok: true }>(`/plants/${plantId}/diagnose/sessions/${id}`, { method: 'DELETE' }),
     listDoctorProviders: (plantId: string, force = false) =>

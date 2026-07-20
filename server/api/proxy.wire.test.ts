@@ -37,6 +37,12 @@ let nextStatus = 200;
 let nextBody: unknown = {};
 /** The headers the upstream actually received on the last call — what the API gets to act on. */
 let lastUpstreamHeaders: Record<string, string | string[] | undefined> = {};
+/**
+ * Bytes of BODY the upstream actually drained on the last call. Reset per test that reads it (see the
+ * near-maximum-attachment test below) — module-level state in a sequential test file must not leak
+ * between tests.
+ */
+let lastUpstreamBodyBytes = 0;
 
 function listen(server: Server): Promise<string> {
   return new Promise((resolve) => {
@@ -50,13 +56,27 @@ function listen(server: Server): Promise<string> {
 beforeAll(async () => {
   upstream = createServer((req, res) => {
     lastUpstreamHeaders = req.headers;
-    res.statusCode = nextStatus;
-    if (nextBody === undefined) {
-      res.end(); // an EMPTY body — what Nest sends for a handler returning `null`
-      return;
-    }
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify(nextBody));
+    // Genuinely DRAIN the request body before answering. The previous version of this handler answered
+    // synchronously off the headers alone and never read `req` at all — harmless for the GET-only tests
+    // below (no body to drain), but it means a byte counter attached via a second 'request' listener could
+    // read zero or short: `res.end()` may complete before the body stream is ever consumed. Accumulating
+    // on 'data' and answering on 'end' makes "the upstream received N bytes" an honest measurement for
+    // ANY request, GET or POST, with or without a body — while every response byte/status/header this
+    // file's other tests assert on is produced exactly as before.
+    let bytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+    });
+    req.on('end', () => {
+      lastUpstreamBodyBytes = bytes;
+      res.statusCode = nextStatus;
+      if (nextBody === undefined) {
+        res.end(); // an EMPTY body — what Nest sends for a handler returning `null`
+        return;
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(nextBody));
+    });
   });
   upstreamUrl = await listen(upstream);
 
@@ -195,4 +215,39 @@ describe('the Nuxt BFF proxy, seen from the browser', () => {
     expect(ok).toBe('');
     expect(ok).not.toBeNull();
   });
+
+  // The BFF reads the raw body as a Buffer and adds no cap of its own — but that is a property to TEST,
+  // not to assume. A hop that silently caps or truncates here reproduces, byte for byte, the failure this
+  // project already shipped once in production: NGINX's `client_max_body_size` closed the socket
+  // mid-upload and the browser's `fetch()` never settled — an infinite spinner with no error. `callThroughBff`
+  // is GET-only, so this test drives the BFF directly with a real `fetch` POST instead of extending that
+  // helper's contract for every other test in this file.
+  it('forwards a near-maximum attachment body to the upstream API without truncating or capping it', async () => {
+    lastUpstreamBodyBytes = 0; // per-test reset — module-level state in a sequential suite
+
+    nextStatus = 200;
+    nextBody = { ok: true };
+
+    const perFile = 3 * 1024 * 1024;
+    const attachments = Array.from({ length: 6 }, (_, i) => ({
+      id: `a${i}`,
+      filename: `photo-${i}.png`,
+      mimeType: 'image/png',
+      data: Buffer.alloc(perFile, 0x41).toString('base64'),
+    }));
+    const body = { prompt: 'look', provider: 'claude', attachments };
+    const sentBytes = Buffer.byteLength(JSON.stringify(body));
+
+    const res = await fetch(`${bffUrl}/api/knowledge-chat/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    await res.arrayBuffer(); // drain the response so the connection can close cleanly
+
+    expect(res.status).not.toBe(413);
+    // The crux of the test: the upstream must have DRAINED exactly as many bytes as the BFF was given —
+    // not zero (a harness that never consumed the body), not short (a hop that silently caps or truncates).
+    expect(lastUpstreamBodyBytes).toBe(sentBytes);
+  }, 30000);
 });

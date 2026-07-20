@@ -44,6 +44,11 @@ const props = defineProps<{
   // no approval surface at all — not a hidden one, an absent one. Injected scope, one component (the same
   // fork-prevention shape as `sessions` and `runs` above).
   proposals?: ChatProposalsAdapter;
+  // CSS selector of an outlet ABOVE the chat panel to render the consent banner into. Optional by design:
+  // when absent the banner renders inline, which is what keeps this component mountable standalone. The
+  // host owns the outlet because the banner must escape the panel's fixed-height cage — see the Teleport
+  // in the template.
+  proposalTeleportTarget?: string;
 }>();
 
 const emit = defineEmits<{
@@ -876,17 +881,29 @@ defineExpose({
 
     <!-- The platform's OWN notice zone — outside the package's Console, where RunFailureNotice and the
          transcript notes already live. The consent surface must never be a transcript entry: the agent
-         writes the transcript. -->
-    <AgentProposalBanner
-      v-if="proposals && showProposalBanner && pendingProposal"
-      :proposal="pendingProposal"
-      :i18n-namespace="i18nNamespace"
-      :busy="proposalBusy"
-      :error-message="proposalError"
-      @approve="approveProposal"
-      @decline="declineProposal"
-      @dismiss="dismissProposal"
-    />
+         writes the transcript.
+
+         WHY IT IS TELEPORTED OUT. The state lives here (this is the component that talks to the proposals
+         adapter), but the DOM belongs ABOVE the chat panel. Rendered inline it had to share the panel's
+         fixed-height cage with the transcript, which forced the console down to 16rem and made the owner
+         feel the consent card had swallowed the chat. Outside the cage it sizes to its own content, the
+         transcript keeps its full height, and nothing has to be redistributed.
+
+         `proposalTeleportTarget` is optional and defaults to undefined → the banner renders in place. That
+         keeps this component mountable on its own (unit tests, any host without an outlet) instead of
+         failing on a selector that resolves to nothing. -->
+    <Teleport :to="proposalTeleportTarget" :disabled="!proposalTeleportTarget">
+      <AgentProposalBanner
+        v-if="proposals && showProposalBanner && pendingProposal"
+        :proposal="pendingProposal"
+        :i18n-namespace="i18nNamespace"
+        :busy="proposalBusy"
+        :error-message="proposalError"
+        @approve="approveProposal"
+        @decline="declineProposal"
+        @dismiss="dismissProposal"
+      />
+    </Teleport>
 
     <!-- The banner is gone but the attempt failed: the failure must still be on screen, or an approve that
          hit an expired proposal would look exactly like an approve that worked (§5.3.1). -->

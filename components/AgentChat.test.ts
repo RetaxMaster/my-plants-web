@@ -925,3 +925,38 @@ describe('AgentChat — defineExpose(abandonConversation) (Task 21)', () => {
     expect(result).toEqual(abandoned);
   });
 });
+
+// The consent banner's DOM must escape the chat panel — rendered inline it had to share the panel's
+// fixed-height cage with the transcript, which squeezed the console to 16rem and read, correctly, as "the
+// confirmation took over the chat". The state stays here; only the DOM moves, via <Teleport>.
+//
+// These two tests are the pair that matters. The first proves the banner LANDS in the outlet; the second
+// proves the fallback still works, because `proposalTeleportTarget` is optional and every other test in
+// this file mounts without it — so without the second test the inline path would be the only one exercised
+// and the teleport path would be the only one asserted, each hiding the other's regressions.
+describe('AgentChat — consent banner teleport', () => {
+  it('renders the banner into the host outlet, NOT inside the chat root', async () => {
+    const outlet = document.createElement('div');
+    outlet.id = 'test-proposal-outlet';
+    document.body.appendChild(outlet);
+
+    try {
+      const w = mountChat(makeProposals(), { proposalTeleportTarget: '#test-proposal-outlet' });
+      await flushPromises();
+
+      expect(outlet.querySelector('.stub-banner')).not.toBeNull();
+      // The banner must be GONE from the component's own subtree, not merely also present in the outlet —
+      // a teleport that silently no-ops would still satisfy an outlet-only assertion.
+      expect(w.find('.stub-banner').exists()).toBe(false);
+    } finally {
+      outlet.remove();
+    }
+  });
+
+  it('renders the banner inline when no outlet target is given', async () => {
+    const w = mountChat(makeProposals());
+    await flushPromises();
+
+    expect(w.find('.stub-banner').exists()).toBe(true);
+  });
+});

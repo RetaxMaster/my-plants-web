@@ -146,6 +146,14 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
 <template>
   <div>
     <slot name="header" />
+
+    <!-- The consent-banner outlet. AgentChat owns the proposal STATE but teleports the banner's DOM here,
+         above the chat panel, so the decision never competes with the transcript for the panel's height.
+         Always rendered (never v-if'd): a teleport target must exist in the DOM before the teleporting
+         child mounts, and this component cannot know when a proposal will arrive. Empty it costs nothing —
+         it has no padding, border or margin until it actually holds the banner. -->
+    <div id="mp-proposal-outlet" class="mp-kchat-proposal-outlet" />
+
     <div class="mp-kchat-layout">
       <aside class="mp-kchat-list">
         <UiButton size="sm" variant="solid" color="neutral" block data-test="new-chat" @click="newChat">{{ $t(`${i18nNamespace}.newChat`) }}</UiButton>
@@ -193,6 +201,7 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
               :i18n-namespace="i18nNamespace"
               :theme-storage-key="themeStorageKey"
               :proposals="proposals"
+              proposal-teleport-target="#mp-proposal-outlet"
               @created="onCreated"
               @changed="onChanged"
             />
@@ -226,55 +235,39 @@ const chatKey = computed(() => (detail.value ? detail.value.id : `new-${newChatS
 .mp-kchat-panel :deep(.mp-card__body) { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .mp-kchat-main__loading { font: 14px var(--font-sans); color: var(--text-muted); }
 
-/* ⚠️ A PENDING PROPOSAL IS NOT ALLOWED TO BE CAGED BY THIS CARD.
+/* THE CONSENT BANNER LIVES OUTSIDE THE CARD — which is what makes this section short.
  *
- * Normally this panel is a fixed-height cage so the transcript scrolls INSIDE it instead of growing the
- * page — right for a chat. It is wrong for a consent surface. Measured: a four-operation proposal needs
- * 591px of reading, and the cage could offer 185px on a 1440x900 desktop and 17px on a 390x844 phone,
- * because the chat's own chrome costs 268px and 383px respectively. No redistribution of that budget
- * fixes it — on a phone the SIMPLEST possible proposal (one nickname change) already needs 325px.
+ * The panel is a fixed-height cage so the transcript scrolls INSIDE it instead of growing the page. That
+ * is right for a chat and wrong for a consent surface, and the two used to share the cage: a pending
+ * proposal forced the console down to 16rem, which is what "the confirmation takes over the whole chat"
+ * looked like from the owner's seat.
  *
- * So while a proposal is pending the card stops being a cage: it grows to fit, the banner sizes to its
- * CONTENT with no internal scroll, and the page scrolls — the native way any viewport shows something
- * taller than itself. The spec's "the chat is never blocked" (§5.3) still holds: the composer is still
- * there and still usable, it is simply below the decision rather than above a clipped one.
+ * The banner now teleports to `#mp-proposal-outlet` ABOVE this grid (see the template and AgentChat.vue),
+ * so it is not in the cage at all. It sizes to its own content, the page scrolls if it is taller than the
+ * viewport, and the transcript keeps its full height whether or not a proposal is pending. Nothing has to
+ * be redistributed, so nothing has to be measured.
  *
- * The console MUST be pinned to a definite height here, and that is not optional: with an auto-height
- * card its `height: 100%` resolves to `auto`, and the transcript would grow without bound — making the
- * page as tall as the entire conversation.
+ * WHAT THIS DELETED, AND WHY THAT IS A GAIN. It replaced a `:has()`-driven block that un-caged the card
+ * while a proposal was pending. That block was correct but load-bearing in three files at once, and it had
+ * a documented degraded path: on a browser without `:has()` (Firefox <121, Safari <15.4, Chrome/Edge <105)
+ * the card stayed a cage, and the owner could get a live "Approve changes" button above a reading region
+ * measured at 17px of 1018px on a 390x844 phone — the destructive-delete warning included. It was benign
+ * only because of two guards in other files. Moving the banner out removes the cage conflict at its root,
+ * so there is no longer a degraded path to guard: no `:has()` support is required by this layout.
  *
- * ⚠️ ON THE DEGRADED PATH (a browser without `:has()` — Firefox <121, Safari <15.4, Chrome/Edge <105)
- * THE CARD STAYS A FIXED-HEIGHT CAGE, AND THAT PATH IS ONLY SAFE BECAUSE OF TWO GUARDS THAT LIVE
- * ELSEWHERE. This comment previously claimed the rule "degrades in exactly the right direction" full
- * stop. That was FALSE as written, and measurably so: with these rules removed at 390x844 the banner's
- * reading region was 17px of 1018px — the owner got a live "Approve changes" button and not one word of
- * the change list, destructive-delete warning included. The degradation is benign ONLY because of two
- * things that live in OTHER files, both mutation-proven:
- *   1. the banner root carries NEITHER `min-height: 0` NOR `overflow: hidden`, so it can no longer be
- *      shrunk below its own content and then clipped (AgentProposalBanner.vue) — this is the actual fix;
- *   2. `.mp-kchat` scrolls, so the column that consequently outgrows this cage stays reachable instead of
- *      being discarded by the card's own `overflow: hidden` (AgentChat.vue).
- * Remove either and the owner gets a live "Approve changes" button with no disclosure at all. Verified
- * with the `:has()` rules stripped at 1440x900, 390x844 AND 280x653, on a 10-operation proposal
- * containing a permanent delete. */
-.mp-kchat-panel:has(.mp-proposal) { height: auto; min-height: 30rem; }
-.mp-kchat-panel:has(.mp-proposal) .mp-kchat { height: auto; }
-.mp-kchat-panel:has(.mp-proposal) :deep(.crt-console-wrap) { flex: none; height: 16rem; }
+ * The two guards it depended on still exist and are still correct (`.mp-proposal` carries neither
+ * `min-height: 0` nor `overflow: hidden`; `.mp-kchat` scrolls). Do not treat them as dead — they are what
+ * keeps the banner unclippable in ANY host, including the inline fallback when no outlet is provided. */
+.mp-kchat-proposal-outlet:not(:empty) { margin-bottom: 16px; }
 
 @media (max-width: 720px) {
   .mp-kchat-layout { grid-template-columns: 1fr; }
-  /* 70vh was too small once a real consent banner had to share this column. MEASURED on a 390x844
-     viewport: the chat's own chrome costs 383px here (the agent/theme toolbar wraps to 134px and the Skip
-     Permissions switch to 76px, against 32px and 40px on desktop), which left a 692px proposal just 28px
-     of a 70vh panel — a scroll window too small to read one line of. This panel already sits below the
-     fold on a phone, so the page scrolls to it either way; taking a larger share of the viewport costs
-     nothing and is what makes the approval surface legible. Re-measured at 85vh: the banner gets a usable
-     share and still scrolls internally, with nothing clipped. */
+  /* 85vh, not 70vh. This was originally raised because a consent banner had to share the column; the
+     banner has since moved out of the panel, so that reason is gone — but the measurement underneath it
+     still applies to the chat alone. On a 390x844 viewport the chat's own chrome costs 383px (the
+     agent/theme toolbar wraps to 134px and the Skip Permissions switch to 76px, against 32px and 40px on
+     desktop), so a 70vh panel leaves the transcript a very small window. The panel already sits below the
+     fold on a phone, so the page scrolls to it either way and the larger share costs nothing. */
   .mp-kchat-panel { height: 85vh; }
-
-  /* A phone has far less room for the transcript once the decision is on screen, and the transcript is
-     the one thing here that is also reachable by scrolling within itself. */
-  .mp-kchat-panel:has(.mp-proposal) { min-height: 70vh; }
-  .mp-kchat-panel:has(.mp-proposal) :deep(.crt-console-wrap) { height: 10rem; }
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { AgentProposal, AgentProposalOperationType } from '../types/api';
+import type { AgentProposal } from '../types/api';
+import { OP_TYPE_KEY } from '../utils/agentProposalOpTypes';
 
 // THE CONSENT SURFACE (spec §5.4).
 //
@@ -32,27 +33,6 @@ defineEmits<{
 
 const { t } = useI18n();
 const tns = (key: string) => t(`${props.i18nNamespace}.${key}`);
-
-// The wire discriminant carries a dot ('profile.update'), and a dot inside an i18n leaf key is read by
-// vue-i18n as a nesting separator — so it would never resolve. Map to flat camelCase keys instead.
-// Two independent guards, not one: this map's COMPLETENESS (every operation type has a key here) is
-// enforced by the `Record<AgentProposalOperationType, string>` annotation itself — omitting one is a
-// TypeScript compile error. `i18n/locales.parity.test.ts` enforces the OTHER half — that the LOCALE FILES
-// actually resolve every one of these keys to a non-empty label in both `en.json` and `es.json` — which
-// TypeScript cannot check, since a JSON i18n leaf is just a string key to it. A ninth/tenth operation type
-// therefore fails one guard or the other rather than reaching the owner as a raw key path.
-const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
-  'profile.update': 'profileUpdate',
-  'plant.update': 'plantUpdate',
-  'progress.create': 'progressCreate',
-  'progress.update': 'progressUpdate',
-  'progress.delete': 'progressDelete',
-  'frequency.set': 'frequencySet',
-  'frequency.clear': 'frequencyClear',
-  'care.done': 'careDone',
-  'clinical_record.create': 'clinicalRecordCreate',
-  'clinical_record.update': 'clinicalRecordUpdate',
-};
 
 // A proposal that destroys something is a stronger warning than one that only edits fields. The colour is
 // a signal, not decoration — the two cases must not look alike.

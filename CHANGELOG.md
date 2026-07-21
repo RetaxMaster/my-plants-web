@@ -80,3 +80,7 @@ where you do that.
   message's text but never kept the image bytes or a link to them (attachments live for 24 hours on the
   engine and are never part of the conversation's permanent record), so showing a broken image in their
   place would be worse. There is no setting to change this.
+- **Internal only — no user-visible change.** The proposal type family (`DoctorProposal`,
+  `DoctorProposalOperationType`) is renamed to `AgentProposal` / `AgentProposalOperationType` in
+  `types/api.ts`, matching the API's own rename of its underlying tables to a per-agent-role shape. The
+  approval banner and everything else on this page behave exactly as before.

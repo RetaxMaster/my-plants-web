@@ -21,6 +21,7 @@ const PROPOSAL = {
   autoApproved: false,
   failureCode: null,
   failureReason: null,
+  affectedPlantCount: null,
   createdAt: '2026-07-18T10:00:00.000Z',
 };
 

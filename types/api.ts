@@ -6,6 +6,7 @@ import type {
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
 import type { ProgressTagKey } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
+import type { ProposalOperationType } from '@retaxmaster/my-plants-species-schema';
 export type { ProgressTagKey };
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
@@ -347,18 +348,16 @@ export type AgentProposalFailureCode = 'VALIDATION' | 'NOT_FOUND' | 'OWNERSHIP' 
 // it". Widening a value we only READ is the safe direction; narrowing it is what strands the caller.
 export type AgentProposalConflictStatus = AgentProposalStatus | 'UNKNOWN';
 
-// The closed operation union's discriminant (spec §5.5.2). The web only ever renders it as a label.
-export type AgentProposalOperationType =
-  | 'profile.update'
-  | 'plant.update'
-  | 'progress.create'
-  | 'progress.update'
-  | 'progress.delete'
-  | 'frequency.set'
-  | 'frequency.clear'
-  | 'care.done'
-  | 'clinical_record.create'
-  | 'clinical_record.update';
+/**
+ * The closed operation union's discriminant, ALIASED FROM THE SHARED CONTRACT — never hand-copied.
+ * A hand-copied literal union is a silent fork: the shared union grew from ten to fifteen members (five
+ * new garden ops: place.create/update, city.create/update, plant.create) and this file stayed green at
+ * ten, so every `Record<AgentProposalOperationType, …>` exhaustiveness check in this repo (the proposal
+ * banner's label map, the locale-parity test) was measuring completeness against a stale local copy that
+ * could never grow. Importing the type turns the NEXT union growth into a compile error right here,
+ * instead of a raw untranslated key path shown to the owner in production.
+ */
+export type AgentProposalOperationType = ProposalOperationType;
 
 /** A clinical record's metadata. The list endpoint never returns the body. */
 export interface ClinicalRecordSummary {
@@ -407,6 +406,12 @@ export interface AgentProposal {
   autoApproved: boolean;
   failureCode: AgentProposalFailureCode | null;
   failureReason: string | null;
+  /**
+   * SERVER-computed at propose time: how many plants a place edit in this proposal would recompute. Null
+   * when the proposal contains no place edit. It is never re-derived at approval and never read from the
+   * agent's summary — this field is the whole reason the fan-out claim is verifiable.
+   */
+  affectedPlantCount: number | null;
   // `createdAt` is a `Date` on the server; it crosses JSON as an ISO-8601 string.
   createdAt: string;
 }

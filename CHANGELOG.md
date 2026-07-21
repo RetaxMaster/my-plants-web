@@ -84,3 +84,9 @@ where you do that.
   `DoctorProposalOperationType`) is renamed to `AgentProposal` / `AgentProposalOperationType` in
   `types/api.ts`, matching the API's own rename of its underlying tables to a per-agent-role shape. The
   approval banner and everything else on this page behave exactly as before.
+- **Clinical records show up in your plant's history.** When the doctor leaves a case note after a
+  consultation, it appears as its own row in the history timeline — tap it to read the full note in a
+  dialog, rendered the same safely-sanitized way as everything else you read in the app.
+- **Removed the temporary care-basis reference dots.** The small dev-only dots that used to mark whether a
+  measurement was actually feeding the watering calculation are gone from every screen that showed them —
+  a leftover debugging aid with no place in the shipped app.

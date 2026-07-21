@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import en from './locales/en.json';
 import es from './locales/es.json';
 import { PROGRESS_TAG_KEYS } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
-import type { KnowledgeChatRunStatus } from '../types/api';
+import type { AgentProposalOperationType, KnowledgeChatRunStatus } from '../types/api';
 
 type Tree = { [k: string]: string | Tree };
 
@@ -121,6 +121,34 @@ describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
     for (const cat of [en, es] as unknown as Tree[]) {
       const opType = (((cat.diagnose as Tree).proposal as Tree).opType ?? {}) as Tree;
       expect(Object.keys(opType).sort()).toEqual([...OP_KEYS].sort());
+    }
+  });
+
+  // ⚠️ EXHAUSTIVE BY CONSTRUCTION AGAINST THE SHARED TYPE, not against the OP_KEYS array above. OP_KEYS is
+  // a plain string-array literal — satisfied by any SUBSET of the real union — so a ninth/tenth operation
+  // type could be added to `AgentProposalOperationType` while OP_KEYS silently stays stale (the same trap
+  // the runStatus test below is written to avoid). Keying a `Record` by the union itself instead makes
+  // omitting an operation type a COMPILE error (`npm run typecheck` covers test files): if the shared
+  // schema ever grows an eleventh operation, this map fails to compile until it is updated here too, so
+  // the omission is caught before the locale keys are even checked.
+  it('resolves every operation type in the shared union to a translated label in both locales', () => {
+    const OP_TYPE_TO_I18N_KEY: Record<AgentProposalOperationType, string> = {
+      'profile.update': 'profileUpdate',
+      'plant.update': 'plantUpdate',
+      'progress.create': 'progressCreate',
+      'progress.update': 'progressUpdate',
+      'progress.delete': 'progressDelete',
+      'frequency.set': 'frequencySet',
+      'frequency.clear': 'frequencyClear',
+      'care.done': 'careDone',
+      'clinical_record.create': 'clinicalRecordCreate',
+      'clinical_record.update': 'clinicalRecordUpdate',
+    };
+    for (const cat of [en, es] as unknown as Tree[]) {
+      const opType = (((cat.diagnose as Tree).proposal as Tree).opType ?? {}) as Tree;
+      for (const [wireType, i18nKey] of Object.entries(OP_TYPE_TO_I18N_KEY)) {
+        expect(opType[i18nKey], `diagnose.proposal.opType.${i18nKey} (for "${wireType}")`).toBeTruthy();
+      }
     }
   });
 

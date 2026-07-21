@@ -4,7 +4,7 @@ import { useTaskMeta } from '../composables/useTaskMeta';
 import { calendarDaysSince } from '../utils/localDate.js';
 
 defineProps<{ items: HistoryItem[] }>();
-const emit = defineEmits<{ openEntry: [entryId: string] }>();
+const emit = defineEmits<{ openEntry: [entryId: string]; openRecord: [recordId: string] }>();
 
 const { TASK_ICONS, taskPastLabel, healthLabel } = useTaskMeta();
 const { t } = useI18n();
@@ -31,6 +31,14 @@ function agoLabel(occurredOn: string): string {
             <span v-if="item.photoCount" class="mp-history__meta"> · {{ t('history.photoCount', { n: item.photoCount }, item.photoCount) }}</span>
             <span v-if="item.tagCount" class="mp-history__meta"> · {{ t('history.tagCount', { n: item.tagCount }, item.tagCount) }}</span>
           </span>
+          <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
+          <UiAppIcon name="chevron-right" :size="16" color="var(--text-faint)" />
+        </button>
+      </template>
+      <template v-else-if="item.kind === 'clinical'">
+        <button type="button" class="mp-history__row mp-history__row--link" @click="emit('openRecord', item.recordId)">
+          <UiAppIcon name="clipboard-document-list" :size="18" class="mp-history__icon" />
+          <span class="mp-history__text">{{ t('history.clinicalRecordCreated') }}</span>
           <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
           <UiAppIcon name="chevron-right" :size="16" color="var(--text-faint)" />
         </button>

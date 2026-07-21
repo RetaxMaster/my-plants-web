@@ -185,3 +185,22 @@ describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
     }
   });
 });
+
+// A mutation test proved this gap: swapping the Spanish `history.clinicalRecordCreated` value for the
+// English one survived the full suite, because nothing checked es≠en for either of these two spots — the
+// catalogue-wide "byte-identical key trees" test only proves the two files have the same SHAPE, which is
+// exactly as green on a wholesale copy-paste as on a real translation.
+describe('clinical record copy is genuinely translated (spec 2026-07-20 §6.1, §6.4)', () => {
+  it('translates the history-timeline label into Spanish rather than mirroring English', () => {
+    expect(es.history.clinicalRecordCreated).not.toBe(en.history.clinicalRecordCreated);
+  });
+
+  it('translates every clinicalRecord.* leaf into Spanish rather than mirroring English', () => {
+    const enBlock = (en as unknown as Tree).clinicalRecord as Tree;
+    const esBlock = (es as unknown as Tree).clinicalRecord as Tree;
+    expect(Object.keys(enBlock).length).toBeGreaterThan(0);
+    for (const k of Object.keys(enBlock)) {
+      expect(esBlock[k], `clinicalRecord.${k}`).not.toBe(enBlock[k]);
+    }
+  });
+});

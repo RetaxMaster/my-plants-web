@@ -35,8 +35,12 @@ const tns = (key: string) => t(`${props.i18nNamespace}.${key}`);
 
 // The wire discriminant carries a dot ('profile.update'), and a dot inside an i18n leaf key is read by
 // vue-i18n as a nesting separator — so it would never resolve. Map to flat camelCase keys instead.
-// The locale parity test pins this map's key set against the API's operation union: a ninth operation
-// type fails a test rather than reaching the owner as a raw key path.
+// Two independent guards, not one: this map's COMPLETENESS (every operation type has a key here) is
+// enforced by the `Record<AgentProposalOperationType, string>` annotation itself — omitting one is a
+// TypeScript compile error. `i18n/locales.parity.test.ts` enforces the OTHER half — that the LOCALE FILES
+// actually resolve every one of these keys to a non-empty label in both `en.json` and `es.json` — which
+// TypeScript cannot check, since a JSON i18n leaf is just a string key to it. A ninth/tenth operation type
+// therefore fails one guard or the other rather than reaching the owner as a raw key path.
 const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'profile.update': 'profileUpdate',
   'plant.update': 'plantUpdate',

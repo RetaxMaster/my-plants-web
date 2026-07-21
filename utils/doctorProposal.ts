@@ -21,6 +21,11 @@ import type { AgentProposal } from '../types/api';
  * payload we cannot fully describe would ask the owner to approve something unreadable. A payload
  * missing an `id` or an `operations` list cannot be resolved (there is nothing to approve) or rendered,
  * so it is treated as "nothing pending" rather than passed on to blow up in the template.
+ *
+ * Scoped to the doctor endpoint only, deliberately not renamed for it: its only caller is
+ * `getDoctorPendingProposal`, and the empty-body quirk it normalizes is that endpoint's. If a future
+ * agent role's proposals endpoint turns out to share the quirk, THIS is the function to generalize and
+ * rename — not a second copy.
  */
 export function normalizePendingProposal(raw: unknown): AgentProposal | null {
   if (raw === null || typeof raw !== 'object') return null;

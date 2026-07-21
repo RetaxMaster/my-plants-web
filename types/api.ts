@@ -316,9 +316,9 @@ export interface ChatRunsAdapter {
   mintSocketTicket: (runId: string) => Promise<string>;
 }
 
-// --- Plant Doctor write proposals (spec 2026-07-18 §5.4, §5.5.1, §5.5.3) ---
+// --- Agent write proposals (spec 2026-07-18 §5.4, §5.5.1, §5.5.3) ---
 //
-// The doctor agent cannot mutate anything. It files a PROPOSAL, and the owner approves it. Everything
+// No agent role can mutate anything directly. It files a PROPOSAL, and the owner approves it. Everything
 // below is SERVER-RENDERED: the API resolves each operation's human target label and its before/after
 // values and hands them over as strings. That is deliberate and load-bearing — if the browser re-derived
 // the labels it would be a second implementation of "what does this change mean", free to disagree with
@@ -392,6 +392,11 @@ export interface AgentProposal {
   // `createdAt` is a `Date` on the server; it crosses JSON as an ISO-8601 string.
   createdAt: string;
 }
+
+// From here on the vocabulary is deliberately mixed, not inconsistent: the wire TYPES above generalized
+// to `Agent*` because the gardener's adapter reuses them unchanged, while `DoctorSessionSettings` and the
+// `*DoctorProposal` methods on `useApi` below stay doctor-named because they are genuinely doctor-only —
+// the Dangerously Skip Permissions setting and calls to the `/plants/:id/diagnose/*` routes.
 
 // Per-session Dangerously Skip Permissions (§6.4). Owner-toggled only; the agent may read it and never write it.
 export interface DoctorSessionSettings {

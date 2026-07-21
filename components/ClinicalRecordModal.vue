@@ -24,7 +24,10 @@ const html = computed(() => (record.value ? renderMarkdown(record.value.body) : 
 let requestToken = 0;
 async function load() {
   const id = props.recordId;
-  if (!id) return;
+  // Mirrors ProgressEntryModal.loadEntry()'s defensive guard: blank the displayed state before
+  // returning rather than leaving whatever was there. Inert today (the page always sets a recordId
+  // before opening), but keeps a future caller that opens with a null id from showing a stale record.
+  if (!open.value || !id) { record.value = null; error.value = null; return; }
   const token = ++requestToken;
   loading.value = true;
   error.value = null;
@@ -41,7 +44,7 @@ async function load() {
   }
 }
 
-watch(() => [open.value, props.recordId], () => { if (open.value) load(); });
+watch([open, () => props.recordId], () => { if (open.value) load(); });
 </script>
 
 <template>

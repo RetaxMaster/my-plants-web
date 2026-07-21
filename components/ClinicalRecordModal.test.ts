@@ -136,14 +136,55 @@ describe('ClinicalRecordModal 404 handling', () => {
 });
 
 // Wiring check: the recordId (and plantId) the timeline emits must be exactly what reaches the fetch —
-// a wiring bug that drops/mismatches it would render the wrong record or nothing.
+// a wiring bug that drops/mismatches it would render the wrong record or nothing. Also asserts the CALL
+// COUNT (not just the args): a duplicated watch registration would still call the fetch with the right
+// arguments, just twice — `toHaveBeenCalledWith` alone can't see that, `toHaveBeenCalledTimes` can.
 describe('ClinicalRecordModal request wiring', () => {
-  it('fetches using the plantId + recordId props it was given', async () => {
+  it('fetches exactly once, using the plantId + recordId props it was given', async () => {
     const { spy } = await mountModal(() => Promise.resolve({
       id: 'rec-1', recordedOn: '2026-07-20', createdAt: '2026-07-20T00:00:00Z', updatedAt: '2026-07-20T00:00:00Z',
       body: 'hi', bodyChars: 2,
     }));
     await flushPromises();
     expect(spy).toHaveBeenCalledWith('plant-1', 'rec-1');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Reopen the SAME modal instance (spec: the parent never remounts it, it just flips `recordOpen` /
+// `activeRecordId` — see pages/plants/[id]/index.vue's openRecord). A failed load must not leave a stale
+// `loadError` that permanently masks a later record that DOES load successfully.
+describe('ClinicalRecordModal reopened with a different record', () => {
+  it('does not let a stale loadError survive into a reopen that succeeds', async () => {
+    const spy = vi.fn((_: string, recordId: string) => (
+      recordId === 'rec-1'
+        ? Promise.reject(Object.assign(new Error('boom'), { statusCode: 500 }))
+        : Promise.resolve({
+          id: recordId, recordedOn: '2026-07-20', createdAt: '2026-07-20T00:00:00Z', updatedAt: '2026-07-20T00:00:00Z',
+          body: '# Recovered', bodyChars: 11,
+        })
+    ));
+    vi.stubGlobal('useApi', () => ({ getClinicalRecord: spy }));
+    const wrapper = mount(ClinicalRecordModal, {
+      props: { modelValue: false, plantId: 'plant-1', recordId: 'rec-1' },
+      global: {
+        mocks: { $t: (k: string) => k },
+        components: { UiProse },
+        stubs: { UiModal: { props: ['title'], template: '<div><slot /></div>' } },
+      },
+    });
+
+    // Open on rec-1: fails.
+    await wrapper.setProps({ modelValue: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain('clinicalRecord.loadError');
+
+    // Close, then reopen on a DIFFERENT record that succeeds.
+    await wrapper.setProps({ modelValue: false });
+    await wrapper.setProps({ recordId: 'rec-2', modelValue: true });
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain('clinicalRecord.loadError');
+    expect(wrapper.html()).toContain('Recovered');
   });
 });

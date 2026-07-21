@@ -24,7 +24,7 @@ where you do that.
 ### Added
 
 - **Approve what the Plant Doctor wants to change.** When the doctor wants to update the care profile,
-  move the plant, add or edit a progress entry, change a task's frequency or mark a task done, a banner
+  add or edit a progress entry, change a task's frequency or mark a task done, a banner
   appears under the conversation listing every change it proposes — the exact field, its current value
   and the value it wants to set. You approve the change itself, not the doctor's description of it: the
   list is built and labelled by the server, and the doctor's own note is shown separately as a caption.

@@ -222,9 +222,10 @@ export const ACTIVE_RUN_STATUSES: readonly KnowledgeChatRunStatus[] = ['QUEUED',
 // value the API persists is the value it sends the engine, so this stays a plain string union.
 export type KnowledgeChatProvider = 'claude' | 'codex';
 
-// A chat session's scope. KNOWLEDGE = the admin Knowledge Engine pool; DOCTOR = a per-plant diagnosis.
-// Present on doctor sessions; absent/KNOWLEDGE on the KE pool.
-export type ChatSessionKind = 'KNOWLEDGE' | 'DOCTOR';
+// A chat session's scope. KNOWLEDGE = the admin Knowledge Engine pool; DOCTOR = a per-plant diagnosis;
+// GARDENER = the whole-garden agent (places/cities/plant creation, not scoped to one plant).
+// Present on doctor and gardener sessions; absent/KNOWLEDGE on the KE pool.
+export type ChatSessionKind = 'KNOWLEDGE' | 'DOCTOR' | 'GARDENER';
 
 export interface KnowledgeChatSessionSummary {
   id: string;

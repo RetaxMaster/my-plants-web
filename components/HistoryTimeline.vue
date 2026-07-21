@@ -50,30 +50,42 @@ function agoLabel(occurredOn: string): string {
   </ol>
 </template>
 
-<style>
-/* Deliberately UNSCOPED, not `<style scoped>`. The clickable rows (progress/clinical) now render through
- * the shared `UiLinkRow` component (components/ui/LinkRow.vue): Vue's scoped CSS only propagates a
- * parent's scope attribute onto a CHILD COMPONENT's ROOT node, never onto that child's own nested
- * elements — so a scoped rule here could style UiLinkRow's outer <button> but not the icon/text/date
- * spans inside it. Rather than fork these rules into UiLinkRow's own stylesheet (duplicating every token
- * for the one 'action' row that stays inline below), this block stays the SINGLE source of truth for every
- * `.mp-history__*` class, shared by both the inline row and the extracted component. Verified collision-safe:
- * `mp-history__` is used nowhere else in the app (`grep -rl "mp-history__" --include="*.vue" .`).
+<style scoped>
+/* Back to SCOPED: the clickable rows (progress/clinical) now render through the shared `UiLinkRow`
+ * component (components/ui/LinkRow.vue), which owns its OWN complete default look in its own <style
+ * scoped> — a reusable component ships its own presentation rather than depending on whichever parent
+ * renders it to also define matching CSS. This file's own scoped style now covers only what THIS
+ * component still renders directly.
  */
 .mp-history { list-style: none; margin: 0; padding: 0; display: grid; }
+
+/* The ONE rule that deliberately reaches into UiLinkRow's root node from here, rather than living
+ * solely in LinkRow.vue: it is a LIST-separator concern (":not(:last-child)" is relative to this <ol>'s
+ * OWN <li> siblings), which is inherently the parent's layout to own, not the row's. This works with a
+ * plain scoped selector — no `:deep()` needed — because Vue's scoped CSS deliberately DOES propagate a
+ * parent's scope attribute onto a child component's ROOT node (here, UiLinkRow's outer <button>),
+ * specifically so the parent can style a child root for layout purposes; it does NOT propagate onto
+ * elements nested further inside that child's own template, which is why the rest of the row's chrome
+ * (icon/text/date, below) lives in LinkRow.vue instead. Also matches the inline 'action' row's own
+ * <div class="mp-history__row">, since that element is this component's own root-level markup already. */
 .mp-history__item:not(:last-child) .mp-history__row { border-bottom: 1px solid var(--border-subtle); }
 
+/* The 'action' row is the one branch that still renders its own row markup inline (kept untouched by
+ * the UiLinkRow extraction — it was never a clickable row). Its base box layout is therefore this
+ * component's own responsibility: LinkRow.vue already owns the identical rule set for the rows IT
+ * renders (progress/clinical), in its own scoped style — same tokens, same values, kept here only
+ * because scoped CSS cannot reach past a child component's root into its own template. */
 .mp-history__row {
   display: flex; align-items: center; gap: var(--space-2);
   width: 100%; padding: var(--space-3) 0; text-align: left;
   background: transparent; border: none; font-family: var(--font-sans);
 }
-.mp-history__row--link { cursor: pointer; }
-.mp-history__row--link:hover .mp-history__text { color: var(--text-brand); }
-.mp-history__row--link:focus-visible { outline: none; box-shadow: var(--shadow-focus); border-radius: var(--radius-md); }
-
 .mp-history__icon { color: var(--text-muted); flex: none; }
 .mp-history__text { flex: 1; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); }
+/* Used only inside the 'progress' row's SLOT CONTENT (the photo-count / tag-count spans passed into
+ * UiLinkRow's default slot). Slot content is compiled in THIS file, so it carries this component's own
+ * scope attribute regardless of which child renders it — it belongs here, not in LinkRow.vue, which
+ * never writes a `.mp-history__meta` element in its own template. */
 .mp-history__meta { color: var(--text-muted); }
 .mp-history__date { font-size: var(--text-xs); color: var(--text-faint); white-space: nowrap; }
 </style>

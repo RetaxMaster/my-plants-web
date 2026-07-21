@@ -82,6 +82,7 @@ describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
   const OP_KEYS = [
     'profileUpdate', 'plantUpdate', 'progressCreate', 'progressUpdate',
     'progressDelete', 'frequencySet', 'frequencyClear', 'careDone',
+    'clinicalRecordCreate', 'clinicalRecordUpdate',
   ] as const;
 
   it('both locales define the banner copy, including every operation-type label', () => {

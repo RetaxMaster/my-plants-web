@@ -46,6 +46,8 @@ const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'frequency.set': 'frequencySet',
   'frequency.clear': 'frequencyClear',
   'care.done': 'careDone',
+  'clinical_record.create': 'clinicalRecordCreate',
+  'clinical_record.update': 'clinicalRecordUpdate',
 };
 
 // A proposal that destroys something is a stronger warning than one that only edits fields. The colour is

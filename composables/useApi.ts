@@ -10,6 +10,7 @@ import type {
   BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
   AgentProposal, DoctorSessionSettings,
+  ClinicalRecordSummary, ClinicalRecordDetail,
 } from '../types/api.js';
 
 export function useApi() {
@@ -186,6 +187,10 @@ export function useApi() {
     deleteProgress: (plantId: string, entryId: string) =>
       api<void>(`/plants/${plantId}/progress/${entryId}`, { method: 'DELETE' }),
     getPlantHistory: (plantId: string) => api<HistoryItem[]>(`/plants/${plantId}/history`),
+    getClinicalRecords: (plantId: string) =>
+      api<ClinicalRecordSummary[]>(`/plants/${plantId}/clinical-records`),
+    getClinicalRecord: (plantId: string, recordId: string) =>
+      api<ClinicalRecordDetail>(`/plants/${plantId}/clinical-records/${recordId}`),
 
     simulateMove: (latitude: number, longitude: number) =>
       api<PlantViability[]>('/moving/simulate', { method: 'POST', body: { latitude, longitude } }),

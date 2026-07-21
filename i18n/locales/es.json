@@ -161,7 +161,15 @@
     "daysAgo": "hace {n} día | hace {n} días",
     "progressLogged": "Progreso registrado",
     "photoCount": "{n} foto | {n} fotos",
-    "tagCount": "{n} etiqueta | {n} etiquetas"
+    "tagCount": "{n} etiqueta | {n} etiquetas",
+    "clinicalRecordCreated": "Se creó expediente clínico"
+  },
+  "clinicalRecord": {
+    "title": "Expediente clínico",
+    "subtitle": "Escrito por el Doctor de Plantas el {date}",
+    "loading": "Cargando el expediente…",
+    "loadError": "No se pudo cargar este expediente.",
+    "notFound": "Este expediente ya no existe."
   },
   "today": {
     "eyebrow": "Hoy",
@@ -953,7 +961,9 @@
         "progressDelete": "Eliminar una entrada de progreso",
         "frequencySet": "Definir la frecuencia de una tarea",
         "frequencyClear": "Quitar la frecuencia personalizada de una tarea",
-        "careDone": "Marcar una tarea de cuidado como hecha"
+        "careDone": "Marcar una tarea de cuidado como hecha",
+        "clinicalRecordCreate": "Escribir el expediente clínico de hoy",
+        "clinicalRecordUpdate": "Corregir el expediente clínico de hoy"
       }
     },
     "skipPermissions": {

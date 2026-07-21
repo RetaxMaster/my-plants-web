@@ -161,7 +161,15 @@
     "daysAgo": "{n} day ago | {n} days ago",
     "progressLogged": "Progress logged",
     "photoCount": "{n} photo | {n} photos",
-    "tagCount": "{n} tag | {n} tags"
+    "tagCount": "{n} tag | {n} tags",
+    "clinicalRecordCreated": "Clinical record created"
+  },
+  "clinicalRecord": {
+    "title": "Clinical record",
+    "subtitle": "Written by the Plant Doctor on {date}",
+    "loading": "Loading the record…",
+    "loadError": "This record could not be loaded.",
+    "notFound": "This record no longer exists."
   },
   "today": {
     "eyebrow": "Today",
@@ -953,7 +961,9 @@
         "progressDelete": "Delete a progress entry",
         "frequencySet": "Set a task's frequency",
         "frequencyClear": "Remove a task's frequency override",
-        "careDone": "Mark a care task as done"
+        "careDone": "Mark a care task as done",
+        "clinicalRecordCreate": "Write today's clinical record",
+        "clinicalRecordUpdate": "Revise today's clinical record"
       }
     },
     "skipPermissions": {

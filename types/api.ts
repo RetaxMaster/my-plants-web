@@ -200,7 +200,11 @@ export type CareActionTask = Exclude<TaskCode, 'PROGRESS'>;
 
 export type HistoryItem =
   | { kind: 'progress'; entryId: string; occurredOn: string; health: ProgressHealth; photoCount: number; processingCount: number; tagCount: number }
-  | { kind: 'action'; task: CareActionTask; type: 'DONE'; occurredOn: string };
+  | { kind: 'action'; task: CareActionTask; type: 'DONE'; occurredOn: string }
+  // A doctor-authored case note. Metadata only — the body is fetched on modal open, so a 20,000-character
+  // record never rides in the timeline payload. This union is HAND-MIRRORED from the API (there is no
+  // generated client for this endpoint), which is exactly where drift hides.
+  | { kind: 'clinical'; recordId: string; occurredOn: string };
 
 // Admin knowledge-engine chat (spec 3). Sessions are a shared admin pool; addressed by internal cuid id.
 // ⚠️ `LAUNCHING` is the launch-lease state and IS on the wire: a run that won the QUEUED -> LAUNCHING
@@ -353,7 +357,22 @@ export type AgentProposalOperationType =
   | 'progress.delete'
   | 'frequency.set'
   | 'frequency.clear'
-  | 'care.done';
+  | 'care.done'
+  | 'clinical_record.create'
+  | 'clinical_record.update';
+
+/** A clinical record's metadata. The list endpoint never returns the body. */
+export interface ClinicalRecordSummary {
+  id: string;
+  recordedOn: string;
+  createdAt: string;
+  updatedAt: string;
+}
+/** The detail read. `body` is agent-authored Markdown — render it ONLY through renderMarkdown + UiProse. */
+export interface ClinicalRecordDetail extends ClinicalRecordSummary {
+  body: string;
+  bodyChars: number;
+}
 
 // One field-level change inside an operation. `before` is ALWAYS the value to show as current:
 // normally the proposal's immutable snapshot, and — when the record drifted since the agent looked —

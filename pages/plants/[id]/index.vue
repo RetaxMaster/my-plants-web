@@ -203,25 +203,22 @@ const careBasisGroups = computed(() => {
   const pl = place.value;
   if (!pr || !dv) return [];
   return [
-    // NOTE: `usedByEngine` is a HARDCODED visual reference dot (green = the deterministic care engine
-    // actually consumes this factor today; blue = captured/displayed but NOT yet fed into the engine).
-    // It is a temporary dev aid to track what's left to wire into the engine — safe to remove later.
     {
       title: t('careBasis.groupLight'),
       items: [
-        { icon: 'sun', label: t('careBasis.fields.level'), value: pl ? t('places.light_' + pl.lightType) : null, counted: false, usedByEngine: true },
-        { icon: 'window', label: t('careBasis.fields.windowDistance'), value: windowDistanceLabel(pr.windowDistance), counted: true, usedByEngine: true },
-        { icon: 'light-bulb', label: t('careBasis.fields.growLight'), value: yn(pr.growLight), counted: true, usedByEngine: true },
+        { icon: 'sun', label: t('careBasis.fields.level'), value: pl ? t('places.light_' + pl.lightType) : null, counted: false },
+        { icon: 'window', label: t('careBasis.fields.windowDistance'), value: windowDistanceLabel(pr.windowDistance), counted: true },
+        { icon: 'light-bulb', label: t('careBasis.fields.growLight'), value: yn(pr.growLight), counted: true },
       ],
     },
     {
       title: t('careBasis.groupPotSoil'),
       items: [
-        { icon: 'archive-box', label: t('careBasis.fields.potType'), value: potTypeLabel(pr.potType), counted: true, usedByEngine: true },
-        { icon: 'arrows-pointing-out', label: t('careBasis.fields.potSize'), value: pr.potSizeCm != null ? t('careBasis.values.potSize', { n: pr.potSizeCm }) : null, counted: true, usedByEngine: true },
-        { icon: 'funnel', label: t('careBasis.fields.drainage'), value: yn(pr.hasDrainage), counted: true, usedByEngine: true },
-        { icon: 'square-3-stack-3d', label: t('careBasis.fields.soilMix'), value: soilMixLabel(pr.soilMix), counted: true, usedByEngine: true },
-        { icon: 'calendar', label: t('careBasis.fields.lastRepotted'), value: dv.lastRepottedOn ? d(ymdToLocalDate(dv.lastRepottedOn), 'short') : null, counted: true, usedByEngine: true },
+        { icon: 'archive-box', label: t('careBasis.fields.potType'), value: potTypeLabel(pr.potType), counted: true },
+        { icon: 'arrows-pointing-out', label: t('careBasis.fields.potSize'), value: pr.potSizeCm != null ? t('careBasis.values.potSize', { n: pr.potSizeCm }) : null, counted: true },
+        { icon: 'funnel', label: t('careBasis.fields.drainage'), value: yn(pr.hasDrainage), counted: true },
+        { icon: 'square-3-stack-3d', label: t('careBasis.fields.soilMix'), value: soilMixLabel(pr.soilMix), counted: true },
+        { icon: 'calendar', label: t('careBasis.fields.lastRepotted'), value: dv.lastRepottedOn ? d(ymdToLocalDate(dv.lastRepottedOn), 'short') : null, counted: true },
       ],
     },
     {
@@ -229,25 +226,24 @@ const careBasisGroups = computed(() => {
       items: [
         // Height is engine-read only through the crowding index (height ÷ pot size, habit-normalized):
         // it needs a pot size, a non-trailing habit, and a measurement fresh enough to still carry
-        // authority. The API owns that rule; the dot only reflects it.
-        { icon: 'arrow-trending-up', label: t('careBasis.fields.height'), value: dv.heightCm != null ? t('careBasis.values.height', { n: dv.heightCm }) : null, counted: true, usedByEngine: care.value?.crowding?.usedByEngine ?? false },
+        // authority. The API owns that rule.
+        { icon: 'arrow-trending-up', label: t('careBasis.fields.height'), value: dv.heightCm != null ? t('careBasis.values.height', { n: dv.heightCm }) : null, counted: true },
         // `ageMonths` feeds NO factor in the care engine (docs/care-engine.md §7.11). Its only effect
-        // today is an unintended confidence credit, documented there as a deferred bug — advertising that
-        // accident with a green dot would be dishonest. `growthHabit` below shares the same confidence
-        // weight but DOES feed a factor, so it stays green.
-        { icon: 'clock', label: t('careBasis.fields.age'), value: pr.ageMonths != null ? t('careBasis.values.age', { n: pr.ageMonths }) : null, counted: true, usedByEngine: false },
-        { icon: 'arrow-up-right', label: t('careBasis.fields.growthHabit'), value: growthHabitLabel(pr.growthHabit), counted: true, usedByEngine: true },
+        // today is an unintended confidence credit, documented there as a deferred bug. `growthHabit`
+        // below shares the same confidence weight but DOES feed a factor.
+        { icon: 'clock', label: t('careBasis.fields.age'), value: pr.ageMonths != null ? t('careBasis.values.age', { n: pr.ageMonths }) : null, counted: true },
+        { icon: 'arrow-up-right', label: t('careBasis.fields.growthHabit'), value: growthHabitLabel(pr.growthHabit), counted: true },
       ],
     },
     {
       title: t('careBasis.groupPlaceClimate'),
       items: [
-        { icon: 'cloud', label: t('careBasis.fields.humidity'), value: pl?.humidityCharacter ? t('places.humidity_' + pl.humidityCharacter) : null, counted: false, usedByEngine: true },
-        { icon: 'sun', label: t('careBasis.fields.indoorTemp'), value: (pl && pl.indoorTempMinC != null && pl.indoorTempMaxC != null) ? t('careBasis.values.tempRange', { min: pl.indoorTempMinC, max: pl.indoorTempMaxC }) : null, counted: false, usedByEngine: true },
-        { icon: 'home', label: t('careBasis.fields.setting'), value: pl ? (pl.indoor ? t('places.indoor') : t('places.outdoor')) : null, counted: false, usedByEngine: true },
-        { icon: 'adjustments-horizontal', label: t('careBasis.fields.nearAc'), value: pl ? yn(pl.climateControlled) : null, counted: false, usedByEngine: true },
-        { icon: 'fire', label: t('careBasis.fields.nearHeater'), value: yn(pr.nearHeater), counted: true, usedByEngine: true },
-        { icon: 'arrows-right-left', label: t('careBasis.fields.airflow'), value: pl?.airflow ? t('places.airflow_' + pl.airflow) : null, counted: false, usedByEngine: true },
+        { icon: 'cloud', label: t('careBasis.fields.humidity'), value: pl?.humidityCharacter ? t('places.humidity_' + pl.humidityCharacter) : null, counted: false },
+        { icon: 'sun', label: t('careBasis.fields.indoorTemp'), value: (pl && pl.indoorTempMinC != null && pl.indoorTempMaxC != null) ? t('careBasis.values.tempRange', { min: pl.indoorTempMinC, max: pl.indoorTempMaxC }) : null, counted: false },
+        { icon: 'home', label: t('careBasis.fields.setting'), value: pl ? (pl.indoor ? t('places.indoor') : t('places.outdoor')) : null, counted: false },
+        { icon: 'adjustments-horizontal', label: t('careBasis.fields.nearAc'), value: pl ? yn(pl.climateControlled) : null, counted: false },
+        { icon: 'fire', label: t('careBasis.fields.nearHeater'), value: yn(pr.nearHeater), counted: true },
+        { icon: 'arrows-right-left', label: t('careBasis.fields.airflow'), value: pl?.airflow ? t('places.airflow_' + pl.airflow) : null, counted: false },
       ],
     },
   ];
@@ -538,7 +534,6 @@ function confirmRepotPostpone(reason: string) {
                     :label="item.label"
                     :value="item.value"
                     :missing-label="$t('careBasis.missing')"
-                    :used-by-engine="item.usedByEngine"
                   />
                 </div>
               </div>

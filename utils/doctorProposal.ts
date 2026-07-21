@@ -1,4 +1,4 @@
-import type { DoctorProposal } from '../types/api';
+import type { AgentProposal } from '../types/api';
 
 /**
  * Coerce the raw `GET …/proposals/pending` response into "a proposal, or nothing".
@@ -22,10 +22,10 @@ import type { DoctorProposal } from '../types/api';
  * missing an `id` or an `operations` list cannot be resolved (there is nothing to approve) or rendered,
  * so it is treated as "nothing pending" rather than passed on to blow up in the template.
  */
-export function normalizePendingProposal(raw: unknown): DoctorProposal | null {
+export function normalizePendingProposal(raw: unknown): AgentProposal | null {
   if (raw === null || typeof raw !== 'object') return null;
-  const candidate = raw as Partial<DoctorProposal>;
+  const candidate = raw as Partial<AgentProposal>;
   if (typeof candidate.id !== 'string' || candidate.id === '') return null;
   if (!Array.isArray(candidate.operations)) return null;
-  return raw as DoctorProposal;
+  return raw as AgentProposal;
 }

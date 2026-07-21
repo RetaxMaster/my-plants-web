@@ -11,8 +11,8 @@ import type { LocalAttachment } from '@retaxmaster/agents-realtime-client';
 import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
 import type {
-  ChatProposalsAdapter, ChatRunsAdapter, ChatSessionsAdapter, DoctorProposal,
-  DoctorProposalConflictStatus, KnowledgeChatProvider, KnowledgeChatTurn,
+  ChatProposalsAdapter, ChatRunsAdapter, ChatSessionsAdapter, AgentProposal,
+  AgentProposalConflictStatus, KnowledgeChatProvider, KnowledgeChatTurn,
 } from '../types/api';
 // Explicit, not via Nuxt's `utils/` auto-import: this component is mounted under plain Vitest (no Nuxt
 // module graph), so an auto-imported helper would be `undefined` at runtime in exactly the tests that
@@ -654,7 +654,7 @@ function attachActiveRun() {
 // The agent cannot write anything. It files a proposal; the owner approves it here. Everything rendered
 // comes from the SERVER (the canonical operation list), never from the agent's prose summary.
 
-const pendingProposal = ref<DoctorProposal | null>(null);
+const pendingProposal = ref<AgentProposal | null>(null);
 // The id the owner dismissed. Dismiss is NOT a decline (§5.3): it only closes the banner. The proposal
 // stays PENDING server-side and the server expires it when the next run starts — so we track WHICH id was
 // dismissed rather than a bare boolean, and a genuinely new proposal reopens the banner on its own.
@@ -667,7 +667,7 @@ const skipError = ref<string | null>(null);
 
 // Truthiness, NOT `!== null`. The wire has already produced one value that is neither a proposal nor
 // `null` (an empty 200 body arrives as `''`), and an adapter is an INJECTED interface this component does
-// not own, so it cannot assume the declared `DoctorProposal | null` holds at runtime. A `!== null` guard
+// not own, so it cannot assume the declared `AgentProposal | null` holds at runtime. A `!== null` guard
 // waves `undefined` straight through into `.id` and throws inside a computed — where the failure surfaces
 // as an unhandled rejection rather than a visible error, which is the silent-degradation mode §5.3.1
 // exists to prevent. `refreshProposal` normalizes on assignment too; this is the second line.
@@ -689,7 +689,7 @@ function resolutionErrorMessage(e: unknown): string {
   // in every real run, which silently collapsed the EXPIRED branch: the owner was told "someone else
   // resolved this" when in fact the agent had superseded the proposal with a newer one, and
   // `proposal.conflict.expired` was dead copy. `server/api/proxy.wire.test.ts` pins the real shape.
-  const terminal = upstreamErrorStatus(e) as DoctorProposalConflictStatus | undefined;
+  const terminal = upstreamErrorStatus(e) as AgentProposalConflictStatus | undefined;
   return terminal === 'EXPIRED' ? tns('proposal.conflict.expired') : tns('proposal.conflict.resolved');
 }
 

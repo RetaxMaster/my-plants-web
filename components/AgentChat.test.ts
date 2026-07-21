@@ -211,7 +211,7 @@ function mountChatInner(proposals: Record<string, unknown> | undefined, extra: R
       socketUrl: 'http://doctor:8400',
       i18nNamespace: 'diagnose',
       // Cast at the boundary. One test below deliberately hands over an adapter that BREAKS its declared
-      // contract (resolving `undefined` where `DoctorProposal | null` is promised) to prove the runtime
+      // contract (resolving `undefined` where `AgentProposal | null` is promised) to prove the runtime
       // hardening — a violation the type system cannot express by construction, since the type is the
       // very thing being violated.
       ...(proposals ? { proposals: proposals as unknown as ChatProposalsAdapter } : {}),
@@ -532,7 +532,7 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.find('.stub-skip').exists()).toBe(false);
   });
 
-  // The adapter is an INJECTED interface, so `DoctorProposal | null` is a promise about someone else's
+  // The adapter is an INJECTED interface, so `AgentProposal | null` is a promise about someone else's
   // code. `undefined` is not `null`, and a `!== null` guard would let it reach `.id` and throw inside a
   // computed — surfacing as an unhandled rejection rather than a visible failure. The wire has already
   // produced one such value (an empty 200 body arrives as `''`), so this is a demonstrated shape, not a

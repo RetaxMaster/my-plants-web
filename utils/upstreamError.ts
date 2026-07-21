@@ -33,7 +33,7 @@ export function upstreamErrorBody(err: unknown): Record<string, unknown> | null 
  * The upstream body's `status` field, when it is a string.
  *
  * Deliberately typed as `string | undefined` rather than a status enum: the API answers `'UNKNOWN'` for a
- * row that has vanished, which is outside `DoctorProposalStatus`. A read type NARROWER than what the
+ * row that has vanished, which is outside `AgentProposalStatus`. A read type NARROWER than what the
  * server can emit lies to the compiler exactly where it matters.
  */
 export function upstreamErrorStatus(err: unknown): string | undefined {

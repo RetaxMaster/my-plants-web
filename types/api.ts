@@ -325,27 +325,27 @@ export interface ChatRunsAdapter {
 // the one that actually applies the write. The owner must approve exactly what the server will do.
 //
 // These types MIRROR `RenderedChange` / `RenderedOperation` / `ProposalView` in the API's
-// `src/plant-doctor/proposals/proposal-render.service.ts`. The two repos never co-compile, so nothing
+// `src/agents/proposals/proposal-render.service.ts`. The two repos never co-compile, so nothing
 // mechanical keeps them in step. If they ever disagree, THE API WINS and this file is corrected — never
 // the reverse, and never by reshaping the payload in the browser.
 
-// Mirrors the Prisma enum `DoctorProposalStatus`. Closed and DB-enforced, so the server cannot emit a
+// Mirrors the Prisma enum `AgentProposalStatus`. Closed and DB-enforced, so the server cannot emit a
 // sixth value without a migration.
-export type DoctorProposalStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'EXPIRED' | 'FAILED';
+export type AgentProposalStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'EXPIRED' | 'FAILED';
 
-// Mirrors the Prisma enum `DoctorProposalFailureCode` — a CLOSED set of five. The API deliberately keeps
+// Mirrors the Prisma enum `AgentProposalFailureCode` — a CLOSED set of five. The API deliberately keeps
 // it coarse: a raw driver error is never something a plant-scoped agent (or this banner) gets to read.
-export type DoctorProposalFailureCode = 'VALIDATION' | 'NOT_FOUND' | 'OWNERSHIP' | 'CONFLICT' | 'INTERNAL';
+export type AgentProposalFailureCode = 'VALIDATION' | 'NOT_FOUND' | 'OWNERSHIP' | 'CONFLICT' | 'INTERNAL';
 
-// The `status` travelling in a 409 body from approve/decline. It is NOT `DoctorProposalStatus`: the API
+// The `status` travelling in a 409 body from approve/decline. It is NOT `AgentProposalStatus`: the API
 // falls back to the literal `'UNKNOWN'` when the row has vanished entirely
 // (`current?.status ?? 'UNKNOWN'`), so a type that admitted only the five enum values would be a lie —
 // and an exhaustive switch over it would silently mis-handle the one case that means "we lost track of
 // it". Widening a value we only READ is the safe direction; narrowing it is what strands the caller.
-export type DoctorProposalConflictStatus = DoctorProposalStatus | 'UNKNOWN';
+export type AgentProposalConflictStatus = AgentProposalStatus | 'UNKNOWN';
 
 // The closed operation union's discriminant (spec §5.5.2). The web only ever renders it as a label.
-export type DoctorProposalOperationType =
+export type AgentProposalOperationType =
   | 'profile.update'
   | 'plant.update'
   | 'progress.create'
@@ -359,7 +359,7 @@ export type DoctorProposalOperationType =
 // normally the proposal's immutable snapshot, and — when the record drifted since the agent looked —
 // the LIVE value, with `stale` carrying what the agent originally saw (§5.5.3). Rendering a stale
 // snapshot as if it were current is the one thing the spec forbids outright.
-export interface DoctorProposalChange {
+export interface AgentProposalChange {
   // Server-owned human label for the field ("Pot type", "Every (days)").
   field: string;
   // null = the field currently has no value.
@@ -370,24 +370,24 @@ export interface DoctorProposalChange {
   stale?: { atProposeTime: string | null };
 }
 
-export interface DoctorProposalOperation {
-  type: DoctorProposalOperationType;
+export interface AgentProposalOperation {
+  type: AgentProposalOperationType;
   // Server-resolved target ("2026-07-12", "WATER", "Living room"). Rendered verbatim.
   targetLabel: string;
-  changes: DoctorProposalChange[];
+  changes: AgentProposalChange[];
   // True for progress.delete: the entry AND its photos are gone for good (§7.2). The banner must say so.
   destructive: boolean;
 }
 
-export interface DoctorProposal {
+export interface AgentProposal {
   id: string;
-  status: DoctorProposalStatus;
+  status: AgentProposalStatus;
   // Agent-authored prose. A CAPTION ONLY — never the consent surface (§5.4). A misleading summary must
   // not be able to change what is shown or what is applied.
   summary: string;
-  operations: DoctorProposalOperation[];
+  operations: AgentProposalOperation[];
   autoApproved: boolean;
-  failureCode: DoctorProposalFailureCode | null;
+  failureCode: AgentProposalFailureCode | null;
   failureReason: string | null;
   // `createdAt` is a `Date` on the server; it crosses JSON as an ISO-8601 string.
   createdAt: string;
@@ -408,9 +408,9 @@ export interface DoctorSessionSettings {
 // as `''`, not `null`. `useApi.getDoctorPendingProposal` performs that coercion so no consumer has to
 // know. See its comment for why the raw shape is a trap.
 export interface ChatProposalsAdapter {
-  pending: (sessionId: string) => Promise<DoctorProposal | null>;
-  approve: (sessionId: string, proposalId: string) => Promise<DoctorProposal>;
-  decline: (sessionId: string, proposalId: string) => Promise<DoctorProposal>;
+  pending: (sessionId: string) => Promise<AgentProposal | null>;
+  approve: (sessionId: string, proposalId: string) => Promise<AgentProposal>;
+  decline: (sessionId: string, proposalId: string) => Promise<AgentProposal>;
   getSettings: (sessionId: string) => Promise<DoctorSessionSettings>;
   setSettings: (sessionId: string, skipPermissions: boolean) => Promise<DoctorSessionSettings>;
 }

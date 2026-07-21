@@ -9,7 +9,7 @@ import type {
   PlantDetail, PlantProfile, PlantProfileUpdate, PlantPhotoItem,
   BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
-  DoctorProposal, DoctorSessionSettings,
+  AgentProposal, DoctorSessionSettings,
 } from '../types/api.js';
 
 export function useApi() {
@@ -255,9 +255,9 @@ export function useApi() {
     // doctor-scoped token gets a 403, and a proposal from another plant/owner is a 404, never a 403.
     //
     // The response is typed `unknown` ON PURPOSE. "Nothing is pending" is a 200 with an empty body, which
-    // ofetch delivers as the empty STRING — so `DoctorProposal | null` would be a type the wire does not
+    // ofetch delivers as the empty STRING — so `AgentProposal | null` would be a type the wire does not
     // honour, and every consumer would inherit the trap. `normalizePendingProposal` collapses it here,
-    // once, and the honest `DoctorProposal | null` starts at this boundary.
+    // once, and the honest `AgentProposal | null` starts at this boundary.
     getDoctorPendingProposal: async (plantId: string, sessionId: string) =>
       normalizePendingProposal(
         await api<unknown>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/pending`),
@@ -266,9 +266,9 @@ export function useApi() {
     // A 409 means the proposal is no longer PENDING (expired by a newer turn, or already resolved), and
     // the terminal status travels in the error payload so the UI can explain WHICH happened.
     approveDoctorProposal: (plantId: string, sessionId: string, proposalId: string) =>
-      api<DoctorProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/approve`, { method: 'POST' }),
+      api<AgentProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/approve`, { method: 'POST' }),
     declineDoctorProposal: (plantId: string, sessionId: string, proposalId: string) =>
-      api<DoctorProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/decline`, { method: 'POST' }),
+      api<AgentProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/decline`, { method: 'POST' }),
     // Dangerously Skip Permissions, persisted PER SESSION. Owner-writable only.
     getDoctorSessionSettings: (plantId: string, sessionId: string) =>
       api<DoctorSessionSettings>(`/plants/${plantId}/diagnose/sessions/${sessionId}/settings`),

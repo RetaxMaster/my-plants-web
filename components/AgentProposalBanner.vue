@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { DoctorProposal, DoctorProposalOperationType } from '../types/api';
+import type { AgentProposal, AgentProposalOperationType } from '../types/api';
 
 // THE CONSENT SURFACE (spec §5.4).
 //
@@ -13,7 +13,7 @@ import type { DoctorProposal, DoctorProposalOperationType } from '../types/api';
 // This component performs NO I/O. It emits intent and the parent owns every request, which is what keeps
 // the consent surface a pure function of server data.
 const props = defineProps<{
-  proposal: DoctorProposal;
+  proposal: AgentProposal;
   // The consumer's i18n namespace ('diagnose'); every string resolves as `${ns}.<suffix>`, exactly like
   // the shared <AgentChat> and <AgentChatWorkspace> do.
   i18nNamespace: string;
@@ -37,7 +37,7 @@ const tns = (key: string) => t(`${props.i18nNamespace}.${key}`);
 // vue-i18n as a nesting separator — so it would never resolve. Map to flat camelCase keys instead.
 // The locale parity test pins this map's key set against the API's operation union: a ninth operation
 // type fails a test rather than reaching the owner as a raw key path.
-const OP_TYPE_KEY: Record<DoctorProposalOperationType, string> = {
+const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'profile.update': 'profileUpdate',
   'plant.update': 'plantUpdate',
   'progress.create': 'progressCreate',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue';
-import type { DoctorProposalChange } from '../../types/api';
+import type { AgentProposalChange } from '../../types/api';
 
 defineOptions({ inheritAttrs: false });
 
@@ -13,7 +13,7 @@ defineOptions({ inheritAttrs: false });
 // Copy arrives as props rather than being resolved here, so this stays i18n-namespace-agnostic and is
 // reusable by any future "before → after" surface (the consumer already knows its own namespace).
 defineProps<{
-  changes: DoctorProposalChange[];
+  changes: AgentProposalChange[];
   // Rendered wherever a value is null — both "had no value" and "will be cleared".
   emptyValue: string;
   // Leads the drift disclosure, e.g. "This changed since the doctor looked. It saw:".

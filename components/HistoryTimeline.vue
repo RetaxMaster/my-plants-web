@@ -24,24 +24,20 @@ function agoLabel(occurredOn: string): string {
   <ol class="mp-history">
     <li v-for="(item, i) in items" :key="i" class="mp-history__item">
       <template v-if="item.kind === 'progress'">
-        <button type="button" class="mp-history__row mp-history__row--link" @click="emit('openEntry', item.entryId)">
-          <UiAppIcon name="camera" :size="18" class="mp-history__icon" />
-          <span class="mp-history__text">
-            {{ t('history.progressLogged') }} · <strong>{{ healthLabel(item.health) }}</strong>
-            <span v-if="item.photoCount" class="mp-history__meta"> · {{ t('history.photoCount', { n: item.photoCount }, item.photoCount) }}</span>
-            <span v-if="item.tagCount" class="mp-history__meta"> · {{ t('history.tagCount', { n: item.tagCount }, item.tagCount) }}</span>
-          </span>
-          <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
-          <UiAppIcon name="chevron-right" :size="16" color="var(--text-faint)" />
-        </button>
+        <UiLinkRow icon="camera" :date-label="agoLabel(item.occurredOn)" @click="emit('openEntry', item.entryId)">
+          {{ t('history.progressLogged') }} · <strong>{{ healthLabel(item.health) }}</strong>
+          <span v-if="item.photoCount" class="mp-history__meta"> · {{ t('history.photoCount', { n: item.photoCount }, item.photoCount) }}</span>
+          <span v-if="item.tagCount" class="mp-history__meta"> · {{ t('history.tagCount', { n: item.tagCount }, item.tagCount) }}</span>
+        </UiLinkRow>
       </template>
       <template v-else-if="item.kind === 'clinical'">
-        <button type="button" class="mp-history__row mp-history__row--link" @click="emit('openRecord', item.recordId)">
-          <UiAppIcon name="clipboard-document-list" :size="18" class="mp-history__icon" />
-          <span class="mp-history__text">{{ t('history.clinicalRecordCreated') }}</span>
-          <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
-          <UiAppIcon name="chevron-right" :size="16" color="var(--text-faint)" />
-        </button>
+        <UiLinkRow
+          icon="clipboard-document-list"
+          :date-label="agoLabel(item.occurredOn)"
+          @click="emit('openRecord', item.recordId)"
+        >
+          {{ t('history.clinicalRecordCreated') }}
+        </UiLinkRow>
       </template>
       <template v-else>
         <div class="mp-history__row">
@@ -54,7 +50,16 @@ function agoLabel(occurredOn: string): string {
   </ol>
 </template>
 
-<style scoped>
+<style>
+/* Deliberately UNSCOPED, not `<style scoped>`. The clickable rows (progress/clinical) now render through
+ * the shared `UiLinkRow` component (components/ui/LinkRow.vue): Vue's scoped CSS only propagates a
+ * parent's scope attribute onto a CHILD COMPONENT's ROOT node, never onto that child's own nested
+ * elements — so a scoped rule here could style UiLinkRow's outer <button> but not the icon/text/date
+ * spans inside it. Rather than fork these rules into UiLinkRow's own stylesheet (duplicating every token
+ * for the one 'action' row that stays inline below), this block stays the SINGLE source of truth for every
+ * `.mp-history__*` class, shared by both the inline row and the extracted component. Verified collision-safe:
+ * `mp-history__` is used nowhere else in the app (`grep -rl "mp-history__" --include="*.vue" .`).
+ */
 .mp-history { list-style: none; margin: 0; padding: 0; display: grid; }
 .mp-history__item:not(:last-child) .mp-history__row { border-bottom: 1px solid var(--border-subtle); }
 

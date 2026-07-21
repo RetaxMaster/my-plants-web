@@ -8,6 +8,19 @@ All notable, user-facing changes to the MyPlants web app. Newest first.
 every edit it wants to make to a plant arrives as a request you approve, and this release is the screen
 where you do that.
 
+### Fixed
+
+- **A conversation's narration used to arrive broken into pieces, with a helper's work dropped into the
+  middle of an unfinished sentence and shown as if it were a separate step of its own.** Reading what the
+  Plant Doctor was doing meant watching its explanation get interrupted mid-word by a helper's card, then
+  resume in another bubble as if it were a new thought — and that helper's work sat at the top level of
+  the transcript instead of tucked under the step that actually asked for it. Both are fixed: an
+  explanation now reads as one continuous piece, and every helper's work is nested under the step that
+  started it — confirmed live on a fresh conversation, including after reloading the page.
+  **Conversations recorded before this release keep their old, fragmented look forever.** Each turn was
+  written down as it happened and that record is never rewritten, so reopening an older conversation will
+  still show the old splitting. That is expected, not a bug worth reporting.
+
 ### Added
 
 - **Approve what the Plant Doctor wants to change.** When the doctor wants to update the care profile,

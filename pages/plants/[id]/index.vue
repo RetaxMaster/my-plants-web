@@ -87,6 +87,13 @@ function openEntry(entryId: string) {
   entryOpen.value = true;
 }
 
+const recordOpen = ref(false);
+const activeRecordId = ref<string | null>(null);
+function openRecord(recordId: string) {
+  activeRecordId.value = recordId;
+  recordOpen.value = true;
+}
+
 function openEdit() {
   if (!plant.value) return;
   editing.value = true;
@@ -456,7 +463,7 @@ function confirmRepotPostpone(reason: string) {
           </UiCard>
           <UiCard v-else :padded="false">
             <div class="mp-detail__history">
-              <HistoryTimeline :items="history" @open-entry="openEntry" />
+              <HistoryTimeline :items="history" @open-entry="openEntry" @open-record="openRecord" />
             </div>
           </UiCard>
         </div>
@@ -548,6 +555,7 @@ function confirmRepotPostpone(reason: string) {
       @saved="onEdited"
     />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
+    <ClinicalRecordModal v-model="recordOpen" :plant-id="id" :record-id="activeRecordId" />
     <UiImageLightbox v-model="lightboxOpen" v-model:index="lightboxIndex" :images="lightboxImages" />
     <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
     <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" :repot-signs="taskInfoRepotSigns" />

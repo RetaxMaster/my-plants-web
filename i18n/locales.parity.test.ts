@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import en from './locales/en.json';
 import es from './locales/es.json';
 import { PROGRESS_TAG_KEYS } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
-import type { AgentProposalOperationType, KnowledgeChatRunStatus } from '../types/api';
+import { permittedTypesFor, type AgentScope } from '@retaxmaster/my-plants-species-schema/agent-capabilities';
+import type { KnowledgeChatRunStatus } from '../types/api';
+import { OP_TYPE_KEY } from '../utils/agentProposalOpTypes';
 
 type Tree = { [k: string]: string | Tree };
 
@@ -13,6 +15,12 @@ function keyPaths(obj: Tree, prefix = ''): string[] {
       : [`${prefix}${k}`],
   );
 }
+
+// Namespaces that HOST A PROPOSAL BANNER, and the agent scope each one renders. `knowledgeEngine` is
+// absent on purpose: the KE surface injects no proposals adapter, so it has no banner and needs no labels.
+// Typed as AgentScope so `Object.entries` yields a scope the capability helper accepts — a bare
+// `as const` gives `scope: string` and `permittedTypesFor(scope)` does not typecheck.
+const BANNER_NAMESPACES: Record<string, AgentScope> = { diagnose: 'doctor', gardener: 'gardener' };
 
 describe('locale catalogues', () => {
   it('have byte-identical key trees (en vs es)', () => {
@@ -51,16 +59,21 @@ describe('REPOT inspection keys (spec F.7)', () => {
   });
 });
 
-describe('diagnose namespace mirrors the shared chat component keys', () => {
-  it('defines every knowledgeEngine leaf key the shared AgentChat resolves', () => {
-    // The shared component (AgentChat.vue) resolves strings as `${i18nNamespace}.<suffix>`. The KE view
-    // passes namespace 'knowledgeEngine'; the diagnose view passes 'diagnose'. So diagnose MUST cover
-    // every knowledgeEngine leaf, or a doctor screen renders raw key paths instead of copy.
-    const keKeys = keyPaths((en as Tree).knowledgeEngine as Tree);
-    const diagKeys = new Set(keyPaths((en as Tree).diagnose as Tree));
-    const missing = keKeys.filter((k) => !diagKeys.has(k));
-    expect(missing).toEqual([]);
-  });
+describe('every banner namespace mirrors the shared chat component keys', () => {
+  // The shared component (AgentChat.vue) resolves strings as `${i18nNamespace}.<suffix>`. Every namespace
+  // that drives it — 'diagnose', 'gardener', and 'knowledgeEngine' itself — passes its own name as that
+  // namespace. So EVERY one of them must cover every knowledgeEngine leaf, or that screen renders raw key
+  // paths instead of copy. knowledgeEngine is the reference set because it is the plainest chat surface
+  // (no proposal banner, no skip-permissions), so its leaves are exactly the shared-component minimum.
+  const keKeys = keyPaths((en as Tree).knowledgeEngine as Tree);
+
+  for (const ns of Object.keys(BANNER_NAMESPACES)) {
+    it(`${ns} defines every knowledgeEngine leaf key the shared AgentChat resolves`, () => {
+      const nsKeys = new Set(keyPaths((en as Tree)[ns] as Tree));
+      const missing = keKeys.filter((k) => !nsKeys.has(k));
+      expect(missing, ns).toEqual([]);
+    });
+  }
 });
 
 describe('progress tag chip i18n (spec §1.2/§1.3)', () => {
@@ -78,79 +91,60 @@ describe('progress tag chip i18n (spec §1.2/§1.3)', () => {
   });
 });
 
-describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
-  const OP_KEYS = [
-    'profileUpdate', 'plantUpdate', 'progressCreate', 'progressUpdate',
-    'progressDelete', 'frequencySet', 'frequencyClear', 'careDone',
-    'clinicalRecordCreate', 'clinicalRecordUpdate',
-  ] as const;
+describe('proposal op-type labels are complete PER NAMESPACE, against that scope’s capability set', () => {
+  // ⚠️ The denominator is NOT the whole shared union — it is the CAPABILITY MAP's permitted set for that
+  // namespace's own agent scope. The doctor can never propose a garden op (place/city/plant.create) and
+  // the gardener can never propose progress.delete or clinical_record.*, so demanding the full union here
+  // would force dead copy for an operation that scope can never send. `OP_TYPE_KEY` still gives the
+  // COMPILE-TIME guarantee that every wire operation type has a camelCase i18n key somewhere (its own
+  // `Record<AgentProposalOperationType, string>` annotation in utils/agentProposalOpTypes.ts) — this loop
+  // adds the RUNTIME half: that each namespace's locale files actually resolve exactly its own scope's
+  // subset of those keys to a non-empty label, in both `en.json` and `es.json`.
+  for (const [ns, scope] of Object.entries(BANNER_NAMESPACES)) {
+    const expected = permittedTypesFor(scope).map((t) => OP_TYPE_KEY[t]).sort();
 
-  it('both locales define the banner copy, including every operation-type label', () => {
-    for (const cat of [en, es] as unknown as Tree[]) {
-      const proposal = ((cat.diagnose as Tree).proposal ?? {}) as Tree;
-      // `settingsError` is in this list even though the plan's own list omitted it: AgentChat resolves it
-      // when the settings read fails, so leaving it unpinned would let that path render a raw key path.
-      for (const k of ['title', 'reviewHint', 'agentSays', 'approve', 'decline', 'dismiss',
-                       'applying', 'emptyValue', 'staleNote', 'destructive',
-                       'applyError', 'declineError', 'settingsError']) {
-        expect(proposal[k], `diagnose.proposal.${k}`).toBeTruthy();
+    it(`${ns} defines exactly one label per operation its scope may propose`, () => {
+      for (const cat of [en, es] as unknown as Tree[]) {
+        const opType = (((cat[ns] as Tree).proposal as Tree).opType ?? {}) as Tree;
+        // EXACT equality in BOTH directions: a missing key renders a raw key path at the owner, and an
+        // extra key is copy a translator had to invent for an operation that can never reach this surface.
+        expect(Object.keys(opType).sort(), `${ns}.proposal.opType`).toEqual(expected);
       }
-      const conflict = (proposal.conflict ?? {}) as Tree;
-      expect(conflict.expired).toBeTruthy();
-      expect(conflict.resolved).toBeTruthy();
-      const opType = (proposal.opType ?? {}) as Tree;
-      for (const k of OP_KEYS) expect(opType[k], `diagnose.proposal.opType.${k}`).toBeTruthy();
-    }
-  });
+    });
+  }
 
-  it('both locales define the Dangerously Skip Permissions copy', () => {
-    for (const cat of [en, es] as unknown as Tree[]) {
-      const skip = ((cat.diagnose as Tree).skipPermissions ?? {}) as Tree;
-      for (const k of ['label', 'hint', 'activeTitle', 'activeBody', 'error']) {
-        expect(skip[k], `diagnose.skipPermissions.${k}`).toBeTruthy();
+  it('covers every namespace that hosts a banner (guards against a vacuous pass)', () => {
+    expect(Object.keys(BANNER_NAMESPACES).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('agent write-proposal copy (spec 2026-07-18 §5.4, §6.4; generalized across agent scopes)', () => {
+  for (const ns of Object.keys(BANNER_NAMESPACES)) {
+    it(`both locales define the ${ns} banner copy`, () => {
+      for (const cat of [en, es] as unknown as Tree[]) {
+        const proposal = ((cat[ns] as Tree).proposal ?? {}) as Tree;
+        // `settingsError` is in this list even though the plan's own list omitted it: AgentChat resolves it
+        // when the settings read fails, so leaving it unpinned would let that path render a raw key path.
+        for (const k of ['title', 'reviewHint', 'agentSays', 'approve', 'decline', 'dismiss',
+                         'applying', 'emptyValue', 'staleNote', 'destructive',
+                         'applyError', 'declineError', 'settingsError']) {
+          expect(proposal[k], `${ns}.proposal.${k}`).toBeTruthy();
+        }
+        const conflict = (proposal.conflict ?? {}) as Tree;
+        expect(conflict.expired, `${ns}.proposal.conflict.expired`).toBeTruthy();
+        expect(conflict.resolved, `${ns}.proposal.conflict.resolved`).toBeTruthy();
       }
-    }
-  });
+    });
 
-  // The eight camelCase keys are a MAPPING of the API's dotted discriminants ('profile.update' → 
-  // 'profileUpdate'), and the map lives in AgentProposalBanner.vue. A dot inside an i18n leaf key is read
-  // by vue-i18n as a nesting separator, so the wire value can never be used as a key directly. If the API
-  // ever adds a ninth operation type, this list and that map both have to grow — pinning the count here is
-  // what makes the omission fail a test instead of rendering a raw key path in front of the owner.
-  it('defines exactly one label per operation type in the API union', () => {
-    for (const cat of [en, es] as unknown as Tree[]) {
-      const opType = (((cat.diagnose as Tree).proposal as Tree).opType ?? {}) as Tree;
-      expect(Object.keys(opType).sort()).toEqual([...OP_KEYS].sort());
-    }
-  });
-
-  // ⚠️ EXHAUSTIVE BY CONSTRUCTION AGAINST THE SHARED TYPE, not against the OP_KEYS array above. OP_KEYS is
-  // a plain string-array literal — satisfied by any SUBSET of the real union — so a ninth/tenth operation
-  // type could be added to `AgentProposalOperationType` while OP_KEYS silently stays stale (the same trap
-  // the runStatus test below is written to avoid). Keying a `Record` by the union itself instead makes
-  // omitting an operation type a COMPILE error (`npm run typecheck` covers test files): if the shared
-  // schema ever grows an eleventh operation, this map fails to compile until it is updated here too, so
-  // the omission is caught before the locale keys are even checked.
-  it('resolves every operation type in the shared union to a translated label in both locales', () => {
-    const OP_TYPE_TO_I18N_KEY: Record<AgentProposalOperationType, string> = {
-      'profile.update': 'profileUpdate',
-      'plant.update': 'plantUpdate',
-      'progress.create': 'progressCreate',
-      'progress.update': 'progressUpdate',
-      'progress.delete': 'progressDelete',
-      'frequency.set': 'frequencySet',
-      'frequency.clear': 'frequencyClear',
-      'care.done': 'careDone',
-      'clinical_record.create': 'clinicalRecordCreate',
-      'clinical_record.update': 'clinicalRecordUpdate',
-    };
-    for (const cat of [en, es] as unknown as Tree[]) {
-      const opType = (((cat.diagnose as Tree).proposal as Tree).opType ?? {}) as Tree;
-      for (const [wireType, i18nKey] of Object.entries(OP_TYPE_TO_I18N_KEY)) {
-        expect(opType[i18nKey], `diagnose.proposal.opType.${i18nKey} (for "${wireType}")`).toBeTruthy();
+    it(`both locales define the ${ns} Dangerously Skip Permissions copy`, () => {
+      for (const cat of [en, es] as unknown as Tree[]) {
+        const skip = ((cat[ns] as Tree).skipPermissions ?? {}) as Tree;
+        for (const k of ['label', 'hint', 'activeTitle', 'activeBody', 'error']) {
+          expect(skip[k], `${ns}.skipPermissions.${k}`).toBeTruthy();
+        }
       }
-    }
-  });
+    });
+  }
 
   // Every run status the API can emit needs a label in BOTH chat namespaces, in BOTH locales. The status
   // is interpolated straight into the key (`runStatus.${s.status}`), so a missing one does not fail a
@@ -168,7 +162,7 @@ describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
     };
     const statuses = Object.keys(EXPECTED) as KnowledgeChatRunStatus[];
     for (const cat of [en, es] as unknown as Tree[]) {
-      for (const ns of ['diagnose', 'knowledgeEngine']) {
+      for (const ns of ['diagnose', 'knowledgeEngine', 'gardener']) {
         const runStatus = ((cat[ns] as Tree).runStatus ?? {}) as Tree;
         expect(Object.keys(runStatus).sort(), `${ns}.runStatus`).toEqual([...statuses].sort());
       }
@@ -177,13 +171,15 @@ describe('doctor write-proposal copy (spec 2026-07-18 §5.4, §6.4)', () => {
 
   // Spanish must be genuinely translated, not the English string copied across. The catalogue-wide parity
   // test only proves the key trees match — it would stay green on a wholesale copy-paste.
-  it('translates the banner copy into Spanish rather than mirroring English', () => {
-    const enProposal = ((en as unknown as Tree).diagnose as Tree).proposal as Tree;
-    const esProposal = ((es as unknown as Tree).diagnose as Tree).proposal as Tree;
-    for (const k of ['title', 'reviewHint', 'approve', 'decline', 'dismiss', 'destructive']) {
-      expect(esProposal[k], `diagnose.proposal.${k}`).not.toBe(enProposal[k]);
-    }
-  });
+  for (const ns of Object.keys(BANNER_NAMESPACES)) {
+    it(`translates the ${ns} banner copy into Spanish rather than mirroring English`, () => {
+      const enProposal = ((en as unknown as Tree)[ns] as Tree).proposal as Tree;
+      const esProposal = ((es as unknown as Tree)[ns] as Tree).proposal as Tree;
+      for (const k of ['title', 'reviewHint', 'approve', 'decline', 'dismiss', 'destructive']) {
+        expect(esProposal[k], `${ns}.proposal.${k}`).not.toBe(enProposal[k]);
+      }
+    });
+  }
 });
 
 // A mutation test proved this gap: swapping the Spanish `history.clinicalRecordCreated` value for the

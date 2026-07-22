@@ -236,8 +236,11 @@ describe('AgentProposalBanner', () => {
       expect(line.exists()).toBe(true);
       expect(line.text()).toContain('gardener.proposal.affectsPlants');
       // The count must actually REACH the string. Asserting only on the key would stay green if the
-      // component rendered the same sentence for 4 plants and for 40.
-      expect(w.text()).toContain('4');
+      // component rendered the same sentence for 4 plants and for 40 — and asserting on the WHOLE
+      // banner's text is no better, since a date like "2026-07-12" contains most digits already. So the
+      // assertion is scoped to this line. (Found by mutation: dropping `{ count }` from the i18n call
+      // left the banner-wide form of the zero case green.)
+      expect(line.text()).toContain('4');
     });
 
     it('says nothing when there is no place edit', () => {
@@ -250,8 +253,9 @@ describe('AgentProposalBanner', () => {
     // silently swallow exactly the case where the fan-out claim is most surprising.
     it('still states a fan-out of zero', () => {
       const w = mountBanner({ proposal: { ...PROPOSAL, affectedPlantCount: 0 }, i18nNamespace: 'gardener' });
-      expect(w.find('[data-testid="proposal-fanout"]').exists()).toBe(true);
-      expect(w.text()).toContain('0');
+      const line = w.find('[data-testid="proposal-fanout"]');
+      expect(line.exists()).toBe(true);
+      expect(line.text()).toContain('0');
     });
 
     // The line lives in the SHARED banner, so all three chat surfaces get it. The doctor cannot propose a

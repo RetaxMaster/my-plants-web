@@ -20,8 +20,14 @@ const NEW_IN_3_0_0 = [
 
 type Tree = Record<string, unknown>;
 
+// Every namespace whose i18n leaves this guard checks. `gardener` joined `knowledgeEngine` and `diagnose`
+// when the gardener agent surface shipped its own chat namespace — it drives the same shared AgentChat
+// component, so it needs the same package-label coverage.
+const CHAT_NAMESPACES = ['knowledgeEngine', 'diagnose', 'gardener'] as const;
+type ChatNamespace = (typeof CHAT_NAMESPACES)[number];
+
 /** The keys our i18n catalogue offers for one chat namespace, flattened one level under `chatLabels`. */
-function labelKeysFor(catalogue: Tree, namespace: 'knowledgeEngine' | 'diagnose'): Set<string> {
+function labelKeysFor(catalogue: Tree, namespace: ChatNamespace): Set<string> {
   const ns = catalogue[namespace] as Tree;
   const composer = (ns.composer ?? {}) as Tree;
   const console_ = (ns.console ?? {}) as Tree;
@@ -89,7 +95,7 @@ describe('chat label completeness against the package default set', () => {
     expect([...NOT_OURS].filter((k) => !packageKeys.includes(k))).toEqual([]);
   });
 
-  for (const namespace of ['knowledgeEngine', 'diagnose'] as const) {
+  for (const namespace of CHAT_NAMESPACES) {
     for (const [localeName, catalogue] of [['en', en], ['es', es]] as const) {
       it(`${localeName}.${namespace} covers every package label our UI actually renders`, () => {
         const ours = labelKeysFor(catalogue as Tree, namespace);
@@ -99,8 +105,8 @@ describe('chat label completeness against the package default set', () => {
     }
   }
 
-  it('covers all sixteen labels 3.0.0 added, in both namespaces and both locales', () => {
-    for (const namespace of ['knowledgeEngine', 'diagnose'] as const) {
+  it('covers all sixteen labels 3.0.0 added, in every chat namespace and both locales', () => {
+    for (const namespace of CHAT_NAMESPACES) {
       for (const catalogue of [en, es]) {
         const ours = labelKeysFor(catalogue as Tree, namespace);
         expect(NEW_IN_3_0_0.filter((k) => !ours.has(k))).toEqual([]);
@@ -111,7 +117,7 @@ describe('chat label completeness against the package default set', () => {
   it('renders a dismiss label on the two new notices', () => {
     // OURS, not one of the package's sixteen — so the package-derived assertion above can never demand it,
     // and without this the Task 20 dismiss buttons render with an empty label.
-    for (const namespace of ['knowledgeEngine', 'diagnose'] as const) {
+    for (const namespace of CHAT_NAMESPACES) {
       for (const catalogue of [en, es]) {
         expect(labelKeysFor(catalogue as Tree, namespace)).toContain('dismiss');
       }
@@ -130,7 +136,7 @@ describe('chat label completeness against the package default set', () => {
     // Scoped to the keys this feature adds: asserting "no key in the whole tree has an identical en/es
     // value" would fail on pre-existing entries whose translation is legitimately the same word (proper
     // nouns, symbols, borrowings), and a test that fails for a legitimate reason gets deleted.
-    for (const namespace of ['knowledgeEngine', 'diagnose'] as const) {
+    for (const namespace of CHAT_NAMESPACES) {
       const enNs = ((en as Tree)[namespace] as Tree).composer as Tree;
       const esNs = ((es as Tree)[namespace] as Tree).composer as Tree;
 

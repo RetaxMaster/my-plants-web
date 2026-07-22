@@ -9,16 +9,19 @@ const isRunActive = (status: KnowledgeChatRunStatus | null | undefined): boolean
   !!status && ACTIVE_RUN_STATUSES.includes(status);
 
 const props = defineProps<{
-  // The scoped sessions source (list/fetch/create/resume/remove/history/providers/commands). Both
-  // useKnowledgeChatSessions() and useDoctorChatSessions(plantId) satisfy this superset (Task 3/5).
+  // The scoped sessions source (list/fetch/create/resume/remove/history/providers/commands). All three
+  // consumers satisfy this superset: useKnowledgeChatSessions(), useDoctorChatSessions(plantId) and
+  // useGardenerChatSessions() — the last of which closes over no plant, because the gardener is
+  // owner-scoped and garden-wide.
   sessions: ChatWorkspaceSessionsAdapter;
   runs: ChatRunsAdapter;              // mints this consumer's socket ticket
-  socketUrl: string;                  // KE engine vs doctor engine
-  i18nNamespace: string;              // 'knowledgeEngine' | 'diagnose' — every shell string resolves as `${ns}.<suffix>`
-  themeStorageKey: string;            // distinct per consumer so the two chats don't fight over one preference
-  scopeKey: string;                   // unique useAsyncData cache key ('knowledge' | `diagnose-${plantId}`)
-  // Optional, forwarded verbatim to the inner <AgentChat>: the doctor page injects a plant-scoped
-  // proposals adapter, the Knowledge Engine injects nothing and therefore has no approval surface.
+  socketUrl: string;                  // one engine per consumer: KE, doctor or gardener
+  i18nNamespace: string;              // 'knowledgeEngine' | 'diagnose' | 'gardener' — every shell string resolves as `${ns}.<suffix>`
+  themeStorageKey: string;            // distinct per consumer so the chats don't fight over one preference
+  scopeKey: string;                   // unique useAsyncData cache key ('knowledge' | `diagnose-${plantId}` | 'gardener')
+  // Optional, forwarded verbatim to the inner <AgentChat>: the doctor and gardener pages inject a
+  // proposals adapter (plant-scoped and owner-scoped respectively), the Knowledge Engine injects nothing
+  // and therefore has no approval surface.
   proposals?: ChatProposalsAdapter;
 }>();
 

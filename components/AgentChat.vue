@@ -29,18 +29,21 @@ const props = defineProps<{
   initialProviderSessionId: string | null;
   initialTurns: KnowledgeChatTurn[];
   // --- Injected scope (fork-prevention: one component, per-consumer dependencies) ---
-  // The sessions source (KE pool or a plant-scoped doctor); shaped by ChatSessionsAdapter.
+  // The sessions source (the KE pool, a plant-scoped doctor, or the owner-scoped gardener); shaped by
+  // ChatSessionsAdapter.
   sessions: ChatSessionsAdapter;
   // The runs source (mints the socket ticket for this consumer's routes).
   runs: ChatRunsAdapter;
-  // The engine's Socket.IO URL for THIS consumer (KE engine vs doctor engine).
+  // The engine's Socket.IO URL for THIS consumer (the KE, doctor or gardener engine).
   socketUrl: string;
-  // The i18n namespace whose subtree carries this consumer's copy ('knowledgeEngine' | 'diagnose'). Every
-  // string is resolved as `${i18nNamespace}.<suffix>`, so both namespaces expose the same leaf-key shape.
+  // The i18n namespace whose subtree carries this consumer's copy ('knowledgeEngine' | 'diagnose' |
+  // 'gardener'). Every string is resolved as `${i18nNamespace}.<suffix>`, so every namespace exposes the
+  // same leaf-key shape.
   i18nNamespace: string;
   // A per-consumer theme storage key so the two chats don't fight over one persisted preference.
   themeStorageKey?: string;
-  // The doctor's write-proposal source. OPTIONAL: the Knowledge Engine injects nothing and therefore has
+  // The write-proposal source of whichever agent this surface hosts (the doctor's, plant-scoped; or the
+  // gardener's, owner-scoped). OPTIONAL: the Knowledge Engine injects nothing and therefore has
   // no approval surface at all — not a hidden one, an absent one. Injected scope, one component (the same
   // fork-prevention shape as `sessions` and `runs` above).
   proposals?: ChatProposalsAdapter;

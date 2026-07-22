@@ -15,8 +15,10 @@ import { OP_TYPE_KEY } from '../utils/agentProposalOpTypes';
 // the consent surface a pure function of server data.
 const props = defineProps<{
   proposal: AgentProposal;
-  // The consumer's i18n namespace ('diagnose'); every string resolves as `${ns}.<suffix>`, exactly like
-  // the shared <AgentChat> and <AgentChatWorkspace> do.
+  // The consumer's i18n namespace ('diagnose' | 'gardener' — the two surfaces that host an approval
+  // banner); every string resolves as `${ns}.<suffix>`, exactly like the shared <AgentChat> and
+  // <AgentChatWorkspace> do. Note the op-type labels a namespace must define are NOT the whole operation
+  // union but that scope's PERMITTED set — see i18n/locales.parity.test.ts.
   i18nNamespace: string;
   // True while a resolution request is in flight — the actions lock so a double-click cannot fire twice.
   busy?: boolean;

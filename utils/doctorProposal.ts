@@ -22,10 +22,14 @@ import type { AgentProposal } from '../types/api';
  * missing an `id` or an `operations` list cannot be resolved (there is nothing to approve) or rendered,
  * so it is treated as "nothing pending" rather than passed on to blow up in the template.
  *
- * Scoped to the doctor endpoint only, deliberately not renamed for it: its only caller is
- * `getDoctorPendingProposal`, and the empty-body quirk it normalizes is that endpoint's. If a future
- * agent role's proposals endpoint turns out to share the quirk, THIS is the function to generalize and
- * rename — not a second copy.
+ * Originally scoped to the doctor endpoint only; `getGardenerPendingProposal` (`composables/useApi.ts`)
+ * now calls it too, because the empty-body quirk it normalizes belongs to the underlying engine
+ * (`KnowledgeChatService`), not to the doctor scope specifically — the gardener's pending-proposal route
+ * shares the exact same "nothing pending" = empty body wire shape. Reused here rather than duplicated,
+ * per the project's fork-prevention rule: one implementation, injected differences (there are none to
+ * inject). The file keeps its `doctorProposal` name only because renaming it is out of scope for the
+ * change that added the second caller — a future edit is free to rename it if a third caller ever needs
+ * one, but it never gets a second copy.
  */
 export function normalizePendingProposal(raw: unknown): AgentProposal | null {
   if (raw === null || typeof raw !== 'object') return null;

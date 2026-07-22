@@ -284,6 +284,54 @@ export function useApi() {
       }),
     // Raw NDJSON transcript. The endpoint returns text/plain; ofetch yields the string as-is.
 
+    // --- Gardener (owner-scoped, garden-wide chat). Same response shapes as the knowledge-chat/doctor
+    //     endpoints — the API reuses KnowledgeChatService for this session kind too. Unlike EVERY doctor
+    //     call above, none of these close over a plantId: the gardener is scoped to the owner's whole
+    //     garden, not to one plant. ---
+    listGardenerSessions: () => api<KnowledgeChatSessionSummary[]>('/gardener/sessions'),
+    createGardenerSession: (input: KnowledgeChatSendInput, provider: KnowledgeChatProvider) =>
+      sendChat<CreateKnowledgeSessionResponse>('/gardener/sessions', { ...input, provider }),
+    getGardenerSession: (id: string) => api<KnowledgeChatSessionDetail>(`/gardener/sessions/${id}`),
+    getGardenerSessionHistory: (id: string) =>
+      api<KnowledgeChatHistory>(`/gardener/sessions/${id}/history`),
+    resumeGardenerSession: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) =>
+      sendChat<ResumeKnowledgeRunResponse>(`/gardener/sessions/${id}/runs`, { ...input, provider }),
+    deleteGardenerSession: (id: string) =>
+      api<{ ok: true }>(`/gardener/sessions/${id}`, { method: 'DELETE' }),
+    listGardenerProviders: (force = false) =>
+      api<AgentProviderStatus[]>(`/gardener/provider-status${force ? '?force=1' : ''}`),
+    getGardenerCommands: (provider: KnowledgeChatProvider) =>
+      api<CommandCatalog>(`/gardener/commands?provider=${provider}`),
+    mintGardenerSocketTicket: (runId: string) =>
+      api<KnowledgeSocketTicketResponse>(`/gardener/runs/${runId}/socket-ticket`, { method: 'POST' }),
+
+    // --- Gardener write proposals (same contract as the Plant Doctor's, generalized: spec 2026-07-18
+    //     §5.5.1). The gardener has NO write access either — it files a proposal and the owner resolves it
+    //     here. All six routes are effective-owner routes; a proposal from another owner is a 404, never a
+    //     403.
+    //
+    // Reuses the doctor's `normalizePendingProposal` rather than re-deriving the coercion: the empty-body
+    // quirk it collapses is the ENGINE's ("nothing pending" = 200 with an empty body = ofetch's `''`, not
+    // `null`), not something specific to the doctor scope, so the gardener endpoint hits the exact same
+    // trap. See utils/doctorProposal.ts for why `AgentProposal | null` would be a lie about the wire here.
+    getGardenerPendingProposal: async (sessionId: string) =>
+      normalizePendingProposal(
+        await api<unknown>(`/gardener/sessions/${sessionId}/proposals/pending`),
+      ),
+    // Approve and decline take an EMPTY body by contract — a non-empty body is a 400. So no `body` key.
+    approveGardenerProposal: (sessionId: string, proposalId: string) =>
+      api<AgentProposal>(`/gardener/sessions/${sessionId}/proposals/${proposalId}/approve`, { method: 'POST' }),
+    declineGardenerProposal: (sessionId: string, proposalId: string) =>
+      api<AgentProposal>(`/gardener/sessions/${sessionId}/proposals/${proposalId}/decline`, { method: 'POST' }),
+    // Dangerously Skip Permissions, persisted PER SESSION. Owner-writable only.
+    getGardenerSessionSettings: (sessionId: string) =>
+      api<DoctorSessionSettings>(`/gardener/sessions/${sessionId}/settings`),
+    updateGardenerSessionSettings: (sessionId: string, skipPermissions: boolean) =>
+      api<DoctorSessionSettings>(`/gardener/sessions/${sessionId}/settings`, {
+        method: 'PATCH',
+        body: { skipPermissions },
+      }),
+
     listOwners: () => api<OwnerSummary[]>('/owners'),
     actAs: (ownerId: string) =>
       $fetch<{ actingAs: { ownerId: string; label: string } }>('/api/acting-as', { method: 'POST', body: { ownerId } }),

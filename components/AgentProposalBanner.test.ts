@@ -11,7 +11,14 @@ import AgentProposalBanner from './AgentProposalBanner.vue';
 // its Vue APIs EXPLICITLY. Stubbing them here meant every new reactivity primitive the component reached
 // for broke all 15 of these tests with `ref is not defined` — a test-harness failure disguised as a
 // component failure, and a standing tax on changing the component at all.
-vi.stubGlobal('useI18n', () => ({ t: (k: string) => k }));
+// The stub echoes the KEY (so every assertion below can pin the exact key the component resolved) and
+// appends the named interpolation values when there are any. Echoing the key alone would have made the
+// fan-out line untestable: its whole point is that a SERVER-computed number reaches the owner's eyes, and
+// a stub that silently drops `{ count }` would render an identical string for 4 plants and for 40.
+vi.stubGlobal('useI18n', () => ({
+  t: (k: string, named?: Record<string, unknown>) =>
+    named && Object.keys(named).length ? `${k} ${JSON.stringify(named)}` : k,
+}));
 
 const PROPOSAL = {
   id: 'prop-1',
@@ -215,6 +222,57 @@ describe('AgentProposalBanner', () => {
       const scroll = w.find('.mp-proposal__scroll');
       expect(scroll.element.contains(w.find('.mp-proposal__ops').element)).toBe(true);
       expect(scroll.element.contains(w.find('.mp-proposal__summary').element)).toBe(true);
+    });
+  });
+
+  // A place's conditions feed every plant in it, so ONE place edit recomputes every one of those plants'
+  // care plans. A summary that hides that fan-out is consent obtained under a false impression, so the
+  // count is stated on the consent surface itself — and it is the SERVER's number (`affectedPlantCount`),
+  // never a figure parsed out of the agent's prose.
+  describe('the place-edit fan-out', () => {
+    it('states the fan-out when the server computed one', () => {
+      const w = mountBanner({ proposal: { ...PROPOSAL, affectedPlantCount: 4 }, i18nNamespace: 'gardener' });
+      const line = w.find('[data-testid="proposal-fanout"]');
+      expect(line.exists()).toBe(true);
+      expect(line.text()).toContain('gardener.proposal.affectsPlants');
+      // The count must actually REACH the string. Asserting only on the key would stay green if the
+      // component rendered the same sentence for 4 plants and for 40.
+      expect(w.text()).toContain('4');
+    });
+
+    it('says nothing when there is no place edit', () => {
+      const w = mountBanner({ proposal: { ...PROPOSAL, affectedPlantCount: null }, i18nNamespace: 'gardener' });
+      expect(w.find('[data-testid="proposal-fanout"]').exists()).toBe(false);
+    });
+
+    // ZERO is a real server answer — "this place currently holds no plants" — and the owner is entitled
+    // to be told that before approving. Hence a `!== null` guard and not a truthiness check, which would
+    // silently swallow exactly the case where the fan-out claim is most surprising.
+    it('still states a fan-out of zero', () => {
+      const w = mountBanner({ proposal: { ...PROPOSAL, affectedPlantCount: 0 }, i18nNamespace: 'gardener' });
+      expect(w.find('[data-testid="proposal-fanout"]').exists()).toBe(true);
+      expect(w.text()).toContain('0');
+    });
+
+    // The line lives in the SHARED banner, so all three chat surfaces get it. The doctor cannot propose a
+    // place edit, so its value is always null and the line never renders there — the shared change costs
+    // the doctor nothing, which is why no surface needed a fork.
+    it('renders nothing on the doctor surface, whose proposals never carry a count', () => {
+      const w = mountBanner();
+      expect(w.find('[data-testid="proposal-fanout"]').exists()).toBe(false);
+    });
+
+    it('sits INSIDE the scrolling read region, above the agent’s caption', () => {
+      const w = mountBanner({ proposal: { ...PROPOSAL, affectedPlantCount: 4 }, i18nNamespace: 'gardener' });
+      const scroll = w.find('.mp-proposal__scroll');
+      const line = w.find('[data-testid="proposal-fanout"]');
+      expect(scroll.element.contains(line.element)).toBe(true);
+      // Server-computed fact before agent-authored prose: the caption is the least authoritative thing in
+      // the banner and must never come between the owner and a consequence of the operations.
+      expect(
+        line.element.compareDocumentPosition(w.find('.mp-proposal__summary').element)
+        & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
     });
 
     // ⚠️ These two MUST await a flush. The cue is computed in `onMounted`, and Vue applies the resulting

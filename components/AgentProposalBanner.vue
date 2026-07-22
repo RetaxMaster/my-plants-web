@@ -32,7 +32,10 @@ defineEmits<{
 }>();
 
 const { t } = useI18n();
-const tns = (key: string) => t(`${props.i18nNamespace}.${key}`);
+// Same shape as the sibling shared components' helper (AgentChat.vue, AgentChatWorkspace.vue): named
+// interpolation values are forwarded, because a pluralized message like `proposal.affectsPlants` needs
+// its `count` to reach vue-i18n both to fill `{count}` AND to pick the singular/plural branch.
+const tns = (key: string, named?: Record<string, unknown>) => t(`${props.i18nNamespace}.${key}`, named ?? {});
 
 // A proposal that destroys something is a stronger warning than one that only edits fields. The colour is
 // a signal, not decoration — the two cases must not look alike.
@@ -120,6 +123,16 @@ watch(() => props.proposal.id, async () => {
             <p v-if="op.destructive" class="mp-proposal__destructive">{{ tns('proposal.destructive') }}</p>
           </li>
         </ol>
+
+        <!-- A place's conditions feed every plant in it, so a place edit recomputes all of them. A one-line
+             summary that hides that fan-out is consent obtained under a false impression. The number is
+             SERVER-computed (proposal.affectedPlantCount), never read from the agent's prose — and it sits
+             ABOVE the caption for that reason: a consequence of the operations outranks what the agent
+             says about them. `!== null` and not truthiness: 0 means "this place holds no plants today",
+             which is precisely the case an owner would not otherwise guess. -->
+        <p v-if="proposal.affectedPlantCount !== null" class="mp-proposal__fanout" data-testid="proposal-fanout">
+          {{ tns('proposal.affectsPlants', { count: proposal.affectedPlantCount }) }}
+        </p>
 
         <p v-if="proposal.summary" class="mp-proposal__summary">
           <span class="mp-proposal__summary-label">{{ tns('proposal.agentSays') }}:</span>
@@ -309,6 +322,17 @@ watch(() => props.proposal.id, async () => {
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   color: var(--care-poor-text);
+}
+
+/* Informative, not a warning: it reuses the ordinary body colour and the hint's type scale rather than
+ * the destructive red. That red is a signal reserved for an operation that destroys something, and
+ * spending it on an ordinary consequence would train the owner to scroll past the one case that matters. */
+.mp-proposal__fanout {
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-body);
 }
 
 .mp-proposal__summary {

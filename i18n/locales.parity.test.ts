@@ -18,9 +18,17 @@ function keyPaths(obj: Tree, prefix = ''): string[] {
 
 // Namespaces that HOST A PROPOSAL BANNER, and the agent scope each one renders. `knowledgeEngine` is
 // absent on purpose: the KE surface injects no proposals adapter, so it has no banner and needs no labels.
-// Typed as AgentScope so `Object.entries` yields a scope the capability helper accepts — a bare
-// `as const` gives `scope: string` and `permittedTypesFor(scope)` does not typecheck.
+// Typed as `Record<string, AgentScope>` (not `as const`) so a typo'd scope value fails right here, at the
+// declaration site, with a clear "not assignable to AgentScope" compile error — rather than downstream,
+// wherever `permittedTypesFor` first gets called with it.
 const BANNER_NAMESPACES: Record<string, AgentScope> = { diagnose: 'doctor', gardener: 'gardener' };
+
+// Namespaces that host a CHAT AT ALL: every banner namespace, plus `knowledgeEngine`, which drives the
+// same shared AgentChat component and therefore needs run-status labels too, even though — per the comment
+// above — it never renders a proposal banner and so is excluded from BANNER_NAMESPACES itself. Derived
+// from BANNER_NAMESPACES rather than hand-listed a second time, so a namespace added to one set is never
+// silently missing from the other.
+const CHAT_NAMESPACES = [...Object.keys(BANNER_NAMESPACES), 'knowledgeEngine'];
 
 describe('locale catalogues', () => {
   it('have byte-identical key trees (en vs es)', () => {
@@ -146,13 +154,13 @@ describe('agent write-proposal copy (spec 2026-07-18 §5.4, §6.4; generalized a
     });
   }
 
-  // Every run status the API can emit needs a label in BOTH chat namespaces, in BOTH locales. The status
+  // Every run status the API can emit needs a label in EVERY chat namespace, in BOTH locales. The status
   // is interpolated straight into the key (`runStatus.${s.status}`), so a missing one does not fail a
   // build — it renders the raw key path `runStatus.LAUNCHING` at the owner.
   //
   // ⚠️ Derived from the type union, never hand-listed: LAUNCHING shipped on the wire while the web knew
   // only five statuses, and a hand-written list here would have been copied from the same stale union.
-  it('labels every run status in both chat namespaces', () => {
+  it('labels every run status in every chat namespace', () => {
     // ⚠️ EXHAUSTIVE BY CONSTRUCTION, not by hand. A plain `KnowledgeChatRunStatus[]` literal is satisfied
     // by any SUBSET, so adding a seventh status to the union would leave this list — and this test —
     // silently stale, which is exactly how LAUNCHING went missing in the first place. A Record keyed by
@@ -162,11 +170,15 @@ describe('agent write-proposal copy (spec 2026-07-18 §5.4, §6.4; generalized a
     };
     const statuses = Object.keys(EXPECTED) as KnowledgeChatRunStatus[];
     for (const cat of [en, es] as unknown as Tree[]) {
-      for (const ns of ['diagnose', 'knowledgeEngine', 'gardener']) {
+      for (const ns of CHAT_NAMESPACES) {
         const runStatus = ((cat[ns] as Tree).runStatus ?? {}) as Tree;
         expect(Object.keys(runStatus).sort(), `${ns}.runStatus`).toEqual([...statuses].sort());
       }
     }
+  });
+
+  it('covers every namespace that hosts a chat (guards against a vacuous pass)', () => {
+    expect(CHAT_NAMESPACES.length).toBeGreaterThanOrEqual(3);
   });
 
   // Spanish must be genuinely translated, not the English string copied across. The catalogue-wide parity

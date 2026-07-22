@@ -95,6 +95,12 @@ describe('chat label completeness against the package default set', () => {
     expect([...NOT_OURS].filter((k) => !packageKeys.includes(k))).toEqual([]);
   });
 
+  it('covers every chat namespace (guards against a vacuous pass)', () => {
+    // Emptying CHAT_NAMESPACES would silently drop every per-namespace loop below to zero iterations,
+    // and the suite would stay green having checked nothing. Pin a floor instead.
+    expect(CHAT_NAMESPACES.length).toBeGreaterThanOrEqual(3);
+  });
+
   for (const namespace of CHAT_NAMESPACES) {
     for (const [localeName, catalogue] of [['en', en], ['es', es]] as const) {
       it(`${localeName}.${namespace} covers every package label our UI actually renders`, () => {

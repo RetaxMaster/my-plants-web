@@ -307,8 +307,10 @@ export function useApi() {
 
     // --- Gardener write proposals (same contract as the Plant Doctor's, generalized: spec 2026-07-18
     //     §5.5.1). The gardener has NO write access either — it files a proposal and the owner resolves it
-    //     here. All six routes are effective-owner routes; a proposal from another owner is a 404, never a
-    //     403.
+    //     here. The client below implements FIVE of the surface's six routes — pending/approve/decline/
+    //     get-settings/update-settings; the sixth, `POST …/proposals` (spec `2026-07-20-gardener-agent-
+    //     design.md:286`), is gardener-TOKEN only (the agent files the proposal) and the browser never
+    //     calls it. A proposal from another owner is a 404, never a 403.
     //
     // Reuses the doctor's `normalizePendingProposal` rather than re-deriving the coercion: the empty-body
     // quirk it collapses is the ENGINE's ("nothing pending" = 200 with an empty body = ofetch's `''`, not
@@ -319,6 +321,9 @@ export function useApi() {
         await api<unknown>(`/gardener/sessions/${sessionId}/proposals/pending`),
       ),
     // Approve and decline take an EMPTY body by contract — a non-empty body is a 400. So no `body` key.
+    // A 409 means the proposal is no longer PENDING (expired by a newer turn, or already resolved), and
+    // the terminal status travels in the error payload so the UI can explain WHICH happened — same
+    // behaviour as the doctor's equivalent call, since both go through the same generic `api()` wrapper.
     approveGardenerProposal: (sessionId: string, proposalId: string) =>
       api<AgentProposal>(`/gardener/sessions/${sessionId}/proposals/${proposalId}/approve`, { method: 'POST' }),
     declineGardenerProposal: (sessionId: string, proposalId: string) =>

@@ -293,10 +293,10 @@ export interface ResumeKnowledgeRunResponse { runId: string; ticket: string }
 export interface KnowledgeSocketTicketResponse { ticket: string }
 
 // What the shared <AgentChat> needs from a "sessions" source — the intersection the component actually
-// calls (create/resume/history/providers/commands). Both useKnowledgeChatSessions() and
-// useDoctorChatSessions() return a superset of this, so either satisfies it structurally (fork-prevention:
-// one component, injected scope). `list`/`fetch`/`remove` are used by the PAGE, not the component, so they
-// are deliberately absent here.
+// calls (create/resume/history/providers/commands). useKnowledgeChatSessions(), useDoctorChatSessions(),
+// and useGardenerChatSessions() each return a superset of this, so any of the three satisfies it
+// structurally (fork-prevention: one component, injected scope). `list`/`fetch`/`remove` are used by the
+// PAGE, not the component, so they are deliberately absent here.
 export interface ChatSessionsAdapter {
   create: (input: KnowledgeChatSendInput, provider: KnowledgeChatProvider) => Promise<CreateKnowledgeSessionResponse>;
   resume: (id: string, input: KnowledgeChatSendInput, provider?: KnowledgeChatProvider) => Promise<ResumeKnowledgeRunResponse>;
@@ -307,8 +307,9 @@ export interface ChatSessionsAdapter {
 
 // What the shared <AgentChatWorkspace> SHELL needs — a SUPERSET of ChatSessionsAdapter that also includes
 // the list / fetch / remove the session list + selection use (the inner <AgentChat> does not call these,
-// which is why ChatSessionsAdapter omits them). Both useKnowledgeChatSessions() and useDoctorChatSessions()
-// return this exact shape, so either satisfies it structurally (fork-prevention: one shell, injected scope).
+// which is why ChatSessionsAdapter omits them). useKnowledgeChatSessions(), useDoctorChatSessions(), and
+// useGardenerChatSessions() each return this exact shape, so any of the three satisfies it structurally
+// (fork-prevention: one shell, injected scope).
 export interface ChatWorkspaceSessionsAdapter extends ChatSessionsAdapter {
   list: () => Promise<KnowledgeChatSessionSummary[]>;
   fetch: (id: string) => Promise<KnowledgeChatSessionDetail>;
@@ -416,10 +417,15 @@ export interface AgentProposal {
   createdAt: string;
 }
 
-// From here on the vocabulary is deliberately mixed, not inconsistent: the wire TYPES above generalized
-// to `Agent*` because the gardener's adapter reuses them unchanged, while `DoctorSessionSettings` and the
-// `*DoctorProposal` methods on `useApi` below stay doctor-named because they are genuinely doctor-only —
-// the Dangerously Skip Permissions setting and calls to the `/plants/:id/diagnose/*` routes.
+// From here on the vocabulary is deliberately mixed, not inconsistent: the wire TYPES above generalized to
+// `Agent*` because the gardener's adapter reuses them unchanged, while `DoctorSessionSettings` stays
+// doctor-NAMED by convention only — it is not in the earlier spec's rename list (Spec 3 §5.1 renamed only
+// `DoctorProposal`/`DoctorProposalOperationType`), and renaming it is not this feature's job. The gardener's
+// settings endpoints (`getGardenerSessionSettings`/`updateGardenerSessionSettings`) return this exact type
+// over `/gardener/sessions/:id/settings`, unchanged — reusing an unrenamed type across scopes is the
+// fork-prevention outcome we want, not a sign the type is doctor-exclusive. The `*DoctorProposal` methods
+// on `useApi` below ARE genuinely doctor-only, since they call the `/plants/:id/diagnose/*` routes
+// specifically; the gardener's proposal methods are their own, separately-named siblings.
 
 // Per-session Dangerously Skip Permissions (§6.4). Owner-toggled only; the agent may read it and never write it.
 export interface DoctorSessionSettings {

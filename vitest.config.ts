@@ -32,7 +32,12 @@ export default defineConfig({
     // `server/**` carries the BFF proxy's wire test: it boots the REAL event handler over a REAL socket,
     // because the shape the browser receives is produced by the proxy and is invisible to both the API's
     // e2e and to any component test that stubs the adapter. Four defects of that family have shipped.
-    include: ['utils/**/*.test.ts', 'i18n/**/*.test.ts', 'components/**/*.test.ts', 'types/**/*.test.ts', 'composables/**/*.test.ts', 'server/**/*.test.ts'],
+    // ⚠️ `pages/**` is listed for a reason worth keeping: a test file placed under a directory that is
+    // NOT in this list is silently never collected, and `npm test` reports green while the assertion has
+    // never executed once. The first page-level test in this repo (the gardener entry point, which pins
+    // an explicit owner ruling about WHERE that action may appear) would have been exactly that kind of
+    // vacuous gate. Adding a test under a new top-level directory means adding it here in the same change.
+    include: ['utils/**/*.test.ts', 'i18n/**/*.test.ts', 'components/**/*.test.ts', 'types/**/*.test.ts', 'composables/**/*.test.ts', 'server/**/*.test.ts', 'pages/**/*.test.ts'],
     // Node stays the DEFAULT (keeps util/i18n tests hermetic); component test files opt into a DOM
     // per-file via `// @vitest-environment happy-dom` at the top of the file.
     environment: 'node',

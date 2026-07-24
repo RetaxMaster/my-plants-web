@@ -2,11 +2,12 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
-## Unreleased — Approving what the Plant Doctor wants to change
+## Unreleased — Approving what your agents want to change, and meeting your gardener
 
 **The doctor now asks before it changes anything.** Its diagnosis is unchanged; what changed is that
 every edit it wants to make to a plant arrives as a request you approve, and this release is the screen
-where you do that.
+where you do that. **This release also introduces the gardener** — a second advisor that looks at your
+whole garden rather than one plant, reached from a single action in your plants header.
 
 ### Fixed
 
@@ -23,6 +24,23 @@ where you do that.
 
 ### Added
 
+- **Meet your gardener.** A new "Talk to your gardener" action in the header of your plants list opens a
+  chat with an advisor scoped to your whole garden — placement, the spaces your plants live in, and the
+  cities that give them their weather — rather than to a single plant. It is deliberately one action in
+  the header and never a button on each plant card: a per-plant button would read as "the gardener *of
+  this plant*", which is the Plant Doctor's job, and the two roles are kept apart on purpose. The doctor
+  diagnoses one plant; the gardener places, groups and equips the whole garden.
+- **The gardener asks before it changes anything, exactly like the doctor.** It never edits your garden
+  itself: everything it wants to do — add or update a place or a city, add a plant, set or clear a care
+  interval, mark a task done, or adjust a plant's profile — arrives as a request you approve in the same
+  banner, with the same field-by-field before-and-after list built and labelled by the server. Approve,
+  Decline and "Not now" all work just as they do for the doctor, and the per-conversation "dangerously
+  skip permissions" switch is available here too.
+- **A place edit tells you how far it reaches before you approve it.** Because every plant standing in a
+  place draws its light, humidity and airflow from that place, changing the place recomputes the care of
+  *all* of them. When the gardener proposes a place edit, the banner now states how many plants that one
+  change would affect — a count computed by the server from the edit itself, never taken from the
+  gardener's own description of what it is doing. A change with no place edit says nothing extra.
 - **Approve what the Plant Doctor wants to change.** When the doctor wants to update the care profile,
   add or edit a progress entry, change a task's frequency or mark a task done, a banner
   appears under the conversation listing every change it proposes — the exact field, its current value

@@ -243,6 +243,23 @@
     "frozen": {
       "MEMORIAL": "Esta planta descansa en el panteón. Su historial se conserva y ya no se puede editar.",
       "GIFTED": "Esta planta ahora vive en otro hogar. Su historial se conserva y ya no se puede editar."
+    },
+    "lifecycle": {
+      "memorializeAction": "Mover al panteón",
+      "giftAction": "Regalar",
+      "reviveAction": "Revivir",
+      "memorializeTitle": "Mover al panteón",
+      "memorializeBody": "Esta planta se moverá al panteón como un recuerdo tranquilo y de solo lectura. Esta acción es permanente y no se puede deshacer.",
+      "memorializeConfirm": "Mover al panteón",
+      "giftTitle": "Regalar esta planta",
+      "giftBody": "Esta planta se moverá a tus plantas regaladas como un registro de solo lectura de su nuevo hogar. Puedes revivirla después si regresa a tu jardín.",
+      "giftConfirm": "Regalar",
+      "reviveTitle": "Revivir esta planta",
+      "reviveBody": "Regresa esta planta a tu jardín activo. Elige el lugar donde vivirá ahora: el seguimiento de cuidados se reanuda desde hoy.",
+      "revivePlace": "Lugar",
+      "revivePlacePlaceholder": "Elige un lugar",
+      "reviveConfirm": "Revivir",
+      "error": "Algo salió mal. Por favor intenta de nuevo."
     }
   },
   "plantPhoto": {

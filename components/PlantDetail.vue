@@ -387,6 +387,81 @@ function confirmPostpone(reason: string) {
 function confirmRepotPostpone(reason: string) {
   void sendRepotPostpone(reason);
 }
+
+// --- Lifecycle transitions (Plant Lifecycle feature, Task 30): memorialize/gift on an ACTIVE plant,
+// revive on a GIFTED one. MEMORIAL is terminal — no revive action ever renders for it. Every transition
+// is a confirmation-gated write; `transitionPending` guards against a double-submit on either trigger
+// button (both stay disabled/loading while the request is in flight) and errors surface rather than being
+// swallowed — the pantheon/gifted confirm modals close on confirm (UiConfirmModal's own contract), so their
+// failure surfaces as a page-level banner; the revive modal stays open on failure, so its error renders
+// inline via the place field's own error slot.
+const memorializeConfirmOpen = ref(false);
+const giftConfirmOpen = ref(false);
+const reviveOpen = ref(false);
+const revivePlaceId = ref('');
+const transitionPending = ref(false);
+const transitionError = ref('');
+const reviveError = ref('');
+
+// Revive requires a placeId belonging to the SAME owner (no transfer-to-another-user in this feature) —
+// same filter PlantEditModal uses for its own place picker.
+const revivePlaceOptions = computed(() =>
+  (places.value ?? [])
+    .filter((p) => p.ownerId === plant.value?.ownerId)
+    .map((p) => ({
+      label: t('plantEdit.placeOption', { name: p.name, kind: p.indoor ? t('places.indoor') : t('places.outdoor') }),
+      value: p.id,
+    })),
+);
+
+function openRevive() {
+  reviveError.value = '';
+  revivePlaceId.value = '';
+  reviveOpen.value = true;
+}
+
+async function confirmMemorialize() {
+  if (transitionPending.value) return;
+  transitionPending.value = true;
+  transitionError.value = '';
+  try {
+    await api.memorializePlant(id);
+    await navigateTo(`/pantheon/${id}`);
+  } catch {
+    transitionError.value = t('plantDetail.lifecycle.error');
+  } finally {
+    transitionPending.value = false;
+  }
+}
+
+async function confirmGift() {
+  if (transitionPending.value) return;
+  transitionPending.value = true;
+  transitionError.value = '';
+  try {
+    await api.giftPlant(id);
+    await navigateTo(`/gifted/${id}`);
+  } catch {
+    transitionError.value = t('plantDetail.lifecycle.error');
+  } finally {
+    transitionPending.value = false;
+  }
+}
+
+async function confirmRevive() {
+  if (transitionPending.value || !revivePlaceId.value) return;
+  transitionPending.value = true;
+  reviveError.value = '';
+  try {
+    await api.revivePlant(id, revivePlaceId.value);
+    reviveOpen.value = false;
+    await navigateTo(`/plants/${id}`);
+  } catch {
+    reviveError.value = t('plantDetail.lifecycle.error');
+  } finally {
+    transitionPending.value = false;
+  }
+}
 </script>
 
 <template>
@@ -429,6 +504,48 @@ function confirmRepotPostpone(reason: string) {
         </UiButton>
       </template>
     </UiPlantPhoto>
+
+    <!-- Lifecycle actions (Plant Lifecycle feature, Task 30): memorialize/gift on an ACTIVE plant, revive
+         on a GIFTED one. MEMORIAL is terminal — no action renders for it. -->
+    <UiAlert
+      v-if="transitionError"
+      color="red"
+      :description="transitionError"
+      class="mp-detail__lifecycle-error"
+    />
+    <div v-if="plant.lifecycleState === 'ACTIVE'" class="mp-detail__lifecycle">
+      <UiButton
+        variant="soft"
+        color="neutral"
+        icon="archive-box"
+        :disabled="transitionPending"
+        :loading="transitionPending"
+        @click="memorializeConfirmOpen = true"
+      >
+        {{ $t('plantDetail.lifecycle.memorializeAction') }}
+      </UiButton>
+      <UiButton
+        variant="soft"
+        color="neutral"
+        icon="gift"
+        :disabled="transitionPending"
+        :loading="transitionPending"
+        @click="giftConfirmOpen = true"
+      >
+        {{ $t('plantDetail.lifecycle.giftAction') }}
+      </UiButton>
+    </div>
+    <div v-else-if="plant.lifecycleState === 'GIFTED'" class="mp-detail__lifecycle">
+      <UiButton
+        variant="soft"
+        color="cafe"
+        icon="arrow-path"
+        :disabled="transitionPending"
+        @click="openRevive"
+      >
+        {{ $t('plantDetail.lifecycle.reviveAction') }}
+      </UiButton>
+    </div>
 
     <div :class="isDesktop ? 'mp-detail mp-detail--desktop' : 'mp-detail'">
       <!-- Left column: identity, notes & health, photos, history -->
@@ -681,6 +798,50 @@ function confirmRepotPostpone(reason: string) {
       :confirm-label="$t('common.postpone')"
       @confirm="confirmRepotPostpone"
     />
+
+    <!-- Lifecycle transition modals (Plant Lifecycle feature, Task 30). -->
+    <UiConfirmModal
+      v-model="memorializeConfirmOpen"
+      :title="$t('plantDetail.lifecycle.memorializeTitle')"
+      :message="$t('plantDetail.lifecycle.memorializeBody')"
+      :confirm-label="$t('plantDetail.lifecycle.memorializeConfirm')"
+      confirm-icon="archive-box"
+      @confirm="confirmMemorialize"
+    />
+    <UiConfirmModal
+      v-model="giftConfirmOpen"
+      :title="$t('plantDetail.lifecycle.giftTitle')"
+      :message="$t('plantDetail.lifecycle.giftBody')"
+      :confirm-label="$t('plantDetail.lifecycle.giftConfirm')"
+      confirm-icon="gift"
+      @confirm="confirmGift"
+    />
+    <UiModal v-model="reviveOpen" :title="$t('plantDetail.lifecycle.reviveTitle')">
+      <div class="mp-detail__revive-form">
+        <p class="mp-detail__revive-body">{{ $t('plantDetail.lifecycle.reviveBody') }}</p>
+        <UiFormGroup :label="$t('plantDetail.lifecycle.revivePlace')" :error="reviveError">
+          <UiSelectField
+            v-model="revivePlaceId"
+            :options="revivePlaceOptions"
+            :placeholder="$t('plantDetail.lifecycle.revivePlacePlaceholder')"
+            :disabled="transitionPending"
+          />
+        </UiFormGroup>
+      </div>
+      <template #footer>
+        <UiButton color="neutral" variant="ghost" :disabled="transitionPending" @click="reviveOpen = false">
+          {{ $t('common.cancel') }}
+        </UiButton>
+        <UiButton
+          color="primary"
+          :disabled="!revivePlaceId"
+          :loading="transitionPending"
+          @click="confirmRevive"
+        >
+          {{ $t('plantDetail.lifecycle.reviveConfirm') }}
+        </UiButton>
+      </template>
+    </UiModal>
   </div>
   <UiEmptyState v-else>{{ $t('common.loading') }}</UiEmptyState>
 </template>
@@ -692,6 +853,28 @@ function confirmRepotPostpone(reason: string) {
 
 .mp-detail__frozen-banner {
   margin-bottom: 14px;
+}
+
+.mp-detail__lifecycle-error {
+  margin-bottom: 14px;
+}
+
+.mp-detail__lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: 18px;
+}
+
+.mp-detail__revive-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.mp-detail__revive-body {
+  margin: 0;
+  font: var(--text-sm) / 1.4 var(--font-sans);
+  color: var(--text-body);
 }
 
 .mp-detail {

@@ -38,6 +38,34 @@ describe('createGetCache', () => {
     expect(await cache.get('/x', fetcher)).toBe('v2');
   });
 
+  it('invalidate(match) drops ONLY matching keys and forces those to re-fetch, leaving others cached', async () => {
+    const cache = createGetCache();
+    const calls: Record<string, number> = {};
+    const fetcher = (key: string) => async () => { calls[key] = (calls[key] ?? 0) + 1; return `${key}#${calls[key]}`; };
+
+    expect(await cache.get('/plants/p1', fetcher('/plants/p1'))).toBe('/plants/p1#1');
+    expect(await cache.get('/plants/p1/photos', fetcher('/plants/p1/photos'))).toBe('/plants/p1/photos#1');
+    expect(await cache.get('/plants/p2/photos', fetcher('/plants/p2/photos'))).toBe('/plants/p2/photos#1');
+
+    // Invalidate exactly plant p1's keys (the reconcile's scope). p2 stays cached.
+    cache.invalidate((k) => k === '/plants/p1' || k.startsWith('/plants/p1/'));
+
+    expect(await cache.get('/plants/p1', fetcher('/plants/p1'))).toBe('/plants/p1#2'); // re-fetched
+    expect(await cache.get('/plants/p1/photos', fetcher('/plants/p1/photos'))).toBe('/plants/p1/photos#2'); // re-fetched
+    expect(await cache.get('/plants/p2/photos', fetcher('/plants/p2/photos'))).toBe('/plants/p2/photos#1'); // still cached
+  });
+
+  it('invalidate() defuses a matching in-flight entry (it never writes back after being dropped)', async () => {
+    const cache = createGetCache();
+    let release: (() => void) | undefined;
+    const slow = () => new Promise<string>((resolve) => { release = () => resolve('stale'); });
+    const inflight = cache.get('/plants/p1/photos', slow);
+    cache.invalidate((k) => k.startsWith('/plants/p1'));
+    release?.();
+    await expect(inflight).resolves.toBe('stale'); // the original caller still resolves...
+    expect(await cache.get('/plants/p1/photos', async () => 'fresh')).toBe('fresh'); // ...but nothing was cached
+  });
+
   it('two independent cache instances do not share values (request-scoping at the helper level)', async () => {
     const a = createGetCache(); const b = createGetCache();
     await a.get('/x', async () => 'from-a');

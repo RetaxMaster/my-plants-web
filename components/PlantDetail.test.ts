@@ -85,6 +85,7 @@ function stubApi(plant: ReturnType<typeof basePlant>) {
     listPlaces: async () => [{ id: 'pl1', ownerId: 'o1', name: 'Study', indoor: true }],
     getPlantHistory: async () => [],
     getPlantPhotos: async () => [],
+    invalidatePlant: vi.fn(),
     memorializePlant: memorializePlantMock,
     giftPlant: giftPlantMock,
     revivePlant: revivePlantMock,
@@ -322,12 +323,14 @@ describe('PlantDetail — async photo reconcile', () => {
     let processing = 1; // the just-added photo is mid-processing
     const getPlantHistory = vi.fn(async () => progressHistory(processing));
     const getPlantPhotos = vi.fn(async () => []);
+    const invalidatePlant = vi.fn();
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
       getPlantCare: async () => null,
       listPlaces: async () => [],
       getPlantHistory,
       getPlantPhotos,
+      invalidatePlant,
     }));
 
     const PlantDetail = (await import('./PlantDetail.vue')).default;
@@ -342,8 +345,11 @@ describe('PlantDetail — async photo reconcile', () => {
     processing = 0;
     await vi.advanceTimersByTimeAsync(2500);
     await flushPromises();
-    // The reconcile fired at least one extra gallery refetch (the live catch-up).
+    // The reconcile fired at least one extra gallery refetch (the live catch-up)...
     expect(getPlantPhotos.mock.calls.length).toBeGreaterThan(photosAfterMount);
+    // ...and it dropped this plant's cached reads FIRST, or the page-lifetime GET cache would re-serve the
+    // pre-processing value and the refetch above would be a silent no-op (the real QA-caught failure).
+    expect(invalidatePlant).toHaveBeenCalledWith('p1');
 
     // Now that nothing is processing, the reconcile MUST stop — no further gallery refetches.
     const settledCalls = getPlantPhotos.mock.calls.length;
@@ -364,6 +370,7 @@ describe('PlantDetail — async photo reconcile', () => {
       listPlaces: async () => [],
       getPlantHistory: async () => progressHistory(0), // all photos already READY
       getPlantPhotos,
+      invalidatePlant: vi.fn(),
     }));
 
     const PlantDetail = (await import('./PlantDetail.vue')).default;

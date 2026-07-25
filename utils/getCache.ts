@@ -4,6 +4,10 @@
 export interface GetCache {
   get<T>(key: string, fetcher: () => Promise<T>): Promise<T>;
   flush(): void;
+  // Drop only the entries whose key matches. Needed for a delayed re-read that NO mutation flushed the
+  // cache for (e.g. reconciling a background-processed photo): without it, a Nuxt refresh() re-runs its
+  // fetcher but this cache re-serves the pre-processing value, so the view never catches up.
+  invalidate(match: (key: string) => boolean): void;
 }
 
 export function createGetCache(): GetCache {
@@ -33,5 +37,13 @@ export function createGetCache(): GetCache {
       return p;
     },
     flush() { inflight.clear(); resolved.clear(); },
+    invalidate(match) {
+      // Drop matching resolved values AND matching in-flight entries. Deleting an in-flight entry is safe:
+      // its settle callback checks `inflight.get(key) === p`, so a dropped fetch simply never writes back
+      // (identical to how flush() defuses an in-flight fetch), which is exactly what we want — the next
+      // get() re-issues a fresh fetch instead of resurrecting a pre-invalidation value.
+      for (const key of [...resolved.keys()]) if (match(key)) resolved.delete(key);
+      for (const key of [...inflight.keys()]) if (match(key)) inflight.delete(key);
+    },
   };
 }

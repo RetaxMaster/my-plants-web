@@ -120,6 +120,10 @@ function stopReconcile() {
 }
 async function reconcileTick() {
   // Sequential (recursive setTimeout, not setInterval) so a slow refetch never overlaps the next tick.
+  // Drop this plant's cached GET reads FIRST: no mutation runs between ticks, so without this the refresh()
+  // calls below re-run their fetchers but the page-lifetime GET cache re-serves the pre-processing value
+  // and the gallery/counts never catch up (the exact defeat the reconcile exists to beat).
+  api.invalidatePlant(id);
   await Promise.all([refreshPhotos(), refreshHistory(), refreshPlant()]);
   reconcileTimer =
     hasProcessingPhotos.value && Date.now() - reconcileStartedAt <= RECONCILE_MAX_MS

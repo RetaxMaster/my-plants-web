@@ -154,6 +154,16 @@ export function useApi() {
   };
 
   return {
+    // Drop this plant's cached GET reads (`/plants/:id`, `/plants/:id/photos`, `/plants/:id/history`, …)
+    // from the page-lifetime GET cache. A normal refresh() re-runs its fetcher but this cache re-serves
+    // the cached value, so a DELAYED re-read that no mutation flushed the cache for (reconciling a
+    // background-processed photo whose worker finished AFTER the write returned) would otherwise never see
+    // the new data. Scope is exactly this plant's keys, not a whole-cache flush.
+    invalidatePlant: (id: string) => {
+      const base = `/plants/${id}`;
+      cache.invalidate((k) => k === base || k.startsWith(`${base}/`) || k.startsWith(`${base}?`));
+    },
+
     listSpecies: () => api<SpeciesSummary[]>('/species'),
 
     // --- Blog (public: no session; @Public on the API) ---

@@ -22,6 +22,17 @@ whole garden rather than one plant, reached from a single action in your plants 
   written down as it happened and that record is never rewritten, so reopening an older conversation will
   still show the old splitting. That is expected, not a bug worth reporting.
 
+### Changed
+
+- **Photos you attach in a chat now shrink before they leave your device.** A JPEG or WebP photo whose
+  long edge is over 2576 px is resized to that ceiling and re-encoded at high quality before it is
+  uploaded, so a full-resolution phone photo reaches the agent far smaller and faster. A per-photo switch
+  lets you send the file exactly as picked when you need the original — which is also the only path that
+  keeps a photo's embedded metadata such as GPS location; the shrunk default drops it, a privacy gain. PNG
+  and GIF attachments are untouched. Delivered by upgrading the chat client to `3.2.0`.
+- **The raw token/tool counts under a helper's result in a conversation are gone.** They were technical
+  plumbing shown for want of a better home; the card now ends with the helper's answer and nothing else.
+
 ### Added
 
 - **Meet your gardener.** A new "Talk to your gardener" action in the header of your plants list opens a

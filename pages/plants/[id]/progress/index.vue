@@ -46,11 +46,11 @@ async function save(payload: UpdateProgressPayload) {
     if (payload.observations) form.append('observations', payload.observations);
     if (payload.sizeCm !== null) form.append('sizeCm', String(payload.sizeCm));
     if (payload.tags.length) form.append('tags', JSON.stringify(payload.tags));
-    for (const f of payload.files) form.append('photos', f);
+    for (const p of payload.photos) form.append('photos', p.blob, p.filename);
     await api.logProgress(id, form, (percent) => {
       // Only meaningful while there are photos to push; at 100% the bytes are out and the backend is
       // still resizing/uploading them, so we drop back to a plain spinner rather than freeze at "100%".
-      uploadPercent.value = payload.files.length && percent < 100 ? percent : null;
+      uploadPercent.value = payload.photos.length && percent < 100 ? percent : null;
     });
     // Progress re-anchors (drops off the care rows) and a new entry appears in the timeline — invalidate
     // both keys so the detail page shows fresh data the moment we navigate back, no stale flash.

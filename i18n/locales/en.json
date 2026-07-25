@@ -214,7 +214,14 @@
     "nicknamePlaceholder": "e.g. Monty",
     "acquiredOn": "Acquired on",
     "photoLabel": "Add a photo of your plant",
-    "photoHint": "Optional — you can also add one later from the plant's page."
+    "photoHint": "Optional — you can also add one later from the plant's page.",
+    "importMemorialLabel": "Add to the pantheon",
+    "importMemorialHint": "Import an existing plant that has already passed. This action is permanent.",
+    "importGiftLabel": "Import as gifted",
+    "importGiftHint": "Import a plant you already gave away. This action is permanent.",
+    "placeOptionalHint": "Optional when importing — the plant is frozen and doesn't need a spot.",
+    "importPhotosLabel": "Photos to import",
+    "importPhotosHint": "Optional — bring in the plant's photo history (up to 50)."
   },
   "plantDetail": {
     "backAll": "All plants",

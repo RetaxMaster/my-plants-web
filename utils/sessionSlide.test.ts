@@ -7,9 +7,9 @@ function fakeJwt(payload: Record<string, unknown>): string {
 }
 
 describe('decodeJwtPayload', () => {
-  it('decodes iat/sst/exp from a well-formed token', () => {
-    const claims = decodeJwtPayload(fakeJwt({ iat: 100, sst: 50, exp: 999 }));
-    expect(claims).toEqual({ iat: 100, sst: 50, exp: 999 });
+  it('decodes iat/sst/exp/jti from a well-formed token', () => {
+    const claims = decodeJwtPayload(fakeJwt({ iat: 100, sst: 50, exp: 999, jti: 'abc' }));
+    expect(claims).toEqual({ iat: 100, sst: 50, exp: 999, jti: 'abc' });
   });
   it('returns null for a malformed token', () => {
     expect(decodeJwtPayload('not-a-jwt')).toBeNull();

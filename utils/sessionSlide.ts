@@ -5,6 +5,7 @@ export interface JwtClaims {
   iat: number; // epoch seconds
   exp: number; // epoch seconds
   sst?: number; // epoch seconds; absent on legacy tokens
+  jti?: string; // token id; absent on legacy tokens
 }
 
 // Decode a JWT's payload segment WITHOUT verifying the signature — the backend remains the authority;
@@ -18,6 +19,7 @@ export function decodeJwtPayload(token: string): JwtClaims | null {
     if (typeof obj.iat !== 'number' || typeof obj.exp !== 'number') return null;
     const claims: JwtClaims = { iat: obj.iat, exp: obj.exp };
     if (typeof obj.sst === 'number') claims.sst = obj.sst;
+    if (typeof obj.jti === 'string') claims.jti = obj.jti;
     return claims;
   } catch {
     return null;

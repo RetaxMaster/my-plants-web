@@ -232,7 +232,11 @@
     "care": "Cuidados",
     "careEmpty": "Nada por hacer por ahora. 🌿",
     "history": "Historial",
-    "historyEmpty": "Aún no hay historial. Registra el progreso para empezar el diario. 🌱"
+    "historyEmpty": "Aún no hay historial. Registra el progreso para empezar el diario. 🌱",
+    "frozen": {
+      "MEMORIAL": "Esta planta descansa en el panteón. Su historial se conserva y ya no se puede editar.",
+      "GIFTED": "Esta planta ahora vive en otro hogar. Su historial se conserva y ya no se puede editar."
+    }
   },
   "plantPhoto": {
     "alt": "Foto de {name}",

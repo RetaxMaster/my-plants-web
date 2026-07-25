@@ -78,7 +78,9 @@ function goEdit() {
       <div v-if="loading" class="mp-entry__loading">{{ $t('common.loading') }}</div>
       <div v-else-if="entry" class="mp-entry">
         <div class="mp-entry__head">
-          <strong>{{ healthLabel(entry.health) }}</strong>
+          <!-- health is null for an import entry (Plant Lifecycle feature) — omit the badge rather than
+               deref a null health code. -->
+          <strong v-if="entry.health">{{ healthLabel(entry.health) }}</strong>
           <div class="mp-entry__head-right">
             <span class="mp-entry__date">{{ $d(ymdToLocalDate(entry.occurredOn), 'short') }}</span>
             <UiButton size="xs" variant="soft" color="neutral" icon="pencil-square" @click="goEdit">{{ $t('common.edit') }}</UiButton>

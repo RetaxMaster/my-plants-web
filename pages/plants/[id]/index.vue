@@ -30,12 +30,18 @@ const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPl
 useHead(() => ({ title: plant.value ? plantTitle(plant.value, locale.value) : t('meta.plantDetail.title') }));
 useSeoMeta({ description: () => t('meta.plantDetail.description') });
 
-const { data: places } = await useAsyncData('places-for-edit', () => api.listPlaces());
+// Secondary reads — deferred to client so the detail page's first render issues only the two essential
+// reads (identity + care header). `places` feeds only the edit modal + the (null-safe) place labels;
+// the Photos and History sections below are wrapped so they appear on hydration, never flashing an empty
+// state while their data is still null.
+const { data: places } = useLazyAsyncData('places-for-edit', () => api.listPlaces(), { server: false });
 
-const { data: history, refresh: refreshHistory } = await useAsyncData(`history-${id}`, () => api.getPlantHistory(id));
+const { data: history, refresh: refreshHistory } =
+  useLazyAsyncData(`history-${id}`, () => api.getPlantHistory(id), { server: false });
 
 // The photos gallery = every progress photo, flattened newest-first, each carrying its owning entryId.
-const { data: photos, refresh: refreshPhotos } = await useAsyncData(`photos-${id}`, () => api.getPlantPhotos(id));
+const { data: photos, refresh: refreshPhotos } =
+  useLazyAsyncData(`photos-${id}`, () => api.getPlantPhotos(id), { server: false });
 
 // Collapsed by default: show the first 6 (2 rows of 3). The expand/collapse button only appears when
 // there are MORE than 6 photos (guard on the TOTAL count, not the sliced list).
@@ -425,10 +431,10 @@ function confirmRepotPostpone(reason: string) {
           </UiButton>
         </div>
 
-        <!-- Photos gallery -->
-        <div>
+        <!-- Photos gallery (deferred read: the section appears once photos hydrate). -->
+        <div v-if="photos">
           <UiSectionTitle>{{ $t('photos.title') }}</UiSectionTitle>
-          <UiCard v-if="!photos || !photos.length" padded>
+          <UiCard v-if="!photos.length" padded>
             <UiEmptyState>{{ $t('photos.empty') }}</UiEmptyState>
           </UiCard>
           <UiCard v-else padded>
@@ -451,10 +457,10 @@ function confirmRepotPostpone(reason: string) {
           </UiCard>
         </div>
 
-        <!-- History -->
-        <div>
+        <!-- History (deferred read: the section appears once history hydrates). -->
+        <div v-if="history">
           <UiSectionTitle>{{ $t('plantDetail.history') }}</UiSectionTitle>
-          <UiCard v-if="!history || !history.length" padded>
+          <UiCard v-if="!history.length" padded>
             <UiEmptyState>{{ $t('plantDetail.historyEmpty') }}</UiEmptyState>
           </UiCard>
           <UiCard v-else :padded="false">

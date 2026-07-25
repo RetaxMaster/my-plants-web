@@ -31,7 +31,7 @@ const placeOptions = computed(() =>
 watch(open, (isOpen) => {
   if (isOpen) {
     editNickname.value = props.plant.nickname ?? '';
-    editPlaceId.value = props.plant.placeId;
+    editPlaceId.value = props.plant.placeId ?? ''; // an ACTIVE (editable) plant always has a place
     preview.value = null;
   }
 });

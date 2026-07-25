@@ -43,7 +43,9 @@ export interface CreatePlace {
 export type PlantLifecycleState = 'ACTIVE' | 'MEMORIAL' | 'GIFTED';
 
 export interface Plant {
-  id: string; ownerId: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
+  // placeId is NULL for a frozen import-created plant (MEMORIAL/GIFTED created with no place). The type
+  // must reflect that so consumers null-check rather than blind-deref a snapshot-only frozen plant.
+  id: string; ownerId: string; placeId: string | null; speciesSlug: string; nickname: string | null; acquiredOn: string;
   speciesScientificName: string; speciesCommonNameEs: string | null; speciesCommonNameEn: string | null;
   coverImageUrl: string | null;
   // The species' growth habit (spec §2.4) — drives the measure-info modal. Null for an un-curated species.

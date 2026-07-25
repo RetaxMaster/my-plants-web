@@ -19,8 +19,8 @@ const dueCountByPlant = computed(() => {
   return map;
 });
 
-const placeName = (id: string): string =>
-  (places.value ?? []).find((pl) => pl.id === id)?.name ?? '';
+const placeName = (id: string | null): string =>
+  id ? ((places.value ?? []).find((pl) => pl.id === id)?.name ?? '') : '';
 
 const count = computed(() => plants.value?.length ?? 0);
 const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.value));

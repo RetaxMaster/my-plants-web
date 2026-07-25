@@ -98,6 +98,11 @@ function toggleHd(file: File) {
   const slot = slots.get(file);
   if (!slot) return;
   slot.hd = !slot.hd;
+  // Drop the previous-generation result so a submit fired DURING the re-compression never sends the stale
+  // wrong-HD blob. With result cleared, `rebuild()` falls back to the raw file (full quality) — the
+  // fail-open floor, which is never a quality regression against the just-requested HD state. `compressFile`
+  // bumps the generation and repopulates the result for the newly-selected HD when it resolves.
+  slot.result = null;
   void compressFile(file);
 }
 

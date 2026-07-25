@@ -982,7 +982,9 @@
         "careDone": "Marcar una tarea de cuidado como hecha",
         "clinicalRecordCreate": "Escribir el expediente clínico de hoy",
         "clinicalRecordUpdate": "Corregir el expediente clínico de hoy",
-        "noteCreate": "Agregar una nota"
+        "noteCreate": "Agregar una nota",
+        "plantMemorialize": "Mover al panteón",
+        "plantGift": "Marcar como regalada"
       }
     },
     "skipPermissions": {
@@ -1153,7 +1155,9 @@
         "placeUpdate": "Actualizar un lugar",
         "cityCreate": "Agregar una ciudad",
         "cityUpdate": "Actualizar una ciudad",
-        "noteCreate": "Agregar una nota"
+        "noteCreate": "Agregar una nota",
+        "plantMemorialize": "Mover al panteón",
+        "plantGift": "Marcar como regalada"
       }
     },
     "skipPermissions": {

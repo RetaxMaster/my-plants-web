@@ -982,7 +982,9 @@
         "careDone": "Mark a care task as done",
         "clinicalRecordCreate": "Write today's clinical record",
         "clinicalRecordUpdate": "Revise today's clinical record",
-        "noteCreate": "Add a note"
+        "noteCreate": "Add a note",
+        "plantMemorialize": "Move to the pantheon",
+        "plantGift": "Mark as gifted"
       }
     },
     "skipPermissions": {
@@ -1153,7 +1155,9 @@
         "placeUpdate": "Update a place",
         "cityCreate": "Add a city",
         "cityUpdate": "Update a city",
-        "noteCreate": "Add a note"
+        "noteCreate": "Add a note",
+        "plantMemorialize": "Move to the pantheon",
+        "plantGift": "Mark as gifted"
       }
     },
     "skipPermissions": {

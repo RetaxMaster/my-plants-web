@@ -18,7 +18,7 @@ import type { AgentProposalOperationType } from '../types/api';
 //      LOCALE FILES are asserted to actually resolve every permitted key to a non-empty label in both
 //      `en.json` and `es.json` — something TypeScript cannot check, since a JSON i18n leaf is just a
 //      string key to it.
-// A sixteenth operation type therefore fails one guard or the other rather than reaching the owner as a
+// A new operation type therefore fails one guard or the other rather than reaching the owner as a
 // raw key path.
 export const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'profile.update': 'profileUpdate',
@@ -37,4 +37,6 @@ export const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'clinical_record.create': 'clinicalRecordCreate',
   'clinical_record.update': 'clinicalRecordUpdate',
   'note.create': 'noteCreate',
+  'plant.memorialize': 'plantMemorialize',
+  'plant.gift': 'plantGift',
 };

@@ -1221,6 +1221,18 @@
     "due": "{n} due",
     "upToDate": "Tasks up to date"
   },
+  "pantheon": {
+    "title": "The pantheon",
+    "lede": "A quiet place for the plants that have passed on.",
+    "emptyTitle": "No plants here yet",
+    "emptyBody": "When you move a plant to the pantheon, it will keep its place here."
+  },
+  "gifted": {
+    "title": "Gifted plants",
+    "lede": "Plants you've given a new home.",
+    "emptyTitle": "No gifted plants yet",
+    "emptyBody": "When you mark a plant as gifted, it will keep its place here."
+  },
   "theme": {
     "toLight": "Switch to light theme",
     "toDark": "Switch to dark theme"
@@ -1305,6 +1317,14 @@
     "postEditor": {
       "title": "Post editor",
       "description": "Write and edit a species care guide for the blog."
+    },
+    "pantheon": {
+      "title": "The pantheon",
+      "description": "A quiet place for the plants that have passed on."
+    },
+    "gifted": {
+      "title": "Gifted plants",
+      "description": "Plants you've given a new home."
     }
   },
   "upload": {

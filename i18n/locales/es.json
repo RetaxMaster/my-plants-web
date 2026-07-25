@@ -1221,6 +1221,18 @@
     "due": "{n} pendiente | {n} pendientes",
     "upToDate": "Tareas al día"
   },
+  "pantheon": {
+    "title": "El panteón",
+    "lede": "Un lugar tranquilo para las plantas que ya se nos fueron.",
+    "emptyTitle": "Todavía no hay plantas aquí",
+    "emptyBody": "Cuando muevas una planta al panteón, conservará su lugar aquí."
+  },
+  "gifted": {
+    "title": "Plantas regaladas",
+    "lede": "Plantas a las que le diste un nuevo hogar.",
+    "emptyTitle": "Todavía no hay plantas regaladas",
+    "emptyBody": "Cuando marques una planta como regalada, conservará su lugar aquí."
+  },
   "theme": {
     "toLight": "Cambiar a tema claro",
     "toDark": "Cambiar a tema oscuro"
@@ -1305,6 +1317,14 @@
     "postEditor": {
       "title": "Editor de entrada",
       "description": "Escribe y edita una guía de cuidado por especie para el blog."
+    },
+    "pantheon": {
+      "title": "El panteón",
+      "description": "Un lugar tranquilo para las plantas que ya se nos fueron."
+    },
+    "gifted": {
+      "title": "Plantas regaladas",
+      "description": "Plantas a las que le diste un nuevo hogar."
     }
   },
   "upload": {

@@ -66,7 +66,7 @@ export function useApi() {
       // GETs are deduped + cached for this scope's lifetime; a REJECTED GET evicts itself immediately
       // (see getCache.ts), so a failed read never poisons the cache for the retry.
       if (isGet) {
-        return await cache.get<T>(path, () => fetcher<T>(`/api${path}`, opts as any));
+        return await cache.get<T>(path, () => fetcher<T>(`/api${path}`, opts as any) as Promise<T>);
       }
       const res = await fetcher<T>(`/api${path}`, opts as any);
       // Flush on SUCCESS only — a failed mutation changed nothing server-side, so the existing GET cache

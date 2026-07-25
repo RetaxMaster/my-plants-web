@@ -59,7 +59,7 @@ describe('applySlide', () => {
 
   it('logout race: a tombstone set while the refresh is in flight discards the result (session stays closed)', async () => {
     let resolveRefresh!: (v: { token: string }) => void;
-    const deps = makeDeps({ refresh: vi.fn(() => new Promise((r) => { resolveRefresh = r; })) });
+    const deps = makeDeps({ refresh: vi.fn(() => new Promise<{ token: string }>((r) => { resolveRefresh = r; })) });
     const token = backdatedToken('jE');
     const p = applySlide(deps, token, Date.now());
     tombstoneJti('jE', Date.now());

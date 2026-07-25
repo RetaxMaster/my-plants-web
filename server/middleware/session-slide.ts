@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
         actingAs: session.actingAs ?? null,
       });
     },
-    clearSession: () => clearUserSession(event),
+    clearSession: async () => { await clearUserSession(event); },
     slideCookie: async () => { await setUserSession(event, {}); },
   };
 

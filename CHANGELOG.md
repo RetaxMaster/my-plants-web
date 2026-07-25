@@ -2,6 +2,25 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — Photos upload faster on mobile data, with an HD option when you need it
+
+**Uploading a photo now uses much less data and finishes faster, especially on a mobile connection.**
+Every photo you send — a progress-entry photo or a plant's cover photo — is compressed right on your
+phone before it leaves, instead of uploading the full file straight from your camera.
+
+### Added
+
+- **A per-photo HD toggle.** When a photo needs to stay at its original size and detail — a plant label
+  you'll want to zoom into later, or a symptom you want examined at full resolution — a switch on that
+  photo sends it exactly as your camera captured it, uncompressed.
+- **A savings indicator.** Once you pick a photo, you see how much smaller the version about to be
+  uploaded is compared to the original, before you confirm the upload.
+
+### Changed
+
+- **This applies everywhere you upload a photo:** adding or editing a progress entry and setting a
+  plant's cover photo all go through the same compression, not just one screen.
+
 ## Unreleased — Fixed an intermittent empty "Hoy" and a forced logout; heavy pages load faster
 
 **Two related, intermittent problems tied to the session quietly refreshing in the background are

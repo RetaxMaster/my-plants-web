@@ -19,6 +19,15 @@ import type {
 // user's data into another user's render.
 const clientGetCache: GetCache = createGetCache();
 
+// Flush the client-side app-scoped GET cache. The cache is keyed only by path, so it MUST be cleared on any
+// client-side auth-identity change — login, logout, the forced-401 logout, or an acting-as switch. Without
+// it, a same-tab account switch (an SPA navigateTo, NOT a full reload) would serve the previous identity's
+// cached reads to the next user — a cross-user leak. `plugins/session-cache-flush.client.ts` calls this on
+// every identity transition so the "never across users" guarantee is structural, not reliant on a reload.
+export function flushClientGetCache(): void {
+  clientGetCache.flush();
+}
+
 export function useApi() {
   // The browser only ever talks to the same-origin Nitro proxy at /api; the proxy
   // attaches the bearer from the sealed session. During SSR we clone the incoming

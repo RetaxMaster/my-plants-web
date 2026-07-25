@@ -7,7 +7,7 @@ import type {
   KnowledgeSocketTicketResponse, OwnerSummary, Place, Plant, PlantCare, PlantViability,
   KnowledgeChatHistory, KnowledgeChatProvider, ProgressEntryDetail, ProgressTag, ResumeKnowledgeRunResponse, SpeciesSummary,
   UpdatePlace, UpdatePlant, Viability,
-  PlantDetail, PlantProfile, PlantProfileUpdate, PlantPhotoItem,
+  PlantDetail, PlantLifecycleState, PlantProfile, PlantProfileUpdate, PlantPhotoItem,
   BlogPage, BlogpostCard, BlogpostDetail, BlogpostAdminDetail, BlogpostAdminRow,
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
   AgentProposal, DoctorSessionSettings,
@@ -197,7 +197,17 @@ export function useApi() {
     createPlace: (body: CreatePlace) => api<Place>('/places', { method: 'POST', body }),
     updatePlace: (id: string, body: UpdatePlace) => api<Place>(`/places/${id}`, { method: 'PATCH', body }),
 
-    listPlants: () => api<Plant[]>('/plants'),
+    // Lifecycle-scoped section listing (Spec 3/Phase 4): the API defaults/coerces an unknown or missing
+    // `lifecycle` query param to `active`, so the default param here matches the server's own default —
+    // every pre-existing `listPlants()` call site (no args) keeps listing the active garden unchanged.
+    listPlants: (lifecycle: PlantLifecycleState = 'ACTIVE') =>
+      api<Plant[]>(`/plants?lifecycle=${lifecycle.toLowerCase()}`),
+    listPantheon: () => api<Plant[]>('/plants?lifecycle=memorial'),
+    listGifted: () => api<Plant[]>('/plants?lifecycle=gifted'),
+    memorializePlant: (id: string) => api<PlantDetail>(`/plants/${id}/memorialize`, { method: 'POST' }),
+    giftPlant: (id: string) => api<PlantDetail>(`/plants/${id}/gift`, { method: 'POST' }),
+    revivePlant: (id: string, placeId: string) =>
+      api<PlantDetail>(`/plants/${id}/revive`, { method: 'POST', body: { placeId } }),
     getPlant: (id: string) => api<PlantDetail>(`/plants/${id}`),
     setCoverPhoto: async (id: string, file: File) => {
       // One shared path (spec §3b): the cover photo is compressed through the SAME seam as progress photos
@@ -246,6 +256,12 @@ export function useApi() {
     deleteProgress: (plantId: string, entryId: string) =>
       api<void>(`/plants/${plantId}/progress/${entryId}`, { method: 'DELETE' }),
     getPlantHistory: (plantId: string) => api<HistoryItem[]>(`/plants/${plantId}/history`),
+    // Bulk history import (Spec 3/Phase 4, T30 composes the FormData): the wire carries repeated `photos`
+    // parallel to repeated `clientKeys`, chunked and idempotent per key on the server, so a chunk may be
+    // retried safely. `finishImport` closes the batch once every chunk has landed.
+    appendImportChunk: (plantId: string, form: FormData, onProgress?: (percent: number) => void) =>
+      upload<void>(`/plants/${plantId}/progress/import`, form, { onProgress }),
+    finishImport: (plantId: string) => api<void>(`/plants/${plantId}/progress/import/finish`, { method: 'POST' }),
     getClinicalRecords: (plantId: string) =>
       api<ClinicalRecordSummary[]>(`/plants/${plantId}/clinical-records`),
     getClinicalRecord: (plantId: string, recordId: string) =>

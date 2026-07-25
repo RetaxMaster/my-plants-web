@@ -1,5 +1,6 @@
 import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
 import { checkChatSendLimits, sendChatJson, type ChatAttachmentPayload } from '../utils/chatSend.js';
+import { createGetCache, type GetCache } from '~/utils/getCache';
 import type {
   City, CitySearchResult, CommandCatalog, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
   DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSendInput, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
@@ -13,6 +14,11 @@ import type {
   ClinicalRecordSummary, ClinicalRecordDetail,
 } from '../types/api.js';
 
+// Client-side app-scoped GET cache (one per browser tab, lives until a full reload). The SERVER cache is
+// request-scoped instead (hung off the SSR event context below) — a server module-global would leak one
+// user's data into another user's render.
+const clientGetCache: GetCache = createGetCache();
+
 export function useApi() {
   // The browser only ever talks to the same-origin Nitro proxy at /api; the proxy
   // attaches the bearer from the sealed session. During SSR we clone the incoming
@@ -25,6 +31,24 @@ export function useApi() {
   const session = useUserSession();
   const { t } = useI18n();
 
+  // Request-scoped on the server (never a module-global → no cross-user leak), app-scoped on the client.
+  // useRequestEvent() can return undefined outside a real incoming request (e.g. some build-time/SSG
+  // contexts) — same nullability the codebase already guards for elsewhere (see pages/blog/[id].vue) — so
+  // that edge falls back to a fresh, unshared cache rather than assuming the event always exists.
+  const cache: GetCache = (() => {
+    if (import.meta.server) {
+      const event = useRequestEvent();
+      if (!event) return createGetCache();
+      const ctx = event.context as Record<string, unknown>;
+      return (ctx.__apiGetCache as GetCache | undefined) ?? (ctx.__apiGetCache = createGetCache()) as GetCache;
+    }
+    return clientGetCache;
+  })();
+  // Any successful mutation (POST/PATCH/PUT/DELETE) flushes the WHOLE GET cache — the simplest
+  // always-correct invalidation rule, called from all three mutation-capable paths below (api(), upload(),
+  // sendChat()) on their SUCCESS branch only. A failed mutation changed nothing, so nothing is flushed.
+  const flushGetCache = () => cache.flush();
+
   // A mid-session 401 means the bearer was revoked/expired: drop the stale session and bounce to
   // /login. Client-side only, and ONLY when we actually had a session — so a public page (blog) that
   // ever sees a 401 from a public endpoint is never bounced to login for a logged-out visitor.
@@ -36,8 +60,19 @@ export function useApi() {
   };
 
   const api = async <T>(path: string, opts?: Parameters<typeof $fetch>[1]) => {
+    const method = ((opts as { method?: string } | undefined)?.method ?? 'GET').toUpperCase();
+    const isGet = method === 'GET';
     try {
-      return await fetcher<T>(`/api${path}`, opts as any);
+      // GETs are deduped + cached for this scope's lifetime; a REJECTED GET evicts itself immediately
+      // (see getCache.ts), so a failed read never poisons the cache for the retry.
+      if (isGet) {
+        return await cache.get<T>(path, () => fetcher<T>(`/api${path}`, opts as any));
+      }
+      const res = await fetcher<T>(`/api${path}`, opts as any);
+      // Flush on SUCCESS only — a failed mutation changed nothing server-side, so the existing GET cache
+      // is still accurate and must not be thrown away.
+      flushGetCache();
+      return res;
     } catch (e: any) {
       await handle401(e);
       throw e;
@@ -58,7 +93,11 @@ export function useApi() {
     const rejection = checkUploadLimits(form);
     if (rejection) throw makeUploadError(rejection.code, t(`upload.${rejection.code}`, rejection.params));
     try {
-      return await uploadFormData<T>(`/api${path}`, form, opts);
+      const res = await uploadFormData<T>(`/api${path}`, form, opts);
+      // upload() is ALWAYS a mutation (cover photo, progress entry, media, …) — flush on success only, same
+      // rule as api()'s mutation branch above.
+      flushGetCache();
+      return res;
     } catch (e: any) {
       await handle401(e);
       // Give our own client-side failures (dead connection, backend never answered) a translated,
@@ -88,11 +127,17 @@ export function useApi() {
     // one), loses ofetch's route-typing machinery down to an opaque conditional type TS can no longer prove
     // reduces to T — a generic-forwarding quirk, not a real type mismatch (every other call site here calls
     // `api<Concrete>()` directly, where the conditional type collapses cleanly).
+    // The no-attachments branch already goes through api(), which flushes on its own success path — no
+    // separate flush needed here.
     if (attachments.length === 0) return api<T>(path, { method: 'POST', body }) as Promise<T>;
     const rejection = checkChatSendLimits(String(body.prompt ?? ''), attachments);
     if (rejection) throw createError({ statusCode: 400, data: { code: rejection.code } });
     try {
-      return await sendChatJson<T>(`/api${path}`, body);
+      const res = await sendChatJson<T>(`/api${path}`, body);
+      // The attachments branch bypasses api() entirely (its own XHR path), so it flushes explicitly on
+      // success — a chat send is a mutation (it creates/advances a session), same rule as the other two paths.
+      flushGetCache();
+      return res;
     } catch (e: any) {
       await handle401(e);
       throw e;

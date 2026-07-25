@@ -973,7 +973,8 @@
         "frequencyClear": "Quitar la frecuencia personalizada de una tarea",
         "careDone": "Marcar una tarea de cuidado como hecha",
         "clinicalRecordCreate": "Escribir el expediente clínico de hoy",
-        "clinicalRecordUpdate": "Corregir el expediente clínico de hoy"
+        "clinicalRecordUpdate": "Corregir el expediente clínico de hoy",
+        "noteCreate": "Agregar una nota"
       }
     },
     "skipPermissions": {
@@ -1143,7 +1144,8 @@
         "placeCreate": "Agregar un lugar",
         "placeUpdate": "Actualizar un lugar",
         "cityCreate": "Agregar una ciudad",
-        "cityUpdate": "Actualizar una ciudad"
+        "cityUpdate": "Actualizar una ciudad",
+        "noteCreate": "Agregar una nota"
       }
     },
     "skipPermissions": {

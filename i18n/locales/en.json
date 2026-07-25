@@ -973,7 +973,8 @@
         "frequencyClear": "Remove a task's frequency override",
         "careDone": "Mark a care task as done",
         "clinicalRecordCreate": "Write today's clinical record",
-        "clinicalRecordUpdate": "Revise today's clinical record"
+        "clinicalRecordUpdate": "Revise today's clinical record",
+        "noteCreate": "Add a note"
       }
     },
     "skipPermissions": {
@@ -1143,7 +1144,8 @@
         "placeCreate": "Add a place",
         "placeUpdate": "Update a place",
         "cityCreate": "Add a city",
-        "cityUpdate": "Update a city"
+        "cityUpdate": "Update a city",
+        "noteCreate": "Add a note"
       }
     },
     "skipPermissions": {

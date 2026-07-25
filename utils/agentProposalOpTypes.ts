@@ -36,4 +36,5 @@ export const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'city.update': 'cityUpdate',
   'clinical_record.create': 'clinicalRecordCreate',
   'clinical_record.update': 'clinicalRecordUpdate',
+  'note.create': 'noteCreate',
 };

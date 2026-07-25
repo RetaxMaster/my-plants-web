@@ -273,6 +273,7 @@
   "photos": {
     "title": "Photos",
     "empty": "No photos yet. Log progress with a photo to start the gallery. 🌱",
+    "emptyFrozen": "No photos in this plant's record.",
     "alt": "Progress photo from {date}",
     "showAll": "Show all {n} photos",
     "showLess": "Show less"

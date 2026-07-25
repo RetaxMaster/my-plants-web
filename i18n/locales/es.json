@@ -273,6 +273,7 @@
   "photos": {
     "title": "Fotos",
     "empty": "Aún no hay fotos. Registra avances con una foto para empezar la galería. 🌱",
+    "emptyFrozen": "El registro de esta planta no tiene fotos.",
     "alt": "Foto de avance del {date}",
     "showAll": "Ver las {n} fotos",
     "showLess": "Ver menos"

@@ -16,7 +16,7 @@
 // `ref`/`computed`/`watch` are Vue's own reactivity primitives, normally auto-imported by Nuxt's build
 // pipeline — outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals,
 // same technique ProgressForm.test.ts / NoteModal.test.ts / pages/plants/{new,index}.test.ts use.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref, computed, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
@@ -281,5 +281,102 @@ describe('PlantDetail lifecycle actions — wiring', () => {
 
     expect(revivePlantMock).toHaveBeenCalledWith('p1', 'pl1');
     expect(navigateToMock).toHaveBeenCalledWith('/plants/p1');
+  });
+});
+
+// Async photo reconcile (stale-gallery fix). Progress + import photos are processed by a background worker
+// AFTER the write returns, so the gallery's one on-mount refetch lands while they are still PENDING and the
+// new photos would stay invisible until a manual reload. While the history reports any still-processing
+// photo (`processingCount` > 0), the detail must refetch the gallery/history/plant on a bounded interval,
+// then STOP the instant everything settles (READY/FAILED). This pins that live-catch-up and its termination.
+describe('PlantDetail — async photo reconcile', () => {
+  // A lazy stub whose refresh actually RE-RUNS the fetcher, so a settling history (processingCount 1 → 0)
+  // can flow through and stop the reconcile — the shared top-level stub's refresh is a no-op.
+  const rerunLazyStub = (_key: string, fn: () => Promise<unknown>) => {
+    const data = ref<unknown>(null);
+    const run = () => Promise.resolve(fn()).then((v) => { data.value = v; });
+    void run();
+    return { data, refresh: vi.fn(run) };
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    // Restore the module's default lazy stub (no-op refresh) for the rest of the suite.
+    vi.stubGlobal('useLazyAsyncData', (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref<unknown>(null);
+      void Promise.resolve(fn()).then((v) => { data.value = v; });
+      return { data, refresh: vi.fn(async () => {}) };
+    });
+  });
+
+  function progressHistory(processingCount: number) {
+    return [{
+      kind: 'progress', entryId: 'e1', occurredOn: '2026-01-01', health: 'GOOD',
+      photoCount: 0, processingCount, tagCount: 0,
+    }];
+  }
+
+  it('refetches the gallery while a photo is processing, then stops once it settles', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('useLazyAsyncData', rerunLazyStub);
+    let processing = 1; // the just-added photo is mid-processing
+    const getPlantHistory = vi.fn(async () => progressHistory(processing));
+    const getPlantPhotos = vi.fn(async () => []);
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => basePlant(),
+      getPlantCare: async () => null,
+      listPlaces: async () => [],
+      getPlantHistory,
+      getPlantPhotos,
+    }));
+
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises(); // initial reads resolve → history has processingCount 1 → reconcile arms
+    const photosAfterMount = getPlantPhotos.mock.calls.length;
+
+    // The worker finishes; the NEXT reconcile refetch will observe processingCount 0.
+    processing = 0;
+    await vi.advanceTimersByTimeAsync(2500);
+    await flushPromises();
+    // The reconcile fired at least one extra gallery refetch (the live catch-up).
+    expect(getPlantPhotos.mock.calls.length).toBeGreaterThan(photosAfterMount);
+
+    // Now that nothing is processing, the reconcile MUST stop — no further gallery refetches.
+    const settledCalls = getPlantPhotos.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(2500 * 4);
+    await flushPromises();
+    expect(getPlantPhotos.mock.calls.length).toBe(settledCalls);
+
+    w.unmount();
+  });
+
+  it('never arms the reconcile when no photo is processing', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('useLazyAsyncData', rerunLazyStub);
+    const getPlantPhotos = vi.fn(async () => []);
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => basePlant(),
+      getPlantCare: async () => null,
+      listPlaces: async () => [],
+      getPlantHistory: async () => progressHistory(0), // all photos already READY
+      getPlantPhotos,
+    }));
+
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    const photosAfterMount = getPlantPhotos.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(2500 * 4);
+    await flushPromises();
+    expect(getPlantPhotos.mock.calls.length).toBe(photosAfterMount); // no polling
+
+    w.unmount();
   });
 });

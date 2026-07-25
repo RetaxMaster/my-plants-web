@@ -4,6 +4,10 @@
 // implementation of the detail markup (fork-prevention rule). The invariant across all three: a frozen
 // (MEMORIAL/GIFTED) plant is read-only (no edit/cover/profile/note/care mutations) but stays
 // doctor-consultable, and shows its SNAPSHOT place/city labels instead of the live place relation.
+// onUnmounted is imported explicitly (like AgentProposalBanner.vue / ArticleToc.vue) so the reconcile
+// timer cleanup resolves under the component test harness, which stubs the other Vue APIs as globals but
+// not this hook. Nuxt's auto-import skips an already-imported name, so there is no duplicate in the build.
+import { onUnmounted } from 'vue';
 import { type TaskCode, type DueState } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
@@ -94,6 +98,45 @@ const visiblePhotos = computed(() => {
   return photosExpanded.value ? all : all.slice(0, PHOTOS_COLLAPSED);
 });
 
+// --- Async photo reconcile (stale-gallery fix). Unlike the cover photo (processed in-request), progress
+// and import photos are stored PENDING and finished by a background worker AFTER the write returns. The
+// gallery is READY-only, so the one refetch that fires when we return to this page lands while the new
+// photos are still processing and would otherwise stay invisible until a manual reload. There is no push
+// channel, so while the history reports ANY still-processing photo (`processingCount`, which counts only
+// non-terminal PENDING/PROCESSING/RECOVERING — never a terminal READY/FAILED, so it always drains) we
+// refetch the gallery + history + plant on a bounded interval until everything settles. This is NOT the
+// entry modal's idle "still processing" indicator (spec §6.2, manual-refresh-only): it is a transient,
+// self-terminating reconciliation armed ONLY while a just-added photo is genuinely mid-processing, and it
+// stops the instant `processingCount` hits 0. A hard cap bounds it even if the worker were wedged.
+const RECONCILE_EVERY_MS = 2500;
+const RECONCILE_MAX_MS = 90_000;
+const hasProcessingPhotos = computed(() =>
+  (history.value ?? []).some((i) => i.kind === 'progress' && i.processingCount > 0),
+);
+let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+let reconcileStartedAt = 0;
+function stopReconcile() {
+  if (reconcileTimer) { clearTimeout(reconcileTimer); reconcileTimer = null; }
+}
+async function reconcileTick() {
+  // Sequential (recursive setTimeout, not setInterval) so a slow refetch never overlaps the next tick.
+  await Promise.all([refreshPhotos(), refreshHistory(), refreshPlant()]);
+  reconcileTimer =
+    hasProcessingPhotos.value && Date.now() - reconcileStartedAt <= RECONCILE_MAX_MS
+      ? setTimeout(reconcileTick, RECONCILE_EVERY_MS)
+      : null;
+}
+watch(hasProcessingPhotos, (processing) => {
+  if (import.meta.server) return;
+  if (processing && !reconcileTimer) {
+    reconcileStartedAt = Date.now();
+    reconcileTimer = setTimeout(reconcileTick, RECONCILE_EVERY_MS);
+  } else if (!processing) {
+    stopReconcile();
+  }
+}, { immediate: true });
+onUnmounted(stopReconcile);
+
 const editing = ref(false);
 
 const entryOpen = ref(false);
@@ -169,7 +212,11 @@ function openEdit() {
 }
 
 async function onEdited() {
-  await Promise.all([refreshPlant(), refresh()]); // title/place AND care
+  // A place change also writes a "Mudanza" MOVE entry to the timeline, so refresh the history in place
+  // too — not only the identity + care rows. Without this the move history stays stale until a reload,
+  // even though "Lives in" (from the plant read) updates. Mirrors the note-add path, which already
+  // refreshes the history it mutates.
+  await Promise.all([refreshPlant(), refresh(), refreshHistory()]); // title/place, care, AND move history
 }
 
 function openCover() {
@@ -636,7 +683,9 @@ async function confirmRevive() {
         <div v-if="photos">
           <UiSectionTitle>{{ $t('photos.title') }}</UiSectionTitle>
           <UiCard v-if="!photos.length" padded>
-            <UiEmptyState>{{ $t('photos.empty') }}</UiEmptyState>
+            <!-- A frozen (memorial/gifted) plant is read-only, so the default "Log progress with a
+                 photo…" CTA would invite an impossible action. Show a frozen-appropriate, CTA-free copy. -->
+            <UiEmptyState>{{ isFrozen ? $t('photos.emptyFrozen') : $t('photos.empty') }}</UiEmptyState>
           </UiCard>
           <UiCard v-else padded>
             <ul class="mp-detail__gallery">

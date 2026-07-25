@@ -30,15 +30,6 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
   <div>
     <UiScreenHeader :title="$t('plants.title')" :subtitle="subtitle">
       <template #action>
-        <!-- ONE action in the page header, and deliberately NOT one per plant card (owner's ruling,
-             Spec 4 §7): a per-card button reads as "the gardener OF THIS PLANT", which is the Doctor's
-             role, and repeating it under every card invites exactly the role confusion the two-agent
-             design exists to prevent. The gardener is garden-wide, so it belongs where the garden is
-             named. `icon="heart"` matches the doctor's entry point on the plant detail page — the same
-             affordance for "talk to an agent". -->
-        <UiButton variant="soft" color="cafe" icon="heart" to="/gardener" data-testid="gardener-entry">
-          {{ $t('plants.gardener') }}
-        </UiButton>
         <UiButton icon="plus" @click="navigateTo('/plants/new')">{{ $t('plants.add') }}</UiButton>
       </template>
     </UiScreenHeader>
@@ -73,6 +64,18 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
         </div>
       </UiCard>
     </UiCardGrid>
+
+    <!-- The gardener entry point. Owner's ruling (Spec 4 §7, placement updated 2026-07-24): still ONE
+         garden-wide action, never one per plant card — a per-card button would read as "the gardener OF
+         THIS PLANT", the Doctor's role, which the two-agent design exists to keep apart. The owner moved
+         it from the page header to below the garden; it stays a single garden-wide surface and is shown
+         whether or not there are plants. `icon="heart"` matches the doctor's entry point — the same
+         "talk to an agent" affordance. -->
+    <div class="mp-plants-gardener-cta">
+      <UiButton variant="soft" color="cafe" icon="heart" to="/gardener" data-testid="gardener-entry">
+        {{ $t('plants.gardener') }}
+      </UiButton>
+    </div>
   </div>
 </template>
 
@@ -93,5 +96,13 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
 .mp-plant-card__info {
   flex: 1;
   min-width: 0;
+}
+
+/* The gardener entry point sits below the garden, aligned to the trailing edge (where the owner marked
+   it). Page-specific layout, so the spacing lives here rather than as a new design-system token. */
+.mp-plants-gardener-cta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 </style>

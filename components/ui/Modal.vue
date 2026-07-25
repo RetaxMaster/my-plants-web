@@ -4,7 +4,9 @@ import { useOverlay } from '../../composables/useOverlay';
 
 defineOptions({ inheritAttrs: false });
 
-const props = defineProps<{ title?: string }>();
+// `size` widens the panel for document-style modals (long-form Markdown reads badly at the default
+// width). It is opt-in: absent or 'md' keeps the 480px default every other modal already relies on.
+const props = defineProps<{ title?: string; size?: 'md' | 'lg' }>();
 
 const open = defineModel<boolean>({ default: false });
 
@@ -31,6 +33,7 @@ const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onC
         <div
           ref="panelRef"
           class="mp-modal__panel"
+          :class="{ 'mp-modal__panel--lg': props.size === 'lg' }"
           role="dialog"
           aria-modal="true"
           :aria-labelledby="props.title ? titleId : undefined"
@@ -92,6 +95,29 @@ const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onC
   box-shadow: var(--shadow-lg);
   outline: none;
   overflow: hidden;
+}
+
+/* Wide variant for document-style modals (e.g. the clinical record). Long-form Markdown — prose,
+   tables, code — reads badly at the 480px default: headings wrap and lines feel cramped. 800px is a
+   comfortable reading measure that still keeps body text off fatiguing line lengths (the full 1120px
+   app container would push past them). Opt in with `size="lg"`; every other modal keeps 480px. */
+.mp-modal__panel--lg {
+  max-width: 800px;
+}
+
+/* The wide document modal gets roomier interior padding (--space-12 = 3rem) so the long-form record
+   reads with real breathing room; the header's horizontal padding is bumped to match so the title shares
+   the body's left edge. Gated at the 880px desktop breakpoint (see useIsDesktop): below it the panel is
+   near full-width and 3rem per side would crush the content, so it keeps the mobile-safe default. */
+@media (min-width: 880px) {
+  .mp-modal__panel--lg .mp-modal__body {
+    padding: var(--space-12);
+  }
+  .mp-modal__panel--lg .mp-modal__header,
+  .mp-modal__panel--lg .mp-modal__footer {
+    padding-left: var(--space-12);
+    padding-right: var(--space-12);
+  }
 }
 
 .mp-modal__header {

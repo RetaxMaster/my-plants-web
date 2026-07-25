@@ -48,7 +48,7 @@ watch([open, () => props.recordId], () => { if (open.value) load(); });
 </script>
 
 <template>
-  <UiModal v-model="open" :title="t('clinicalRecord.title')">
+  <UiModal v-model="open" :title="t('clinicalRecord.title')" size="lg">
     <p v-if="record" class="mp-clinical__subtitle">
       {{ t('clinicalRecord.subtitle', { date: d(ymdToLocalDate(record.recordedOn), 'short') }) }}
     </p>

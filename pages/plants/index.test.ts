@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 //
-// EXPLICIT OWNER RULING (Spec 4 §7): the gardener is reachable through ONE action in the /plants page
-// header, NOT one per plant card. A per-card button would read as "the gardener OF THIS PLANT", which is
-// the Doctor's role, and repeating it under every card is an invitation to exactly the role confusion the
-// whole two-agent design exists to prevent.
+// EXPLICIT OWNER RULING (Spec 4 §7, placement updated 2026-07-24): the gardener is reachable through ONE
+// garden-wide action, NOT one per plant card. A per-card button would read as "the gardener OF THIS PLANT",
+// which is the Doctor's role, and repeating it under every card is an invitation to exactly the role
+// confusion the whole two-agent design exists to prevent. The owner moved that single action from the page
+// header to below the garden (a trailing-aligned CTA); this test now pins it in its new home.
 //
 // The assertion that actually pins that ruling is the COUNT AGAINST A MULTI-PLANT GARDEN: a per-card
 // button renders once per plant, so mounting three plants and demanding exactly one entry is a test a
@@ -86,11 +87,13 @@ async function mountPage() {
 }
 
 describe('the /plants gardener entry point', () => {
-  it('renders the gardener action EXACTLY once, in the page header, across a multi-plant garden', async () => {
+  it('renders the gardener action EXACTLY once, below the garden, across a multi-plant garden', async () => {
     const w = await mountPage();
     expect(w.findAll('.stub-card')).toHaveLength(3); // the garden really does have three plants…
     expect(w.findAll('[data-testid="gardener-entry"]')).toHaveLength(1); // …and exactly one gardener action
-    expect(w.find('.mp-screen-header [data-testid="gardener-entry"]').exists()).toBe(true);
+    // Pinned to its new home below the garden, and NO longer in the header (the owner moved it).
+    expect(w.find('.mp-plants-gardener-cta [data-testid="gardener-entry"]').exists()).toBe(true);
+    expect(w.find('.mp-screen-header [data-testid="gardener-entry"]').exists()).toBe(false);
   });
 
   it('renders NO gardener action inside the plant grid', async () => {

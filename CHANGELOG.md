@@ -24,6 +24,12 @@ whole garden rather than one plant, reached from a single action in your plants 
 
 ### Changed
 
+- **The "Talk to your gardener" action moved below your plants.** It used to sit in the plants-page
+  header; it now lives as a single action beneath the garden, on the trailing edge. It is still one
+  garden-wide entry point, never one per plant card.
+- **The clinical-record window is wider and roomier.** A plant's clinical record — long-form Markdown the
+  Plant Doctor writes — opens in a noticeably wider panel with more interior padding, so headings stop
+  wrapping and the text reads comfortably instead of cramped in a narrow column.
 - **Photos you attach in a chat now shrink before they leave your device.** A JPEG or WebP photo whose
   long edge is over 2576 px is resized to that ceiling and re-encoded at high quality before it is
   uploaded, so a full-resolution phone photo reaches the agent far smaller and faster. A per-photo switch

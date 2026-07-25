@@ -38,12 +38,20 @@ export interface CreatePlace {
   indoorTempMinC?: number | null; indoorTempMaxC?: number | null; airflow?: Airflow;
 }
 
+// A plant's lifecycle state (Plant Lifecycle feature). ACTIVE is the normal, care-engine-tracked state;
+// MEMORIAL/GIFTED are frozen terminal-or-reversible states (spec: memorialize/gift/revive).
+export type PlantLifecycleState = 'ACTIVE' | 'MEMORIAL' | 'GIFTED';
+
 export interface Plant {
   id: string; ownerId: string; placeId: string; speciesSlug: string; nickname: string | null; acquiredOn: string;
   speciesScientificName: string; speciesCommonNameEs: string | null; speciesCommonNameEn: string | null;
   coverImageUrl: string | null;
   // The species' growth habit (spec §2.4) — drives the measure-info modal. Null for an un-curated species.
   speciesGrowthHabit: GrowthHabit | null;
+  lifecycleState: PlantLifecycleState;
+  // Snapshot of the place/city labels at the moment a plant froze (memorialize/gift). Null while ACTIVE.
+  frozenPlaceLabel: string | null;
+  frozenCityLabel: string | null;
 }
 
 export interface Viability { level: ViabilityLevel; reasons: string[] }
@@ -54,8 +62,12 @@ export interface UpdatePlace {
   indoorTempMinC?: number | null; indoorTempMaxC?: number | null;
 }
 export interface CreatePlant {
-  placeId: string; speciesSlug: string; nickname?: string; acquiredOn: string;
+  // Optional: an import-on-create (a MEMORIAL/GIFTED plant carries no place, per the ACTIVE ⇒ place
+  // invariant). Absent/undefined means a normal ACTIVE create, which still requires a place.
+  placeId?: string; speciesSlug: string; nickname?: string; acquiredOn: string;
   lastDone?: { task: CareActionTask; doneOn: string }[]; // PROGRESS excluded — journaled, never seeded
+  // Import-on-create: creates the plant already frozen (MEMORIAL/GIFTED) with an import progress entry.
+  lifecycleState?: 'MEMORIAL' | 'GIFTED';
 }
 
 // --- Plant physical profile (spec 1 vocabulary; all fields optional/nullable) ---
@@ -79,8 +91,10 @@ export interface PlantPhotoItem {
 }
 
 // Care-basis summary fields carried by GET /plants/:id (spec 2 §6). ProgressHealth is defined below.
+// health is nullable: the latest entry can be an import entry (Plant Lifecycle feature), which is
+// created with health: null.
 export interface PlantLatestProgress {
-  entryId: string; occurredOn: string; health: ProgressHealth; observations: string | null;
+  entryId: string; occurredOn: string; health: ProgressHealth | null; observations: string | null;
 }
 export interface PlantDerived {
   heightCm: number | null;
@@ -131,8 +145,9 @@ export interface PlantCareTask {
 export interface PlantCare {
   plantId: string;
   tasks: PlantCareTask[];
-  // Added in Phase C — the per-plant viability semaphore for its current place.
-  viability: { level: ViabilityLevel; reasons: string[] };
+  // Added in Phase C — the per-plant viability semaphore for its current place. Null for a frozen plant
+  // (Plant Lifecycle feature) — the recompute-free frozen branch never computes a semaphore.
+  viability: { level: ViabilityLevel; reasons: string[] } | null;
   // The species' soil-dryness-before-watering slug (e.g. 'mostly-dry'), used by the WATER info modal.
   soilDrynessBeforeWatering?: string;
   // The plant-to-pot crowding index (spec E, Area A). `repotSigns` is species catalog data, rendered
@@ -173,13 +188,17 @@ export interface ProgressEntryDetail {
   id: string;
   plantId: string;
   occurredOn: string;          // YYYY-MM-DD
-  health: ProgressHealth;
+  // Null for an import entry (Plant Lifecycle feature) — created with no health assessment.
+  health: ProgressHealth | null;
   observations: string | null;
   sizeCm: number | null;
   tags: ProgressTag[];         // { key, group } — the label is resolved on the web via i18n
   photos: ProgressPhoto[];
   processingCount: number;
   failedCount: number;
+  // True for an import-on-create entry (Plant Lifecycle feature). Optional so an older API during a
+  // rolling deploy still types.
+  isImport?: boolean;
 }
 
 // What the edit view sends (serialized into a multipart PATCH). `removePhotoIds` are ids of existing
@@ -199,7 +218,9 @@ export interface UpdateProgressPayload {
 export type CareActionTask = Exclude<TaskCode, 'PROGRESS'>;
 
 export type HistoryItem =
-  | { kind: 'progress'; entryId: string; occurredOn: string; health: ProgressHealth; photoCount: number; processingCount: number; tagCount: number }
+  // health is nullable and isImport is optional: an import-on-create entry (Plant Lifecycle feature) is
+  // written with no health assessment.
+  | { kind: 'progress'; entryId: string; occurredOn: string; health: ProgressHealth | null; photoCount: number; processingCount: number; tagCount: number; isImport?: boolean }
   | { kind: 'action'; task: CareActionTask; type: 'DONE'; occurredOn: string }
   // A doctor-authored case note. Metadata only — the body is fetched on modal open, so a 20,000-character
   // record never rides in the timeline payload. This union is HAND-MIRRORED from the API (there is no
@@ -209,7 +230,9 @@ export type HistoryItem =
   | { kind: 'move'; id: string; occurredOn: string; fromPlaceName: string | null; fromCityName: string | null; toPlaceName: string | null; toCityName: string | null; cityChanged: boolean }
   // A free-form owner/agent note. `noteId` drives PATCH/DELETE; `body` is the editable text. Author is
   // NOT on the wire (invisible in the UI).
-  | { kind: 'note'; id: string; noteId: string; occurredOn: string; body: string };
+  | { kind: 'note'; id: string; noteId: string; occurredOn: string; body: string }
+  // A lifecycle transition (Plant Lifecycle feature): memorialize, gift, or revive.
+  | { kind: 'lifecycle'; id: string; occurredOn: string; transition: 'MEMORIALIZED' | 'GIFTED' | 'REVIVED' };
 
 // Admin knowledge-engine chat (spec 3). Sessions are a shared admin pool; addressed by internal cuid id.
 // ⚠️ `LAUNCHING` is the launch-lease state and IS on the wire: a run that won the QUEUED -> LAUNCHING

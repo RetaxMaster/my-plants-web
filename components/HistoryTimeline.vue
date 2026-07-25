@@ -31,6 +31,14 @@ function moveLabel(item: Extract<HistoryItem, { kind: 'move' }>): string {
   }
   return t('history.movePlace', { from: item.fromPlaceName ?? '—', to: item.toPlaceName ?? '—' });
 }
+
+// Exhaustiveness guard for the v-if/v-else-if chain below: HistoryItem is a closed 5-member union, so
+// TypeScript narrows `item` to `never` once every known `kind` has been checked. A future 6th kind added
+// to the union without a matching template branch fails typecheck HERE (the call site below won't
+// compile) instead of silently rendering nothing in production.
+function assertNever(x: never): never {
+  throw new Error(`HistoryTimeline: unhandled history item kind: ${JSON.stringify(x)}`);
+}
 </script>
 
 <template>
@@ -75,6 +83,7 @@ function moveLabel(item: Extract<HistoryItem, { kind: 'move' }>): string {
           {{ t('history.noteAdded') }}
         </UiLinkRow>
       </template>
+      <template v-else>{{ assertNever(item) }}</template>
     </li>
   </ol>
 </template>

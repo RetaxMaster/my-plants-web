@@ -134,3 +134,117 @@ describe('HistoryTimeline — the clinical row (a doctor-authored case note)', (
     expect(w.get('.mp-history__date').text()).toBe('history.today');
   });
 });
+
+// The 'move' row is the one branch that is deliberately NON-clickable — all its names come from the
+// event's write-time snapshot, never re-derived live (see moveLabel's own comment in the component). A
+// regression that added a click handler (e.g. copy-pasted from the 'action' row's neighbor) would still
+// pass every assertion above; the tests below specifically pin "renders as a plain, non-emitting row".
+describe('HistoryTimeline — the move row (a relocation snapshot, non-clickable)', () => {
+  function mountMove(item: Extract<HistoryItem, { kind: 'move' }>) {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 13, 9, 15)); // same day as the event → "today"
+    return mount(HistoryTimeline, {
+      props: { items: [item] },
+      global: GLOBAL_STUBS,
+    });
+  }
+
+  it('renders the moveCity label with the city pair when cityChanged is true', () => {
+    const item: HistoryItem = {
+      kind: 'move', id: 'm1', occurredOn: '2026-07-13',
+      fromPlaceName: 'Living room', fromCityName: 'CDMX',
+      toPlaceName: 'Balcón', toCityName: 'Puebla',
+      cityChanged: true,
+    };
+    const w = mountMove(item);
+    expect(w.get('.mp-history__text').text()).toBe('history.moveCity:{"from":"CDMX","to":"Puebla"}');
+  });
+
+  it('renders the movePlace label with the place pair when cityChanged is false', () => {
+    const item: HistoryItem = {
+      kind: 'move', id: 'm2', occurredOn: '2026-07-13',
+      fromPlaceName: 'Living room', fromCityName: 'CDMX',
+      toPlaceName: 'Balcón', toCityName: 'CDMX',
+      cityChanged: false,
+    };
+    const w = mountMove(item);
+    expect(w.get('.mp-history__text').text()).toBe('history.movePlace:{"from":"Living room","to":"Balcón"}');
+  });
+
+  it('falls back to "—" for a null snapshot name, on either side of the pair', () => {
+    const item: HistoryItem = {
+      kind: 'move', id: 'm3', occurredOn: '2026-07-13',
+      fromPlaceName: null, fromCityName: null,
+      toPlaceName: 'Balcón', toCityName: null,
+      cityChanged: false,
+    };
+    const w = mountMove(item);
+    expect(w.get('.mp-history__text').text()).toBe('history.movePlace:{"from":"—","to":"Balcón"}');
+  });
+
+  it('renders as a plain, non-interactive row (a <div>, not the clickable <button>)', () => {
+    const item: HistoryItem = {
+      kind: 'move', id: 'm4', occurredOn: '2026-07-13',
+      fromPlaceName: 'Living room', fromCityName: 'CDMX',
+      toPlaceName: 'Balcón', toCityName: 'CDMX',
+      cityChanged: false,
+    };
+    const w = mountMove(item);
+    const row = w.element.querySelector('.mp-history__row');
+    expect(row).not.toBeNull();
+    expect(row!.tagName).toBe('DIV');
+  });
+
+  it('never emits any of the click events when clicked — the row has no click handler at all', async () => {
+    const item: HistoryItem = {
+      kind: 'move', id: 'm5', occurredOn: '2026-07-13',
+      fromPlaceName: 'Living room', fromCityName: 'CDMX',
+      toPlaceName: 'Balcón', toCityName: 'CDMX',
+      cityChanged: false,
+    };
+    const w = mountMove(item);
+    await w.get('.mp-history__row').trigger('click');
+    expect(w.emitted('openEntry')).toBeUndefined();
+    expect(w.emitted('openRecord')).toBeUndefined();
+    expect(w.emitted('openNote')).toBeUndefined();
+  });
+});
+
+// The 'note' row is the newest clickable branch — same UiLinkRow chrome as 'progress'/'clinical', but its
+// click payload carries the whole note (not just an id), because NoteModal needs `body` to seed its
+// textarea without a second round-trip. The regression this guards: a payload that dropped a field, or
+// echoed the wrong item's data, would type-check fine (all three fields are strings) and only show up as
+// a blank/stale note editor at runtime.
+describe('HistoryTimeline — the note row (a free-form owner/agent note)', () => {
+  const item: HistoryItem = { kind: 'note', id: 'x1', noteId: 'n1', occurredOn: '2026-07-13', body: 'Hello world' };
+
+  function mountNote() {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 13, 9, 15)); // same day as the note → "today"
+    return mount(HistoryTimeline, {
+      props: { items: [item] },
+      global: GLOBAL_STUBS,
+    });
+  }
+
+  it('renders the row as a real <button> — clickable, like progress/clinical', () => {
+    const w = mountNote();
+    const row = w.element.querySelector('.mp-history__row');
+    expect(row).not.toBeNull();
+    expect(row!.tagName).toBe('BUTTON');
+  });
+
+  it('shows the note-added label', () => {
+    const w = mountNote();
+    expect(w.get('.mp-history__text').text()).toBe('history.noteAdded');
+  });
+
+  it('emits openNote with exactly {noteId, occurredOn, body} from the item when clicked', async () => {
+    const w = mountNote();
+    await w.get('.mp-history__row').trigger('click');
+    expect(w.emitted('openNote')).toEqual([[{ noteId: 'n1', occurredOn: '2026-07-13', body: 'Hello world' }]]);
+    // Must never ALSO fire a sibling event (a stray fallthrough to another branch's handler).
+    expect(w.emitted('openEntry')).toBeUndefined();
+    expect(w.emitted('openRecord')).toBeUndefined();
+  });
+});

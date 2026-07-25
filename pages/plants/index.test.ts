@@ -44,6 +44,15 @@ beforeEach(() => {
   vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
     data: ref(await fn()),
   }));
+  // The secondary reads (tasks + places) are now deferred via useLazyAsyncData({ server: false }): it
+  // returns SYNCHRONOUSLY with a null data ref that fills once the fetch resolves (never awaited in setup).
+  // The stub mirrors that — start null, populate after flushPromises — so the page renders from the
+  // essential list alone and the badge/place-chip fill in, exactly as in the browser.
+  vi.stubGlobal('useLazyAsyncData', (_key: string, fn: () => Promise<unknown>) => {
+    const data = ref<unknown>(null);
+    void Promise.resolve(fn()).then((v) => { data.value = v; });
+    return { data };
+  });
 });
 
 // `UiScreenHeader` is deliberately the REAL component, registered explicitly (Nuxt's auto-import does not

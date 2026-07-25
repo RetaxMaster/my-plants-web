@@ -24,8 +24,10 @@ const repotPickerOpen = ref(false);
 const pendingRepotSigns = ref<string[]>([]);
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
-const { data: plants } = await useAsyncData('plants', () => api.listPlants());
-const { data: places } = await useAsyncData('places-for-today', () => api.listPlaces());
+// Secondary: only used to label task rows (plant name + place chip + cover photo). Deferred to client so
+// "Hoy" renders from ONE SSR read; the helpers below already fall back gracefully while these are null.
+const { data: plants } = useLazyAsyncData('plants', () => api.listPlants(), { server: false });
+const { data: places } = useLazyAsyncData('places-for-today', () => api.listPlaces(), { server: false });
 
 const plantById = (id: string): Plant | undefined => (plants.value ?? []).find((x) => x.id === id);
 const plantName = (id: string): string => {
@@ -158,7 +160,7 @@ function openProgress(plantId: string) {
               <UiPlantAvatar :size="40" />
               <div class="mp-today__plant-info">
                 <UiPlantName
-                  :title="plantName(plantId)"
+                  :title="plants ? plantName(plantId) : ''"
                   :scientific="plantById(plantId)?.speciesScientificName"
                 />
                 <div v-if="placeName(plantId)" class="mp-today__place">{{ placeName(plantId) }}</div>

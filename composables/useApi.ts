@@ -250,6 +250,13 @@ export function useApi() {
       api<ClinicalRecordSummary[]>(`/plants/${plantId}/clinical-records`),
     getClinicalRecord: (plantId: string, recordId: string) =>
       api<ClinicalRecordDetail>(`/plants/${plantId}/clinical-records/${recordId}`),
+    // Plain-JSON notes — no upload path, notes carry no files.
+    createNote: (plantId: string, body: string) =>
+      api<{ noteId: string }>(`/plants/${plantId}/notes`, { method: 'POST', body: { body } }),
+    updateNote: (plantId: string, noteId: string, body: string) =>
+      api<{ noteId: string }>(`/plants/${plantId}/notes/${noteId}`, { method: 'PATCH', body: { body } }),
+    deleteNote: (plantId: string, noteId: string) =>
+      api<void>(`/plants/${plantId}/notes/${noteId}`, { method: 'DELETE' }),
 
     simulateMove: (latitude: number, longitude: number) =>
       api<PlantViability[]>('/moving/simulate', { method: 'POST', body: { latitude, longitude } }),

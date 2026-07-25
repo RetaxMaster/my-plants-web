@@ -165,7 +165,15 @@
     "clinicalRecordCreated": "Se creó expediente clínico",
     "movePlace": "Mudanza de {from} a {to}",
     "moveCity": "Mudanza de {from} a {to}",
-    "noteAdded": "Nota"
+    "noteAdded": "Nota",
+    "addNote": "Agregar una nota",
+    "noteModalCreateTitle": "Nueva nota",
+    "noteModalEditTitle": "Editar nota",
+    "notePlaceholder": "Escribe una nota sobre esta planta…",
+    "noteSave": "Guardar",
+    "noteDelete": "Eliminar",
+    "noteDeleteTitle": "¿Eliminar esta nota?",
+    "noteDeleteConfirm": "¿Eliminar esta nota? Esta acción no se puede deshacer."
   },
   "clinicalRecord": {
     "title": "Expediente clínico",

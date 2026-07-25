@@ -165,7 +165,15 @@
     "clinicalRecordCreated": "Clinical record created",
     "movePlace": "Moved from {from} to {to}",
     "moveCity": "Moved from {from} to {to}",
-    "noteAdded": "Note"
+    "noteAdded": "Note",
+    "addNote": "Add a note",
+    "noteModalCreateTitle": "New note",
+    "noteModalEditTitle": "Edit note",
+    "notePlaceholder": "Write a note about this plant…",
+    "noteSave": "Save",
+    "noteDelete": "Delete",
+    "noteDeleteTitle": "Delete this note?",
+    "noteDeleteConfirm": "Delete this note? This can't be undone."
   },
   "clinicalRecord": {
     "title": "Clinical record",

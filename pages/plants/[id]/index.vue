@@ -100,6 +100,25 @@ function openRecord(recordId: string) {
   recordOpen.value = true;
 }
 
+// Note modal (Task 17): one NoteModal instance, toggled between 'create' (the "Agregar nota" button)
+// and 'edit' (a click on a 'note' history row). `activeNote` only matters in edit mode.
+const noteOpen = ref(false);
+const noteMode = ref<'create' | 'edit'>('create');
+const activeNote = ref<{ noteId: string; body: string } | null>(null);
+function openAddNote() {
+  noteMode.value = 'create';
+  activeNote.value = null;
+  noteOpen.value = true;
+}
+function openNote(note: { noteId: string; body: string }) {
+  noteMode.value = 'edit';
+  activeNote.value = note;
+  noteOpen.value = true;
+}
+async function onNoteSaved() {
+  await refreshHistory();
+}
+
 function openEdit() {
   if (!plant.value) return;
   editing.value = true;
@@ -459,13 +478,18 @@ function confirmRepotPostpone(reason: string) {
 
         <!-- History (deferred read: the section appears once history hydrates). -->
         <div v-if="history">
-          <UiSectionTitle>{{ $t('plantDetail.history') }}</UiSectionTitle>
+          <div class="mp-detail__history-head">
+            <UiSectionTitle>{{ $t('plantDetail.history') }}</UiSectionTitle>
+            <UiButton size="xs" variant="soft" color="neutral" icon="pencil-square" @click="openAddNote">
+              {{ $t('history.addNote') }}
+            </UiButton>
+          </div>
           <UiCard v-if="!history.length" padded>
             <UiEmptyState>{{ $t('plantDetail.historyEmpty') }}</UiEmptyState>
           </UiCard>
           <UiCard v-else :padded="false">
             <div class="mp-detail__history">
-              <HistoryTimeline :items="history" @open-entry="openEntry" @open-record="openRecord" />
+              <HistoryTimeline :items="history" @open-entry="openEntry" @open-record="openRecord" @open-note="openNote" />
             </div>
           </UiCard>
         </div>
@@ -557,6 +581,7 @@ function confirmRepotPostpone(reason: string) {
     />
     <ProgressEntryModal v-model="entryOpen" :plant-id="id" :entry-id="activeEntryId" />
     <ClinicalRecordModal v-model="recordOpen" :plant-id="id" :record-id="activeRecordId" />
+    <NoteModal v-model="noteOpen" :plant-id="id" :mode="noteMode" :note="activeNote" @saved="onNoteSaved" />
     <UiImageLightbox v-model="lightboxOpen" v-model:index="lightboxIndex" :images="lightboxImages" />
     <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
     <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" :repot-signs="taskInfoRepotSigns" />
@@ -762,6 +787,20 @@ function confirmRepotPostpone(reason: string) {
 .mp-detail__history {
   display: grid;
   padding: 0 var(--space-4);
+}
+
+.mp-detail__history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 12px;
+}
+
+/* Neutralize UiSectionTitle's own bottom margin here — the flex row's own layout supplies the spacing
+   below it instead, so the title + button share one vertical rhythm. */
+.mp-detail__history-head :deep(.mp-section-title) {
+  margin-bottom: 0;
 }
 
 .mp-detail__rows > :deep(.mp-taskrow:not(:last-child)) {

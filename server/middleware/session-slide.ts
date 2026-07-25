@@ -1,4 +1,5 @@
 import { applySlide, type SlideDeps } from '~/utils/slideRunner';
+import { REFRESH_TIMEOUT_MS } from '~/utils/refreshMemo';
 
 // Slides the session on every authenticated /api/** request. All refresh/clear/replace LOGIC lives in the
 // tested pure `applySlide` (utils/slideRunner.ts); this handler only supplies the real Nuxt side effects.
@@ -21,6 +22,10 @@ export default defineEventHandler(async (event) => {
       $fetch<{ token: string }>(`${apiBase}/auth/refresh`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${bearer}` },
+        // Bounded strictly below the logout tombstone lifetime so a hung refresh can never resolve after
+        // the tombstone lapses and reopen a logged-out session (see REFRESH_TIMEOUT_MS). On timeout the
+        // fetch aborts and applySlide's catch returns without replacing the session.
+        timeout: REFRESH_TIMEOUT_MS,
       }),
     replaceSession: async (newToken) => {
       // Preserve user + actingAs; explicit `actingAs: null` fallback stops h3 re-hydrating a stale value

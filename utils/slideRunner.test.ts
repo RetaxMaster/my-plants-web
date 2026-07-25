@@ -68,6 +68,25 @@ describe('applySlide', () => {
     expect(deps.replaceSession).not.toHaveBeenCalled();
   });
 
+  it('logout race in the CHECK-THEN-ACT gap: a tombstone set DURING replaceSession tears the reopened session back down', async () => {
+    const token = backdatedToken('jG');
+    // The tombstone does not exist at the pre-check; it appears while replaceSession is awaited (exactly the
+    // concurrent-logout window). The post-replace re-check must then clearSession.
+    const deps = makeDeps({
+      replaceSession: vi.fn(async () => { tombstoneJti('jG', Date.now()); }),
+    });
+    await applySlide(deps, token, Date.now());
+    expect(deps.replaceSession).toHaveBeenCalledTimes(1);
+    expect(deps.clearSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('no logout: replaceSession is NOT followed by a spurious clearSession', async () => {
+    const deps = makeDeps();
+    await applySlide(deps, backdatedToken('jH'), Date.now());
+    expect(deps.replaceSession).toHaveBeenCalledTimes(1);
+    expect(deps.clearSession).not.toHaveBeenCalled();
+  });
+
   it('a token still before its midpoint just slides the cookie (no refresh)', async () => {
     const deps = makeDeps();
     const nowSec = Math.floor(Date.now() / 1000);

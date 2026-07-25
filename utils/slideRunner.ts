@@ -31,4 +31,9 @@ export async function applySlide(deps: SlideDeps, token: string, nowMs: number):
 
   if (isTombstoned(jti, Date.now())) { invalidateMemo(jti); return; }
   await deps.replaceSession(result.token);
+  // Check-then-act gap: a concurrent logout can tombstone this jti DURING the await above — between the
+  // pre-check and the cookie write. When it does, the session we just re-issued must be torn back down, or
+  // a late slide reopens a logged-out session (the exact revocation-cascade class this slide fixes). The
+  // re-check is the last op on the request, so the response carries the cleared cookie.
+  if (isTombstoned(jti, Date.now())) { await deps.clearSession(); }
 }

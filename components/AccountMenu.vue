@@ -82,6 +82,14 @@ function stopActingAs() {
         <AppIcon name="photo" :size="16" color="currentColor" />
         {{ $t('account.mediaLibrary') }}
       </NuxtLink>
+      <NuxtLink to="/pantheon" class="mp-menu-item" @click="open = false">
+        <AppIcon name="archive-box" :size="16" color="currentColor" />
+        {{ $t('account.pantheon') }}
+      </NuxtLink>
+      <NuxtLink to="/gifted" class="mp-menu-item" @click="open = false">
+        <AppIcon name="gift" :size="16" color="currentColor" />
+        {{ $t('account.gifted') }}
+      </NuxtLink>
       <button v-if="actingAs" type="button" class="mp-menu-item" @click="stopActingAs">
         <AppIcon name="arrow-uturn-left" :size="16" color="currentColor" />
         <i18n-t keypath="actingAs.stopNamed" tag="span">

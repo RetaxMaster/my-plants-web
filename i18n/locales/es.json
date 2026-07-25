@@ -41,7 +41,9 @@
     "switchUser": "Cambiar de usuario",
     "signOut": "Cerrar sesión",
     "writingDesk": "Escritorio",
-    "mediaLibrary": "Biblioteca multimedia"
+    "mediaLibrary": "Biblioteca multimedia",
+    "pantheon": "Visitar el panteón",
+    "gifted": "Plantas regaladas"
   },
   "tasks": {
     "labels": {

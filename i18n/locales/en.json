@@ -41,7 +41,9 @@
     "switchUser": "Switch user",
     "signOut": "Sign out",
     "writingDesk": "Writing desk",
-    "mediaLibrary": "Media library"
+    "mediaLibrary": "Media library",
+    "pantheon": "Visit the pantheon",
+    "gifted": "Gifted plants"
   },
   "tasks": {
     "labels": {

@@ -2,6 +2,35 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — Fixed an intermittent empty "Hoy" and a forced logout; heavy pages load faster
+
+**Two related, intermittent problems tied to the session quietly refreshing in the background are
+fixed** — an occasional empty "Hoy" list when tasks were actually due, and getting logged out just
+from navigating to another page. Both used to resurface roughly every two weeks per session. Your
+plants and their details also show up sooner now, especially on mobile data.
+
+### Fixed
+
+- **"Hoy" could show nothing pending even when a task was actually due.** Right around the moment
+  your session's token silently refreshed in the background, the page's other data requests — which
+  were still using the same, now-outdated token — could be rejected immediately afterward, and that
+  rejection was silently swallowed instead of shown, so the page looked emptier than it really was.
+  This is fixed: the app now refreshes the token once per page load and reuses the result for every
+  request on that page, instead of letting each one refresh independently and race the others.
+- **Navigating to another page could unexpectedly sign you out.** The same race was the cause: a
+  request retried with a token that had just been superseded looked like an invalid session and
+  triggered a logout, even though nothing you did had actually ended it. The app now only signs you
+  out when your session has genuinely expired — never on a passing hiccup right after a background
+  refresh.
+
+### Changed
+
+- **"Hoy", your plant list, and a plant's own page now show their main content sooner.** Each of
+  these pages used to wait on several data requests firing at once before showing anything at all.
+  Now each shows its essential content first — today's tasks, your plant list, or a plant's identity
+  and care status — while secondary details, like a plant's care history and photo gallery, load in
+  just behind it. The difference is most noticeable on a slower mobile connection.
+
 ## Unreleased — Approving what your agents want to change, and meeting your gardener
 
 **The doctor now asks before it changes anything.** Its diagnosis is unchanged; what changed is that

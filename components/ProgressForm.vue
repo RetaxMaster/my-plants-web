@@ -8,6 +8,7 @@
 import type { ProgressHealth, ProgressEntryDetail, UpdateProgressPayload } from '../types/api.js';
 import { readImageSize } from '../composables/useReadImageSize'; // Spec 1 §6.1 — reused, never re-implemented
 import { MAX_IMAGE_PIXELS } from '@retaxmaster/my-plants-species-schema/image-limits'; // Spec 1 single-source
+import type { CompressedUpload } from '../composables/useImageCompression';
 
 const props = defineProps<{
   mode: 'create' | 'edit';
@@ -48,6 +49,7 @@ const recordSize = ref(props.initial?.sizeCm != null);
 const sizeCm = ref<number | null>(props.initial?.sizeCm ?? 45);
 const selectedTags = ref<string[]>(props.initial?.tags.map((tg) => tg.key) ?? []);
 const files = ref<File[]>([]); // NEW photos to add
+const photoResults = ref<CompressedUpload[]>([]); // compressed outputs from the dropzone, aligned to `files`
 const removePhotoIds = ref<string[]>([]); // edit only
 const measureInfoOpen = ref(false);
 
@@ -120,13 +122,13 @@ function submit() {
     observations: observations.value.trim(),
     sizeCm: recordSize.value ? sizeCm.value : null,
     tags: selectedTags.value,
-    files: files.value,
+    photos: photoResults.value,
     removePhotoIds: removePhotoIds.value,
   });
 }
 
 defineExpose({
-  health, observations, selectedTags, occurredOn, recordSize, sizeCm, files, pixelError, healthError,
+  health, observations, selectedTags, occurredOn, recordSize, sizeCm, files, photoResults, pixelError, healthError,
   remainingSlots, submit, markRemove, undoRemove, onFilesPicked,
 });
 </script>
@@ -235,7 +237,13 @@ defineExpose({
           {{ $t('progress.photoLimitReached') }}
         </p>
 
-        <UiImageDropzone :model-value="files" :max="addCap" @update:model-value="onFilesPicked" />
+        <UiImageDropzone
+          :model-value="files"
+          v-model:results="photoResults"
+          :max="addCap"
+          compress
+          @update:model-value="onFilesPicked"
+        />
         <p v-if="pixelError" class="mp-progress-form__pixel-error">{{ pixelError }}</p>
       </UiFormGroup>
 

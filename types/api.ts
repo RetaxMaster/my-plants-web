@@ -1,5 +1,6 @@
 import type { AgentCommand, AgentProviderStatus, CommandCatalog, SessionHistory } from '@retaxmaster/agents-realtime-protocol';
 import type { TaskCode } from '../utils/tasks.js';
+import type { CompressedUpload } from '../composables/useImageCompression';
 import type {
   PotType, SoilMix, GrowthHabit, WindowDist,
 } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
@@ -190,7 +191,7 @@ export interface UpdateProgressPayload {
   observations: string;             // '' clears
   sizeCm: number | null;            // null clears
   tags: string[];                   // [] clears
-  files: File[];                    // new photos
+  photos: CompressedUpload[];       // new photos, already client-compressed via useImageCompression
   removePhotoIds: string[];
 }
 

@@ -88,7 +88,7 @@ describe('ProgressForm', () => {
     const payload = w.emitted('submit')![0][0] as any;
     expect(payload).toEqual({
       health: 'GOOD', occurredOn: '', observations: 'first note',
-      sizeCm: null, tags: ['NEW_LEAF', 'SEEDLING'], files: [], removePhotoIds: [],
+      sizeCm: null, tags: ['NEW_LEAF', 'SEEDLING'], photos: [], removePhotoIds: [],
     });
   });
 

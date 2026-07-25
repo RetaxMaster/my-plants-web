@@ -42,9 +42,9 @@ async function onSubmit(payload: UpdateProgressPayload) {
     form.append('sizeCm', payload.sizeCm == null ? '' : String(payload.sizeCm)); // '' clears
     form.append('tags', JSON.stringify(payload.tags)); // [] clears
     form.append('removePhotoIds', JSON.stringify(payload.removePhotoIds));
-    for (const f of payload.files) form.append('photos', f);
+    for (const p of payload.photos) form.append('photos', p.blob, p.filename);
     await api.updateProgress(id, entryId, form, (percent) => {
-      uploadPercent.value = payload.files.length && percent < 100 ? percent : null;
+      uploadPercent.value = payload.photos.length && percent < 100 ? percent : null;
     });
     await refreshNuxtData([`plant-${id}`, `care-${id}`, `history-${id}`, `photos-${id}`]);
     await navigateTo(`/plants/${id}`);

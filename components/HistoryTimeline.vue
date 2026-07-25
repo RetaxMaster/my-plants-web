@@ -32,8 +32,16 @@ function moveLabel(item: Extract<HistoryItem, { kind: 'move' }>): string {
   return t('history.movePlace', { from: item.fromPlaceName ?? '—', to: item.toPlaceName ?? '—' });
 }
 
-// Exhaustiveness guard for the v-if/v-else-if chain below: HistoryItem is a closed 5-member union, so
-// TypeScript narrows `item` to `never` once every known `kind` has been checked. A future 6th kind added
+// A lifecycle event is a terminal-state transition (memorialized/gifted) or a reversal of one
+// (revived) — non-clickable, since there is nothing to open. One icon per transition.
+function lifecycleIcon(transition: 'MEMORIALIZED' | 'GIFTED' | 'REVIVED'): string {
+  if (transition === 'MEMORIALIZED') return 'archive-box';
+  if (transition === 'GIFTED') return 'gift';
+  return 'arrow-uturn-left';
+}
+
+// Exhaustiveness guard for the v-if/v-else-if chain below: HistoryItem is a closed 6-member union, so
+// TypeScript narrows `item` to `never` once every known `kind` has been checked. A future 7th kind added
 // to the union without a matching template branch fails typecheck HERE (the call site below won't
 // compile) instead of silently rendering nothing in production.
 function assertNever(x: never): never {
@@ -46,7 +54,7 @@ function assertNever(x: never): never {
     <li v-for="(item, i) in items" :key="i" class="mp-history__item">
       <template v-if="item.kind === 'progress'">
         <UiLinkRow icon="camera" :date-label="agoLabel(item.occurredOn)" @click="emit('openEntry', item.entryId)">
-          {{ t('history.progressLogged') }} · <strong>{{ healthLabel(item.health) }}</strong>
+          {{ t('history.progressLogged') }}<template v-if="item.health"> · <strong>{{ healthLabel(item.health) }}</strong></template>
           <span v-if="item.photoCount" class="mp-history__meta"> · {{ t('history.photoCount', { n: item.photoCount }, item.photoCount) }}</span>
           <span v-if="item.tagCount" class="mp-history__meta"> · {{ t('history.tagCount', { n: item.tagCount }, item.tagCount) }}</span>
         </UiLinkRow>
@@ -82,6 +90,13 @@ function assertNever(x: never): never {
         >
           {{ t('history.noteAdded') }}
         </UiLinkRow>
+      </template>
+      <template v-else-if="item.kind === 'lifecycle'">
+        <div class="mp-history__row">
+          <UiAppIcon :name="lifecycleIcon(item.transition)" :size="18" class="mp-history__icon" />
+          <span class="mp-history__text">{{ t(`history.lifecycle.${item.transition}`) }}</span>
+          <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
+        </div>
       </template>
       <template v-else>{{ assertNever(item) }}</template>
     </li>

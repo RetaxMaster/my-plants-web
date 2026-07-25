@@ -248,3 +248,54 @@ describe('HistoryTimeline — the note row (a free-form owner/agent note)', () =
     expect(w.emitted('openRecord')).toBeUndefined();
   });
 });
+
+// The 'lifecycle' row (Plant Lifecycle feature) is the 6th and newest branch — a terminal-state
+// transition (memorialized/gifted) or a reversal of one (revived), non-clickable like 'move' since
+// there is nothing to open. One assertion per transition's translated label + icon, plus the same
+// non-interactive-row guard the 'move' branch carries.
+describe('HistoryTimeline — the lifecycle row (a terminal-state transition, non-clickable)', () => {
+  function mountLifecycle(transition: 'MEMORIALIZED' | 'GIFTED' | 'REVIVED') {
+    const item: HistoryItem = { kind: 'lifecycle', id: 'l1', occurredOn: '2026-07-13', transition };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 13, 9, 15)); // same day as the event → "today"
+    return mount(HistoryTimeline, {
+      props: { items: [item] },
+      global: GLOBAL_STUBS,
+    });
+  }
+
+  it('shows the MEMORIALIZED label', () => {
+    const w = mountLifecycle('MEMORIALIZED');
+    expect(w.get('.mp-history__text').text()).toBe('history.lifecycle.MEMORIALIZED');
+  });
+
+  it('shows the GIFTED label', () => {
+    const w = mountLifecycle('GIFTED');
+    expect(w.get('.mp-history__text').text()).toBe('history.lifecycle.GIFTED');
+  });
+
+  it('shows the REVIVED label', () => {
+    const w = mountLifecycle('REVIVED');
+    expect(w.get('.mp-history__text').text()).toBe('history.lifecycle.REVIVED');
+  });
+
+  it('shows the relative day label alongside the row, from the same shared helper as every other row', () => {
+    const w = mountLifecycle('GIFTED');
+    expect(w.get('.mp-history__date').text()).toBe('history.today');
+  });
+
+  it('renders as a plain, non-interactive row (a <div>, not a clickable <button>)', () => {
+    const w = mountLifecycle('REVIVED');
+    const row = w.element.querySelector('.mp-history__row');
+    expect(row).not.toBeNull();
+    expect(row!.tagName).toBe('DIV');
+  });
+
+  it('never emits any of the click events when clicked — the row has no click handler at all', async () => {
+    const w = mountLifecycle('GIFTED');
+    await w.get('.mp-history__row').trigger('click');
+    expect(w.emitted('openEntry')).toBeUndefined();
+    expect(w.emitted('openRecord')).toBeUndefined();
+    expect(w.emitted('openNote')).toBeUndefined();
+  });
+});

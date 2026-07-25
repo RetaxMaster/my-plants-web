@@ -175,7 +175,12 @@
     "noteSave": "Save",
     "noteDelete": "Delete",
     "noteDeleteTitle": "Delete this note?",
-    "noteDeleteConfirm": "Delete this note? This can't be undone."
+    "noteDeleteConfirm": "Delete this note? This can't be undone.",
+    "lifecycle": {
+      "MEMORIALIZED": "Moved to the pantheon",
+      "GIFTED": "Gifted",
+      "REVIVED": "Back in the garden"
+    }
   },
   "clinicalRecord": {
     "title": "Clinical record",

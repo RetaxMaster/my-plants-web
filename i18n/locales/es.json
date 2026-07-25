@@ -175,7 +175,12 @@
     "noteSave": "Guardar",
     "noteDelete": "Eliminar",
     "noteDeleteTitle": "¿Eliminar esta nota?",
-    "noteDeleteConfirm": "¿Eliminar esta nota? Esta acción no se puede deshacer."
+    "noteDeleteConfirm": "¿Eliminar esta nota? Esta acción no se puede deshacer.",
+    "lifecycle": {
+      "MEMORIALIZED": "Movida al panteón",
+      "GIFTED": "Regalada",
+      "REVIVED": "De vuelta al jardín"
+    }
   },
   "clinicalRecord": {
     "title": "Expediente clínico",

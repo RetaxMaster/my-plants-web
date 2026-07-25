@@ -142,6 +142,28 @@
   --photo-empty-from:   var(--green-100);
   --photo-empty-to:     var(--cafe-100);
   --photo-empty-ink:    var(--accent-green-ink);
+
+  /* ---- Commemorative sections (Plant Lifecycle: Pantheon memorial + Gifted warm) ----
+     Two sister-but-distinct aesthetics applied via modifier classes only (see chrome.css),
+     never inline. Pantheon = memorial/serene (muted sage-stone, quiet dignity, no gloom).
+     Gifted = warm/luminous (honeyed cafe-amber, a little glow, tasteful). */
+  --pantheon-wash-from: color-mix(in oklch, var(--stone-50) 65%, var(--green-50) 35%);
+  --pantheon-wash-to:   var(--surface-page);
+  --pantheon-surface:   color-mix(in oklch, var(--surface-card) 96%, var(--stone-200) 4%);
+  --pantheon-ink:       var(--stone-600);
+  --pantheon-ink-strong:var(--stone-700);
+  --pantheon-border:    color-mix(in oklch, var(--green-800) 16%, var(--stone-300));
+  --pantheon-accent:    var(--green-800);
+  --pantheon-veil:      color-mix(in oklch, var(--stone-600) 22%, transparent);
+
+  --gifted-wash-from:   color-mix(in oklch, var(--cafe-50) 60%, var(--amber-50) 40%);
+  --gifted-wash-to:     var(--surface-page);
+  --gifted-surface:     color-mix(in oklch, var(--surface-card) 97%, var(--cafe-50) 3%);
+  --gifted-ink:         var(--cafe-800);
+  --gifted-ink-strong:  var(--cafe-900);
+  --gifted-border:      color-mix(in oklch, var(--cafe-500) 24%, var(--stone-300));
+  --gifted-accent:      var(--cafe-600);
+  --gifted-glow:        color-mix(in oklch, var(--amber-500) 24%, transparent);
 }
 
 /* ============================================================
@@ -230,4 +252,23 @@
   --photo-empty-from:   #16301f;
   --photo-empty-to:     #33241a;
   --photo-empty-ink:    var(--accent-green-ink);
+
+  /* ---- Commemorative sections (dark) — same intent, remapped onto the warm near-black dark surfaces. */
+  --pantheon-wash-from: #182119;
+  --pantheon-wash-to:   var(--surface-page);
+  --pantheon-surface:   #211c17;
+  --pantheon-ink:       #a89f93;
+  --pantheon-ink-strong:#d8d1c8;
+  --pantheon-border:    color-mix(in oklch, var(--green-500) 20%, #40362c);
+  --pantheon-accent:    var(--green-400);
+  --pantheon-veil:      color-mix(in oklch, #000000 30%, transparent);
+
+  --gifted-wash-from:   #2a1f14;
+  --gifted-wash-to:     var(--surface-page);
+  --gifted-surface:     #241b13;
+  --gifted-ink:         var(--cafe-200);
+  --gifted-ink-strong:  #f6ecdf;
+  --gifted-border:      color-mix(in oklch, var(--cafe-400) 30%, #40362c);
+  --gifted-accent:      var(--cafe-300);
+  --gifted-glow:        color-mix(in oklch, var(--amber-500) 30%, transparent);
 }

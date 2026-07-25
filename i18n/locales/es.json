@@ -1250,12 +1250,14 @@
     "upToDate": "Tareas al día"
   },
   "pantheon": {
+    "eyebrow": "En memoria",
     "title": "El panteón",
     "lede": "Un lugar tranquilo para las plantas que ya se nos fueron.",
     "emptyTitle": "Todavía no hay plantas aquí",
     "emptyBody": "Cuando muevas una planta al panteón, conservará su lugar aquí."
   },
   "gifted": {
+    "eyebrow": "Nuevo hogar",
     "title": "Plantas regaladas",
     "lede": "Plantas a las que le diste un nuevo hogar.",
     "emptyTitle": "Todavía no hay plantas regaladas",

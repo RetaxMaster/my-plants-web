@@ -16,10 +16,10 @@ const { data: plants } = await useAsyncData('gifted-list', () => api.listGifted(
 
 <template>
   <div class="mp-section mp-section--gifted">
-    <UiScreenHeader :title="$t('gifted.title')" :subtitle="$t('gifted.lede')" />
+    <UiScreenHeader :eyebrow="$t('gifted.eyebrow')" :title="$t('gifted.title')" :subtitle="$t('gifted.lede')" />
 
     <UiCard v-if="!plants?.length" padded>
-      <UiEmptyState icon="gift">
+      <UiEmptyState icon="gift" icon-color="var(--gifted-accent)">
         <div class="mp-section-empty__title">{{ $t('gifted.emptyTitle') }}</div>
         <p class="mp-section-empty__body">{{ $t('gifted.emptyBody') }}</p>
       </UiEmptyState>
@@ -31,12 +31,13 @@ const { data: plants } = await useAsyncData('gifted-list', () => api.listGifted(
         :key="p.id"
         :to="`/gifted/${p.id}`"
         :padded="false"
+        class="mp-card--gifted"
       >
         <UiPlantPhoto
           :src="p.coverImageUrl"
           :alt="$t('plantPhoto.alt', { name: plantTitle(p, locale) })"
           :height="118"
-          class="mp-plant-card__banner"
+          class="mp-plant-card__banner mp-plantphoto--gifted"
         >
           <template v-if="p.frozenPlaceLabel" #chips>
             <UiPhotoChip icon="map-pin" :label="p.frozenPlaceLabel" />
@@ -55,8 +56,9 @@ const { data: plants } = await useAsyncData('gifted-list', () => api.listGifted(
 
 <style scoped>
 /* Same card composition as /plants (banner flush to the card's top edge; own corners squared so only
-   the card radius shows). The `--gifted` aesthetic itself is a later class/token pass (T27), not
-   new markup. */
+   the card radius shows). The warm/luminous `--gifted` aesthetic itself lives in
+   assets/css/chrome.css (`.mp-section--gifted`/`.mp-card--gifted`/`.mp-plantphoto--gifted`) —
+   a class-level, token-driven pass, no new markup. */
 .mp-plant-card__banner {
   border-radius: 0;
 }

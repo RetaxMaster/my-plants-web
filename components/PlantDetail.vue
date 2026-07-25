@@ -41,6 +41,24 @@ useSeoMeta({ description: () => t('meta.plantDetail.description') });
 // note/care-feedback affordances — but stays doctor-consultable, and shows snapshot place/city labels.
 const isFrozen = computed(() => !!plant.value?.lifecycleState && plant.value.lifecycleState !== 'ACTIVE');
 
+// Task 27 (commemorative design pass): the frozen banner and hero photo pick up the SAME
+// pantheon/gifted modifier classes the section list pages use (`assets/css/chrome.css`) — a
+// class-level aesthetic, not a fork. MEMORIAL is memorial/serene; GIFTED is warm/luminous.
+const frozenModifierClass = computed(() =>
+  plant.value?.lifecycleState === 'MEMORIAL'
+    ? 'mp-frozen-banner--pantheon'
+    : plant.value?.lifecycleState === 'GIFTED'
+      ? 'mp-frozen-banner--gifted'
+      : '',
+);
+const frozenPhotoModifierClass = computed(() =>
+  plant.value?.lifecycleState === 'MEMORIAL'
+    ? 'mp-plantphoto--pantheon'
+    : plant.value?.lifecycleState === 'GIFTED'
+      ? 'mp-plantphoto--gifted'
+      : '',
+);
+
 // The "back" link + its destination follow whichever section rendered this shared body: /plants for the
 // normal active detail, /pantheon or /gifted for a frozen plant's entry point there.
 const backTarget = computed(() => {
@@ -484,7 +502,7 @@ async function confirmRevive() {
       :color="plant.lifecycleState === 'MEMORIAL' ? 'amber' : 'green'"
       :icon="plant.lifecycleState === 'MEMORIAL' ? 'archive-box' : 'gift'"
       :description="$t(`plantDetail.frozen.${plant.lifecycleState}`)"
-      class="mp-detail__frozen-banner"
+      :class="['mp-detail__frozen-banner', frozenModifierClass]"
     />
 
     <!-- Hero photo -->
@@ -492,7 +510,7 @@ async function confirmRevive() {
       :src="plant.coverImageUrl"
       :alt="$t('plantPhoto.alt', { name: plantTitle(plant, locale) })"
       :height="heroHeight"
-      class="mp-detail__hero"
+      :class="['mp-detail__hero', frozenPhotoModifierClass]"
     >
       <template #chips>
         <UiPhotoChip v-if="placeName" icon="map-pin" :label="placeName" />

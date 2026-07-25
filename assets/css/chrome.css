@@ -94,3 +94,135 @@ body { background: var(--surface-page); }
   color: #fff;
 }
 .mp-btn-danger:hover { filter: brightness(1.05); }
+
+/* ============================================================
+   Commemorative sections (Plant Lifecycle: Pantheon + Gifted)
+   Two sister-but-distinct aesthetics layered ONLY as modifier
+   classes over the SAME base card/grid/banner/alert markup —
+   no forked component, no inline magic values (every color/
+   font/spacing value below is a token from tokens/*.css).
+   Pantheon = memorial/serene: muted sage-stone wash, the
+   existing serif (--font-serif, Bitter) on headers for quiet
+   gravitas, no lift on hover.
+   Gifted = warm/luminous: honeyed cafe-amber wash, a soft glow
+   shadow, stays on the sans (--font-sans) with a slightly
+   bolder, warmer voice.
+   Every rule here is a static paint (color/gradient/shadow) —
+   nothing here is ever animated, so the "never animate a
+   blurred/mix-blend-mode full-viewport element or a paint
+   property in an infinite loop" invariant does not apply to
+   any of it; the only motion these sections use is the base
+   `.mp-card`/`.mp-card--link` hover (transform + box-shadow,
+   already shared app-wide, already transform/opacity-based).
+   ============================================================ */
+
+/* Section wrapper: a soft top-of-page wash + serif/sans header voice. Kept to the header
+   area (a fixed-height gradient, not a full-viewport tint) so it stays a page ACCENT, not a
+   theme override — the cards below keep the normal page background. */
+.mp-section--pantheon,
+.mp-section--gifted {
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-2);
+  margin-top: calc(var(--space-6) * -1);
+  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+}
+.mp-section--pantheon {
+  background: linear-gradient(180deg, var(--pantheon-wash-from), var(--pantheon-wash-to) 260px);
+}
+.mp-section--gifted {
+  background: linear-gradient(180deg, var(--gifted-wash-from), var(--gifted-wash-to) 260px);
+}
+
+.mp-section--pantheon .mp-screen-header__title {
+  font-family: var(--font-serif);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--pantheon-ink-strong);
+}
+.mp-section--pantheon .mp-screen-header__subtitle {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--pantheon-ink);
+}
+.mp-section--pantheon .mp-eyebrow {
+  color: var(--pantheon-accent);
+}
+
+.mp-section--gifted .mp-screen-header__title {
+  color: var(--gifted-ink-strong);
+}
+.mp-section--gifted .mp-screen-header__subtitle {
+  color: var(--gifted-ink);
+}
+.mp-section--gifted .mp-eyebrow {
+  color: var(--gifted-accent);
+}
+
+/* Card modifier: resting-state look only (background/border/shadow). The shared hover lift
+   (`.mp-card--clickable:hover` / `.mp-card--link:hover`, transform + box-shadow) is left
+   untouched on purpose — one consistent interaction vocabulary across the whole app; the
+   aesthetic signature lives in color and type, not in a bespoke hover behavior. */
+.mp-card--pantheon {
+  background: var(--pantheon-surface);
+  border-color: var(--pantheon-border);
+  box-shadow: var(--shadow-xs);
+}
+.mp-card--gifted {
+  background: var(--gifted-surface);
+  border-color: var(--gifted-border);
+  box-shadow: 0 2px 14px var(--gifted-glow), var(--shadow-xs);
+}
+
+/* Photo veil: a static, single-tone gradient painted UNDER the existing chips/overlay slots
+   (a ::before paints below position:absolute siblings that come later in source order) —
+   never a filter/backdrop-filter/mix-blend-mode, never animated. Pantheon settles to a hushed
+   shadow at the base; Gifted opens with a warm glow at the top. */
+.mp-plantphoto--pantheon,
+.mp-plantphoto--gifted {
+  position: relative;
+}
+.mp-plantphoto--pantheon::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 45%, var(--pantheon-veil) 100%);
+  pointer-events: none;
+}
+.mp-plantphoto--gifted::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, var(--gifted-glow) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* Frozen-detail banner override (`components/PlantDetail.vue`). UiAlert's `color` prop only
+   carries the care/viability semaphore vocabulary (amber/green/red) — a lifecycle identity
+   banner is not a care signal, so this overrides its resting look via the extra modifier
+   class instead of repurposing semaphore semantics. The 3-class chain
+   (`.mp-detail__frozen-banner.mp-frozen-banner--pantheon.mp-alert--amber`) is deliberately
+   more specific than UiAlert's own scoped rule so it wins regardless of stylesheet order. */
+.mp-detail__frozen-banner.mp-frozen-banner--pantheon.mp-alert--amber {
+  background: var(--pantheon-surface);
+  border-color: var(--pantheon-border);
+}
+.mp-detail__frozen-banner.mp-frozen-banner--pantheon.mp-alert--amber .mp-alert__icon {
+  color: var(--pantheon-accent);
+}
+.mp-detail__frozen-banner.mp-frozen-banner--pantheon.mp-alert--amber .mp-alert__description {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--pantheon-ink);
+}
+
+.mp-detail__frozen-banner.mp-frozen-banner--gifted.mp-alert--green {
+  background: var(--gifted-surface);
+  border-color: var(--gifted-border);
+  box-shadow: 0 2px 14px var(--gifted-glow);
+}
+.mp-detail__frozen-banner.mp-frozen-banner--gifted.mp-alert--green .mp-alert__icon {
+  color: var(--gifted-accent);
+}
+.mp-detail__frozen-banner.mp-frozen-banner--gifted.mp-alert--green .mp-alert__description {
+  color: var(--gifted-ink);
+}

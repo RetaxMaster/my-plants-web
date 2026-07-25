@@ -16,10 +16,10 @@ const { data: plants } = await useAsyncData('pantheon-list', () => api.listPanth
 
 <template>
   <div class="mp-section mp-section--pantheon">
-    <UiScreenHeader :title="$t('pantheon.title')" :subtitle="$t('pantheon.lede')" />
+    <UiScreenHeader :eyebrow="$t('pantheon.eyebrow')" :title="$t('pantheon.title')" :subtitle="$t('pantheon.lede')" />
 
     <UiCard v-if="!plants?.length" padded>
-      <UiEmptyState icon="archive-box">
+      <UiEmptyState icon="archive-box" icon-color="var(--pantheon-accent)">
         <div class="mp-section-empty__title">{{ $t('pantheon.emptyTitle') }}</div>
         <p class="mp-section-empty__body">{{ $t('pantheon.emptyBody') }}</p>
       </UiEmptyState>
@@ -31,12 +31,13 @@ const { data: plants } = await useAsyncData('pantheon-list', () => api.listPanth
         :key="p.id"
         :to="`/pantheon/${p.id}`"
         :padded="false"
+        class="mp-card--pantheon"
       >
         <UiPlantPhoto
           :src="p.coverImageUrl"
           :alt="$t('plantPhoto.alt', { name: plantTitle(p, locale) })"
           :height="118"
-          class="mp-plant-card__banner"
+          class="mp-plant-card__banner mp-plantphoto--pantheon"
         >
           <template v-if="p.frozenPlaceLabel" #chips>
             <UiPhotoChip icon="map-pin" :label="p.frozenPlaceLabel" />
@@ -55,8 +56,9 @@ const { data: plants } = await useAsyncData('pantheon-list', () => api.listPanth
 
 <style scoped>
 /* Same card composition as /plants (banner flush to the card's top edge; own corners squared so only
-   the card radius shows). The `--pantheon` aesthetic itself is a later class/token pass (T27), not
-   new markup. */
+   the card radius shows). The memorial/serene `--pantheon` aesthetic itself lives in
+   assets/css/chrome.css (`.mp-section--pantheon`/`.mp-card--pantheon`/`.mp-plantphoto--pantheon`) —
+   a class-level, token-driven pass, no new markup. */
 .mp-plant-card__banner {
   border-radius: 0;
 }

@@ -1250,12 +1250,14 @@
     "upToDate": "Tasks up to date"
   },
   "pantheon": {
+    "eyebrow": "In memoriam",
     "title": "The pantheon",
     "lede": "A quiet place for the plants that have passed on.",
     "emptyTitle": "No plants here yet",
     "emptyBody": "When you move a plant to the pantheon, it will keep its place here."
   },
   "gifted": {
+    "eyebrow": "New home",
     "title": "Gifted plants",
     "lede": "Plants you've given a new home.",
     "emptyTitle": "No gifted plants yet",

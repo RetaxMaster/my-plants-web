@@ -6,17 +6,22 @@ defineOptions({ inheritAttrs: false });
 const props = withDefaults(
   defineProps<{
     icon?: string;
+    // Optional override for the icon's tint — defaults to the brand green used everywhere
+    // else. Lets a themed context (e.g. the pantheon/gifted commemorative sections) recolor
+    // the icon via a design token instead of forking this component.
+    iconColor?: string;
     class?: unknown;
   }>(),
   {
     icon: 'check-circle',
+    iconColor: 'var(--green-500)',
   },
 );
 </script>
 
 <template>
   <div :class="['mp-empty-state', props.class]" v-bind="$attrs">
-    <AppIcon :name="icon" :size="18" color="var(--green-500)" />
+    <AppIcon :name="icon" :size="18" :color="iconColor" />
     <slot />
   </div>
 </template>

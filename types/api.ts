@@ -204,7 +204,12 @@ export type HistoryItem =
   // A doctor-authored case note. Metadata only — the body is fetched on modal open, so a 20,000-character
   // record never rides in the timeline payload. This union is HAND-MIRRORED from the API (there is no
   // generated client for this endpoint), which is exactly where drift hides.
-  | { kind: 'clinical'; recordId: string; occurredOn: string };
+  | { kind: 'clinical'; recordId: string; occurredOn: string }
+  // A relocation. All names come from the event's write-time SNAPSHOT — non-clickable.
+  | { kind: 'move'; id: string; occurredOn: string; fromPlaceName: string | null; fromCityName: string | null; toPlaceName: string | null; toCityName: string | null; cityChanged: boolean }
+  // A free-form owner/agent note. `noteId` drives PATCH/DELETE; `body` is the editable text. Author is
+  // NOT on the wire (invisible in the UI).
+  | { kind: 'note'; id: string; noteId: string; occurredOn: string; body: string };
 
 // Admin knowledge-engine chat (spec 3). Sessions are a shared admin pool; addressed by internal cuid id.
 // ⚠️ `LAUNCHING` is the launch-lease state and IS on the wire: a run that won the QUEUED -> LAUNCHING

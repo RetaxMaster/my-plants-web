@@ -199,9 +199,14 @@ export function useApi() {
 
     listPlants: () => api<Plant[]>('/plants'),
     getPlant: (id: string) => api<PlantDetail>(`/plants/${id}`),
-    setCoverPhoto: (id: string, file: File) => {
+    setCoverPhoto: async (id: string, file: File) => {
+      // One shared path (spec §3b): the cover photo is compressed through the SAME seam as progress photos
+      // before it hits the wire. No HD toggle here — cover is a single auto-upload-on-pick; the seam still
+      // fails open, so a compression hiccup uploads the original.
+      const { compress } = useImageCompression();
+      const c = await compress(file);
       const form = new FormData();
-      form.append('photo', file);
+      form.append('photo', c.blob, c.filename);
       return upload<PlantDetail>(`/plants/${id}/cover-photo`, form, { method: 'PUT' });
     },
     deleteCoverPhoto: (id: string) =>

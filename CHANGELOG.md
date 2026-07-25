@@ -2,6 +2,39 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — Two new sections for your garden: the pantheon and gifted plants
+
+**Two new sections in your account menu — "Pantheon" and "Gifted" — hold the plants that have moved on from
+your active garden**, each with its own quiet, distinct look, so they read as a place apart rather than just
+another list.
+
+### Added
+
+- **"Move to pantheon" and "Mark as gifted" on any active plant's page**, each behind a confirmation that
+  explains exactly what's about to happen — the pantheon move is spelled out as permanent, since there's no
+  undo for it; marking a plant as gifted is not, because you can bring it back later.
+- **A "Revive" button on a gifted plant**, which asks you to pick a place for it and returns it to your
+  active garden, watering schedule and all.
+- **A read-only view for a plant in either section.** Its page still shows its whole history, its photos,
+  and lets you consult the Plant Doctor about it, but every editing action is hidden — there's nothing left
+  to change on a plant that's moved on.
+- **A dedicated look for each section.** The pantheon uses a muted, serif, sage-stone palette; gifted uses a
+  warmer honeyed-amber one — both quiet and restrained, distinct from the everyday care-status colors used
+  everywhere else in the app.
+- **Register a plant you've already lost or given away**, with a size that lets it start directly in the
+  pantheon or as gifted, without needing a place, and optionally upload up to 50 photos afterward in one
+  guided flow — retried uploads never create duplicates.
+- **Your history timeline now shows when a plant was memorialized, gifted, or revived**, alongside its
+  progress entries, moves, and notes.
+- **When the Plant Doctor or the Gardener asks to memorialize or gift a plant**, the approval banner labels
+  the request clearly, in both English and Spanish, exactly like every other kind of change they can propose.
+
+### Changed
+
+- **The plant card used across the active, pantheon, and gifted lists is now one shared component**, so a
+  future visual change to how a plant is shown in a list applies everywhere at once instead of needing to be
+  repeated per section.
+
 ## Unreleased — See when a plant moved, and leave it a note
 
 **A plant's history timeline now shows when it moved and any note you've left on it.** A new "Agregar

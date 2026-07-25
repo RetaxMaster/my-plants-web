@@ -162,7 +162,10 @@
     "progressLogged": "Progress logged",
     "photoCount": "{n} photo | {n} photos",
     "tagCount": "{n} tag | {n} tags",
-    "clinicalRecordCreated": "Clinical record created"
+    "clinicalRecordCreated": "Clinical record created",
+    "movePlace": "Moved from {from} to {to}",
+    "moveCity": "Moved from {from} to {to}",
+    "noteAdded": "Note"
   },
   "clinicalRecord": {
     "title": "Clinical record",

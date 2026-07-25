@@ -4,7 +4,11 @@ import { useTaskMeta } from '../composables/useTaskMeta';
 import { calendarDaysSince } from '../utils/localDate.js';
 
 defineProps<{ items: HistoryItem[] }>();
-const emit = defineEmits<{ openEntry: [entryId: string]; openRecord: [recordId: string] }>();
+const emit = defineEmits<{
+  openEntry: [entryId: string];
+  openRecord: [recordId: string];
+  openNote: [note: { noteId: string; occurredOn: string; body: string }];
+}>();
 
 const { TASK_ICONS, taskPastLabel, healthLabel } = useTaskMeta();
 const { t } = useI18n();
@@ -17,6 +21,15 @@ function agoLabel(occurredOn: string): string {
   if (days <= 0) return t('history.today');
   if (days === 1) return t('history.yesterday');
   return t('history.daysAgo', { n: days }, days);
+}
+
+// A relocation's label is built entirely from the event's write-time snapshot (never re-derived from
+// today's live place/city, which may have changed since). cityChanged decides which pair of names reads.
+function moveLabel(item: Extract<HistoryItem, { kind: 'move' }>): string {
+  if (item.cityChanged) {
+    return t('history.moveCity', { from: item.fromCityName ?? '—', to: item.toCityName ?? '—' });
+  }
+  return t('history.movePlace', { from: item.fromPlaceName ?? '—', to: item.toPlaceName ?? '—' });
 }
 </script>
 
@@ -39,12 +52,28 @@ function agoLabel(occurredOn: string): string {
           {{ t('history.clinicalRecordCreated') }}
         </UiLinkRow>
       </template>
-      <template v-else>
+      <template v-else-if="item.kind === 'action'">
         <div class="mp-history__row">
           <UiAppIcon :name="TASK_ICONS[item.task]" :size="18" class="mp-history__icon" />
           <span class="mp-history__text">{{ taskPastLabel(item.task) }}</span>
           <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
         </div>
+      </template>
+      <template v-else-if="item.kind === 'move'">
+        <div class="mp-history__row">
+          <UiAppIcon name="arrows-right-left" :size="18" class="mp-history__icon" />
+          <span class="mp-history__text">{{ moveLabel(item) }}</span>
+          <span class="mp-history__date">{{ agoLabel(item.occurredOn) }}</span>
+        </div>
+      </template>
+      <template v-else-if="item.kind === 'note'">
+        <UiLinkRow
+          icon="pencil-square"
+          :date-label="agoLabel(item.occurredOn)"
+          @click="emit('openNote', { noteId: item.noteId, occurredOn: item.occurredOn, body: item.body })"
+        >
+          {{ t('history.noteAdded') }}
+        </UiLinkRow>
       </template>
     </li>
   </ol>

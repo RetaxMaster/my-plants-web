@@ -162,7 +162,10 @@
     "progressLogged": "Progreso registrado",
     "photoCount": "{n} foto | {n} fotos",
     "tagCount": "{n} etiqueta | {n} etiquetas",
-    "clinicalRecordCreated": "Se creó expediente clínico"
+    "clinicalRecordCreated": "Se creó expediente clínico",
+    "movePlace": "Mudanza de {from} a {to}",
+    "moveCity": "Mudanza de {from} a {to}",
+    "noteAdded": "Nota"
   },
   "clinicalRecord": {
     "title": "Expediente clínico",

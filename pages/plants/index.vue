@@ -9,8 +9,10 @@ useHead(() => ({ title: t('meta.plants.title') }));
 useSeoMeta({ description: () => t('meta.plants.description') });
 
 const { data: plants } = await useAsyncData('plants-list', () => api.listPlants());
-const { data: tasks } = await useAsyncData('plants-list-today', () => api.todaysTasks());
-const { data: places } = await useAsyncData('plants-list-places', () => api.listPlaces());
+// Secondary: the due-count badge + place chip. Deferred to client so the list renders from ONE SSR read;
+// the badge (`dueCountByPlant[p.id] ?? 0`) and `placeName` (v-if-guarded) already tolerate null.
+const { data: tasks } = useLazyAsyncData('plants-list-today', () => api.todaysTasks(), { server: false });
+const { data: places } = useLazyAsyncData('plants-list-places', () => api.listPlaces(), { server: false });
 
 // One todaysTasks() call → per-plant due-count map for the status badge.
 const dueCountByPlant = computed(() => {

@@ -2,7 +2,22 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
-## Unreleased — Photos upload faster on mobile data, with an HD option when you need it
+## Unreleased — See when a plant moved, and leave it a note
+
+**A plant's history timeline now shows when it moved and any note you've left on it.** A new "Agregar
+nota" button on the plant detail page lets you jot down a free-text note at any time — right alongside its
+progress entries, care actions, and clinical records.
+
+### Added
+
+- **Move entries in the history timeline.** When you relocate a plant — or a scheduled city-wide move
+  relocates it for you — the timeline now shows where it moved from and to, including whether it moved to
+  a different city.
+- **A note modal, reachable from "Agregar nota" on the plant detail page.** Write a free-text note, and
+  edit or delete any note you wrote later, all from the same timeline.
+- **A label for agent-proposed notes.** When the Plant Doctor or the Gardener proposes leaving a note on a
+  plant, the approval banner now shows what that operation is, in both English and Spanish, exactly like
+  every other kind of proposed change.
 
 **Uploading a photo now uses much less data and finishes faster, especially on a mobile connection.**
 Every photo you send — a progress-entry photo or a plant's cover photo — is compressed right on your

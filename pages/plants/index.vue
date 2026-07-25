@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { plantTitle } from '../../utils/displayName.js';
-
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
 
@@ -41,30 +39,14 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
     </UiCard>
 
     <UiCardGrid v-else :desktop="isDesktop" :min="300" :gap="12">
-      <UiCard
+      <UiPlantCard
         v-for="p in plants"
         :key="p.id"
+        :plant="p"
         :to="`/plants/${p.id}`"
-        :padded="false"
-      >
-        <UiPlantPhoto
-          :src="p.coverImageUrl"
-          :alt="$t('plantPhoto.alt', { name: plantTitle(p, locale) })"
-          :height="118"
-          class="mp-plant-card__banner"
-        >
-          <template v-if="placeName(p.placeId)" #chips>
-            <UiPhotoChip icon="map-pin" :label="placeName(p.placeId)" />
-          </template>
-        </UiPlantPhoto>
-        <div class="mp-plant-card__row">
-          <div class="mp-plant-card__info">
-            <UiPlantName :title="plantTitle(p, locale)" :scientific="p.speciesScientificName" />
-          </div>
-          <UiPlantStatusBadge :plant="p" :due-count="dueCountByPlant[p.id] ?? 0" />
-          <UiAppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
-        </div>
-      </UiCard>
+        :place-label="placeName(p.placeId)"
+        :due-count="dueCountByPlant[p.id] ?? 0"
+      />
     </UiCardGrid>
 
     <!-- The gardener entry point. Owner's ruling (Spec 4 §7, placement updated 2026-07-24): still ONE
@@ -82,24 +64,6 @@ const subtitle = computed(() => t('plants.countSub', { n: count.value }, count.v
 </template>
 
 <style scoped>
-/* Banner sits flush at the card's top edge (the card clips it to its rounded corners); square its
-   own corners so only the card radius shows. */
-.mp-plant-card__banner {
-  border-radius: 0;
-}
-
-.mp-plant-card__row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-}
-
-.mp-plant-card__info {
-  flex: 1;
-  min-width: 0;
-}
-
 /* The gardener entry point sits below the garden, aligned to the trailing edge (where the owner marked
    it). Page-specific layout, so the spacing lives here rather than as a new design-system token. */
 .mp-plants-gardener-cta {

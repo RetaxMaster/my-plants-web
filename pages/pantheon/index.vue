@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { plantTitle } from '../../utils/displayName.js';
-
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const api = useApi();
 const isDesktop = useIsDesktop();
 
@@ -26,55 +24,23 @@ const { data: plants } = await useAsyncData('pantheon-list', () => api.listPanth
     </UiCard>
 
     <UiCardGrid v-else :desktop="isDesktop" :min="300" :gap="12">
-      <UiCard
+      <UiPlantCard
         v-for="p in plants"
         :key="p.id"
+        :plant="p"
         :to="`/pantheon/${p.id}`"
-        :padded="false"
-        class="mp-card--pantheon"
-      >
-        <UiPlantPhoto
-          :src="p.coverImageUrl"
-          :alt="$t('plantPhoto.alt', { name: plantTitle(p, locale) })"
-          :height="118"
-          class="mp-plant-card__banner mp-plantphoto--pantheon"
-        >
-          <template v-if="p.frozenPlaceLabel" #chips>
-            <UiPhotoChip icon="map-pin" :label="p.frozenPlaceLabel" />
-          </template>
-        </UiPlantPhoto>
-        <div class="mp-plant-card__row">
-          <div class="mp-plant-card__info">
-            <UiPlantName :title="plantTitle(p, locale)" :scientific="p.speciesScientificName" />
-          </div>
-          <UiAppIcon name="chevron-right" :size="18" color="var(--text-faint)" />
-        </div>
-      </UiCard>
+        variant="pantheon"
+        :place-label="p.frozenPlaceLabel"
+      />
     </UiCardGrid>
   </div>
 </template>
 
 <style scoped>
-/* Same card composition as /plants (banner flush to the card's top edge; own corners squared so only
-   the card radius shows). The memorial/serene `--pantheon` aesthetic itself lives in
-   assets/css/chrome.css (`.mp-section--pantheon`/`.mp-card--pantheon`/`.mp-plantphoto--pantheon`) —
-   a class-level, token-driven pass, no new markup. */
-.mp-plant-card__banner {
-  border-radius: 0;
-}
-
-.mp-plant-card__row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-}
-
-.mp-plant-card__info {
-  flex: 1;
-  min-width: 0;
-}
-
+/* The card itself (banner/row/info) is the shared UiPlantCard component (variant="pantheon"). The
+   memorial/serene `--pantheon` aesthetic lives in assets/css/chrome.css
+   (`.mp-section--pantheon`/`.mp-card--pantheon`/`.mp-plantphoto--pantheon`) — a class-level, token-driven
+   pass applied via the card's `variant` prop, no new markup. */
 .mp-section-empty__title {
   font: 700 16px var(--font-sans);
   color: var(--text-strong);

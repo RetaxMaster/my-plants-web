@@ -62,14 +62,13 @@ beforeEach(() => {
 const components = { UiScreenHeader };
 
 const stubs = {
-  UiAppIcon: true,
   UiCard: { props: ['to', 'padded'], template: '<div class="stub-card"><slot /></div>' },
   UiCardGrid: { template: '<div class="stub-grid"><slot /></div>' },
   UiEmptyState: { template: '<div><slot /></div>' },
-  UiPlantPhoto: { template: '<div><slot name="chips" /></div>' },
-  UiPhotoChip: { props: ['icon', 'label'], template: '<span>{{ label }}</span>' },
-  UiPlantName: { props: ['title', 'scientific'], template: '<span>{{ title }}</span>' },
-  UiPlantStatusBadge: { props: ['plant', 'dueCount'], template: '<span />' },
+  // The per-plant card is now the shared UiPlantCard component (used identically by /pantheon and
+  // /gifted); this page's own test only cares about how many render and where, not their internals —
+  // those are covered by UiPlantCard's own test (components/ui/PlantCard.test.ts).
+  UiPlantCard: { props: ['plant', 'to', 'variant', 'placeLabel', 'dueCount'], template: '<div class="stub-card" />' },
   // `to` is deliberately NOT declared on this stub. The real UiButton declares it (and renders a
   // NuxtLink), which means Vue consumes it and it never reaches the DOM — leaving the destination of
   // this action unassertable. Undeclared, it falls through as a plain attribute, so the test can pin

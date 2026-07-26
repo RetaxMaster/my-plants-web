@@ -10,6 +10,10 @@ another list.
 
 ### Added
 
+- **Adding a plant no longer risks creating a duplicate on a bad connection.** If you tap "add plant" and the
+  connection drops before it confirms, retrying the same submit now returns the plant that was already
+  created instead of adding a second one. Every save the app sends also carries a safety token so the server
+  can spot and ignore an accidental repeat.
 - **"Move to pantheon" and "Mark as gifted" on any active plant's page**, each behind a confirmation that
   explains exactly what's about to happen — the pantheon move is spelled out as permanent, since there's no
   undo for it; marking a plant as gifted is not, because you can bring it back later.

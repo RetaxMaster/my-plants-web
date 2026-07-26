@@ -2,6 +2,7 @@
 import type { MediaAssetView } from '../../types/api.js';
 import { formatFileSize } from '../../utils/fileSize.js';
 import { formatBlogDate } from '../../utils/blogDate.js';
+import { useImageCompression, savingsOf } from '../../composables/useImageCompression';
 
 const { t, locale } = useI18n();
 const { user } = useUserSession();
@@ -23,15 +24,21 @@ const { data, refresh } = await useAsyncData(
 const assets = computed<MediaAssetView[]>(() => data.value?.items ?? []);
 const totalPages = computed(() => data.value?.totalPages ?? 1);
 
-// Upload adapter: this page owns the endpoint glue; ImageUploadField owns the UX. On success the
-// gallery refreshes so the new asset appears.
-const mediaUpload = (file: File) => {
+// Upload adapter: this page owns the endpoint glue; ImageUploadField owns the UX. Every upload entry point
+// pre-compresses on the client through the ONE shared seam (useImageCompression) before assembling FormData
+// — the media library is a single-file upload-on-select flow (no persistent chip for an HD toggle), so it
+// applies the compression and surfaces the honest savings as a notice; the backend sharp pass stays the
+// authoritative final compressor. On success the gallery refreshes so the new asset appears.
+const { compress } = useImageCompression();
+const mediaUpload = async (file: File) => {
+  const result = await compress(file);
   const f = new FormData();
-  f.append('image', file);
-  return api.uploadMedia(f).then((asset) => {
-    refresh();
-    return { url: asset.imageUrl };
-  });
+  f.append('image', result.blob, result.filename);
+  const asset = await api.uploadMedia(f);
+  refresh();
+  const saved = savingsOf(result);
+  if (saved > 0) say(t('blog.media.savedNotice', { size: formatFileSize(saved) }));
+  return { url: asset.imageUrl };
 };
 
 const notice = ref<string | null>(null);

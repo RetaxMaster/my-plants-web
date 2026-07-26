@@ -708,7 +708,8 @@
       "confirmDeleteYes": "Eliminar",
       "confirmDeleteNo": "Conservar",
       "deleted": "Imagen eliminada.",
-      "deleteError": "No se pudo eliminar — inténtalo de nuevo."
+      "deleteError": "No se pudo eliminar — inténtalo de nuevo.",
+      "savedNotice": "Comprimida antes de subir: ahorraste {size}."
     }
   },
   "admin": {

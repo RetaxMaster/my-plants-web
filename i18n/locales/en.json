@@ -708,7 +708,8 @@
       "confirmDeleteYes": "Delete",
       "confirmDeleteNo": "Keep",
       "deleted": "Image deleted.",
-      "deleteError": "Could not delete — please try again."
+      "deleteError": "Could not delete — please try again.",
+      "savedNotice": "Compressed before upload — saved {size}."
     }
   },
   "admin": {

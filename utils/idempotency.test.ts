@@ -35,6 +35,23 @@ describe('withIdempotencyKey', () => {
     expect(result?.headers?.['Idempotency-Key']).toBeUndefined();
   });
 
+  it('does not attach on non-POST mutating methods (PUT/PATCH/DELETE)', () => {
+    // Only POST is deduped (spec): the server interceptor gates on POST, so the client must not
+    // attach a key to other verbs. This pins that contract so a future edit to the method gate fails.
+    for (const method of ['PUT', 'PATCH', 'DELETE']) {
+      const result = withIdempotencyKey(method, '/plants', undefined);
+      expect(result?.headers?.['Idempotency-Key']).toBeUndefined();
+    }
+  });
+
+  it('excludes ONLY the /auth/ prefix, not a path merely containing "auth"', () => {
+    // The exclusion is a prefix match on `/auth/`, never a substring — a real domain path that happens
+    // to contain "auth" (or bare `/auth` with no trailing slash) must still be deduped.
+    expect(withIdempotencyKey('POST', '/authenticate', undefined)?.headers?.['Idempotency-Key']).toBeTruthy();
+    expect(withIdempotencyKey('POST', '/plants/authorize', undefined)?.headers?.['Idempotency-Key']).toBeTruthy();
+    expect(withIdempotencyKey('POST', '/auth', undefined)?.headers?.['Idempotency-Key']).toBeTruthy();
+  });
+
   it('treats a missing method as GET and does not attach', () => {
     const result = withIdempotencyKey(undefined, '/plants', undefined);
     expect(result?.headers?.['Idempotency-Key']).toBeUndefined();

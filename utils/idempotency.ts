@@ -44,7 +44,7 @@ export interface OptsWithHeaders {
  * If the caller already pinned a key in `opts.headers` (case-insensitive header-name match), that pinned
  * key is preserved untouched — this is the path plant-create (Task 9) uses to control its own retry key.
  * Otherwise a fresh key is minted per call via `crypto.randomUUID()` (available in both the browser and
- * Node 18+/SSR via `globalThis.crypto`).
+ * Node 19+/SSR via the global `crypto`; this repo runs Node 24 in dev and prod).
  *
  * The caller's `opts` (and its `opts.headers`) are never mutated — a new object is always returned, even
  * on the no-op branches, so callers can rely on referential-transparency semantics.

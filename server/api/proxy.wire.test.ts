@@ -227,7 +227,7 @@ describe('the Nuxt BFF proxy, seen from the browser', () => {
     it('drops a malformed idempotency key rather than forwarding it', async () => {
       nextStatus = 200;
       nextBody = { ok: true };
-      for (const bad of ['a'.repeat(201), 'has spaces!@#', '']) {
+      for (const bad of ['a'.repeat(192), 'has spaces!@#', '']) {
         await callThroughBff('/api/plants', { 'Idempotency-Key': bad });
         expect(
           lastUpstreamHeaders['idempotency-key'],

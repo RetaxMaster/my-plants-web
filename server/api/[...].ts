@@ -46,9 +46,12 @@ export default defineEventHandler(async (event) => {
   // Sanitized before forwarding for the same reason `x-locale` is: this value is attacker-controllable (any
   // request header is), and it must never be able to inject a second header or an arbitrary payload into
   // the upstream request. A token is bounded, printable, CRLF-free ASCII — anything else is dropped and the
-  // request proceeds with no idempotency key, same as if the browser had never sent one.
+  // request proceeds with no idempotency key, same as if the browser had never sent one. The 191 upper bound
+  // matches the API's `idempotency_keys.key` VARCHAR(191) column exactly: a longer key would otherwise pass
+  // this check and only fail once it reaches the database, so it is dropped here instead — same non-idempotent
+  // fallback as an over-length or malformed key.
   const idempotencyKey = getRequestHeader(event, IDEMPOTENCY_KEY_HEADER);
-  if (idempotencyKey && /^[A-Za-z0-9._~+/=-]{1,200}$/.test(idempotencyKey)) {
+  if (idempotencyKey && /^[A-Za-z0-9._~+/=-]{1,191}$/.test(idempotencyKey)) {
     headers[IDEMPOTENCY_KEY_HEADER] = idempotencyKey;
   }
 

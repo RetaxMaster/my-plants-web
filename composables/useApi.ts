@@ -1,6 +1,7 @@
 import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
 import { checkChatSendLimits, sendChatJson, type ChatAttachmentPayload } from '../utils/chatSend.js';
 import { createGetCache, type GetCache } from '~/utils/getCache';
+import { withIdempotencyKey } from '~/utils/idempotency';
 import type {
   City, CitySearchResult, CommandCatalog, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
   DueTaskResponse, Feedback, HistoryItem, KnowledgeChatSendInput, KnowledgeChatSessionDetail, KnowledgeChatSessionSummary,
@@ -71,13 +72,24 @@ export function useApi() {
   const api = async <T>(path: string, opts?: Parameters<typeof $fetch>[1]) => {
     const method = ((opts as { method?: string } | undefined)?.method ?? 'GET').toUpperCase();
     const isGet = method === 'GET';
+    // Global idempotency-key attach seam (createPlant-idempotency feature): computed uniformly for every
+    // call, GET included — the helper itself no-ops on a GET (and on an excluded /auth/* path), so the
+    // GET-cached branch below is unaffected: the cache is still keyed by `path` alone and a GET never grows
+    // an Idempotency-Key header. Only a mutating POST gets one attached, and a caller-pinned key (plant-
+    // create's own retry key) is preserved rather than overwritten. See utils/idempotency.ts.
+    //
+    // Deliberately OUT of scope here: the XHR upload()/sendChat() paths below don't call api() at all for
+    // their attachment-carrying branches, so they get no auto-attached key — the bulk import batch already
+    // has its own per-clientKey idempotency (see appendImportChunk), and no other upload path has asked for
+    // this guarantee yet.
+    const finalOpts = withIdempotencyKey(method, path, opts as any);
     try {
       // GETs are deduped + cached for this scope's lifetime; a REJECTED GET evicts itself immediately
       // (see getCache.ts), so a failed read never poisons the cache for the retry.
       if (isGet) {
-        return await cache.get<T>(path, () => fetcher<T>(`/api${path}`, opts as any) as Promise<T>);
+        return await cache.get<T>(path, () => fetcher<T>(`/api${path}`, finalOpts as any) as Promise<T>);
       }
-      const res = await fetcher<T>(`/api${path}`, opts as any);
+      const res = await fetcher<T>(`/api${path}`, finalOpts as any);
       // Flush on SUCCESS only — a failed mutation changed nothing server-side, so the existing GET cache
       // is still accurate and must not be thrown away.
       flushGetCache();

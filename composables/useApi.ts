@@ -1,4 +1,5 @@
 import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
+import { IDEMPOTENCY_KEY_HEADER } from '@retaxmaster/my-plants-species-schema';
 import { checkChatSendLimits, sendChatJson, type ChatAttachmentPayload } from '../utils/chatSend.js';
 import { createGetCache, type GetCache } from '~/utils/getCache';
 import { withIdempotencyKey } from '~/utils/idempotency';
@@ -248,7 +249,17 @@ export function useApi() {
       api<PlantProfile>(`/plants/${id}/profile`, { method: 'PATCH', body: patch }),
     getPlantPhotos: (id: string) => api<PlantPhotoItem[]>(`/plants/${id}/photos`),
     getPlantCare: (id: string) => api<PlantCare>(`/plants/${id}/care`),
-    createPlant: (body: CreatePlant) => api<Plant>('/plants', { method: 'POST', body }),
+    // `idempotencyKey`, when passed, is PINNED as the Idempotency-Key header — Task 8's withIdempotencyKey
+    // (inside api(), above) preserves a caller-pinned key rather than minting its own. This is what lets
+    // pages/plants/new.vue anchor one stable key to the whole submit lifecycle (mint once, reuse on every
+    // retry) instead of getting a fresh key auto-generated on each call, which would defeat the dedup. When
+    // omitted, the auto-generated key still applies — no caller regresses.
+    createPlant: (body: CreatePlant, idempotencyKey?: string) =>
+      api<Plant>('/plants', {
+        method: 'POST',
+        body,
+        headers: idempotencyKey ? { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey } : undefined,
+      }),
     updatePlant: (id: string, body: UpdatePlant) => api<Plant>(`/plants/${id}`, { method: 'PATCH', body }),
     previewPlantViability: (id: string, placeId: string) =>
       api<Viability>(`/plants/${id}/viability-preview?placeId=${encodeURIComponent(placeId)}`),

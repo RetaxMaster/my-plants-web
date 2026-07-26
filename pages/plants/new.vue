@@ -79,6 +79,24 @@ const placeOptions = computed(() => (places.value ?? []).map((p) => ({ label: p.
 const createdPlantId = ref<string | null>(null);
 const uploadedClientKeys = new Set<string>();
 
+// --- Submit-anchored stable idempotency key (Task 9, the real fix for the duplicate-plant-on-timeout case):
+// `createdPlantId` above only guards a retry AFTER createPlant has RETURNED — it does nothing when the
+// response itself is lost to a client-side timeout after the server already committed the create: the
+// request throws, `createdPlantId` never gets set, and a naive retry would call createPlant a SECOND time,
+// creating a duplicate plant. This key closes that gap: minted ONCE (lazily, on the first attempt) and
+// reused on every retry of the SAME mounted submit, it lets the server recognize the retried request as the
+// same create (by Idempotency-Key) and return the already-committed plant instead of duplicating it.
+// Deliberately never reset on error — a retry MUST reuse it. It's also never reset on success because the
+// page navigates away (router.push) on success, so a brand-new plant creation is naturally a fresh mount
+// with a fresh key.
+//
+// Honest edge (accepted, no code change needed): if the ORIGINAL create actually committed but the user then
+// EDITS the form and resubmits on this same mounted page, the reused key + a changed body fingerprint makes
+// the server reject with 422 (same key, different payload — Stripe-style client-misuse guard). This is rare
+// (it requires the user to keep editing after what looked like a hang) and is an accepted trade-off: the
+// common case — an unchanged form retried after a timeout — replays the same plant correctly.
+const createIdempotencyKey = ref<string | null>(null);
+
 async function runImportBatch(plantId: string) {
   const files = importPhotos.value;
   const results = importResults.value;
@@ -108,13 +126,15 @@ async function submit() {
   try {
     let plantId = createdPlantId.value;
     if (!plantId) {
+      // Mint the stable key on the FIRST attempt only; every subsequent retry of this same submit reuses it.
+      if (!createIdempotencyKey.value) createIdempotencyKey.value = crypto.randomUUID();
       const plant = await api.createPlant({
         speciesSlug: form.speciesSlug,
         placeId: form.placeId || undefined,
         nickname: form.nickname || undefined,
         acquiredOn: form.acquiredOn,
         lifecycleState: isImport.value ? (importState.value as 'MEMORIAL' | 'GIFTED') : undefined,
-      });
+      }, createIdempotencyKey.value);
       createdPlantId.value = plant.id;
       plantId = plant.id;
     }

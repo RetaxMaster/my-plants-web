@@ -93,8 +93,11 @@ describe('import-on-create — retry durability', () => {
     await flushPromises();
 
     expect(createPlantMock).toHaveBeenCalledTimes(1);
+    // 2nd arg is Task 9's submit-anchored idempotency key — any non-empty string is fine here, its own
+    // behavior is asserted separately below in "submit-anchored stable idempotency key (Task 9)".
     expect(createPlantMock).toHaveBeenCalledWith(
       expect.objectContaining({ speciesSlug: 'ficus-lyrata', lifecycleState: 'MEMORIAL' }),
+      expect.any(String),
     );
     expect(appendImportChunkMock).not.toHaveBeenCalled(); // nothing to send
     expect(finishImportMock).toHaveBeenCalledTimes(1); // but the batch is still closed
@@ -142,5 +145,65 @@ describe('import-on-create — retry durability', () => {
     expect(finishImportMock).toHaveBeenCalledTimes(1);
     expect(finishImportMock).toHaveBeenCalledWith('p1');
     expect(routerPush).toHaveBeenCalledWith('/gifted/p1');
+  });
+});
+
+describe('submit-anchored stable idempotency key (Task 9)', () => {
+  it('the first submit calls createPlant with a non-empty string key as the 2nd arg', async () => {
+    createPlantMock.mockResolvedValue({ id: 'p1' });
+    const w = await mountPage();
+
+    (w.vm as any).form.speciesSlug = 'ficus-lyrata';
+    (w.vm as any).form.placeId = 'pl1';
+    await (w.vm as any).submit();
+    await flushPromises();
+
+    expect(createPlantMock).toHaveBeenCalledTimes(1);
+    const key = createPlantMock.mock.calls[0][1];
+    expect(typeof key).toBe('string');
+    expect(key.length).toBeGreaterThan(0);
+  });
+
+  it('stable across retry: a timed-out create is retried with the SAME idempotency key, never a fresh one', async () => {
+    // First attempt "times out" (createPlant rejects, simulating a lost response after the server may have
+    // already committed); the retry must reuse the exact same key — that reuse is what lets the server
+    // recognize it as the same create and return the existing plant instead of duplicating it.
+    createPlantMock.mockRejectedValueOnce(new Error('timeout'));
+    createPlantMock.mockResolvedValueOnce({ id: 'p1' });
+    const w = await mountPage();
+
+    (w.vm as any).form.speciesSlug = 'ficus-lyrata';
+    (w.vm as any).form.placeId = 'pl1';
+
+    await (w.vm as any).submit();
+    await flushPromises();
+    expect((w.vm as any).error).toBeTruthy();
+    expect(createPlantMock).toHaveBeenCalledTimes(1);
+    const firstKey = createPlantMock.mock.calls[0][1];
+    expect(typeof firstKey).toBe('string');
+    expect(firstKey.length).toBeGreaterThan(0);
+
+    await (w.vm as any).submit();
+    await flushPromises();
+
+    expect(createPlantMock).toHaveBeenCalledTimes(2);
+    const secondKey = createPlantMock.mock.calls[1][1];
+    expect(secondKey).toBe(firstKey); // same key reused on retry, never a fresh one
+    expect(routerPush).toHaveBeenCalledWith('/plants/p1');
+  });
+
+  it('after a successful create, the cover-photo/recompute path is unaffected by the idempotency key', async () => {
+    createPlantMock.mockResolvedValue({ id: 'p1' });
+    recomputeMock.mockResolvedValue({ ok: true });
+    const w = await mountPage();
+
+    (w.vm as any).form.speciesSlug = 'ficus-lyrata';
+    (w.vm as any).form.placeId = 'pl1';
+    await (w.vm as any).submit();
+    await flushPromises();
+
+    expect(setCoverPhotoMock).not.toHaveBeenCalled(); // no photo was picked — unrelated to the key
+    expect(recomputeMock).toHaveBeenCalledTimes(1);
+    expect(routerPush).toHaveBeenCalledWith('/plants/p1');
   });
 });

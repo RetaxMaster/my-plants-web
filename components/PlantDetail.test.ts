@@ -190,14 +190,14 @@ describe('PlantDetail lifecycle actions — visibility gating', () => {
     const w = await mountDetail(basePlant({ lifecycleState: 'ACTIVE' }));
     expect(w.text()).toContain('Move to pantheon');
     expect(w.text()).toContain('Gift');
-    expect(w.text()).not.toContain('Revive');
+    expect(w.text()).not.toContain('Return to my garden');
   });
 
   it('shows ONLY revive for a GIFTED plant', async () => {
     const w = await mountDetail(basePlant({
       lifecycleState: 'GIFTED', frozenPlaceLabel: 'Study', frozenCityLabel: 'CDMX',
     }));
-    expect(w.text()).toContain('Revive');
+    expect(w.text()).toContain('Return to my garden');
     expect(w.text()).not.toContain('Move to pantheon');
     // "Gift" alone would also match inside "Gifted plants"/other unrelated copy, so this assertion checks
     // the actual action button is absent rather than the bare substring.
@@ -210,7 +210,7 @@ describe('PlantDetail lifecycle actions — visibility gating', () => {
     }));
     expect(w.findAll('button').some((b) => b.text() === 'Move to pantheon')).toBe(false);
     expect(w.findAll('button').some((b) => b.text() === 'Gift')).toBe(false);
-    expect(w.findAll('button').some((b) => b.text() === 'Revive')).toBe(false);
+    expect(w.findAll('button').some((b) => b.text() === 'Return to my garden')).toBe(false);
   });
 });
 
@@ -262,19 +262,18 @@ describe('PlantDetail lifecycle actions — wiring', () => {
 
   it('revive keeps confirm disabled until a place is chosen, then calls revivePlant(id, placeId) and routes to /plants/:id', async () => {
     const w = await mountDetail(basePlant({ lifecycleState: 'GIFTED' }));
-    await findButtonByText(w, 'Revive').trigger('click');
+    await findButtonByText(w, 'Return to my garden').trigger('click');
     await flushPromises();
 
-    // Two "Revive" buttons now exist (the trigger, still rendered behind the now-open modal, and the
-    // modal's own confirm) — the confirm one lives inside `.generic-modal` and starts disabled (no place
-    // chosen yet).
-    const modalConfirm = w.get('.generic-modal').findAll('button').find((b) => b.text() === 'Revive')!;
+    // The trigger ("Return to my garden") stays rendered behind the now-open modal; the modal's own confirm
+    // reads "Bring it back" and lives inside `.generic-modal`, starting disabled (no place chosen yet).
+    const modalConfirm = w.get('.generic-modal').findAll('button').find((b) => b.text() === 'Bring it back')!;
     expect((modalConfirm.element as HTMLButtonElement).disabled).toBe(true);
 
     await w.get('.revive-select').setValue('pl1');
     await flushPromises();
 
-    const confirmAfter = w.get('.generic-modal').findAll('button').find((b) => b.text() === 'Revive')!;
+    const confirmAfter = w.get('.generic-modal').findAll('button').find((b) => b.text() === 'Bring it back')!;
     expect((confirmAfter.element as HTMLButtonElement).disabled).toBe(false);
 
     await confirmAfter.trigger('click');

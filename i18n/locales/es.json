@@ -247,18 +247,18 @@
     "lifecycle": {
       "memorializeAction": "Mover al panteón",
       "giftAction": "Regalar",
-      "reviveAction": "Revivir",
+      "reviveAction": "Regresar a mi jardín",
       "memorializeTitle": "Mover al panteón",
       "memorializeBody": "Esta planta se moverá al panteón como un recuerdo tranquilo y de solo lectura. Esta acción es permanente y no se puede deshacer.",
       "memorializeConfirm": "Mover al panteón",
       "giftTitle": "Regalar esta planta",
-      "giftBody": "Esta planta se moverá a tus plantas regaladas como un registro de solo lectura de su nuevo hogar. Puedes revivirla después si regresa a tu jardín.",
+      "giftBody": "Esta planta se moverá a tus plantas regaladas como un registro de solo lectura de su nuevo hogar. Puedes regresarla a tu jardín después si vuelve contigo.",
       "giftConfirm": "Regalar",
-      "reviveTitle": "Revivir esta planta",
+      "reviveTitle": "Recíbela de vuelta",
       "reviveBody": "Regresa esta planta a tu jardín activo. Elige el lugar donde vivirá ahora: el seguimiento de cuidados se reanuda desde hoy.",
       "revivePlace": "Lugar",
       "revivePlacePlaceholder": "Elige un lugar",
-      "reviveConfirm": "Revivir",
+      "reviveConfirm": "Regresarla al jardín",
       "error": "Algo salió mal. Por favor intenta de nuevo."
     }
   },

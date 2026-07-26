@@ -192,19 +192,22 @@ function onDragLeave() {
 
     <ul v-if="previews.length" class="mp-dropzone__thumbs">
       <li v-for="(p, i) in previews" :key="p.url" class="mp-dropzone__thumb">
-        <img :src="p.url" :alt="t('dropzone.photoPreviewAlt')" />
-        <button
-          type="button"
-          class="mp-dropzone__remove"
-          :aria-label="t('dropzone.removePhoto')"
-          @click="removeAt(i)"
-        >
-          <UiAppIcon name="x-mark" :size="14" color="currentColor" />
-        </button>
-
-        <!-- Compress mode: per-photo HD (original) toggle + honest savings badge. -->
-        <template v-if="compress">
+        <!-- Fixed-size image box: it alone anchors the absolute overlays (remove + HD), so the savings
+             caption below can sit in normal flow without the chip's height clipping it. -->
+        <div class="mp-dropzone__thumb-image">
+          <img :src="p.url" :alt="t('dropzone.photoPreviewAlt')" />
           <button
+            type="button"
+            class="mp-dropzone__remove"
+            :aria-label="t('dropzone.removePhoto')"
+            @click="removeAt(i)"
+          >
+            <UiAppIcon name="x-mark" :size="14" color="currentColor" />
+          </button>
+
+          <!-- Compress mode: per-photo HD (original) toggle, kept fully inside the image corner. -->
+          <button
+            v-if="compress"
             type="button"
             class="mp-dropzone__hd"
             :class="{ 'is-on': p.hd }"
@@ -215,14 +218,17 @@ function onDragLeave() {
           >
             {{ t('dropzone.hd') }}
           </button>
-          <span class="mp-dropzone__savings">
-            <template v-if="p.pending">…</template>
-            <template v-else-if="p.result && p.result.wasOptimised">
-              {{ t('dropzone.saved', { size: formatBytes(savingsOf(p.result)) }) }}
-            </template>
-            <template v-else>{{ t('dropzone.original') }}</template>
-          </span>
-        </template>
+        </div>
+
+        <!-- Compress mode: honest savings caption on its OWN row below the image — never overlapping the
+             HD badge or the helper caption. -->
+        <span v-if="compress" class="mp-dropzone__savings">
+          <template v-if="p.pending">…</template>
+          <template v-else-if="p.result && p.result.wasOptimised">
+            {{ t('dropzone.saved', { size: formatBytes(savingsOf(p.result)) }) }}
+          </template>
+          <template v-else>{{ t('dropzone.original') }}</template>
+        </span>
       </li>
     </ul>
 
@@ -309,12 +315,21 @@ function onDragLeave() {
 }
 
 .mp-dropzone__thumb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 76px;
+}
+
+/* Fixed-size image box: the positioning context for the remove + HD overlays, so the chip can grow
+   downward to fit the savings caption instead of clipping it against a fixed 76px height. */
+.mp-dropzone__thumb-image {
   position: relative;
   width: 76px;
   height: 76px;
 }
 
-.mp-dropzone__thumb img {
+.mp-dropzone__thumb-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -351,8 +366,8 @@ function onDragLeave() {
 
 .mp-dropzone__hd {
   position: absolute;
-  bottom: -6px;
-  left: -6px;
+  bottom: 4px;
+  left: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -383,11 +398,11 @@ function onDragLeave() {
 }
 
 .mp-dropzone__savings {
-  display: block;
-  margin-top: var(--space-1);
+  width: 76px;
   text-align: center;
   font: var(--text-xs) / 1.2 var(--font-sans);
   color: var(--text-faint);
+  overflow-wrap: break-word;
 }
 
 .mp-dropzone__batch {

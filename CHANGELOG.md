@@ -39,6 +39,18 @@ another list.
   future visual change to how a plant is shown in a list applies everywhere at once instead of needing to be
   repeated per section.
 
+### Fixed
+
+- **The pantheon and gifted section headers no longer show a stray colored band behind their titles.** The
+  green/honey wash that used to sit behind "Pantheon" and "Gifted" is gone; each title now sits on the clean
+  page background, while the section's distinct color still lives in its cards and header.
+- **The button that brings a gifted plant back reads correctly now.** A gifted plant was never dead, so it no
+  longer says "Revive" — it now says "Return to my garden," with matching wording throughout the flow.
+- **Uploading an image in the admin media library now compresses it on your device first**, like every other
+  upload in the app, so it sends faster on a slow connection (and tells you how much it saved).
+- **The photo previews when logging progress no longer overlap.** The HD badge, the "saved X MB" note, and
+  the helper text under the picker now lay out cleanly instead of colliding on top of each other.
+
 ## Unreleased — See when a plant moved, and leave it a note
 
 **A plant's history timeline now shows when it moved and any note you've left on it.** A new "Agregar

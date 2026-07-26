@@ -101,12 +101,14 @@ body { background: var(--surface-page); }
    classes over the SAME base card/grid/banner/alert markup —
    no forked component, no inline magic values (every color/
    font/spacing value below is a token from tokens/*.css).
-   Pantheon = memorial/serene: muted sage-stone wash, the
-   existing serif (--font-serif, Bitter) on headers for quiet
-   gravitas, no lift on hover.
-   Gifted = warm/luminous: honeyed cafe-amber wash, a soft glow
-   shadow, stays on the sans (--font-sans) with a slightly
-   bolder, warmer voice.
+   Pantheon = memorial/serene: the existing serif (--font-serif,
+   Bitter) on headers for quiet gravitas, muted sage-stone card/
+   photo tints, no lift on hover.
+   Gifted = warm/luminous: honeyed cafe-amber card/photo tints, a
+   soft glow shadow, stays on the sans (--font-sans) with a
+   slightly bolder, warmer voice.
+   The section TITLE itself sits on the normal flat page
+   background — no gradient band behind it (owner review).
    Every rule here is a static paint (color/gradient/shadow) —
    nothing here is ever animated, so the "never animate a
    blurred/mix-blend-mode full-viewport element or a paint
@@ -116,22 +118,10 @@ body { background: var(--surface-page); }
    already shared app-wide, already transform/opacity-based).
    ============================================================ */
 
-/* Section wrapper: a soft top-of-page wash + serif/sans header voice. Kept to the header
-   area (a fixed-height gradient, not a full-viewport tint) so it stays a page ACCENT, not a
-   theme override — the cards below keep the normal page background. */
-.mp-section--pantheon,
-.mp-section--gifted {
-  padding-top: var(--space-6);
-  padding-bottom: var(--space-2);
-  margin-top: calc(var(--space-6) * -1);
-  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
-}
-.mp-section--pantheon {
-  background: linear-gradient(180deg, var(--pantheon-wash-from), var(--pantheon-wash-to) 260px);
-}
-.mp-section--gifted {
-  background: linear-gradient(180deg, var(--gifted-wash-from), var(--gifted-wash-to) 260px);
-}
+/* Section identity is carried by the header VOICE (serif/sans + eyebrow accent) and the card/photo
+   tints below — NOT by a gradient band behind the title. The earlier top-of-page wash read as a strange
+   green/honey cast behind the section titles (owner review), so it is removed: the title now sits on the
+   normal flat page background like every other section header. */
 
 .mp-section--pantheon .mp-screen-header__title {
   font-family: var(--font-serif);

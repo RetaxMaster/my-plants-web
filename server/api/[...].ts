@@ -1,3 +1,5 @@
+import { IDEMPOTENCY_KEY_HEADER } from '@retaxmaster/my-plants-species-schema';
+
 export default defineEventHandler(async (event) => {
   const { apiBase } = useRuntimeConfig(event);
   const session = await getUserSession(event);
@@ -33,6 +35,22 @@ export default defineEventHandler(async (event) => {
   // letters, digits and hyphens — anything else is dropped and the API falls back to its own default.
   const locale = parseCookies(event).i18n_redirected;
   if (locale && /^[A-Za-z0-9-]{2,20}$/.test(locale)) headers['x-locale'] = locale;
+
+  // Forward the browser's IDEMPOTENCY KEY to the API, when present.
+  //
+  // The key is a client-generated opaque token (a UUID minted in the browser) the API uses to recognize a
+  // retried createPlant submission as the SAME attempt rather than a second plant — without this header
+  // reaching NestJS, that whole safeguard is a silent no-op end to end. `getRequestHeader` is h3's
+  // case-insensitive lookup, so this reads the header regardless of how the browser cased it.
+  //
+  // Sanitized before forwarding for the same reason `x-locale` is: this value is attacker-controllable (any
+  // request header is), and it must never be able to inject a second header or an arbitrary payload into
+  // the upstream request. A token is bounded, printable, CRLF-free ASCII — anything else is dropped and the
+  // request proceeds with no idempotency key, same as if the browser had never sent one.
+  const idempotencyKey = getRequestHeader(event, IDEMPOTENCY_KEY_HEADER);
+  if (idempotencyKey && /^[A-Za-z0-9._~+/=-]{1,200}$/.test(idempotencyKey)) {
+    headers[IDEMPOTENCY_KEY_HEADER] = idempotencyKey;
+  }
 
   // Read the raw body binary-safe (Buffer, not a UTF-8 string): multipart image uploads carry raw
   // binary bytes that a default 'utf8' decode would mangle (invalid sequences → U+FFFD), breaking the

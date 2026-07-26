@@ -204,6 +204,46 @@ describe('the Nuxt BFF proxy, seen from the browser', () => {
     });
   });
 
+  // The idempotency-key hand-off. Without this header reaching NestJS, a retried createPlant submission is
+  // indistinguishable from a second one — the whole feature is a silent no-op end to end.
+  describe('idempotency-key forwarding', () => {
+    it('forwards the Idempotency-Key header to the API unchanged', async () => {
+      nextStatus = 200;
+      nextBody = { ok: true };
+      await callThroughBff('/api/plants', { 'Idempotency-Key': 'a1b2c3d4-e5f6-4789-9abc-def012345678' });
+      expect(lastUpstreamHeaders['idempotency-key']).toBe('a1b2c3d4-e5f6-4789-9abc-def012345678');
+    });
+
+    // A header value is attacker-controllable and must never be able to inject a second header or an
+    // arbitrary payload (unbounded length, out-of-charset punctuation) into the upstream request.
+    //
+    // A literal CRLF is NOT exercisable at this wire level on purpose: HTTP itself delimits header fields
+    // on CRLF, so neither a spec-conformant browser `fetch` (which throws on a forbidden header value)
+    // nor the BFF's own HTTP parser (which would read "abc" and a SEPARATE "X-Injected" header, never one
+    // value containing a raw CRLF) can ever hand `getRequestHeader` a value with an embedded CRLF — the
+    // regex's CRLF exclusion is defense-in-depth against a non-conformant client, not something a real
+    // request round-trip can trigger. `x-locale`'s CRLF case works around this by smuggling the CRLF
+    // through cookie percent-decoding instead; there is no equivalent decode step here.
+    it('drops a malformed idempotency key rather than forwarding it', async () => {
+      nextStatus = 200;
+      nextBody = { ok: true };
+      for (const bad of ['a'.repeat(201), 'has spaces!@#', '']) {
+        await callThroughBff('/api/plants', { 'Idempotency-Key': bad });
+        expect(
+          lastUpstreamHeaders['idempotency-key'],
+          `should have dropped ${JSON.stringify(bad)}`,
+        ).toBeUndefined();
+      }
+    });
+
+    it('sends no Idempotency-Key at all when the browser sent none', async () => {
+      nextStatus = 200;
+      nextBody = { ok: true };
+      await callThroughBff('/api/plants');
+      expect(lastUpstreamHeaders['idempotency-key']).toBeUndefined();
+    });
+  });
+
   // Regression #1 of the family, re-pinned here now that a harness exists that can actually see it: an
   // empty 200 body reaches the browser as the empty STRING, not `null` and not `{}`.
   it('an EMPTY 200 body arrives at the browser as the empty string', async () => {

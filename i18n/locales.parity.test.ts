@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import en from './locales/en.json';
 import es from './locales/es.json';
 import { PROGRESS_TAG_KEYS } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
+import { SOIL_MIXES } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 import { permittedTypesFor, type AgentScope } from '@retaxmaster/my-plants-species-schema/agent-capabilities';
 import type { KnowledgeChatRunStatus } from '../types/api';
 import { OP_TYPE_KEY } from '../utils/agentProposalOpTypes';
@@ -212,6 +213,19 @@ describe('clinical record copy is genuinely translated (spec 2026-07-20 ยง6.1, ย
     expect(Object.keys(enBlock).length).toBeGreaterThan(0);
     for (const k of Object.keys(enBlock)) {
       expect(esBlock[k], `clinicalRecord.${k}`).not.toBe(enBlock[k]);
+    }
+  });
+});
+
+describe('soil-mix vocabulary coverage', () => {
+  // Derived from the shared vocabulary, never hand-listed: a new mix in the package must fail HERE, in
+  // the locale trees, rather than reaching the selector as a raw slug.
+  it('labels every SOIL_MIXES member in both locales', () => {
+    for (const mix of SOIL_MIXES) {
+      const enLabel = (en as Tree).plantProfile as Tree;
+      const esLabel = (es as Tree).plantProfile as Tree;
+      expect(((enLabel.soilMixOptions as Tree)[mix] as string) ?? '').not.toBe('');
+      expect(((esLabel.soilMixOptions as Tree)[mix] as string) ?? '').not.toBe('');
     }
   });
 });

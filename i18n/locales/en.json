@@ -400,6 +400,7 @@
     "soilMixOptions": {
       "aroid": "Aroid mix",
       "all-purpose": "All-purpose",
+      "all-purpose-perlite": "All-purpose with perlite",
       "cactus-succulent": "Cactus & succulent",
       "orchid-bark": "Orchid bark",
       "peat-based": "Peat-based",

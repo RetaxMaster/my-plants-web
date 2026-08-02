@@ -595,7 +595,16 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
   // watcher) — that is a question about what the screen shows, which is genuinely a different question from
   // whether a send may proceed.
   if (chat.providerBusy.value) {
-    chat.enqueueMessage({ text: body.trim(), attachments: items });
+    // UNTRIMMED, deliberately (spec 2026-08-01 §5.2). This used to send `body.trim()`, which made the
+    // same keystrokes mean different things depending on whether a run happened to be in flight:
+    // "  /help" was PROSE when idle (the direct send below passes `body` untouched, and
+    // `parseCommandInput` requires the `/` at index 0) and a COMMAND when queued. The queued payload is
+    // now byte-identical to what a direct send would carry, so the two paths cannot disagree.
+    //
+    // The FIX IS NOT to trim both sides: that would make "  /help" a command ALWAYS, contradicting the
+    // rule stated above and desynchronizing us from the engine's own /execute validator — reintroducing
+    // exactly the fork that rule exists to prevent.
+    chat.enqueueMessage({ text: body, attachments: items });
     draft.value = '';
     attachments.value = [];
     return;

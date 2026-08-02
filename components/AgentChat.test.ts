@@ -110,15 +110,14 @@ vi.mock('@retaxmaster/agents-realtime-client', async (importOriginal) => {
     createObjectUrlRegistry: vi.fn(() => urlRegistryStub),
   };
 });
-// AgentChat.vue now pulls CHAT_ATTACHMENT_CAPS from utils/chatSend.ts, which imports these constants
-// straight from the protocol package (never retyped) — so the mock must carry them too, or importing
-// chatSend.ts throws before a single test in this file can run.
-vi.mock('@retaxmaster/agents-realtime-protocol', () => ({
-  parseCommandInput: () => null,
-  DEFAULT_ATTACHMENT_MAX_COUNT: 6,
-  DEFAULT_ATTACHMENT_MAX_FILE_BYTES: 10 * 1024 * 1024,
-  DEFAULT_ATTACHMENT_MAX_TOTAL_BYTES: 20 * 1024 * 1024,
-  IMAGE_MIME_ALLOWLIST: new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+// The REAL protocol module. `parseCommandInput` is the function the engine's own /execute validator
+// uses, and this task is about staying in step with it — a hand-written stub returning `null` cannot
+// fail the property being proved. (The client mock above takes the same `importOriginal` approach, for
+// the same reason.) This also keeps CHAT_ATTACHMENT_CAPS's constants (DEFAULT_ATTACHMENT_MAX_COUNT etc.,
+// pulled by utils/chatSend.ts straight from this package) genuinely real rather than hand-copied values
+// that could silently drift from the installed package.
+vi.mock('@retaxmaster/agents-realtime-protocol', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@retaxmaster/agents-realtime-protocol')>()),
 }));
 
 import AgentChat from './AgentChat.vue';
@@ -290,6 +289,13 @@ beforeEach(() => {
   chatStub.clearRestored.mockClear();
   chatStub.start.mockClear();
   chatStub.resume.mockClear();
+  // Task 14: a `.not.toHaveBeenCalledWith(...)` assertion on this spy (the "a real /command..." test) is
+  // meaningless without a clear boundary — without this line it inherits every OTHER test's optimistic
+  // bubbles for the life of the file, and a later test's legitimately-pushed trimmed text (e.g. prose
+  // "  /help" rendered as "/help") would leak into an unrelated test's negative assertion. Safe to clear
+  // unconditionally: every existing use of this spy is a positive `toHaveBeenCalledWith`, which does not
+  // depend on history predating its own test.
+  chatStub.pushUserPrompt.mockClear();
 });
 afterEach(async () => {
   while (mounted.length) mounted.pop()!.unmount();
@@ -1179,5 +1185,77 @@ describe('restored attachment recall', () => {
     mountChat(undefined, { runs: { mintSocketTicket: vi.fn(), fetchAttachment } });
     await flushPromises();
     expect(fetchAttachment).not.toHaveBeenCalled();
+  });
+});
+
+// Spec 2026-08-01 §5.2. The rule this file defends: the `/` must be at index 0 — a LEADING SPACE IS
+// PROSE — because that is what the engine's own /execute validator says. The defect was that the QUEUE
+// path sent `body.trim()`, so the same keystrokes meant different things depending on whether a run
+// happened to be in flight.
+describe('a queued message is byte-identical to a direct send', () => {
+  afterEach(() => { chatStub.providerBusy.value = false; });
+
+  it('queues "  /help" WITH its leading spaces — it is prose, exactly as a direct send would treat it', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.providerBusy.value = true;
+    await flushPromises();
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', '  /help', []);
+    await flushPromises();
+
+    // THE DEFECT: this used to be '/help' — a command, queued, later EXECUTED against the agent.
+    expect(chatStub.enqueueMessage).toHaveBeenCalledWith(expect.objectContaining({ text: '  /help' }));
+  });
+
+  it('the direct path carries the same bytes, so both paths agree', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.providerBusy.value = false;
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', '  /help', []);
+    await flushPromises();
+    expect(chatStub.resume).toHaveBeenCalledWith('agent-session-1', '  /help', expect.anything());
+  });
+
+  it('round-trips arbitrary text byte for byte through the queue', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.providerBusy.value = true;
+    await flushPromises();
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', '  spaced  out  ', []);
+    await flushPromises();
+    expect(chatStub.enqueueMessage).toHaveBeenCalledWith(expect.objectContaining({ text: '  spaced  out  ' }));
+  });
+
+  // The genuine command still works on both paths — the fix must not make commands unreachable.
+  it('a real /command with no leading space is still a command on both paths', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+
+    chatStub.providerBusy.value = false;
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', '/help', []);
+    await flushPromises();
+    // A command turn leads with the engine's own `command.started` — never an optimistic user bubble.
+    expect(chatStub.pushUserPrompt).not.toHaveBeenCalledWith('/help', expect.anything(), expect.anything());
+    expect(chatStub.resume).toHaveBeenCalledWith('agent-session-1', '/help', expect.anything());
+
+    chatStub.enqueueMessage.mockClear();
+    chatStub.providerBusy.value = true;
+    await flushPromises();
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', '/help', []);
+    await flushPromises();
+    expect(chatStub.enqueueMessage).toHaveBeenCalledWith(expect.objectContaining({ text: '/help' }));
+  });
+
+  // The empty-input guard SHOULD trim, and keeps trimming: "did the user type anything" is a genuinely
+  // different question from "where does the command start".
+  it('still rejects whitespace-only input with no attachments', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', '   ', []);
+    await flushPromises();
+    expect(chatStub.enqueueMessage).not.toHaveBeenCalled();
+    expect(chatStub.resume).not.toHaveBeenCalled();
+    expect(chatStub.start).not.toHaveBeenCalled();
   });
 });

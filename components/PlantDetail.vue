@@ -352,6 +352,27 @@ const taskInfoRepotSigns = computed(() =>
 // its absence reads as "unknown", never as false.
 const isJuvenile = computed(() => care.value?.juvenile?.isJuvenile === true);
 
+// Explains WHY a date is where it is (Spec 1 §8). Returns undefined for every task with nothing to say,
+// so the row renders exactly as it does today.
+function taskExplanation(task: string): string | undefined {
+  const s = care.value?.substrate;
+  if (!s) return undefined;
+  if (task === 'FERTILIZE' && s.fertilizeFloorOn) {
+    // Only show the FERTILIZE line when the floor is actually ACTIVE — i.e. it is the mechanism that
+    // produced this task's next-due date. Otherwise the card would claim the floor produced a date it
+    // did not.
+    const row = care.value?.tasks.find((t) => t.task === 'FERTILIZE');
+    if (!row || row.nextDueOn !== s.fertilizeFloorOn) return undefined;
+    return t('taskInfo.substrate.fertilizeFloor', { date: s.fertilizeFloorOn });
+  }
+  if (task === 'REPOT' && s.repotDriver) {
+    return s.repotDriver === 'SUBSTRATE'
+      ? t('taskInfo.substrate.repotDriverSubstrate')
+      : t('taskInfo.substrate.repotDriverCrowding');
+  }
+  return undefined;
+}
+
 // A tri-state boolean -> localized Yes/No, or null (Missing info) when unknown.
 function yn(v: boolean | null | undefined): string | null {
   if (v === null || v === undefined) return null;
@@ -820,6 +841,7 @@ async function confirmRevive() {
                 :task="t3.task"
                 :status="t3.status"
                 :due-label="dueLabelLong(careDueState(t3))"
+                :explanation="taskExplanation(t3.task)"
                 with-done-date
                 show-info
                 @done="e => onDone(e.task, t3.status, e.occurredOn)"

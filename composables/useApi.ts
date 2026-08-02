@@ -166,6 +166,24 @@ export function useApi() {
     }
   };
 
+  // A BINARY read. Deliberately NOT routed through `api()`: that path is JSON-shaped and caches every GET
+  // by path in the app-scoped GET cache, and a cache of image blobs keyed by url is both a memory leak
+  // and a way to serve one conversation's photo after an identity switch. This asks ofetch for a Blob and
+  // caches nothing.
+  //
+  // It still goes through the SAME `/api` BFF proxy as everything else (the browser never talks to the
+  // NestJS API directly), and the proxy's binary branch is what preserves the bytes, the status and the
+  // content type. A non-2xx throws exactly like any other call, carrying its status — which is what lets
+  // the caller tell an expired image (410) apart from a misconfiguration (500).
+  const fetchChatAttachment = async (path: string): Promise<Blob> => {
+    try {
+      return await fetcher<Blob>(`/api${path}`, { responseType: 'blob' } as any);
+    } catch (e: any) {
+      await handle401(e);
+      throw e;
+    }
+  };
+
   return {
     // Drop this plant's cached GET reads (`/plants/:id`, `/plants/:id/photos`, `/plants/:id/history`, …)
     // from the page-lifetime GET cache. A normal refresh() re-runs its fetcher but this cache re-serves
@@ -176,6 +194,11 @@ export function useApi() {
       const base = `/plants/${id}`;
       cache.invalidate((k) => k === base || k.startsWith(`${base}/`) || k.startsWith(`${base}?`));
     },
+
+    // Chat-attachment recall (spec 2026-08-01 §3.4). Shared by all three runs adapters
+    // (useKnowledgeChatRuns / useDoctorChatRuns / useGardenerChatRuns) — each builds its own surface's
+    // path via `~/utils/chatAttachmentPath` and hands it here unchanged.
+    fetchChatAttachment,
 
     listSpecies: () => api<SpeciesSummary[]>('/species'),
 

@@ -360,6 +360,18 @@ export interface ChatWorkspaceSessionsAdapter extends ChatSessionsAdapter {
 // What the shared <AgentChat> / <AgentChatWorkspace> need from a "runs" source.
 export interface ChatRunsAdapter {
   mintSocketTicket: (runId: string) => Promise<string>;
+  /**
+   * Recall ONE restored attachment's bytes for this surface (spec 2026-08-01 §3.4).
+   *
+   * It returns a `Blob` and never a url, because the chat package's object-url registry owns every url
+   * it mints and revokes all of them — a resolver handing back a url would invert that and leave nobody
+   * responsible for revocation.
+   *
+   * REJECTS on a non-2xx, carrying the upstream status: 410 (the 48 h retention reaped it — the COMMON
+   * case for an old conversation), 404 (never recorded), 500 (our own misconfiguration). The caller
+   * renders the first two as an honest placeholder and only the last as a failure.
+   */
+  fetchAttachment: (sessionId: string, runId: string, attachmentId: string) => Promise<Blob>;
 }
 
 // --- Agent write proposals (spec 2026-07-18 §5.4, §5.5.1, §5.5.3) ---

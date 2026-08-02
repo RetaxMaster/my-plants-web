@@ -229,7 +229,13 @@
     "importGiftHint": "Import a plant you already gave away. This action is permanent.",
     "placeOptionalHint": "Optional when importing — the plant is frozen and doesn't need a spot.",
     "importPhotosLabel": "Photos to import",
-    "importPhotosHint": "Optional — bring in the plant's photo history (up to 50)."
+    "importPhotosHint": "Optional — bring in the plant's photo history (up to 50).",
+    "substrateRefreshedOn": "Substrate last renewed on (optional)",
+    "substrateCharged": "Was it fresh substrate?",
+    "substrateChargedYes": "Yes — fresh, charged mix",
+    "substrateChargedNo": "No — reused or inert medium",
+    "substrateChargedUnknown": "I don't know",
+    "substrateHint": "Leave blank if you're not sure — we'll assume the soil is spent, which is the safe assumption."
   },
   "plantDetail": {
     "backAll": "All plants",

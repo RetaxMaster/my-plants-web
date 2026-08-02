@@ -229,7 +229,13 @@
     "importGiftHint": "Importa una planta que ya regalaste. Esta acción es permanente.",
     "placeOptionalHint": "Opcional al importar — la planta está congelada y no necesita un lugar.",
     "importPhotosLabel": "Fotos a importar",
-    "importPhotosHint": "Opcional — trae el historial de fotos de la planta (hasta 50)."
+    "importPhotosHint": "Opcional — trae el historial de fotos de la planta (hasta 50).",
+    "substrateRefreshedOn": "Sustrato renovado el (opcional)",
+    "substrateCharged": "¿Era sustrato fresco?",
+    "substrateChargedYes": "Sí — mezcla nueva con alimento",
+    "substrateChargedNo": "No — sustrato reusado o inerte",
+    "substrateChargedUnknown": "No sé",
+    "substrateHint": "Déjalo en blanco si no estás seguro — asumiremos que el sustrato ya está agotado, que es lo prudente."
   },
   "plantDetail": {
     "backAll": "Todas las plantas",

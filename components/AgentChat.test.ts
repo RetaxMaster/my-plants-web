@@ -52,6 +52,11 @@ const chatStub = await vi.hoisted(async () => {
     // Not wired by Task 20 (that is Task 21's `abandonConversation()` + the workspace exits) — added now
     // so Task 21 finds it already on the stub.
     abandonConversation: vi.fn(),
+    // Restored-attachment recall (Task 11, spec 2026-08-01 §3.4). Both optional on the package's own
+    // instance type; default to an empty batch so every existing test — which does not care about this
+    // loop at all — sees "nothing to resolve" and stays exactly as it was.
+    restoredAttachments: vi.fn(() => []),
+    setRestoredAttachmentPreview: vi.fn(() => true),
   };
 });
 
@@ -208,7 +213,10 @@ function mountChatInner(proposals: Record<string, unknown> | undefined, extra: R
       initialProviderSessionId: 'agent-session-1',
       initialTurns: [],
       sessions: makeSessions(),
-      runs: { mintSocketTicket: vi.fn() },
+      // `fetchAttachment` completes the adapter (Task 11): every test that does not care about attachment
+      // recall still needs a well-formed `runs` prop, since `resolveRestoredAttachments()` reads it
+      // whenever `chatStub.restoredAttachments()` is non-empty.
+      runs: { mintSocketTicket: vi.fn(), fetchAttachment: vi.fn(async () => new Blob(['x'])) },
       socketUrl: 'http://doctor:8400',
       i18nNamespace: 'diagnose',
       // Cast at the boundary. One test below deliberately hands over an adapter that BREAKS its declared
@@ -1073,5 +1081,103 @@ describe('the queue gate follows the package, not our own state', () => {
     await flushPromises();
     expect(chatStub.enqueueMessage).not.toHaveBeenCalled();
     expect(chatStub.resume).toHaveBeenCalled();
+  });
+});
+
+// Restored-attachment recall (spec 2026-08-01 §3.4). The package hands us the refs and takes back a url;
+// everything between — authorizing the fetch against our own session, minting through OUR registry, and
+// degrading honestly — is ours.
+describe('restored attachment recall', () => {
+  beforeEach(() => {
+    chatStub.restoredAttachments = vi.fn(() => []);
+    chatStub.setRestoredAttachmentPreview = vi.fn(() => true);
+    urlRegistryStub.release.mockClear();
+  });
+
+  const ref1 = { runId: 'run-1', attachmentId: 'a1', filename: 'leaf.png', mimeType: 'image/png' };
+  const ref2 = { runId: 'run-1', attachmentId: 'a2', filename: 'stem.png', mimeType: 'image/png' };
+
+  it('asks its OWN surface adapter for every restored attachment and writes the preview back', async () => {
+    chatStub.restoredAttachments = vi.fn(() => [ref1]);
+    const fetchAttachment = vi.fn(async () => new Blob(['x'], { type: 'image/png' }));
+    mountChat(undefined, { runs: { mintSocketTicket: vi.fn(), fetchAttachment } });
+    await flushPromises();
+
+    // The SESSION id travels with the request: the route is session-scoped, and it is the session — not
+    // the run id — that the API authorizes against.
+    expect(fetchAttachment).toHaveBeenCalledWith('sess-1', 'run-1', 'a1');
+    expect(chatStub.setRestoredAttachmentPreview).toHaveBeenCalledWith('run-1', 'a1', expect.any(String));
+  });
+
+  it('mints through OUR registry on the `history` surface, never URL.createObjectURL', async () => {
+    chatStub.restoredAttachments = vi.fn(() => [ref1]);
+    mountChat(undefined, {
+      runs: { mintSocketTicket: vi.fn(), fetchAttachment: vi.fn(async () => new Blob(['x'])) },
+    });
+    await flushPromises();
+    expect(urlRegistryStub.urlFor).toHaveBeenCalledWith('history', expect.objectContaining({ blob: expect.any(Blob) }));
+  });
+
+  // THE LEAK. A url minted for a bubble that is no longer on screen belongs to nothing; leaving it for a
+  // teardown that counts it as held is one leaked url per image, for the life of the session.
+  it('releases the url when the write-back is refused', async () => {
+    chatStub.restoredAttachments = vi.fn(() => [ref1]);
+    chatStub.setRestoredAttachmentPreview = vi.fn(() => false);
+    mountChat(undefined, {
+      runs: { mintSocketTicket: vi.fn(), fetchAttachment: vi.fn(async () => new Blob(['x'])) },
+    });
+    await flushPromises();
+    expect(urlRegistryStub.release).toHaveBeenCalledWith('history', expect.any(String));
+  });
+
+  // A chat that will not load is broken; a chat with one missing thumbnail is merely degraded. One
+  // failure must not abandon the rest of the batch — the package's own implementation records this exact
+  // regression, and ours is the same loop.
+  it('one failure does not abandon the others in the batch', async () => {
+    chatStub.restoredAttachments = vi.fn(() => [ref1, ref2]);
+    const fetchAttachment = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error('gone'), { statusCode: 410 }))
+      .mockResolvedValueOnce(new Blob(['y']));
+    mountChat(undefined, { runs: { mintSocketTicket: vi.fn(), fetchAttachment } });
+    await flushPromises();
+    expect(fetchAttachment).toHaveBeenCalledTimes(2);
+    expect(chatStub.setRestoredAttachmentPreview).toHaveBeenCalledWith('run-1', 'a2', expect.any(String));
+  });
+
+  // 410 is the COMMON case for an old conversation, not an error. Treating it as one would make normal
+  // behaviour look broken — so it leaves the package's named affordance (whose label now says the image
+  // is no longer available and names the 48 h window) and shows NO failure notice.
+  it('an expired image (410) shows the placeholder, not a failure notice', async () => {
+    chatStub.restoredAttachments = vi.fn(() => [ref1]);
+    const w = mountChat(undefined, {
+      runs: {
+        mintSocketTicket: vi.fn(),
+        fetchAttachment: vi.fn().mockRejectedValue(Object.assign(new Error('gone'), { statusCode: 410 })),
+      },
+    });
+    await flushPromises();
+    expect(w.text()).not.toContain('composer.attachmentRecallFailed');
+  });
+
+  // A 500 is OUR misconfiguration and must never wear the expiry copy.
+  it('a 500 shows the generic failure notice', async () => {
+    chatStub.restoredAttachments = vi.fn(() => [ref1]);
+    const w = mountChat(undefined, {
+      runs: {
+        mintSocketTicket: vi.fn(),
+        fetchAttachment: vi.fn().mockRejectedValue(Object.assign(new Error('boom'), { statusCode: 500 })),
+      },
+    });
+    await flushPromises();
+    expect(w.text()).toContain('composer.attachmentRecallFailed');
+  });
+
+  it('does nothing at all when the package exposes no restored attachments', async () => {
+    chatStub.restoredAttachments = undefined as never;
+    const fetchAttachment = vi.fn();
+    mountChat(undefined, { runs: { mintSocketTicket: vi.fn(), fetchAttachment } });
+    await flushPromises();
+    expect(fetchAttachment).not.toHaveBeenCalled();
   });
 });

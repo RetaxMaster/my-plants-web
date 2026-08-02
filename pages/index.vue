@@ -2,7 +2,9 @@
 import { groupByPlant, dueState, type DueTask } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
-import type { Plant } from '../types/api.js';
+import type {
+  Plant, RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload, PendingRepotEvaluation,
+} from '../types/api.js';
 
 const { t, d, locale } = useI18n();
 const { dueLabel } = useTaskMeta();
@@ -11,28 +13,38 @@ useHead(() => ({ title: t('meta.today.title') }));
 useSeoMeta({ description: () => t('meta.today.description') });
 const api = useApi();
 
-const { earlyWaterOptions, postponeOptions, repotPostponeOptions } = useFeedbackReasons();
+const { earlyWaterOptions, postponeOptions } = useFeedbackReasons();
 
 // A WATER action that teaches the schedule opens a reason picker; on confirm we send with the reason.
 // Everything else sends immediately with no prompt.
 const pending = ref<{ plantId: string; task: DueTask['task']; type: 'DONE' | 'POSTPONED'; occurredOn?: string } | null>(null);
 const earlyPickerOpen = ref(false);
 const postponePickerOpen = ref(false);
-// REPOT is an INSPECTION (spec F.7): its Postpone always asks which of the three outcomes the owner saw,
-// and shows the species' repotting signs. Same picker component, a different vocabulary.
-const repotPickerOpen = ref(false);
-const pendingRepotSigns = ref<string[]>([]);
+
+// REPOT is a verdict-driven state machine (Task 27): the card offers "time to evaluate" until an
+// evaluation resolves it (RepotEvaluationModal.vue, Task 25), and only a 'REPOT' verdict unlocks the
+// classic Done | Postpone — see TaskRow.vue's `showEvaluate`.
+const evaluationOpen = ref(false);
+const evaluationSigns = ref<RepotSign[]>([]);
+const evaluationPlantId = ref<string | null>(null);
+const evaluationSubmitting = ref(false);
+// STABLE per submission: minted lazily on the first attempt, reused verbatim across retries of that same
+// submission, and discarded the moment it succeeds or the owner abandons the modal. NEVER content-derived —
+// two genuinely separate evaluations of one plant must not collapse into one.
+const evaluationKey = ref<string | null>(null);
+// The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
+const verdict = ref<RepotEvaluationResult | null>(null);
+const verdictOpen = ref(false);
+
 // REPOT is also the one task whose completion physically replaces the medium (Spec 1 §6/Task 21), so its
-// Done path asks a follow-up question via the same ReasonPicker surface — no new modal component.
-const substratePickerOpen = ref(false);
-const pendingRepotDone = ref<{ plantId: string; occurredOn?: string } | null>(null);
-// Three values, mapped to the tri-state the API expects. 'unknown' sends NO key at all — absent means
-// "derive from the recorded mix", which is NOT the same as false.
-const substrateOptions = computed(() => [
-  { value: 'yes', label: t('feedback.freshSubstrateYes') },
-  { value: 'no', label: t('feedback.freshSubstrateNo') },
-  { value: 'unknown', label: t('feedback.freshSubstrateUnknown') },
-]);
+// Done path opens a small pre-filled form (RepotDoneForm.vue, Task 26) instead of posting directly.
+const doneFormOpen = ref(false);
+const doneFormPlantId = ref<string | null>(null);
+const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }>({ potSizeCm: null, soilMix: null });
+const doneFormSubmitting = ref(false);
+// Same stable-key discipline as evaluationKey.
+const doneKey = ref<string | null>(null);
+
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
 // Secondary: only used to label task rows (plant name + place chip + cover photo). Deferred to client so
@@ -69,6 +81,13 @@ function rowStatus(due: string): 'overdue' | 'today' | 'upcoming' {
   return 'upcoming';
 }
 
+// The pending REPOT evaluation for a plant, read off the Today list the page already holds — never a
+// fresh fetch. Used BOTH to render the card's :pending-verdict (before any click) and to attach the
+// evaluationId to a REPOT Done/Postpone that follows a resolved verdict.
+function pendingEvaluationFor(plantId: string): PendingRepotEvaluation | null {
+  return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'REPOT')?.pendingEvaluation ?? null;
+}
+
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
   await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today, reason });
   await refresh();
@@ -79,50 +98,103 @@ async function sendPostpone(plantId: string, task: DueTask['task'], reason?: str
   await refresh();
 }
 
-// A REPOT postpone sends NO client date: the API derives a FLOOR from the reason (+14 d for the two
-// justified outcomes, tomorrow for `could-not-check`), and a floor can never pin the schedule.
-async function sendRepotPostpone(plantId: string, reason: string) {
-  await api.sendFeedback(plantId, { task: 'REPOT', type: 'POSTPONED', occurredOn: today, reason });
+// Evaluate: opens the signs checklist. Fetches the species' repotting signs fresh every time the modal
+// opens; an empty list simply renders no signs rather than blocking the picker.
+async function onEvaluate(plantId: string) {
+  evaluationPlantId.value = plantId;
+  evaluationKey.value = null;
+  evaluationSigns.value = await api.getRepotSigns(plantId).then((r) => r.signs).catch(() => []);
+  evaluationOpen.value = true;
+}
+
+async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
+  const plantId = evaluationPlantId.value;
+  if (!plantId) return;
+  if (!evaluationKey.value) evaluationKey.value = crypto.randomUUID();
+  evaluationSubmitting.value = true;
+  try {
+    const result = await api.submitRepotEvaluation(plantId, body, evaluationKey.value);
+    evaluationKey.value = null; // discarded on success; never reused again
+    evaluationOpen.value = false;
+    verdict.value = result;
+    verdictOpen.value = true;
+    await refresh();
+  } finally {
+    evaluationSubmitting.value = false;
+  }
+}
+
+// Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
+// 'REPOT' verdict is pending — see TaskRow's showEvaluate).
+async function onRepotDone(plantId: string) {
+  doneFormPlantId.value = plantId;
+  doneKey.value = null;
+  const plant = await api.getPlant(plantId);
+  doneFormProfile.value = { potSizeCm: plant.profile.potSizeCm, soilMix: plant.profile.soilMix };
+  doneFormOpen.value = true;
+}
+
+async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'>) {
+  const plantId = doneFormPlantId.value;
+  if (!plantId) return;
+  if (!doneKey.value) doneKey.value = crypto.randomUUID();
+  doneFormSubmitting.value = true;
+  try {
+    const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
+    await api.completeRepot(
+      plantId,
+      today,
+      { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
+      doneKey.value,
+    );
+    doneKey.value = null; // discarded on success; never reused again
+    doneFormOpen.value = false;
+    await refresh();
+  } finally {
+    doneFormSubmitting.value = false;
+  }
+}
+
+// A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
+// known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the
+// same verdict row instead of leaving it open.
+async function onRepotPostpone(plantId: string) {
+  const pendingEval = pendingEvaluationFor(plantId);
+  await api.sendFeedback(plantId, {
+    task: 'REPOT',
+    type: 'POSTPONED',
+    occurredOn: today,
+    reason: 'needed-cannot-now',
+    ...(pendingEval ? { payload: { evaluationId: pendingEval.id } } : {}),
+  });
   await refresh();
 }
 
-// Done: a WATER done that is NOT yet due (status 'upcoming') is an EARLY watering → ask why. Any other
-// done (non-water, or a due/overdue WATER) sends immediately.
+// Done: a WATER done that is NOT yet due (status 'upcoming') is an EARLY watering → ask why. A REPOT done
+// (only reachable once a 'REPOT' verdict is pending) opens the completion form. Any other done sends
+// immediately.
 function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'today' | 'upcoming', occurredOn?: string) {
   if (task === 'WATER' && status === 'upcoming') {
     pending.value = { plantId, task, type: 'DONE', occurredOn };
     earlyPickerOpen.value = true;
     return;
   }
-  // REPOT is the one task whose completion physically replaces the medium, so it is the one task whose
-  // Done needs a follow-up question. Every other task's Done path is untouched.
   if (task === 'REPOT') {
-    pendingRepotDone.value = { plantId, occurredOn };
-    substratePickerOpen.value = true;
-    return;
+    return onRepotDone(plantId);
   }
   return sendDone(plantId, task, occurredOn);
 }
 
-// Postpone: WATER asks why; REPOT asks what the owner saw (an inspection); every other task sends
-// immediately (unchanged).
-async function onPostpone(plantId: string, task: DueTask['task']) {
+// Postpone: WATER asks why; a REPOT postpone (only reachable once a verdict is pending) sends immediately
+// with the fixed "needed, can't right now" reason; every other task sends immediately (unchanged).
+function onPostpone(plantId: string, task: DueTask['task']) {
   if (task === 'WATER') {
     pending.value = { plantId, task, type: 'POSTPONED' };
     postponePickerOpen.value = true;
     return;
   }
   if (task === 'REPOT') {
-    pending.value = { plantId, task, type: 'POSTPONED' };
-    // The species' checklist of what root-boundness looks like, shown at the moment we ask. Today's list
-    // does not load the care payload, so fetch it for this plant only; an empty list simply renders no
-    // signs block rather than blocking the picker.
-    pendingRepotSigns.value = await api
-      .getPlantCare(plantId)
-      .then((c) => c.crowding?.repotSigns ?? [])
-      .catch(() => []);
-    repotPickerOpen.value = true;
-    return;
+    return onRepotPostpone(plantId);
   }
   return sendPostpone(plantId, task);
 }
@@ -137,26 +209,6 @@ function confirmPostpone(reason: string) {
   const p = pending.value;
   pending.value = null;
   if (p) void sendPostpone(p.plantId, p.task, reason);
-}
-
-function confirmRepotPostpone(reason: string) {
-  const p = pending.value;
-  pending.value = null;
-  if (p) void sendRepotPostpone(p.plantId, reason);
-}
-
-async function confirmRepotDone(answer: string) {
-  const p = pendingRepotDone.value;
-  pendingRepotDone.value = null;
-  if (!p) return;
-  await api.sendFeedback(p.plantId, {
-    task: 'REPOT',
-    type: 'DONE',
-    occurredOn: p.occurredOn || today,
-    // 'unknown' deliberately sends no payload at all.
-    ...(answer === 'unknown' ? {} : { payload: { substrateCharged: answer === 'yes' } }),
-  });
-  await refresh();
 }
 
 // "Log progress" opens the full-screen route (/plants/:id/progress); after saving there the user lands
@@ -208,9 +260,11 @@ function openProgress(plantId: string) {
             :task="t2.task"
             :status="rowStatus(t2.nextDueOn)"
             :due-label="dueLabel(dueState(t2.nextDueOn))"
+            :pending-verdict="pendingEvaluationFor(plantId)?.verdict ?? null"
             @done="e => onDone(plantId, e.task, rowStatus(t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"
+            @evaluate="() => onEvaluate(plantId)"
           />
         </div>
       </UiCard>
@@ -229,20 +283,19 @@ function openProgress(plantId: string) {
       :confirm-label="$t('common.postpone')"
       @confirm="confirmPostpone"
     />
-    <UiReasonPicker
-      v-model:open="repotPickerOpen"
-      :title="$t('feedback.repotInspectTitle')"
-      :options="repotPostponeOptions"
-      :signs="pendingRepotSigns"
-      :signs-heading="$t('feedback.repotSignsHeading')"
-      :confirm-label="$t('common.postpone')"
-      @confirm="confirmRepotPostpone"
+    <UiRepotEvaluationModal
+      v-model:open="evaluationOpen"
+      :signs="evaluationSigns"
+      :submitting="evaluationSubmitting"
+      @submit="onEvaluationSubmit"
     />
-    <UiReasonPicker
-      v-model:open="substratePickerOpen"
-      :title="$t('feedback.freshSubstrateTitle')"
-      :options="substrateOptions"
-      @confirm="confirmRepotDone"
+    <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
+    <UiRepotDoneForm
+      v-model:open="doneFormOpen"
+      :current-pot-size-cm="doneFormProfile.potSizeCm"
+      :current-soil-mix="doneFormProfile.soilMix"
+      :submitting="doneFormSubmitting"
+      @confirm="onRepotDoneConfirm"
     />
   </div>
 </template>

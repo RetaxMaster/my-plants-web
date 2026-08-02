@@ -113,7 +113,17 @@ export interface PlantDetail extends Plant {
   derived: PlantDerived;
 }
 
-export interface DueTaskResponse { plantId: string; task: TaskCode; nextDueOn: string }
+// `pendingEvaluation` (repoteval:27's own dependency): present on the REPOT row iff an unresolved
+// evaluation exists, null on every other task and when nothing is pending. Mirrors PlantCareTask's own
+// field exactly (same shape, same source) — added to /care-plan/today's response so the Today card can
+// render its "time to evaluate" vs Done/Postpone state correctly BEFORE any click, never from an
+// on-demand per-card fetch. See PendingRepotEvaluation below.
+export interface DueTaskResponse {
+  plantId: string;
+  task: TaskCode;
+  nextDueOn: string;
+  pendingEvaluation: PendingRepotEvaluation | null;
+}
 
 export type FeedbackType = 'DONE' | 'POSTPONED' | 'SYMPTOM';
 export interface Feedback {

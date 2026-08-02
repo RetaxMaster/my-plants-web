@@ -19,8 +19,14 @@ const props = withDefaults(
     showInfo?: boolean;
     /** Optional one-line "why this date" explanation, rendered under the task label. */
     explanation?: string;
+    /**
+     * REPOT only. `null` -> the card shows "time to evaluate"; `'REPOT'` -> the uncertainty is resolved and
+     * the classic Done | Postpone returns, now correct: Done means "I repotted it" and Postpone means
+     * "yes, but I can't right now".
+     */
+    pendingVerdict?: 'REPOT' | 'RE-EVALUATE' | null;
   }>(),
-  { withDoneDate: false, showInfo: false },
+  { withDoneDate: false, showInfo: false, pendingVerdict: null },
 );
 
 const emit = defineEmits<{
@@ -28,6 +34,7 @@ const emit = defineEmits<{
   postpone: [{ task: TaskCode }];
   logProgress: [{ task: TaskCode }];
   info: [{ task: TaskCode }];
+  evaluate: [{ task: TaskCode }];
 }>();
 
 const doneDate = ref('');
@@ -36,10 +43,15 @@ const badgeColor = computed(() =>
   props.status === 'overdue' ? 'red' : props.status === 'today' ? 'amber' : 'neutral',
 );
 
+// REPOT stops offering a bare Done/Postpone until a verdict exists: both presuppose a conclusion the
+// owner has not been helped to reach yet.
+const showEvaluate = computed(() => props.task === 'REPOT' && props.pendingVerdict !== 'REPOT');
+
 const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
 const onPostpone = () => emit('postpone', { task: props.task });
 const onLogProgress = () => emit('logProgress', { task: props.task });
 const onInfo = () => emit('info', { task: props.task });
+const onEvaluate = () => emit('evaluate', { task: props.task });
 </script>
 
 <template>
@@ -62,6 +74,11 @@ const onInfo = () => emit('info', { task: props.task });
     <div class="mp-taskrow__actions">
       <template v-if="task === 'PROGRESS'">
         <Button size="xs" color="primary" icon="camera" @click="onLogProgress">{{ taskLabel(task) }}</Button>
+      </template>
+      <template v-else-if="showEvaluate">
+        <Button size="xs" color="primary" icon="magnifying-glass" @click="onEvaluate">
+          {{ t('repotEval.cardAction') }}
+        </Button>
       </template>
       <template v-else>
         <input

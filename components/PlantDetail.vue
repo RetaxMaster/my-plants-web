@@ -30,6 +30,17 @@ const postponePickerOpen = ref(false);
 // REPOT is an INSPECTION (spec F.7). NOTE: a queued UX change removes Postpone from this screen; when it
 // lands, this picker moves with the button. The Today list is the canonical entry point.
 const repotPickerOpen = ref(false);
+// REPOT is also the one task whose completion physically replaces the medium (Spec 1 §6/Task 21), so its
+// Done path asks a follow-up question via the same ReasonPicker surface — no new modal component.
+const substratePickerOpen = ref(false);
+const pendingRepotDoneOn = ref<string | undefined>(undefined);
+// Three values, mapped to the tri-state the API expects. 'unknown' sends NO key at all — absent means
+// "derive from the recorded mix", which is NOT the same as false.
+const substrateOptions = computed(() => [
+  { value: 'yes', label: t('feedback.freshSubstrateYes') },
+  { value: 'no', label: t('feedback.freshSubstrateNo') },
+  { value: 'unknown', label: t('feedback.freshSubstrateUnknown') },
+]);
 const isDesktop = useIsDesktop();
 const id = props.id;
 
@@ -447,6 +458,13 @@ function onDone(task: TaskCode, status: 'overdue' | 'today' | 'upcoming', occurr
     earlyPickerOpen.value = true;
     return;
   }
+  // REPOT is the one task whose completion physically replaces the medium, so it is the one task whose
+  // Done needs a follow-up question. Every other task's Done path is untouched.
+  if (task === 'REPOT') {
+    pendingRepotDoneOn.value = occurredOn;
+    substratePickerOpen.value = true;
+    return;
+  }
   return sendDone(task, occurredOn);
 }
 
@@ -477,6 +495,17 @@ function confirmPostpone(reason: string) {
 
 function confirmRepotPostpone(reason: string) {
   void sendRepotPostpone(reason);
+}
+
+async function confirmRepotDone(answer: string) {
+  await api.sendFeedback(id, {
+    task: 'REPOT',
+    type: 'DONE',
+    occurredOn: pendingRepotDoneOn.value ?? today(),
+    // 'unknown' deliberately sends no payload at all.
+    ...(answer === 'unknown' ? {} : { payload: { substrateCharged: answer === 'yes' } }),
+  });
+  await Promise.all([refresh(), refreshHistory()]);
 }
 
 // --- Lifecycle transitions (Plant Lifecycle feature, Task 30): memorialize/gift on an ACTIVE plant,
@@ -894,6 +923,12 @@ async function confirmRevive() {
       :signs-heading="$t('feedback.repotSignsHeading')"
       :confirm-label="$t('common.postpone')"
       @confirm="confirmRepotPostpone"
+    />
+    <UiReasonPicker
+      v-model:open="substratePickerOpen"
+      :title="$t('feedback.freshSubstrateTitle')"
+      :options="substrateOptions"
+      @confirm="confirmRepotDone"
     />
 
     <!-- Lifecycle transition modals (Plant Lifecycle feature, Task 30). -->

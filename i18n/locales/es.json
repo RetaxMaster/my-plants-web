@@ -159,7 +159,11 @@
       "could-not-check": "No pude revisarlo"
     },
     "repotInspectTitle": "Revisa si necesita trasplante",
-    "repotSignsHeading": "Señales a buscar"
+    "repotSignsHeading": "Señales a buscar",
+    "freshSubstrateTitle": "¿Sustrato fresco?",
+    "freshSubstrateYes": "Sí — mezcla nueva con alimento",
+    "freshSubstrateNo": "No — sustrato reusado o inerte",
+    "freshSubstrateUnknown": "No sé"
   },
   "history": {
     "today": "hoy",

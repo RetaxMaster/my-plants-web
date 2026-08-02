@@ -131,7 +131,13 @@ const UiSelectFieldStub = {
 const stubs = {
   UiScreenHeader: true,
   UiAlert: true,
-  UiPlantPhoto: { template: '<div><slot name="chips" /><slot name="overlay" /></div>' },
+  UiPlantPhoto: {
+    name: 'UiPlantPhoto',
+    props: ['src', 'alt', 'height', 'clickable', 'openLabel'],
+    emits: ['open'],
+    template:
+      '<div><button v-if="clickable" class="stub-photo-open" @click="$emit(\'open\')" /><slot name="chips" /><slot name="overlay" /></div>',
+  },
   UiPhotoChip: true,
   UiCard: { template: '<div><slot /></div>' },
   UiPlantName: true,
@@ -148,7 +154,11 @@ const stubs = {
   UiAutosizeTextarea: true,
   UiReasonPicker: true,
   UiTaskInfoModal: true,
-  UiImageLightbox: true,
+  UiImageLightbox: {
+    name: 'UiImageLightbox',
+    props: ['modelValue', 'images', 'index'],
+    template: '<div class="stub-lightbox" />',
+  },
   PlantEditModal: true,
   ProgressEntryModal: true,
   ClinicalRecordModal: true,
@@ -384,5 +394,39 @@ describe('PlantDetail — async photo reconcile', () => {
     expect(getPlantPhotos.mock.calls.length).toBe(photosAfterMount); // no polling
 
     w.unmount();
+  });
+});
+
+// Task 16 / Request 9. The cover photo behaves like a gallery photo: it opens.
+describe('PlantDetail — the cover photo opens in the shared lightbox', () => {
+  it('opens the lightbox with the cover photo alone', async () => {
+    const w = await mountDetail(basePlant({ coverImageUrl: 'https://cdn/cover.jpg' }));
+    await w.find('.stub-photo-open').trigger('click');
+    await flushPromises();
+
+    const lightbox = w.findAllComponents({ name: 'UiImageLightbox' }).find((l) => l.props('modelValue') === true)!;
+    expect(lightbox).toBeTruthy();
+    // ONE image — the cover is not part of the gallery's paging sequence, and `hasNav` renders no arrows
+    // for a single-image list.
+    expect(lightbox.props('images')).toHaveLength(1);
+    expect(lightbox.props('images')[0].src).toBe('https://cdn/cover.jpg');
+  });
+
+  it('offers no open affordance when the plant has no cover photo', async () => {
+    const w = await mountDetail(basePlant({ coverImageUrl: null }));
+    expect(w.findComponent({ name: 'UiPlantPhoto' }).props('clickable')).toBe(false);
+  });
+
+  // FREEZING FORBIDS MUTATION, NOT LOOKING. A frozen plant hides every editing action — but the photo
+  // viewer is a read, and suppressing it here would be over-applying the freeze to the one thing the
+  // pantheon exists for.
+  it.each([['MEMORIAL'], ['GIFTED']])('still opens for a frozen (%s) plant', async (state) => {
+    const w = await mountDetail(
+      basePlant({ lifecycleState: state, coverImageUrl: 'https://cdn/cover.jpg', frozenPlaceLabel: 'Study', frozenCityLabel: 'CDMX' }),
+    );
+    await w.find('.stub-photo-open').trigger('click');
+    await flushPromises();
+    const lightbox = w.findAllComponents({ name: 'UiImageLightbox' }).find((l) => l.props('modelValue') === true)!;
+    expect(lightbox).toBeTruthy();
   });
 });

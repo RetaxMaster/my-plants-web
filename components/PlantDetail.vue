@@ -162,6 +162,23 @@ function openLightbox(index: number) {
   lightboxOpen.value = true;
 }
 
+// The COVER photo's own viewer state (Task 16). Deliberately separate from the gallery lightbox above:
+// the cover is not part of the gallery's paging sequence, and folding it in would silently change which
+// photo the arrows step through. Same PRIMITIVE though — UiImageLightbox, reused, never a second viewer.
+//
+// It is NOT gated on `isFrozen`: freezing forbids mutation, and looking at a photo is not one. A
+// memorialized plant's photo is the thing the pantheon exists for.
+const coverLightboxOpen = ref(false);
+const coverLightboxImages = computed(() =>
+  plant.value?.coverImageUrl
+    ? [{ src: plant.value.coverImageUrl, alt: t('plantPhoto.alt', { name: plantTitle(plant.value, locale.value) }) }]
+    : [],
+);
+function openCoverLightbox() {
+  if (coverLightboxImages.value.length === 0) return;
+  coverLightboxOpen.value = true;
+}
+
 // Cover-photo editing (hero affordance). We hold the picked File in local state and upload immediately
 // (we DO have a plantId here) via setCoverPhoto; deleteCoverPhoto clears it. Errors surface non-blockingly.
 // Frozen plants never reach these — the overlay button that opens this modal is hidden (isFrozen).
@@ -566,7 +583,10 @@ async function confirmRevive() {
       :src="plant.coverImageUrl"
       :alt="$t('plantPhoto.alt', { name: plantTitle(plant, locale) })"
       :height="heroHeight"
+      :clickable="!!plant.coverImageUrl"
+      :open-label="$t('plantPhoto.view', { name: plantTitle(plant, locale) })"
       :class="['mp-detail__hero', frozenPhotoModifierClass]"
+      @open="openCoverLightbox"
     >
       <template #chips>
         <UiPhotoChip v-if="placeName" icon="map-pin" :label="placeName" />
@@ -827,6 +847,7 @@ async function confirmRevive() {
     <ClinicalRecordModal v-model="recordOpen" :plant-id="id" :record-id="activeRecordId" />
     <NoteModal v-model="noteOpen" :plant-id="id" :mode="noteMode" :note="activeNote" @saved="onNoteSaved" />
     <UiImageLightbox v-model="lightboxOpen" v-model:index="lightboxIndex" :images="lightboxImages" />
+    <UiImageLightbox v-model="coverLightboxOpen" :images="coverLightboxImages" />
     <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
     <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" :repot-signs="taskInfoRepotSigns" :is-juvenile="isJuvenile" />
 

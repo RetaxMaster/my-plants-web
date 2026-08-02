@@ -57,13 +57,16 @@ describe('REPOT inspection keys (spec F.7)', () => {
     expect(es.feedback.repotSignsHeading).toBeTruthy();
   });
 
-  it('the REPOT task label reads as an INSPECTION, not as a verdict', () => {
-    // The engine has never seen the roots. "Repot" asserts a conclusion it has no evidence for; the task is
-    // the *look*. This assertion is what would fail if the label regressed to a bare verb.
-    expect(en.tasks.labels.REPOT).toBe('Check the roots');
-    expect(es.tasks.labels.REPOT).toBe('Revisar las raíces');
-    expect(en.tasks.labels.REPOT).not.toBe('Repot');
-    expect(es.tasks.labels.REPOT).not.toBe('Trasplantar');
+  it('the REPOT task label is the bare verb (F.7\'s label guard RETRACTED 2026-08-01)', () => {
+    // F.7 originally hard-asserted "Check the roots" / "Revisar las raíces" here, plus a `not.toBe` guard
+    // against the bare verb, because the engine has never seen the roots and a bare verb would read as a
+    // verdict it has no evidence for. Spec 4 §4 ("REPOT rename", request 6, 2026-08-01) RETRACTED that label
+    // wording back to "Repot" / "Replantar": the conditional meaning ("inspect, and repot if needed") that
+    // the label used to have to carry alone now lives in the info modal, so the shorter name is safe again.
+    // The protection itself is NOT retracted — it MOVED to the modal-key assertion above, which stays
+    // load-bearing. This assertion is rewritten, not deleted, so the decision stays discoverable here.
+    expect(en.tasks.labels.REPOT).toBe('Repot');
+    expect(es.tasks.labels.REPOT).toBe('Replantar');
   });
 });
 

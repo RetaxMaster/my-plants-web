@@ -158,6 +158,16 @@ export interface PlantCare {
     index: number | null;
     repotSigns: string[];
   };
+  /**
+   * Juvenile state (Spec 2 §7.3). `ageMonths` is the API's EFFECTIVE (aged) value — the same number the
+   * care engine reads — so the web never re-derives an age. Optional so an older API during a rolling
+   * deploy still types; every consumer must handle its absence as "unknown", never as false.
+   */
+  juvenile?: {
+    isJuvenile: boolean;
+    juvenilePeriodMonths: number | null;
+    ageMonths: number | null;
+  };
 }
 
 // --- Care History ---

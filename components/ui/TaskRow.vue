@@ -17,6 +17,8 @@ const props = withDefaults(
     dueLabel: string;
     withDoneDate?: boolean;
     showInfo?: boolean;
+    /** Optional one-line "why this date" explanation, rendered under the task label. */
+    explanation?: string;
   }>(),
   { withDoneDate: false, showInfo: false },
 );
@@ -56,6 +58,7 @@ const onInfo = () => emit('info', { task: props.task });
         <AppIcon name="information-circle" :size="16" />
       </button>
     </div>
+    <p v-if="explanation" class="mp-taskrow__explanation">{{ explanation }}</p>
     <div class="mp-taskrow__actions">
       <template v-if="task === 'PROGRESS'">
         <Button size="xs" color="primary" icon="camera" @click="onLogProgress">{{ taskLabel(task) }}</Button>
@@ -110,6 +113,14 @@ const onInfo = () => emit('info', { task: props.task });
   font-weight: var(--weight-semibold);
   font-size: var(--text-sm);
   color: var(--text-strong);
+}
+
+.mp-taskrow__explanation {
+  flex-basis: 100%;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 
 .mp-taskrow__actions {

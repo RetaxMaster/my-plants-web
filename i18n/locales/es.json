@@ -123,6 +123,11 @@
     "juvenile": {
       "doseTitle": "Esta planta todavía es joven",
       "doseBody": "Las dosis de la etiqueta están pensadas para plantas maduras. Mientras esta planta sea joven, aliméntala a 1/4 o 1/2 de la concentración indicada en el envase: la dosis completa quema las raíces delicadas. Mantén la misma frecuencia; lo único que cambia es la dosis."
+    },
+    "substrate": {
+      "fertilizeFloor": "El sustrato todavía alimenta — primera fertilización estimada para el {date}.",
+      "repotDriverCrowding": "Programado según qué tan apretada está la planta en su maceta.",
+      "repotDriverSubstrate": "Programado porque el sustrato se está agotando, no por falta de espacio."
     }
   },
   "health": {

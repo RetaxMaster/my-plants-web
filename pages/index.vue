@@ -22,6 +22,17 @@ const postponePickerOpen = ref(false);
 // and shows the species' repotting signs. Same picker component, a different vocabulary.
 const repotPickerOpen = ref(false);
 const pendingRepotSigns = ref<string[]>([]);
+// REPOT is also the one task whose completion physically replaces the medium (Spec 1 §6/Task 21), so its
+// Done path asks a follow-up question via the same ReasonPicker surface — no new modal component.
+const substratePickerOpen = ref(false);
+const pendingRepotDone = ref<{ plantId: string; occurredOn?: string } | null>(null);
+// Three values, mapped to the tri-state the API expects. 'unknown' sends NO key at all — absent means
+// "derive from the recorded mix", which is NOT the same as false.
+const substrateOptions = computed(() => [
+  { value: 'yes', label: t('feedback.freshSubstrateYes') },
+  { value: 'no', label: t('feedback.freshSubstrateNo') },
+  { value: 'unknown', label: t('feedback.freshSubstrateUnknown') },
+]);
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
 // Secondary: only used to label task rows (plant name + place chip + cover photo). Deferred to client so
@@ -83,6 +94,13 @@ function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'tod
     earlyPickerOpen.value = true;
     return;
   }
+  // REPOT is the one task whose completion physically replaces the medium, so it is the one task whose
+  // Done needs a follow-up question. Every other task's Done path is untouched.
+  if (task === 'REPOT') {
+    pendingRepotDone.value = { plantId, occurredOn };
+    substratePickerOpen.value = true;
+    return;
+  }
   return sendDone(plantId, task, occurredOn);
 }
 
@@ -125,6 +143,20 @@ function confirmRepotPostpone(reason: string) {
   const p = pending.value;
   pending.value = null;
   if (p) void sendRepotPostpone(p.plantId, reason);
+}
+
+async function confirmRepotDone(answer: string) {
+  const p = pendingRepotDone.value;
+  pendingRepotDone.value = null;
+  if (!p) return;
+  await api.sendFeedback(p.plantId, {
+    task: 'REPOT',
+    type: 'DONE',
+    occurredOn: p.occurredOn || today,
+    // 'unknown' deliberately sends no payload at all.
+    ...(answer === 'unknown' ? {} : { payload: { substrateCharged: answer === 'yes' } }),
+  });
+  await refresh();
 }
 
 // "Log progress" opens the full-screen route (/plants/:id/progress); after saving there the user lands
@@ -205,6 +237,12 @@ function openProgress(plantId: string) {
       :signs-heading="$t('feedback.repotSignsHeading')"
       :confirm-label="$t('common.postpone')"
       @confirm="confirmRepotPostpone"
+    />
+    <UiReasonPicker
+      v-model:open="substratePickerOpen"
+      :title="$t('feedback.freshSubstrateTitle')"
+      :options="substrateOptions"
+      @confirm="confirmRepotDone"
     />
   </div>
 </template>

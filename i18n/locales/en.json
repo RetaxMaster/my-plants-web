@@ -159,7 +159,11 @@
       "could-not-check": "I couldn't check"
     },
     "repotInspectTitle": "Check whether it needs repotting",
-    "repotSignsHeading": "Signs to look for"
+    "repotSignsHeading": "Signs to look for",
+    "freshSubstrateTitle": "Did it go into fresh substrate?",
+    "freshSubstrateYes": "Yes — fresh, charged mix",
+    "freshSubstrateNo": "No — reused or inert medium",
+    "freshSubstrateUnknown": "I don't know"
   },
   "history": {
     "today": "today",

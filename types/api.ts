@@ -70,6 +70,10 @@ export interface CreatePlant {
   lastDone?: { task: CareActionTask; doneOn: string }[]; // PROGRESS excluded — journaled, never seeded
   // Import-on-create: creates the plant already frozen (MEMORIAL/GIFTED) with an import progress entry.
   lifecycleState?: 'MEMORIAL' | 'GIFTED';
+  /** Spec 1 §5.5 rung 1 — YYYY-MM-DD. Optional; blank means "assume depleted", the safe default. */
+  substrateRefreshedOn?: string;
+  /** Tri-state by PRESENCE: omitted = derive from the mix, true = fresh charged, false = reused/inert. */
+  substrateCharged?: boolean;
 }
 
 // --- Plant physical profile (spec 1 vocabulary; all fields optional/nullable) ---
@@ -121,6 +125,13 @@ export interface Feedback {
   //
   // A REPOT Postpone sends NO `postponeToOn`: the server derives a FLOOR date from the reason.
   reason?: string;
+  /**
+   * Free-form event payload. For a REPOT marked DONE this carries the owner's fresh-substrate answer:
+   *   { substrateCharged: true }   -> fresh, charged medium
+   *   { substrateCharged: false }  -> reused / inert medium
+   *   (key ABSENT)                 -> "no sé": derive from the recorded mix.
+   * Absent is NOT the same as false — see refreshSubstrateCore's contract on the API side.
+   */
   payload?: Record<string, unknown>;
 }
 
@@ -167,6 +178,27 @@ export interface PlantCare {
     isJuvenile: boolean;
     juvenilePeriodMonths: number | null;
     ageMonths: number | null;
+  };
+  /**
+   * The substrate block (Spec 1 §6) — what the medium in this pot holds, and which mechanism produced
+   * the dates the user is looking at.
+   *
+   * Null-tolerant but NOT uniformly nullable: every field may be null EXCEPT `chargeDays`, which is
+   * always a resolved number (0 when unknown). `repotDriver` is null only for a frozen plant, which has
+   * no active REPOT task at all.
+   *
+   * Optional at the type level so an older API during a rolling deploy still types — the same convention
+   * `crowding` above already follows.
+   */
+  substrate?: {
+    refreshedOn: string | null;        // YYYY-MM-DD
+    soilMix: string | null;
+    charged: boolean | null;
+    chargeDays: number;
+    chargeEndsOn: string | null;       // YYYY-MM-DD
+    fertilizeFloorOn: string | null;   // YYYY-MM-DD
+    structuralLifeEndsOn: string | null; // YYYY-MM-DD
+    repotDriver: 'CROWDING' | 'SUBSTRATE' | null;
   };
 }
 

@@ -645,6 +645,42 @@ describe('the message queue', () => {
     expect(chatStub.resume).not.toHaveBeenCalled();
   });
 
+  // Regression test for a cross-family Codex review of chat:13: `attachActiveRun()` reattaches the socket
+  // to a run that was ALREADY in flight before this page load via `chat.connect()`, which — unlike the
+  // package's own submit path — never sets `providerBusy`. Gating the queue on `providerBusy` alone (chat:13's
+  // own fix) leaves this window open: right after a reattach, `providerBusy` still reads `false`, so a submit
+  // would escape the queue and race the genuinely-active run. The fix ORs in a second, component-owned signal
+  // that is set the moment `attachActiveRun()` calls `chat.connect()`.
+  it('QUEUES a submit right after reattaching to an already-active run', async () => {
+    const w = mountChat(undefined, {
+      initialTurns: [
+        {
+          runId: 'run-already-active',
+          prompt: 'earlier prompt',
+          command: null,
+          status: 'RUNNING',
+          isActive: true,
+          logUrl: 'https://example.test/log',
+        },
+      ],
+    });
+    await flushPromises();
+
+    // The reattach happened — `chat.connect()` was called with the active run's id — but NOT via the
+    // package's own submit path, so `providerBusy` is left exactly as the stub defaults it: `false`.
+    expect(chatStub.connect).toHaveBeenCalledWith('run-already-active');
+    expect(chatStub.providerBusy.value).toBe(false);
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'while the reattached run is busy', []);
+    await flushPromises();
+
+    expect(chatStub.enqueueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'while the reattached run is busy' }),
+    );
+    expect(chatStub.start).not.toHaveBeenCalled();
+    expect(chatStub.resume).not.toHaveBeenCalled();
+  });
+
   it('renders an auto-sent queued message WITHOUT a refresh — bubble and thumbnails', async () => {
     mountChat(undefined);
     await flushPromises();

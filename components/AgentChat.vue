@@ -518,15 +518,23 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
   // automatically when the turn ends CLEANLY (→ onQueuedMessageSent above); a failed or cancelled turn
   // returns it to the composer, intact and editable, with a notice — that is the design, not a defect.
   //
-  // GATED ON `providerBusy`, NOT on our own `streaming` computed (spec 2026-08-01 §5.1). The package's
-  // own queue decides with `providerBusy` (`if (n.queue && c.providerBusy.value)` in the installed
-  // dist), so deciding here with a different expression is two implementations of one decision. They
-  // disagree in the window where a run has been ACCEPTED but has not yet emitted its first event: our
-  // computed still reads `idle` there, so a message sent in that gap escaped the queue and raced the
-  // in-flight run. `streaming` still drives the CHROME below (the console's busy state, the composer's
-  // running state, the run-terminal watcher) — that is a question about what the screen shows, which is
-  // genuinely a different question from whether a send may proceed.
-  if (chat.providerBusy.value) {
+  // GATED ON `providerBusy` OR'd WITH `reattachedRunPending`, NOT on our own `streaming` computed (spec
+  // 2026-08-01 §5.1, plus a cross-family review of that same fix). The package's own queue decides with
+  // `providerBusy` (`if (n.queue && c.providerBusy.value)` in the installed dist), so deciding here with a
+  // different expression is two implementations of one decision. They disagree in the window where a run has
+  // been ACCEPTED but has not yet emitted its first event: our computed still reads `idle` there, so a
+  // message sent in that gap escaped the queue and raced the in-flight run. `streaming` still drives the
+  // CHROME below (the console's busy state, the composer's running state, the run-terminal watcher) — that is
+  // a question about what the screen shows, which is genuinely a different question from whether a send may
+  // proceed.
+  //
+  // `providerBusy` alone is NOT enough, though: `attachActiveRun()` reattaches the socket to a run that was
+  // already in flight before this page load, and `chat.connect()` never sets `providerBusy` (see the comment
+  // on `reattachedRunPending` above `attachActiveRun()`) — only the package's own submit path does. Without
+  // the OR, a submit right after a reattach would read `providerBusy === false` and go straight down the
+  // direct-send path, colliding with the run that IS genuinely active. Two distinct race windows, two distinct
+  // signals — collapsing them into one flag reopens whichever window that flag does not cover.
+  if (chat.providerBusy.value || reattachedRunPending.value) {
     chat.enqueueMessage({ text: body.trim(), attachments: items });
     draft.value = '';
     attachments.value = [];
@@ -649,6 +657,19 @@ async function restore() {
   }
 }
 
+// Cross-family Codex review of chat:13 (the commit this branch extends): `chat.connect()` below does NOT
+// set the package's `providerBusy` — verified against the installed dist (`dist/vue/index.js`), `providerBusy`
+// is only ever set `true` inside the package's OWN submit-driven `start`/`resume` path, and `connect()` just
+// binds the socket to an existing run id. So immediately after a page (re)load that reattaches to a still-
+// active run, `chat.providerBusy.value` reads `false` even though a run genuinely IS in flight, and a submit
+// in that window skips the queue and races the running turn (a 409 that silently drops the message — see the
+// `submit()` gate below). `streaming` DOES catch this (the package's own `"state"` socket event fires no
+// matter how the connection was established), but `streaming` is deliberately NOT the queue gate — see the
+// note there: it lags on a fresh submit's accepted-but-not-yet-streaming gap. So this is a SECOND, narrower
+// signal, true only across a reattach, cleared by the SAME terminal transition the run-terminal watcher below
+// already detects — ORed into the gate rather than replacing `providerBusy`, so neither race window reopens.
+const reattachedRunPending = ref(false);
+
 // A run still in flight when the page (re)loads: re-attach the live stream to it. The engine replays that
 // run's log from the start, so nothing streamed while we were away is lost. Its prompt needs a user bubble
 // first — the seeded history holds only TERMINAL turns, by design, so this turn is not in it.
@@ -658,6 +679,7 @@ function attachActiveRun() {
   // A command turn has no user bubble to restore — the engine's replayed `command.started` leads it. Only a
   // PROMPT turn needs its bubble re-pushed (seeded history holds only TERMINAL turns, by design).
   if (active.prompt) chat.pushUserPrompt(active.prompt, () => tns('you'));
+  reattachedRunPending.value = true;
   chat.connect(String(active.runId)); // runId MUST be a string — the server authorizes STOP by strict ===
 }
 
@@ -795,6 +817,10 @@ async function setSkipPermissions(value: boolean) {
 // cancellation alike.)
 watch(streaming, (isStreaming, was) => {
   if (!was || isStreaming) return;
+  // The same terminal transition retires a reattached active run, too — it must not outlive the run it was
+  // tracking (see `reattachedRunPending` above `attachActiveRun()`), or a NEW, later submit would stay queued
+  // forever on a stale flag.
+  reattachedRunPending.value = false;
   emit('changed');
   // TRIGGER 2 of 2 (§6.2). `done` is the run-finished event the client already subscribes to; at this
   // component's level it surfaces as the state leaving the streaming set. A proposal is filed at the END

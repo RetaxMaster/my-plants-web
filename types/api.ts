@@ -184,8 +184,11 @@ export interface PlantCare {
    * the dates the user is looking at.
    *
    * Null-tolerant but NOT uniformly nullable: every field may be null EXCEPT `chargeDays`, which is
-   * always a resolved number (0 when unknown). `repotDriver` is null only for a frozen plant, which has
-   * no active REPOT task at all.
+   * always a resolved number (0 when unknown). `repotDriver` is null for TWO reasons (substrate:13
+   * ruling): a frozen plant, which has no active REPOT task at all; and, on an active plant, a genuinely
+   * indeterminate boundary case in the API's driver heuristic (an exact tie between the substrate and
+   * crowding dates, or a non-binding override that exactly coincides with the cached date) — in that
+   * case the API reports `null` rather than guess, so the UI correctly renders no caption for it either.
    *
    * Optional at the type level so an older API during a rolling deploy still types — the same convention
    * `crowding` above already follows.

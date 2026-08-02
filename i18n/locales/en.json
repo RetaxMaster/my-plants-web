@@ -282,6 +282,21 @@
       "error": "Something went wrong. Please try again."
     }
   },
+  "repotEval": {
+    "title": "What can you see?",
+    "intro": "Tick anything you can actually see right now. We will work out whether it needs repotting — you do not have to decide.",
+    "signsHeading": "Signs",
+    "noSigns": "No signs yet",
+    "couldNotCheck": "I couldn't check it",
+    "submit": "See what we think",
+    "verdictRepotTitle": "It's time to repot",
+    "verdictRepotBody": "What you saw adds up: this plant needs a bigger pot. Mark it done when you have, or postpone if you can't today.",
+    "verdictReevaluateTitle": "Not yet — we'll ask again",
+    "verdictReevaluateBody": "Nothing you saw says it needs repotting yet. We'll bring this back on {date}.",
+    "cardAction": "Time to evaluate",
+    "errorPending": "This plant already has an answer waiting. Refresh the page.",
+    "helpToggle": "What am I looking for?"
+  },
   "plantPhoto": {
     "alt": "Photo of {name}",
     "edit": "Edit photo",

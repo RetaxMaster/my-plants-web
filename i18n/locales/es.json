@@ -282,6 +282,21 @@
       "error": "Algo salió mal. Por favor intenta de nuevo."
     }
   },
+  "repotEval": {
+    "title": "¿Qué alcanzas a ver?",
+    "intro": "Marca lo que de verdad puedas ver ahora mismo. Nosotros calculamos si necesita trasplante — tú no tienes que decidirlo.",
+    "signsHeading": "Señales",
+    "noSigns": "Todavía no veo señales",
+    "couldNotCheck": "No pude revisarla",
+    "submit": "Ver qué opinamos",
+    "verdictRepotTitle": "Ya toca trasplantar",
+    "verdictRepotBody": "Lo que viste cuadra: esta planta necesita una maceta más grande. Márcala como hecha cuando lo hagas, o posponla si hoy no puedes.",
+    "verdictReevaluateTitle": "Todavía no — te volvemos a preguntar",
+    "verdictReevaluateBody": "Nada de lo que viste dice que ya necesite trasplante. Volvemos a preguntarte el {date}.",
+    "cardAction": "Toca evaluar",
+    "errorPending": "Esta planta ya tiene una respuesta pendiente. Recarga la página.",
+    "helpToggle": "¿Qué debo buscar?"
+  },
   "plantPhoto": {
     "alt": "Foto de {name}",
     "edit": "Editar foto",

@@ -4,15 +4,16 @@
 // field). Enum options + labels come from useProfileMeta so wording is never forked with the care-basis
 // grid. Booleans are switches (spec choice): once saved they become explicit true/false.
 import type { PlantProfile, PlantProfileUpdate } from '../types/api.js';
+import type { GrowthHabit } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 
-const props = defineProps<{ plantId: string }>();
+const props = defineProps<{ plantId: string; speciesGrowthHabit?: GrowthHabit | null }>();
 const emit = defineEmits<{ saved: [] }>();
 const open = defineModel<boolean>({ default: false });
 
 const { t } = useI18n();
 const api = useApi();
 const {
-  windowDistanceOptions, potTypeOptions, soilMixOptions, growthHabitOptions,
+  windowDistanceOptions, potTypeOptions, soilMixOptions, growthHabitOptions, growthHabitLabel,
 } = useProfileMeta();
 
 const loading = ref(false);
@@ -39,6 +40,19 @@ const POT_SIZE_STEP = 1;
 // Prepend an enabled "Not set" option so a user can CLEAR an enum (a disabled placeholder can't be reselected).
 const withNotSet = (opts: { value: string; label: string }[]) =>
   [{ value: '', label: t('plantProfile.pickOption') }, ...opts];
+
+// The provenance line, shown ONLY while the owner has not chosen a habit themselves. This mirrors the
+// API's read-time fallback exactly; the web never copies the inherited value into the patch.
+const inheritedHabitLabel = computed(() =>
+  !growthHabit.value && props.speciesGrowthHabit
+    ? t('plantProfile.growthHabitInheritedValue', {
+        habit: growthHabitLabel(props.speciesGrowthHabit),
+      })
+    : null,
+);
+// `trailing` sets HABIT_REF to null, which removes the crowding signal entirely. SAY so, rather than
+// letting the owner discover it by silence.
+const showsTrailingWarning = computed(() => growthHabit.value === 'trailing');
 
 watch(open, async (isOpen) => {
   if (!isOpen) return;
@@ -122,8 +136,17 @@ async function save() {
       <UiFormGroup :label="$t('plantProfile.soilMix')">
         <UiSelectField v-model="soilMix" :options="withNotSet(soilMixOptions)" />
       </UiFormGroup>
-      <UiFormGroup :label="$t('plantProfile.growthHabit')">
-        <UiSelectField v-model="growthHabit" :options="withNotSet(growthHabitOptions)" />
+      <UiFormGroup :label="$t('plantProfile.growthHabit')" :hint="$t('plantProfile.growthHabitHelp')">
+        <UiSelectField
+          v-model="growthHabit"
+          data-test="growth-habit-select"
+          :options="withNotSet(growthHabitOptions)"
+          :placeholder="inheritedHabitLabel ?? $t('plantProfile.pickOption')"
+        />
+        <p v-if="inheritedHabitLabel" class="mp-form__note">{{ inheritedHabitLabel }}</p>
+        <p v-if="showsTrailingWarning" class="mp-form__note mp-form__note--warn">
+          {{ $t('plantProfile.growthHabitTrailingWarning') }}
+        </p>
       </UiFormGroup>
       <UiFormGroup :label="$t('plantProfile.ageMonths')">
         <UiInput v-model.number="ageMonths" type="number" min="0" step="1" />
@@ -143,7 +166,7 @@ async function save() {
     </div>
     <template #footer>
       <UiButton color="neutral" variant="ghost" @click="open = false">{{ $t('common.cancel') }}</UiButton>
-      <UiButton color="primary" :loading="saving" :disabled="loading" @click="save">{{ $t('common.save') }}</UiButton>
+      <UiButton color="primary" data-test="profile-save" :loading="saving" :disabled="loading" @click="save">{{ $t('common.save') }}</UiButton>
     </template>
   </UiModal>
 </template>
@@ -163,6 +186,19 @@ async function save() {
 .mp-profile__form {
   display: grid;
   gap: var(--space-4);
+}
+
+/* Reuses the same wording tone as UiFormGroup's own `__hint`/`__error` (text-xs, muted-by-default); the
+   `--warn` variant borrows the engine's existing caution color token rather than inventing a new one.
+   UiFormGroup lays its slot out as a `gap`-ped flex column, so these notes need no margin of their own. */
+.mp-form__note {
+  margin: 0;
+  font: var(--text-xs) / 1.4 var(--font-sans);
+  color: var(--text-muted);
+}
+
+.mp-form__note--warn {
+  color: var(--care-caution-text);
 }
 
 .mp-profile__switch {

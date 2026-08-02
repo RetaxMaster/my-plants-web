@@ -52,10 +52,18 @@ const repotPostponeSubmitting = ref(false);
 // was holding no longer resolves, or a 422 when a retried submission's body no longer matches what the
 // idempotency layer stored. `repotEval.errorPending` already ships in both locales for exactly this
 // (code review found it shipped-but-unused, which is what surfaced that these 3 flows had NO catch at
-// all — an unhandled rejection that silently did nothing on failure). Shown as a page-level banner rather
-// than inside RepotEvaluationModal.vue/RepotDoneForm.vue themselves: those are already-shipped, already-
-// reviewed sibling components (Task 25/26) and reaching into them here would be its own cross-task-
-// interaction risk, not a fix for one.
+// all — an unhandled rejection that silently did nothing on failure).
+//
+// Round-2 review (Codex) caught that the FIRST fix shipped this only as a page-level banner: `onEvaluate-
+// Submit` and `onRepotDoneConfirm` both deliberately keep their own modal OPEN on failure (see their
+// comments below), and `Modal.vue` renders its backdrop through a `<Teleport to="body">` with `position:
+// fixed; z-index: 1000` covering the whole viewport — so a banner sitting in the page's ordinary document
+// flow renders BEHIND the still-open modal, invisible to the owner. `onRepotPostpone` has no modal, so its
+// use of the SAME banner WAS visible, which is exactly why the bug survived a manual check. The actual fix:
+// RepotEvaluationModal.vue and RepotDoneForm.vue each take their own optional `error` prop and render it
+// via `Alert` INSIDE their own (teleported) body, so it renders above the backdrop instead of behind it.
+// The page-level banner below stays — it is still the only feedback surface for `onRepotPostpone`, which
+// has no modal at all.
 const repotError = ref(false);
 
 const isDesktop = useIsDesktop();
@@ -266,8 +274,11 @@ function openProgress(plantId: string) {
   <div>
     <UiScreenHeader :eyebrow="$t('today.eyebrow')" :title="$t('today.title')" :subtitle="subtitle" />
 
+    <!-- Only the postpone flow (no modal of its own) relies on this page-level banner; the evaluation and
+         done-form flows now surface the SAME message inside their own modal body — see the repotError
+         comment above. -->
     <UiAlert
-      v-if="repotError"
+      v-if="repotError && !evaluationOpen && !doneFormOpen"
       color="red"
       :description="$t('repotEval.errorPending')"
       class="mp-today__repot-error"
@@ -338,6 +349,7 @@ function openProgress(plantId: string) {
       v-model:open="evaluationOpen"
       :signs="evaluationSigns"
       :submitting="evaluationSubmitting"
+      :error="repotError ? $t('repotEval.errorPending') : null"
       @submit="onEvaluationSubmit"
     />
     <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
@@ -346,6 +358,7 @@ function openProgress(plantId: string) {
       :current-pot-size-cm="doneFormProfile.potSizeCm"
       :current-soil-mix="doneFormProfile.soilMix"
       :submitting="doneFormSubmitting"
+      :error="repotError ? $t('repotEval.errorPending') : null"
       @confirm="onRepotDoneConfirm"
     />
   </div>

@@ -30,7 +30,7 @@ const resolvedIcon = computed(() =>
 </script>
 
 <template>
-  <div :class="['mp-alert', `mp-alert--${color}`]" v-bind="$attrs">
+  <div :class="['mp-alert', `mp-alert--${color}`]" role="alert" aria-live="assertive" v-bind="$attrs">
     <AppIcon v-if="resolvedIcon" :name="resolvedIcon" :size="20" class="mp-alert__icon" />
     <div class="mp-alert__body">
       <div v-if="title" class="mp-alert__title">{{ title }}</div>

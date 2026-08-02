@@ -2,6 +2,24 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — Your chat photos come back for 48 hours; the cover photo opens full screen
+
+**When you send a photo to the Plant Doctor or Gardener, you can see it again in that conversation — and now the plant cover photo opens full screen too.** A photo stays visible for 48 hours after you upload it; after that the conversation shows a note where the image was, which is expected, not a fault.
+
+### Added
+
+- **Photos you attach in a chat are now visible again while the conversation is fresh.** When you send a photo to the Plant Doctor or Gardener and scroll up to see what you sent, the photo loads in the conversation just as it does in the message composer. Tap it to open it full screen in the same lightbox your plant photo gallery uses. After 48 hours the engine's disk space reclaims the file; the conversation shows an honest "no longer available" note in its place.
+- **The cover photo on any plant now opens full screen.** Whether you are viewing an active plant, a memorialized one, or a plant you gifted away, the cover photo taps open in the same photo viewer the gallery below uses.
+
+### Changed
+
+- **The "Check the roots" task is now called "Repot"**, matching the label on the card and in garden-wide search. The info modal still explains when and why to repot, so the shorter label stays clear and actionable.
+
+### Fixed
+
+- **A message typed the instant a reply starts is now queued, not lost.** If you send a message at exactly the moment the agent begins its response, it no longer races with the incoming turn — it queues with a "pending" indicator and sends automatically the instant the agent finishes.
+- **A message typed while the agent is thinking is now sent exactly as you typed it.** Leading spaces that used to disappear in the send path now survive, so a space-padded emphasis or carefully-indented note keeps its spacing. Only trailing empty content is trimmed; spaces within the message are always preserved.
+
 ## Unreleased — Two new sections for your garden: the pantheon and gifted plants
 
 **Two new sections in your account menu — "Pantheon" and "Gifted" — hold the plants that have moved on from

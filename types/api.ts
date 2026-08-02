@@ -7,8 +7,8 @@ import type {
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
 import type { ProgressTagKey } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
-import type { ProposalOperationType } from '@retaxmaster/my-plants-species-schema';
-export type { ProgressTagKey };
+import type { ProposalOperationType, RepotEvaluationSubmit } from '@retaxmaster/my-plants-species-schema';
+export type { ProgressTagKey, RepotEvaluationSubmit };
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -167,10 +167,9 @@ export interface PendingRepotEvaluation {
   reevaluateOn: string | null; // YYYY-MM-DD
 }
 
-export type RepotEvaluationSubmit =
-  | { answer: 'signs'; signIds: string[] }
-  | { answer: 'no-signs' }
-  | { answer: 'could-not-check' };
+// RepotEvaluationSubmit is schema-owned (re-exported above) — imported, never retyped locally, per the
+// project's "no new forks" rule. A previous version of this file duplicated the union here; a Codex review
+// (repoteval:24 fix wave) caught the fork and this import replaces it.
 
 export interface RepotEvaluationResult {
   evaluationId: string;

@@ -366,9 +366,17 @@ function taskExplanation(task: string): string | undefined {
     return t('taskInfo.substrate.fertilizeFloor', { date: s.fertilizeFloorOn });
   }
   if (task === 'REPOT' && s.repotDriver) {
-    return s.repotDriver === 'SUBSTRATE'
-      ? t('taskInfo.substrate.repotDriverSubstrate')
-      : t('taskInfo.substrate.repotDriverCrowding');
+    // Two independent facts (substrate:13 final ruling): what the engine's estimate is based on
+    // (always true, driver-dependent), and — additionally, never in its place — whether the owner's
+    // own postponement is what's binding the date currently shown. Both can be true at once, so the
+    // override sentence is appended, never substituted for the driver sentence.
+    const driver =
+      s.repotDriver === 'SUBSTRATE'
+        ? t('taskInfo.substrate.repotDriverSubstrate')
+        : t('taskInfo.substrate.repotDriverCrowding');
+    return s.repotOverrideBinding
+      ? `${driver} ${t('taskInfo.substrate.repotOverrideBinding')}`
+      : driver;
   }
   return undefined;
 }

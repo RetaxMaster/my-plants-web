@@ -180,12 +180,21 @@ export interface PlantCare {
     ageMonths: number | null;
   };
   /**
-   * The substrate block (Spec 1 §6) — what the medium in this pot holds, and which mechanism produced
-   * the dates the user is looking at.
+   * The substrate block (Spec 1 §6) — what the medium in this pot holds, and two independent facts
+   * about the REPOT date the user is looking at (substrate:13 final ruling).
    *
-   * Null-tolerant but NOT uniformly nullable: every field may be null EXCEPT `chargeDays`, which is
-   * always a resolved number (0 when unknown). `repotDriver` is null only for a frozen plant, which has
-   * no active REPOT task at all.
+   * `repotDriver` and `repotOverrideBinding` never claim to be "the reason for the date" on their own —
+   * each states one always-true-or-false fact, and the UI renders both:
+   * - `repotDriver` says what the engine's OWN ESTIMATE is based on (substrate wearing out vs. crowding).
+   *   This is always knowable and always true regardless of any owner override, so it is null ONLY for a
+   *   frozen plant, which has no active REPOT task at all.
+   * - `repotOverrideBinding` separately says whether the owner POSTPONED this reminder to the date
+   *   currently shown — i.e. an active REPOT override's date matches the displayed due date. This can be
+   *   true at the same time `repotDriver` names a driver: the engine's estimate and the owner's
+   *   postponement are independent facts, not competing explanations for a single cause.
+   *
+   * Null-tolerant but NOT uniformly nullable: every field may be null EXCEPT `chargeDays` (always a
+   * resolved number, 0 when unknown) and `repotOverrideBinding` (always a resolved boolean).
    *
    * Optional at the type level so an older API during a rolling deploy still types — the same convention
    * `crowding` above already follows.
@@ -199,6 +208,7 @@ export interface PlantCare {
     fertilizeFloorOn: string | null;   // YYYY-MM-DD
     structuralLifeEndsOn: string | null; // YYYY-MM-DD
     repotDriver: 'CROWDING' | 'SUBSTRATE' | null;
+    repotOverrideBinding: boolean;
   };
 }
 

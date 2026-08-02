@@ -645,13 +645,25 @@ describe('the message queue', () => {
     expect(chatStub.resume).not.toHaveBeenCalled();
   });
 
-  // Regression test for a cross-family Codex review of chat:13: `attachActiveRun()` reattaches the socket
-  // to a run that was ALREADY in flight before this page load via `chat.connect()`, which — unlike the
-  // package's own submit path — never sets `providerBusy`. Gating the queue on `providerBusy` alone (chat:13's
-  // own fix) leaves this window open: right after a reattach, `providerBusy` still reads `false`, so a submit
-  // would escape the queue and race the genuinely-active run. The fix ORs in a second, component-owned signal
-  // that is set the moment `attachActiveRun()` calls `chat.connect()`.
-  it('QUEUES a submit right after reattaching to an already-active run', async () => {
+  // INVERTED (spec 2026-08-01 §5.1.1, ledger L12 — the project's own L6/L7 rule: a superseded regression
+  // assertion is inverted to the new contract, never deleted). The original assertion here — a reattached
+  // mid-run submit gets QUEUED — was itself the escalated bug: `eb89604`'s fix OR'd a component-owned
+  // `reattachedRunPending` flag into the ENQUEUE gate to close the direct-send/409 race a first review
+  // found, but a SECOND, scoped re-review found that this stranded the message instead. The vendor package
+  // drains its OWN internal queue only on a `providerBusy` TRUE→FALSE EDGE (verified in the installed
+  // dist), and `chat.connect()` — what `attachActiveRun()` uses to reattach a run that was already in
+  // flight before this page load — never raises `providerBusy`. So a message enqueued during a reattach
+  // sits in the package's queue forever: no 409, but never sent, never returned to the composer either.
+  //
+  // The ruling: stop advertising a queueing capability the package cannot honour during a reattach.
+  // `:queueing-enabled` now reads `chat.providerBusy.value` (never a hardcoded `true`), so the Composer's
+  // own send-enabled expression (`(!running || queueingEnabled) && …`) disables the send button for
+  // exactly this window, and `submit()` keeps a defensive early return for the same condition so a
+  // programmatic caller (a slash-command submit, a suggested-prompt click) — which does not pass through
+  // the composer's disabled UI state — still refuses to act. The new contract: neither enqueued (would be
+  // stranded) nor direct-sent (would race the genuinely active run); the draft/attachments stay exactly as
+  // typed, because this is a "not yet", not a rejection the owner needs to redo.
+  it('neither queues nor direct-sends a submit right after reattaching to an already-active run — the draft is preserved', async () => {
     const w = mountChat(undefined, {
       initialTurns: [
         {
@@ -667,18 +679,39 @@ describe('the message queue', () => {
     await flushPromises();
 
     // The reattach happened — `chat.connect()` was called with the active run's id — but NOT via the
-    // package's own submit path, so `providerBusy` is left exactly as the stub defaults it: `false`.
+    // package's own submit path, so `providerBusy` is left exactly as the stub defaults it: `false`. The
+    // socket's own `"state"` event is what makes `streaming` true regardless of connection origin —
+    // `chat.connect()` is a bare spy in this stub, so that event is simulated explicitly.
     expect(chatStub.connect).toHaveBeenCalledWith('run-already-active');
     expect(chatStub.providerBusy.value).toBe(false);
-
-    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'while the reattached run is busy', []);
+    chatStub.state.value = 'streaming';
     await flushPromises();
 
-    expect(chatStub.enqueueMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'while the reattached run is busy' }),
-    );
+    // The Composer is told it cannot queue during this window — in the REAL package this is what disables
+    // its send button; this stub renders no button, so `submit()`'s own defensive early return (asserted
+    // below) is what a real click could never reach in the first place.
+    expect(w.findComponent({ name: 'Composer' }).props('queueingEnabled')).toBe(false);
+
+    // Mirror the real Composer: it keeps its OWN draft/attachment state synced through `v-model` /
+    // `v-model:attachments` as the owner types, and passes that same state as `submit`'s arguments.
+    const composer = w.findComponent({ name: 'Composer' });
+    const attachment = { id: 'a1', filename: 'x.png', mimeType: 'image/png', blob: new Blob(['x']) };
+    await composer.vm.$emit('update:modelValue', 'while the reattached run is busy');
+    await composer.vm.$emit('update:attachments', [attachment]);
+    await nextTick();
+
+    await composer.vm.$emit('submit', 'while the reattached run is busy', [attachment]);
+    await flushPromises();
+
+    // Neither queued (would be stranded — the drain edge can never fire for a reattach)…
+    expect(chatStub.enqueueMessage).not.toHaveBeenCalled();
+    // …nor direct-sent (would race the genuinely active run)…
     expect(chatStub.start).not.toHaveBeenCalled();
     expect(chatStub.resume).not.toHaveBeenCalled();
+    // …the message stays in the box, untouched.
+    expect(w.findComponent({ name: 'Composer' }).props('modelValue'))
+      .toBe('while the reattached run is busy');
+    expect(w.findComponent({ name: 'Composer' }).props('attachments')).toEqual([attachment]);
   });
 
   it('renders an auto-sent queued message WITHOUT a refresh — bubble and thumbnails', async () => {
@@ -780,6 +813,12 @@ describe('the message queue', () => {
     const w = mountChat(undefined);
     await flushPromises();
     chatStub.queuedMessage.value = { text: 'queued text', attachments: [{} as never, {} as never] };
+    // `queueingEnabled` now follows `chat.providerBusy.value` (spec 2026-08-01 §5.1.1), never a hardcoded
+    // `true` — so this asserts the NORMAL in-flight case (a run this component itself started, NOT a
+    // reattach): `providerBusy` true means the package's own drain edge can actually fire, so queueing is
+    // truthfully advertised. The reattach-window case (`providerBusy` false while `streaming` is true) is
+    // covered separately in 'the message queue' describe block above, where it must read `false`.
+    chatStub.providerBusy.value = true;
     await nextTick();
 
     const composer = w.findComponent({ name: 'Composer' });

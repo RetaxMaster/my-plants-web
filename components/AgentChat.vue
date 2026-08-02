@@ -552,6 +552,29 @@ async function resolveRestoredAttachments(): Promise<void> {
   }
 }
 
+// --- Opening a chat image full-screen (spec 2026-08-01 §3.4) -------------------------------------------
+//
+// The SAME viewer the plant gallery and the cover photo use — `components/ui/ImageLightbox.vue`, reused
+// rather than rebuilt. A chat image is worth looking at properly, and there must be exactly one photo
+// viewer in this app.
+//
+// DELEGATION, because the thumbnail lives inside the package's own transcript markup and we have no
+// handler to hand it. Listening on our own container is what lets us add behaviour to markup we do not
+// own WITHOUT forking the component that renders it. One image, never a gallery: paging across a
+// conversation's photos is not what this affordance is for, and `hasNav` already renders no arrows for a
+// single-image list.
+const chatLightboxOpen = ref(false);
+const chatLightboxImages = ref<Array<{ src: string; alt: string }>>([]);
+
+function onTranscriptClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  if (!target?.classList?.contains('crt-attachments__thumb')) return;
+  const img = target as HTMLImageElement;
+  if (!img.src) return;
+  chatLightboxImages.value = [{ src: img.src, alt: img.alt }];
+  chatLightboxOpen.value = true;
+}
+
 /**
  * The auto-send handler (spec §5): the package sends a QUEUED message itself once the current turn ends
  * cleanly, and calls this so the host can render the optimistic bubble and mint any preview urls — the
@@ -929,7 +952,7 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="themeRoot" class="mp-kchat">
+  <div ref="themeRoot" class="mp-kchat" @click="onTranscriptClick">
     <div class="mp-kchat__toolbar">
       <AgentSelector
         :providers="providers"
@@ -1093,6 +1116,8 @@ defineExpose({
       @cancel-queued="onCancelQueued"
       @edit-queued="onEditQueued"
     />
+
+    <UiImageLightbox v-model="chatLightboxOpen" :images="chatLightboxImages" />
   </div>
 </template>
 

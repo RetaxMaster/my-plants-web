@@ -119,6 +119,10 @@
       "crowdingBody": "Esta fecha es un recordatorio para revisar, no un veredicto. Se adelanta cuando tu planta crece mucho para su maceta (una planta apretada tiene más probabilidad de tener las raíces apiñadas) y se retrasa cuando tiene una maceta holgada. Las raíces deciden: ve y revisa.",
       "signsTitle": "Señales que debes buscar",
       "signsEmpty": "Revisa si las raíces dan vueltas en la maceta o salen por los agujeros de drenaje."
+    },
+    "juvenile": {
+      "doseTitle": "Esta planta todavía es joven",
+      "doseBody": "Las dosis de la etiqueta están pensadas para plantas maduras. Mientras esta planta sea joven, aliméntala a 1/4 o 1/2 de la concentración indicada en el envase: la dosis completa quema las raíces delicadas. Mantén la misma frecuencia; lo único que cambia es la dosis."
     }
   },
   "health": {
@@ -298,6 +302,7 @@
       "lastRepotted": "Último trasplante",
       "height": "Altura",
       "age": "Edad",
+      "juvenile": "Planta joven",
       "growthHabit": "Hábito de crecimiento",
       "humidity": "Humedad",
       "indoorTemp": "Temperatura interior",

@@ -119,6 +119,10 @@
       "crowdingBody": "This date is an inspection reminder, not a verdict. It moves earlier when your plant grows tall for its pot (a crowded plant is more likely to be root-bound) and later when it sits in a roomy one. The roots decide — go and look.",
       "signsTitle": "Signs to look for",
       "signsEmpty": "Check whether roots are circling the pot or growing out of the drainage holes."
+    },
+    "juvenile": {
+      "doseTitle": "This plant is still young",
+      "doseBody": "Label doses are formulated for mature plants. While this plant is young, feed at 1/4 to 1/2 the strength on the bottle — full strength burns delicate roots. Keep the same schedule; only the dose changes."
     }
   },
   "health": {
@@ -298,6 +302,7 @@
       "lastRepotted": "Last repotted",
       "height": "Height",
       "age": "Age",
+      "juvenile": "Young plant",
       "growthHabit": "Growth habit",
       "humidity": "Humidity",
       "indoorTemp": "Indoor temperature",

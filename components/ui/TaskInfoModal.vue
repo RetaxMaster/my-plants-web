@@ -9,6 +9,13 @@ const props = defineProps<{
   soilDryness?: string | null;
   // REPOT-only species checklist from the care payload. API/species catalog data, rendered verbatim.
   repotSigns?: string[] | null;
+  /**
+   * Spec 2 §7. FERTILIZE-only. The engine models CADENCE and has no concept of CONCENTRATION, so an owner
+   * following our task on a seedling with the dose on the bottle is being led toward root burn by a system
+   * that never told them otherwise. The warning carries the WHOLE behaviour: the cadence deliberately does
+   * NOT change (§7.2 — a shorter interval is safe only BECAUSE the dose is diluted).
+   */
+  isJuvenile?: boolean;
 }>();
 
 const open = defineModel<boolean>('open', { default: false });
@@ -26,6 +33,7 @@ const drynessText = computed(() =>
 // what to look for, because the date is an inspection reminder rather than a verdict.
 const isRepot = computed(() => props.task === 'REPOT');
 const repotSignsList = computed(() => (isRepot.value ? (props.repotSigns ?? []) : []));
+const showsJuvenileDose = computed(() => props.task === 'FERTILIZE' && props.isJuvenile === true);
 </script>
 
 <template>
@@ -55,6 +63,10 @@ const repotSignsList = computed(() => (isRepot.value ? (props.repotSigns ?? []) 
           <li v-for="s in repotSignsList" :key="s" class="mp-taskinfo__text">{{ s }}</li>
         </ul>
         <p v-else class="mp-taskinfo__text">{{ t('taskInfo.repot.signsEmpty') }}</p>
+      </section>
+      <section v-if="showsJuvenileDose" class="mp-taskinfo__section mp-taskinfo__section--species">
+        <h3 class="mp-taskinfo__heading">{{ t('taskInfo.juvenile.doseTitle') }}</h3>
+        <p class="mp-taskinfo__text">{{ t('taskInfo.juvenile.doseBody') }}</p>
       </section>
     </div>
   </Modal>

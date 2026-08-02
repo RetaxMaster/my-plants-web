@@ -297,6 +297,18 @@
     "errorPending": "Esta planta ya tiene una respuesta pendiente. Recarga la página.",
     "helpToggle": "¿Qué debo buscar?"
   },
+  "repotDone": {
+    "title": "¿En qué la trasplantaste?",
+    "intro": "Tres datos rápidos, ya rellenados con lo que sabemos. Sin ellos seguiríamos calculando con la maceta vieja.",
+    "potSize": "Diámetro de la maceta nueva (en el borde, en cm)",
+    "potSizeHint": "El ancho de arriba — no el radio ni la altura.",
+    "soilMix": "Sustrato nuevo",
+    "substrate": "¿Sustrato fresco?",
+    "substrateFresh": "Sí, mezcla fresca",
+    "substrateReused": "Reutilizado / inerte",
+    "sameAsBefore": "Igual que antes",
+    "confirm": "Marcar como trasplantada"
+  },
   "plantPhoto": {
     "alt": "Foto de {name}",
     "edit": "Editar foto",

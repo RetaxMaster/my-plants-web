@@ -297,6 +297,18 @@
     "errorPending": "This plant already has an answer waiting. Refresh the page.",
     "helpToggle": "What am I looking for?"
   },
+  "repotDone": {
+    "title": "What did you repot it into?",
+    "intro": "Three quick things, pre-filled with what we already know. Without them we would keep computing against the old pot.",
+    "potSize": "New pot diameter (at the rim, in cm)",
+    "potSizeHint": "The width across the top — not the radius, not the height.",
+    "soilMix": "New soil mix",
+    "substrate": "Fresh substrate?",
+    "substrateFresh": "Yes, fresh mix",
+    "substrateReused": "Reused / inert",
+    "sameAsBefore": "Same as before",
+    "confirm": "Mark as repotted"
+  },
   "plantPhoto": {
     "alt": "Photo of {name}",
     "edit": "Edit photo",

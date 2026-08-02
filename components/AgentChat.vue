@@ -407,14 +407,15 @@ const needsFirstTurnRetry = computed(
 const noProviderAvailable = computed(
   () => providers.value.length > 0 && !providers.value.some((p) => p.available),
 );
-// The streaming term is deliberately GONE (spec §5): submitting while a run is in flight now QUEUES the
-// message instead of being refused, and the package's own queue is what handles the in-flight case — our
-// old `!streaming` gate was the reason the queue never saw a message at all. `queueingEnabled: true` below
-// tells the Composer itself to keep accepting input while `running` is true; verified against the
+// The streaming term is deliberately GONE from `canSend` (spec §5): submitting while a run is in flight now
+// QUEUES the message instead of being refused, and the package's own queue is what handles the in-flight
+// case — our old `!streaming` gate was the reason the queue never saw a message at all. Verified against the
 // package's own `Composer` implementation (`ge` computed, dist/vue/index.js): its internal submit gate is
 // `(!running || queueingEnabled) && canSend && …`, so dropping `!streaming` from OUR `canSend` cannot open
 // a second concurrent send — the package still requires `queueingEnabled` for a running submit to pass,
 // and it is US, not the package, that routes a mid-run submit into `enqueueMessage` before any driver call.
+// Whether `queueingEnabled` itself reads true or false for any given run is a separate question — see the
+// `:queueing-enabled` binding on the Composer below (spec 2026-08-01 §5.1.1).
 const canSend = computed(() => !noProviderAvailable.value && !agentSessionMissing.value);
 
 async function loadProviders(force = false) {
@@ -514,15 +515,35 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
     return;
   }
 
-  // A run is in flight (spec §5): hand the message to the package's QUEUE rather than refusing it. It is
-  // sent automatically when the turn ends CLEANLY (→ onQueuedMessageSent above); a failed or cancelled turn
+  // A run is in flight: hand the message to the package's QUEUE rather than refusing it. It is sent
+  // automatically when the turn ends CLEANLY (→ onQueuedMessageSent above); a failed or cancelled turn
   // returns it to the composer, intact and editable, with a notice — that is the design, not a defect.
-  if (streaming.value) {
+  //
+  // GATED ON `providerBusy` ALONE, NOT on our own `streaming` computed (spec 2026-08-01 §5.1). The package's
+  // own queue decides with `providerBusy` (`if (n.queue && c.providerBusy.value)` in the installed dist), so
+  // deciding here with a different expression is two implementations of one decision. They disagree in the
+  // window where a run has been ACCEPTED but has not yet emitted its first event: our computed still reads
+  // `idle` there, so a message sent in that gap escaped the queue and raced the in-flight run. `streaming`
+  // still drives the CHROME below (the console's busy state, the composer's running state, the run-terminal
+  // watcher) — that is a question about what the screen shows, which is genuinely a different question from
+  // whether a send may proceed.
+  if (chat.providerBusy.value) {
     chat.enqueueMessage({ text: body.trim(), attachments: items });
     draft.value = '';
     attachments.value = [];
     return;
   }
+
+  // The REATTACH WINDOW (spec 2026-08-01 §5.1.1, ledger L12): right after `attachActiveRun()` reattaches to
+  // a run that was already in flight before this page load, `streaming` reads true (the socket's own
+  // `"state"` event fires no matter how the connection was established) while `providerBusy` reads false
+  // (`chat.connect()` never sets it — only the package's own submit path does). Enqueueing here is exactly
+  // what strands a message forever — see the `:queueing-enabled` comment on the Composer below for the full
+  // WHY — so this is a defensive REFUSAL, not a queue. The Composer's own `:queueing-enabled` binding already
+  // disables the send button for this same window, but a programmatic caller (a slash-command submit, a
+  // suggested-prompt click) does not pass through that disabled UI state, so `submit()` itself must also
+  // refuse. Draft/attachments are left INTACT — this is a "not yet", not a rejection the owner needs to redo.
+  if (!chat.providerBusy.value && streaming.value) return;
 
   // A command turn leads with the ENGINE's `command.started`, never an optimistic user bubble — that is what
   // makes it render identically live and on replay, and never twice. So: push a bubble for a prompt, and only
@@ -643,6 +664,13 @@ async function restore() {
 // A run still in flight when the page (re)loads: re-attach the live stream to it. The engine replays that
 // run's log from the start, so nothing streamed while we were away is lost. Its prompt needs a user bubble
 // first — the seeded history holds only TERMINAL turns, by design, so this turn is not in it.
+//
+// `chat.connect()` below does NOT set the package's `providerBusy` — verified against the installed dist
+// (`dist/vue/index.js`), `providerBusy` is only ever set `true` inside the package's OWN submit-driven
+// `start`/`resume` path, and `connect()` just binds the socket to an existing run id. `streaming` DOES catch
+// a reattach (the package's own `"state"` socket event fires no matter how the connection was established) —
+// see the `:queueing-enabled` comment on the Composer below, and the defensive check in `submit()` above,
+// for how this component now handles the resulting `providerBusy === false && streaming === true` window.
 function attachActiveRun() {
   const active = props.initialTurns.find((turn) => turn.isActive);
   if (!active) return;
@@ -936,6 +964,23 @@ defineExpose({
       </button>
     </p>
 
+    <!-- THE WHY (spec 2026-08-01 §5.1.1, ledger L12) — stated once, here, and pointed to everywhere else in
+         this file that touches the reattach window: the vendor package drains its OWN internal queue only on
+         a `providerBusy` true→false EDGE (verified in the installed dist:
+         `watch(providerBusy, (now, was) => { if (now || !was) return; …drain… }, { flush: 'sync' })`). It is
+         a strict edge trigger, not a level check. `chat.connect()` — what `attachActiveRun()` uses to
+         reattach a run that was already in flight before this page load — never raises `providerBusy` (only
+         the package's OWN submit-driven start/resume path does), so a message enqueued while `providerBusy`
+         is false is STRANDED forever: the edge that would drain it can never fire, because it was never
+         false→true in the first place. That is why queueing is advertised here EXACTLY when `providerBusy`
+         is true, never a hardcoded `true`: during the reattach window `providerBusy` is false while
+         `running` (our `streaming`) is true, so the vendor Composer's own send-enabled expression
+         `(!running || queueingEnabled) && …` disables the send button instead of accepting a message the
+         package cannot actually queue. The message stays in the box, visible and editable — nothing 409s,
+         nothing is silently swallowed into a queue the UI cannot render (the Composer's own queued affordance
+         reads `chat.queuedMessage`, so a host-held shadow queue would be invisible to the owner). See
+         `submit()`'s defensive early return for the programmatic-caller case this disabled button does not
+         cover. -->
     <Composer
       ref="composerRef"
       v-model="draft"
@@ -951,7 +996,7 @@ defineExpose({
       :url-registry="urlRegistry"
       :queued-text="chat.queuedMessage.value?.text ?? null"
       :queued-attachment-count="chat.queuedMessage.value?.attachments.length ?? 0"
-      :queueing-enabled="true"
+      :queueing-enabled="chat.providerBusy.value"
       @submit="submit"
       @stop="chat.stop()"
       @cancel-queued="onCancelQueued"

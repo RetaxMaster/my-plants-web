@@ -2,6 +2,24 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — The app now treats a young plant differently from a mature one
+
+**A young plant needs different care than an adult of the same species, and the app now shows you that.**
+The growth-habit field explains where its value came from, and the Fertilize task now warns you when a
+plant is too young for a full-strength dose.
+
+### Added
+
+- **The growth-habit field now shows the value inherited from the species, and what "trailing" means.**
+  When you haven't set a growth habit for a plant yourself, the Add Missing Info form now shows the habit
+  the app inherited from the species instead of leaving the field looking unanswered, with a note under it
+  explaining where that value came from. Picking "trailing" now explains up front that it turns off the
+  height-based crowding signal for that plant, instead of you discovering it later by its absence.
+- **The Fertilize task now warns about diluted dose for a young plant.** When a plant is juvenile, its task
+  info modal shows a dedicated warning that label doses are formulated for mature plants and can burn a
+  young plant's delicate roots — the feeding schedule itself doesn't change, only the warning. The plant's
+  juvenile state is also shown as its own chip on the plant detail page, next to Age.
+
 ## Unreleased — Your plant's soil now has a story, and the app tells it
 
 **The app now keeps track of your plant's substrate over time, not just its watering.** Repotting a

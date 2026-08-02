@@ -126,8 +126,9 @@
     },
     "substrate": {
       "fertilizeFloor": "El sustrato todavía alimenta — primera fertilización estimada para el {date}.",
-      "repotDriverCrowding": "Programado según qué tan apretada está la planta en su maceta.",
-      "repotDriverSubstrate": "Programado porque el sustrato se está agotando, no por falta de espacio."
+      "repotDriverCrowding": "La estimación del motor se basa en qué tan apretada está la planta en su maceta.",
+      "repotDriverSubstrate": "La estimación del motor se basa en que el sustrato se está agotando, no en la falta de espacio.",
+      "repotOverrideBinding": "Tú pospusiste este recordatorio a la fecha que ves."
     }
   },
   "health": {

@@ -272,7 +272,8 @@
     "replace": "Reemplazar foto",
     "remove": "Quitar foto",
     "editTitle": "Foto de la planta",
-    "uploadError": "No se pudo subir la foto. Prueba con una imagen distinta."
+    "uploadError": "No se pudo subir la foto. Prueba con una imagen distinta.",
+    "view": "Ver la foto de {name}"
   },
   "photos": {
     "title": "Fotos",

@@ -14,6 +14,7 @@ import type {
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
   AgentProposal, DoctorSessionSettings,
   ClinicalRecordSummary, ClinicalRecordDetail,
+  RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
 } from '../types/api.js';
 
 // Client-side app-scoped GET cache (one per browser tab, lives until a full reload). The SERVER cache is
@@ -272,6 +273,27 @@ export function useApi() {
       api<PlantProfile>(`/plants/${id}/profile`, { method: 'PATCH', body: patch }),
     getPlantPhotos: (id: string) => api<PlantPhotoItem[]>(`/plants/${id}/photos`),
     getPlantCare: (id: string) => api<PlantCare>(`/plants/${id}/care`),
+    getRepotSigns: (plantId: string) => api<{ signs: RepotSign[] }>(`/plants/${plantId}/repot-signs`),
+
+    /**
+     * The submit boundary. `idempotencyKey` is a STABLE key minted at the submit boundary and reused across
+     * retries of that same submission — never a fresh one per attempt, and never content-derived (two
+     * genuinely separate evaluations of one plant must not collapse into one).
+     */
+    submitRepotEvaluation: (plantId: string, body: RepotEvaluationSubmit, idempotencyKey: string) =>
+      api<RepotEvaluationResult>(`/plants/${plantId}/repot-evaluation`, {
+        method: 'POST',
+        body,
+        headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+      }),
+
+    /** A REPOT completion. Same stable-key discipline as the evaluation submit. */
+    completeRepot: (plantId: string, occurredOn: string, payload: RepotDonePayload, idempotencyKey: string) =>
+      api<{ ok: true }>(`/plants/${plantId}/feedback`, {
+        method: 'POST',
+        body: { task: 'REPOT', type: 'DONE', occurredOn, payload },
+        headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+      }),
     // `idempotencyKey`, when passed, is PINNED as the Idempotency-Key header — Task 8's withIdempotencyKey
     // (inside api(), above) preserves a caller-pinned key rather than minting its own. This is what lets
     // pages/plants/new.vue anchor one stable key to the whole submit lifecycle (mint once, reuse on every

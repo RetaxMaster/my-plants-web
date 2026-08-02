@@ -7,8 +7,8 @@ import type {
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
 import type { ProgressTagKey } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
-import type { ProposalOperationType } from '@retaxmaster/my-plants-species-schema';
-export type { ProgressTagKey };
+import type { ProposalOperationType, RepotEvaluationSubmit } from '@retaxmaster/my-plants-species-schema';
+export type { ProgressTagKey, RepotEvaluationSubmit };
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -149,11 +149,50 @@ export interface PlantViability {
   inPrimaryCity: boolean;
 }
 
+// --- Repot evaluation (substrate:13 addendum) ---
+/** One catalogue row, already resolved to the request locale by the API. */
+export interface RepotSign {
+  id: string;
+  /** Already localized. NEVER an i18n key — catalogue text is DATA, which is what lets a new species' sign
+   *  appear with no code change. Only the modal's FRAME (headings, the two exclusive answers, buttons) is i18n. */
+  label: string;
+  help: string | null;
+}
+
+export type RepotVerdict = 'REPOT' | 'RE-EVALUATE';
+
+export interface PendingRepotEvaluation {
+  id: string;
+  verdict: RepotVerdict;
+  reevaluateOn: string | null; // YYYY-MM-DD
+}
+
+// RepotEvaluationSubmit is schema-owned (re-exported above) — imported, never retyped locally, per the
+// project's "no new forks" rule. A previous version of this file duplicated the union here; a Codex review
+// (repoteval:24 fix wave) caught the fork and this import replaces it.
+
+export interface RepotEvaluationResult {
+  evaluationId: string;
+  verdict: RepotVerdict;
+  reevaluateOn?: string; // YYYY-MM-DD, present iff verdict is RE-EVALUATE
+}
+
+/** The three fields a REPOT completion must carry — mirrors the API's repotDonePayloadSchema. */
+export interface RepotDonePayload {
+  potSizeCm: number;
+  soilMix: string;
+  charged: boolean;
+  refreshedOn?: string;
+  evaluationId?: string;
+}
+
 export interface PlantCareTask {
   task: TaskCode;
   nextDueOn: string;        // YYYY-MM-DD
   daysUntilDue: number;     // <0 overdue, 0 today, >0 upcoming
   status: 'overdue' | 'today' | 'upcoming';
+  /** Present on the REPOT entry; `null` on every other task and when nothing is pending. */
+  pendingEvaluation: PendingRepotEvaluation | null;
 }
 export interface PlantCare {
   plantId: string;
@@ -163,11 +202,11 @@ export interface PlantCare {
   viability: { level: ViabilityLevel; reasons: string[] } | null;
   // The species' soil-dryness-before-watering slug (e.g. 'mostly-dry'), used by the WATER info modal.
   soilDrynessBeforeWatering?: string;
-  // The plant-to-pot crowding index (spec E, Area A). `repotSigns` is species catalog data, rendered
-  // verbatim. Optional so an older API during a rolling deploy still types.
+  // The plant-to-pot crowding index (spec E, Area A). Optional so an older API during a rolling deploy
+  // still types. `repotSigns` moved off this shape — see `PlantCareTask.pendingEvaluation` and
+  // `getRepotSigns` (repot-evaluation flow, substrate:13 addendum).
   crowding?: {
     index: number | null;
-    repotSigns: string[];
   };
   /**
    * Juvenile state (Spec 2 §7.3). `ageMonths` is the API's EFFECTIVE (aged) value — the same number the

@@ -17,10 +17,10 @@
 // asserts the shape its own side produces. Only a test that crosses the proxy can see the shape the
 // BROWSER receives. So: a real upstream HTTP server, the real event handler, real h3 serialization, and
 // the real `ofetch` client — the same library Nuxt's `$fetch` is built on.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { createApp, toNodeListener, defineEventHandler, getRequestHeader, readRawBody, createError, parseCookies, type EventHandler } from 'h3';
+import { createApp, toNodeListener, defineEventHandler, getRequestHeader, readRawBody, createError, parseCookies, setResponseStatus, setResponseHeader, type EventHandler } from 'h3';
 import { ofetch } from 'ofetch';
 import { upstreamErrorBody, upstreamErrorStatus } from '../../utils/upstreamError.js';
 
@@ -35,6 +35,8 @@ let bffUrl = '';
 // What the upstream answers next. Set per test.
 let nextStatus = 200;
 let nextBody: unknown = {};
+/** When set, the upstream answers RAW BYTES with this content type instead of JSON. Reset per test. */
+let nextBinary: { bytes: Buffer; contentType: string } | null = null;
 /** The headers the upstream actually received on the last call — what the API gets to act on. */
 let lastUpstreamHeaders: Record<string, string | string[] | undefined> = {};
 /**
@@ -70,6 +72,11 @@ beforeAll(async () => {
     req.on('end', () => {
       lastUpstreamBodyBytes = bytes;
       res.statusCode = nextStatus;
+      if (nextBinary) {
+        res.setHeader('content-type', nextBinary.contentType);
+        res.end(nextBinary.bytes);
+        return;
+      }
       if (nextBody === undefined) {
         res.end(); // an EMPTY body — what Nest sends for a handler returning `null`
         return;
@@ -88,6 +95,8 @@ beforeAll(async () => {
   g.getRequestHeader = getRequestHeader;
   g.parseCookies = parseCookies;
   g.readRawBody = readRawBody;
+  g.setResponseStatus = setResponseStatus;
+  g.setResponseHeader = setResponseHeader;
   g.createError = createError;
   g.$fetch = ofetch; // Nuxt's `$fetch` IS ofetch
   g.useRuntimeConfig = () => ({ apiBase: upstreamUrl });
@@ -290,4 +299,72 @@ describe('the Nuxt BFF proxy, seen from the browser', () => {
     // not zero (a harness that never consumed the body), not short (a hop that silently caps or truncates).
     expect(lastUpstreamBodyBytes).toBe(sentBytes);
   }, 30000);
+});
+
+// THE BINARY SEAM. Everything the API does right stops at Nest unless this layer carries it: the generic
+// branch `await`s `$fetch` and returns the PARSED result, and its catch rebuilds the failure with
+// `createError`. Neither preserves bytes, the exact status, or the content type. This is the only test in
+// the repo that can see that, because it is the only one that crosses the proxy with a non-JSON body.
+describe('chat attachment recall through the BFF', () => {
+  // A real PNG signature: bytes that are NOT valid UTF-8, so a decode-and-re-encode round trip mangles
+  // them visibly. A test fixture of plain ASCII would survive the broken path and prove nothing.
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xd8, 0x00, 0x01]);
+  const PATH = '/api/gardener/sessions/s1/runs/r1/attachments/a1';
+
+  afterEach(() => { nextBinary = null; });
+
+  it('carries the EXACT bytes and the content type through unchanged', async () => {
+    nextStatus = 200;
+    nextBinary = { bytes: PNG, contentType: 'image/png' };
+
+    const res = await ofetch.raw(`${bffUrl}${PATH}`, { responseType: 'arrayBuffer' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('image/png');
+    // Byte equality, not length. `JSON.stringify` on a byte array yields an index-keyed object, and a
+    // UTF-8 decode replaces every invalid sequence with U+FFFD — both change these bytes, neither throws.
+    expect(Buffer.from(res._data as ArrayBuffer)).toEqual(PNG);
+  });
+
+  // 410 is the COMMON case for an old conversation, and it is the browser's cue to render an honest
+  // "no longer available" placeholder rather than an error. If the proxy renumbers it — or swallows it
+  // into a generic 500 — that placeholder never appears.
+  it.each([[410], [404], [500]])('delivers upstream %i to the browser INTACT', async (status) => {
+    nextStatus = status;
+    nextBinary = null;
+    nextBody = { error: 'nope' };
+
+    let seen: number | undefined;
+    try {
+      await ofetch(`${bffUrl}${PATH}`, { responseType: 'arrayBuffer' });
+    } catch (err) {
+      seen = (err as { statusCode?: number; response?: { status?: number } }).statusCode
+        ?? (err as { response?: { status?: number } }).response?.status;
+    }
+    expect(seen).toBe(status);
+  });
+
+  it('never silently coerces a failure to 200 with an error body', async () => {
+    nextStatus = 410;
+    nextBinary = null;
+    nextBody = { error: 'expired' };
+    let status = 200;
+    try {
+      await ofetch(`${bffUrl}${PATH}`, { responseType: 'arrayBuffer' });
+    } catch (err) {
+      status = (err as { statusCode?: number }).statusCode ?? 0;
+    }
+    expect(status).not.toBe(200);
+  });
+
+  // The binary branch must not swallow the rest of the app. Everything else still returns JSON through
+  // the generic passthrough, error envelope and all — the tests above this block already pin that shape,
+  // and this asserts the new branch did not start claiming their paths.
+  it('leaves a NON-attachment path on the generic JSON passthrough', async () => {
+    nextStatus = 200;
+    nextBinary = null;
+    nextBody = { ok: true };
+    const { ok } = (await callThroughBff('/api/gardener/sessions/s1/runs/r1/log')) as { ok: unknown };
+    expect(ok).toEqual({ ok: true });
+  });
 });

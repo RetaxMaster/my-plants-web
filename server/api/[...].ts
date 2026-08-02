@@ -1,4 +1,5 @@
 import { IDEMPOTENCY_KEY_HEADER } from '@retaxmaster/my-plants-species-schema';
+import { isChatAttachmentPath } from '../../utils/chatAttachmentPath.js';
 
 export default defineEventHandler(async (event) => {
   const { apiBase } = useRuntimeConfig(event);
@@ -60,6 +61,30 @@ export default defineEventHandler(async (event) => {
   // backend's image decode. ofetch/$fetch forwards a Buffer body untouched and JSON parses fine from it.
   const body =
     method === 'GET' || method === 'HEAD' ? undefined : await readRawBody(event, false);
+
+  // ── THE BINARY BRANCH (spec 2026-08-01 §3.4) ─────────────────────────────────────────────────────
+  //
+  // Chat-attachment recall is the ONLY route in this app whose response is not JSON, and the generic
+  // passthrough below cannot carry it: `$fetch` returns the PARSED body (a byte array becomes an
+  // index-keyed object, invalid UTF-8 becomes U+FFFD), and the catch rebuilds the failure through
+  // `createError`, which renumbers nothing but re-wraps everything and drops the upstream headers.
+  //
+  // So these paths get the response side of the same discipline the request side already has
+  // (`readRawBody(event, false)` — binary-safe, never UTF-8-decoded): fetch, copy the upstream STATUS
+  // and CONTENT-TYPE verbatim, and write the raw bytes through untouched.
+  //
+  // The status matters as much as the bytes. A 410 is the COMMON answer for an old conversation (the
+  // engine's 48 h retention), and it is what tells the browser to render an honest "this image is no
+  // longer available" placeholder instead of an error — a proxy that flattened it would make normal
+  // behaviour look broken.
+  if (method === 'GET' && isChatAttachmentPath(path)) {
+    const upstream = await fetch(`${apiBase}${path}`, { method: 'GET', headers });
+    setResponseStatus(event, upstream.status);
+    const upstreamType = upstream.headers.get('content-type');
+    if (upstreamType) setResponseHeader(event, 'content-type', upstreamType);
+    // A Buffer returned from an h3 handler is sent as-is — no serializer, no re-encode.
+    return Buffer.from(await upstream.arrayBuffer());
+  }
 
   try {
     return await $fetch(`${apiBase}${path}`, { method, headers, body });

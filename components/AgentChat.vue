@@ -6,7 +6,7 @@ import {
 // The transcript's label set is a CORE type (the Vue layer only re-exports the components), and it is the
 // contract the `labels` thunk must satisfy in full.
 import type { TranscriptLabels } from '@retaxmaster/agents-realtime-client';
-import { createObjectUrlRegistry, mergeIntoComposer } from '@retaxmaster/agents-realtime-client';
+import { createObjectUrlRegistry, historyUrlKey, mergeIntoComposer } from '@retaxmaster/agents-realtime-client';
 import type { LocalAttachment } from '@retaxmaster/agents-realtime-client';
 import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
@@ -138,6 +138,7 @@ const chatLabels = computed(() => ({
   systemMessageLabel: tns('composer.systemMessageLabel'),
   attachmentsLabel: tns('composer.attachmentsLabel'),
   attachmentRestored: tns('composer.attachmentRestored'),
+  attachmentRecallFailed: tns('composer.attachmentRecallFailed'),
   attach: tns('composer.attach'),
   removeAttachment: tns('composer.removeAttachment'),
   attachmentTooLarge: tns('composer.attachmentTooLarge'),
@@ -186,7 +187,10 @@ const composerRef = ref<InstanceType<typeof Composer> | null>(null);
 // useAgentChat.abandonConversation() returns blobs while releasing nothing. Without an owner at our level,
 // a long-lived tab that switches conversations repeatedly LEAKS object urls.
 const urlRegistry = createObjectUrlRegistry();
-onBeforeUnmount(() => urlRegistry.dispose());
+onBeforeUnmount(() => {
+  recallGeneration += 1; // an in-flight resolution must not mint into a registry that is being disposed
+  urlRegistry.dispose();
+});
 const error = ref<string | null>(null);
 const providers = ref<AgentProviderStatus[]>([]);
 // True when the DB says this conversation HAS settled turns but the engine could restore none of them.
@@ -485,6 +489,69 @@ function renderFor(items: readonly LocalAttachment[]) {
   }));
 }
 
+// --- Restored-attachment recall (spec 2026-08-01 §3.4) --------------------------------------------------
+//
+// Since 3.3.0 a restored turn the ENGINE recorded carries a `runId`, and the package will hand us every
+// attachment still showing a hole. We fetch the bytes through OUR OWN authenticated route — the engine
+// never serves a browser — and hand the Blob back so the package can render the thumbnail.
+//
+// ⚠️ WHY THIS LOOP LIVES HERE AT ALL. The package ships `ChatPanel`'s `resolveAttachment` prop, which runs
+// this loop and owns the url lifecycle for you. We do not render `ChatPanel` (we drive a standalone
+// Console + Composer), so we own it — which is also why this component already owns a url registry. The
+// shape below deliberately mirrors the package's own implementation rather than inventing one: the
+// generation guard, the re-read of that guard AFTER the await, and the "a mint failure is one
+// attachment's problem, not the batch's" rule are each there because the package paid for them.
+const attachmentRecallFailed = ref(false);
+// Bumped on teardown. `fetchAttachment` is network I/O, so a resolution can outlive the conversation
+// that started it: minting into a registry nobody will release again is a permanent leak, and painting
+// the previous conversation's thumbnail into the next one looks exactly like the feature working.
+let recallGeneration = 0;
+
+async function resolveRestoredAttachments(): Promise<void> {
+  // Both are optional on the package's own instance type; a host on an older client sees no change.
+  if (typeof chat.restoredAttachments !== 'function' || typeof chat.setRestoredAttachmentPreview !== 'function') return;
+  const sessionId = currentSessionId.value;
+  if (!sessionId) return; // a brand-new conversation has nothing restored
+  const generation = recallGeneration;
+
+  // SEQUENTIAL on purpose. The count is bounded by the per-turn attachment cap, the images are already
+  // on our own server, and a burst of parallel fetches is a cost this screen has no reason to impose.
+  for (const ref of chat.restoredAttachments()) {
+    if (generation !== recallGeneration) return;
+    let blob: Blob | null = null;
+    try {
+      blob = await runs.fetchAttachment(sessionId, ref.runId, ref.attachmentId);
+    } catch (e: unknown) {
+      const status = upstreamErrorCode(e);
+      // 410 (the 48 h retention reaped it) and 404 (never recorded) are the EXPECTED answers for an old
+      // conversation, not errors: the package keeps its named affordance, whose label says the image is
+      // no longer available and names the window. Anything else is OUR side being broken, and says so —
+      // it must never wear the expiry copy.
+      if (status !== 410 && status !== 404) attachmentRecallFailed.value = true;
+      continue;
+    }
+    if (generation !== recallGeneration) return;
+    if (!(blob instanceof Blob)) continue;
+
+    try {
+      // The `history` surface key is the package's own (`historyUrlKey`), never a hand-built string: a
+      // restored attachment is identified by its RUN as well as its id, because `attachmentId` is
+      // browser-minted and only unique within a run.
+      const key = historyUrlKey(ref.runId, ref.attachmentId);
+      const url = urlRegistry.urlFor('history', { id: key, blob });
+      // …and if the turn is no longer on screen, that url belongs to nothing. Revoke it NOW rather than
+      // leaving it for a teardown that is counting it as held.
+      if (!chat.setRestoredAttachmentPreview(ref.runId, ref.attachmentId, url)) {
+        urlRegistry.release('history', key);
+      }
+    } catch {
+      // A MINT OR WRITE-BACK FAILURE IS STILL ONE ATTACHMENT'S PROBLEM. Skip it, keep the affordance for
+      // this one, and let every other attachment in the batch still resolve.
+      continue;
+    }
+  }
+}
+
 /**
  * The auto-send handler (spec §5): the package sends a QUEUED message itself once the current turn ends
  * cleanly, and calls this so the host can render the optimistic bubble and mint any preview urls — the
@@ -648,6 +715,10 @@ async function restore() {
   try {
     const history = await sessions.history(props.sessionId);
     chat.seedHistory(history);
+    // Fire-and-forget: a thumbnail arriving late is fine, a chat blocked on image fetches is not. It
+    // reads the TRANSCRIPT (what is actually on screen and still unfilled), not the history object we
+    // were handed — a seed the transcript refused must not cause a fetch for a bubble nobody can see.
+    void resolveRestoredAttachments();
     // A conversation predating agents-realtime 1.0.0 cannot be restored: its run logs are in the old raw
     // format the current engine does not read, and the agent may have purged its own copy of the session
     // by now. That is an unavoidable consequence of the breaking change — but a SILENT empty console would
@@ -841,6 +912,7 @@ onBeforeUnmount(() => chat.close());
 defineExpose({
   abandonConversation(): { text: string; attachments: LocalAttachment[] } | null {
     const abandoned = chat.abandonConversation?.() ?? null;
+    recallGeneration += 1; // an in-flight resolution belongs to the conversation being left, not the next one
     urlRegistry.releaseAll();
     return abandoned;
   },
@@ -960,6 +1032,16 @@ defineExpose({
     <p v-if="showQueuedAttachmentsDroppedNotice" class="mp-kchat__note" role="status">
       {{ chatLabels.queuedAttachmentsDropped }}
       <button type="button" class="mp-kchat__recheck" @click="showQueuedAttachmentsDroppedNotice = false">
+        {{ chatLabels.dismiss }}
+      </button>
+    </p>
+
+    <!-- OUR failure, not an expiry. An expired image renders as the package's own named affordance
+         inside the transcript (its label names the 48 h window); this notice fires only when the recall
+         failed for a reason the owner did not cause. -->
+    <p v-if="attachmentRecallFailed" class="mp-kchat__note" role="status">
+      {{ chatLabels.attachmentRecallFailed }}
+      <button type="button" class="mp-kchat__recheck" @click="attachmentRecallFailed = false">
         {{ chatLabels.dismiss }}
       </button>
     </p>

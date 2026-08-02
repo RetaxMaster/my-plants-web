@@ -44,6 +44,19 @@ const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }
 const doneFormSubmitting = ref(false);
 // Same stable-key discipline as evaluationKey.
 const doneKey = ref<string | null>(null);
+const repotPostponeSubmitting = ref(false);
+
+// Every REPOT mutating flow can genuinely fail — the state a card was built from can go stale between
+// render and click (another tab resolves the same evaluation, a slow refresh races a second click): a
+// 409 when an unresolved verdict already changed underneath the request, a 400 when the evaluationId it
+// was holding no longer resolves, or a 422 when a retried submission's body no longer matches what the
+// idempotency layer stored. `repotEval.errorPending` already ships in both locales for exactly this
+// (code review found it shipped-but-unused, which is what surfaced that these 3 flows had NO catch at
+// all — an unhandled rejection that silently did nothing on failure). Shown as a page-level banner rather
+// than inside RepotEvaluationModal.vue/RepotDoneForm.vue themselves: those are already-shipped, already-
+// reviewed sibling components (Task 25/26) and reaching into them here would be its own cross-task-
+// interaction risk, not a fix for one.
+const repotError = ref(false);
 
 const isDesktop = useIsDesktop();
 const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTasks());
@@ -103,7 +116,13 @@ async function sendPostpone(plantId: string, task: DueTask['task'], reason?: str
 async function onEvaluate(plantId: string) {
   evaluationPlantId.value = plantId;
   evaluationKey.value = null;
-  evaluationSigns.value = await api.getRepotSigns(plantId).then((r) => r.signs).catch(() => []);
+  repotError.value = false;
+  const signs = await api.getRepotSigns(plantId).then((r) => r.signs).catch(() => []);
+  // Race guard (code review finding F4): if the owner clicked a DIFFERENT card's evaluate action while
+  // this fetch was in flight, `evaluationPlantId` has already moved on — applying this response now would
+  // silently show the wrong plant's signs list under the wrong plant's modal.
+  if (evaluationPlantId.value !== plantId) return;
+  evaluationSigns.value = signs;
   evaluationOpen.value = true;
 }
 
@@ -112,6 +131,7 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   if (!plantId) return;
   if (!evaluationKey.value) evaluationKey.value = crypto.randomUUID();
   evaluationSubmitting.value = true;
+  repotError.value = false;
   try {
     const result = await api.submitRepotEvaluation(plantId, body, evaluationKey.value);
     evaluationKey.value = null; // discarded on success; never reused again
@@ -119,6 +139,11 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
     verdict.value = result;
     verdictOpen.value = true;
     await refresh();
+  } catch {
+    // Key deliberately kept (not cleared) on failure: a lost-response retry must reuse the same key, per
+    // the stable-idempotency-key rule. The modal stays open so the owner can see the error and retry the
+    // SAME submission rather than silently losing it.
+    repotError.value = true;
   } finally {
     evaluationSubmitting.value = false;
   }
@@ -129,7 +154,11 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
 async function onRepotDone(plantId: string) {
   doneFormPlantId.value = plantId;
   doneKey.value = null;
+  repotError.value = false;
   const plant = await api.getPlant(plantId);
+  // Race guard (code review finding F4): the SAME class as onEvaluate above — a second card click during
+  // this fetch must not overwrite the already-moved-on target with this stale response's profile.
+  if (doneFormPlantId.value !== plantId) return;
   doneFormProfile.value = { potSizeCm: plant.profile.potSizeCm, soilMix: plant.profile.soilMix };
   doneFormOpen.value = true;
 }
@@ -139,6 +168,7 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   if (!plantId) return;
   if (!doneKey.value) doneKey.value = crypto.randomUUID();
   doneFormSubmitting.value = true;
+  repotError.value = false;
   try {
     const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
     await api.completeRepot(
@@ -150,6 +180,9 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
     doneKey.value = null; // discarded on success; never reused again
     doneFormOpen.value = false;
     await refresh();
+  } catch {
+    // Key deliberately kept on failure, same reasoning as onEvaluationSubmit.
+    repotError.value = true;
   } finally {
     doneFormSubmitting.value = false;
   }
@@ -159,15 +192,26 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
 // known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the
 // same verdict row instead of leaving it open.
 async function onRepotPostpone(plantId: string) {
-  const pendingEval = pendingEvaluationFor(plantId);
-  await api.sendFeedback(plantId, {
-    task: 'REPOT',
-    type: 'POSTPONED',
-    occurredOn: today,
-    reason: 'needed-cannot-now',
-    ...(pendingEval ? { payload: { evaluationId: pendingEval.id } } : {}),
-  });
-  await refresh();
+  if (repotPostponeSubmitting.value) return; // in-flight guard (code review finding F3): no key/modal to
+  // gate this action the way the two flows above are gated, so a double-click without this would fire two
+  // POSTs carrying the SAME evaluationId — the second 400s ("already-resolved") with no visible feedback.
+  repotPostponeSubmitting.value = true;
+  repotError.value = false;
+  try {
+    const pendingEval = pendingEvaluationFor(plantId);
+    await api.sendFeedback(plantId, {
+      task: 'REPOT',
+      type: 'POSTPONED',
+      occurredOn: today,
+      reason: 'needed-cannot-now',
+      ...(pendingEval ? { payload: { evaluationId: pendingEval.id } } : {}),
+    });
+    await refresh();
+  } catch {
+    repotError.value = true;
+  } finally {
+    repotPostponeSubmitting.value = false;
+  }
 }
 
 // Done: a WATER done that is NOT yet due (status 'upcoming') is an EARLY watering → ask why. A REPOT done
@@ -221,6 +265,13 @@ function openProgress(plantId: string) {
 <template>
   <div>
     <UiScreenHeader :eyebrow="$t('today.eyebrow')" :title="$t('today.title')" :subtitle="subtitle" />
+
+    <UiAlert
+      v-if="repotError"
+      color="red"
+      :description="$t('repotEval.errorPending')"
+      class="mp-today__repot-error"
+    />
 
     <UiCard v-if="!grouped.size" padded>
       <UiEmptyState>{{ $t('today.empty') }}</UiEmptyState>
@@ -301,6 +352,10 @@ function openProgress(plantId: string) {
 </template>
 
 <style scoped>
+.mp-today__repot-error {
+  margin-bottom: var(--space-4);
+}
+
 .mp-today__plant {
   display: block;
   text-decoration: none;

@@ -20,13 +20,18 @@ const props = withDefaults(
     /** Optional one-line "why this date" explanation, rendered under the task label. */
     explanation?: string;
     /**
-     * REPOT only. `null` -> the card shows "time to evaluate"; `'REPOT'` -> the uncertainty is resolved and
-     * the classic Done | Postpone returns, now correct: Done means "I repotted it" and Postpone means
-     * "yes, but I can't right now".
+     * REPOT only, and DELIBERATELY UNDEFAULTED — see `showEvaluate` below. `undefined` (the prop simply
+     * omitted by the caller) means that caller has NOT opted into the verdict-driven state machine and
+     * gets the classic Done | Postpone unconditionally, exactly as before Task 27 — this is what keeps
+     * `PlantDetail.vue`'s own REPOT card working unchanged until Task 28 explicitly wires it in. Only a
+     * caller that EXPLICITLY passes `null` (no pending verdict yet) or a verdict string opts in: `null` ->
+     * the card shows "time to evaluate"; `'REPOT'` -> the uncertainty is resolved and the classic
+     * Done | Postpone returns, now correct: Done means "I repotted it" and Postpone means "yes, but I
+     * can't right now".
      */
     pendingVerdict?: 'REPOT' | 'RE-EVALUATE' | null;
   }>(),
-  { withDoneDate: false, showInfo: false, pendingVerdict: null },
+  { withDoneDate: false, showInfo: false },
 );
 
 const emit = defineEmits<{
@@ -43,9 +48,16 @@ const badgeColor = computed(() =>
   props.status === 'overdue' ? 'red' : props.status === 'today' ? 'amber' : 'neutral',
 );
 
-// REPOT stops offering a bare Done/Postpone until a verdict exists: both presuppose a conclusion the
-// owner has not been helped to reach yet.
-const showEvaluate = computed(() => props.task === 'REPOT' && props.pendingVerdict !== 'REPOT');
+// REPOT stops offering a bare Done/Postpone until a verdict exists — but ONLY for a caller that has
+// explicitly opted in by passing `pendingVerdict` at all (even `null`). A caller that omits the prop
+// entirely (`undefined`) has not migrated to the state machine yet and keeps today's behavior — this is
+// what stops `PlantDetail.vue`'s own, not-yet-migrated REPOT card from silently losing its Done/Postpone
+// buttons the moment this component's default changes (a real regression a code review caught: the old
+// unconditional `pendingVerdict: null` default made EVERY consumer, migrated or not, show "time to
+// evaluate" with no way to complete or postpone a repot from the plant-detail page).
+const showEvaluate = computed(
+  () => props.task === 'REPOT' && props.pendingVerdict !== undefined && props.pendingVerdict !== 'REPOT',
+);
 
 const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
 const onPostpone = () => emit('postpone', { task: props.task });

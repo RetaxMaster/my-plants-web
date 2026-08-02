@@ -400,6 +400,7 @@
     "soilMixOptions": {
       "aroid": "Mezcla para aroides",
       "all-purpose": "Uso general",
+      "all-purpose-perlite": "Uso general con perlita",
       "cactus-succulent": "Cactus y suculentas",
       "orchid-bark": "Corteza para orquídeas",
       "peat-based": "A base de turba",

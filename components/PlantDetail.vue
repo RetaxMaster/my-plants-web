@@ -319,6 +319,10 @@ const taskInfoDryness = computed(() =>
 const taskInfoRepotSigns = computed(() =>
   taskInfoTask.value === 'REPOT' ? (care.value?.crowding?.repotSigns ?? null) : null,
 );
+// Juvenile state (Spec 2 §7.3): FERTILIZE-only dose warning, plus surfaced as its own care-basis chip so
+// the state isn't modal-only. `care.value?.juvenile` is optional (older API during a rolling deploy), so
+// its absence reads as "unknown", never as false.
+const isJuvenile = computed(() => care.value?.juvenile?.isJuvenile === true);
 
 // A tri-state boolean -> localized Yes/No, or null (Missing info) when unknown.
 function yn(v: boolean | null | undefined): string | null {
@@ -363,6 +367,7 @@ const careBasisGroups = computed(() => {
         // today is an unintended confidence credit, documented there as a deferred bug. `growthHabit`
         // below shares the same confidence weight but DOES feed a factor.
         { icon: 'clock', label: t('careBasis.fields.age'), value: pr.ageMonths != null ? t('careBasis.values.age', { n: pr.ageMonths }) : null, counted: true },
+        { icon: 'sparkles', label: t('careBasis.fields.juvenile'), value: isJuvenile.value ? t('common.yes') : null, counted: false },
         { icon: 'arrow-up-right', label: t('careBasis.fields.growthHabit'), value: growthHabitLabel(pr.growthHabit), counted: true },
       ],
     },
@@ -823,7 +828,7 @@ async function confirmRevive() {
     <NoteModal v-model="noteOpen" :plant-id="id" :mode="noteMode" :note="activeNote" @saved="onNoteSaved" />
     <UiImageLightbox v-model="lightboxOpen" v-model:index="lightboxIndex" :images="lightboxImages" />
     <PlantProfileModal v-model="profileOpen" :plant-id="id" @saved="onProfileSaved" />
-    <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" :repot-signs="taskInfoRepotSigns" />
+    <UiTaskInfoModal v-model:open="taskInfoOpen" :task="taskInfoTask" :soil-dryness="taskInfoDryness" :repot-signs="taskInfoRepotSigns" :is-juvenile="isJuvenile" />
 
     <!-- Cover-photo editor -->
     <UiModal v-model="coverOpen" :title="$t('plantPhoto.editTitle')">

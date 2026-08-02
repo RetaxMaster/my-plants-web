@@ -227,7 +227,17 @@ function mountChatInner(proposals: Record<string, unknown> | undefined, extra: R
     },
     global: {
       mocks: { $t: (k: string) => k },
-      stubs: { AgentProposalBanner: BannerStub, AgentSkipPermissions: SkipStub },
+      stubs: {
+        AgentProposalBanner: BannerStub,
+        AgentSkipPermissions: SkipStub,
+        // A real stub (not auto-stubbed) so its props are observable — the point of the test below is
+        // asserting exactly which image the lightbox was opened with.
+        UiImageLightbox: {
+          name: 'UiImageLightbox',
+          props: ['modelValue', 'images', 'index'],
+          template: '<div class="stub-lightbox" />',
+        },
+      },
     },
   });
 }
@@ -1257,5 +1267,37 @@ describe('a queued message is byte-identical to a direct send', () => {
     expect(chatStub.enqueueMessage).not.toHaveBeenCalled();
     expect(chatStub.resume).not.toHaveBeenCalled();
     expect(chatStub.start).not.toHaveBeenCalled();
+  });
+});
+
+describe('chat thumbnails open in the shared lightbox', () => {
+  it('a click on a transcript thumbnail opens UiImageLightbox with that one image', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+
+    // The package renders `<img class="crt-attachments__thumb">` inside its own Console, which we cannot
+    // hand a click handler to. The delegation target is OUR container, so the test dispatches the event
+    // the same way the browser would.
+    const img = document.createElement('img');
+    img.className = 'crt-attachments__thumb';
+    img.src = 'blob:stub-a1';
+    img.alt = 'leaf.png';
+    w.element.appendChild(img);
+    img.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await nextTick();
+
+    const lightbox = w.findComponent({ name: 'UiImageLightbox' });
+    expect(lightbox.props('modelValue')).toBe(true);
+    expect(lightbox.props('images')).toEqual([{ src: 'blob:stub-a1', alt: 'leaf.png' }]);
+  });
+
+  it('a click on anything else does not open it', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    const div = document.createElement('div');
+    w.element.appendChild(div);
+    div.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await nextTick();
+    expect(w.findComponent({ name: 'UiImageLightbox' }).props('modelValue')).toBe(false);
   });
 });

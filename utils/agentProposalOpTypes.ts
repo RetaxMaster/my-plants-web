@@ -39,4 +39,5 @@ export const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'note.create': 'noteCreate',
   'plant.memorialize': 'plantMemorialize',
   'plant.gift': 'plantGift',
+  'substrate.refresh': 'substrateRefresh',
 };

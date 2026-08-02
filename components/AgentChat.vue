@@ -514,10 +514,19 @@ async function submit(text?: string, submitted?: LocalAttachment[]) {
     return;
   }
 
-  // A run is in flight (spec §5): hand the message to the package's QUEUE rather than refusing it. It is
-  // sent automatically when the turn ends CLEANLY (→ onQueuedMessageSent above); a failed or cancelled turn
+  // A run is in flight: hand the message to the package's QUEUE rather than refusing it. It is sent
+  // automatically when the turn ends CLEANLY (→ onQueuedMessageSent above); a failed or cancelled turn
   // returns it to the composer, intact and editable, with a notice — that is the design, not a defect.
-  if (streaming.value) {
+  //
+  // GATED ON `providerBusy`, NOT on our own `streaming` computed (spec 2026-08-01 §5.1). The package's
+  // own queue decides with `providerBusy` (`if (n.queue && c.providerBusy.value)` in the installed
+  // dist), so deciding here with a different expression is two implementations of one decision. They
+  // disagree in the window where a run has been ACCEPTED but has not yet emitted its first event: our
+  // computed still reads `idle` there, so a message sent in that gap escaped the queue and raced the
+  // in-flight run. `streaming` still drives the CHROME below (the console's busy state, the composer's
+  // running state, the run-terminal watcher) — that is a question about what the screen shows, which is
+  // genuinely a different question from whether a send may proceed.
+  if (chat.providerBusy.value) {
     chat.enqueueMessage({ text: body.trim(), attachments: items });
     draft.value = '';
     attachments.value = [];

@@ -268,6 +268,9 @@ beforeEach(() => {
   chatStub.queuedMessage.value = null;
   chatStub.returnedToComposer.value = null;
   chatStub.restoredDraft.value = null;
+  // Spec 2026-08-01 §5.1: the submit() queue gate reads `providerBusy`, not our own `streaming` computed.
+  // A leaked `true` from one test would silently queue every later test's submit.
+  chatStub.providerBusy.value = false;
   useAgentChatSpy.mockClear();
   chatStub.enqueueMessage.mockClear();
   chatStub.cancelQueued.mockClear();
@@ -627,6 +630,9 @@ describe('the message queue', () => {
     const w = mountChat(undefined);
     await flushPromises();
     chatStub.state.value = 'streaming';
+    // Spec 2026-08-01 §5.1: the gate moved from our own `streaming` computed to the package's
+    // `providerBusy` — set both here so this test still exercises the real in-flight state.
+    chatStub.providerBusy.value = true;
     await flushPromises();
 
     await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'while you think', []);
@@ -959,5 +965,38 @@ describe('AgentChat — consent banner teleport', () => {
     await flushPromises();
 
     expect(w.find('.stub-banner').exists()).toBe(true);
+  });
+});
+
+// Spec 2026-08-01 §5.1. Our own `streaming` computed and the package's `providerBusy` are two
+// implementations of one decision, and they disagree in exactly one window: a run accepted but not yet
+// emitting. A message sent there escapes the queue and races the in-flight run.
+describe('the queue gate follows the package, not our own state', () => {
+  afterEach(() => { chatStub.providerBusy.value = false; });
+
+  it('QUEUES when the package says the provider is busy, even while our state still reads idle', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.state.value = 'idle';       // our computed says "not streaming"…
+    chatStub.providerBusy.value = true;  // …while the package already accepted a run
+    await flushPromises();
+
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'during the gap', []);
+    await flushPromises();
+
+    expect(chatStub.enqueueMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'during the gap' }));
+    // THE RACE, pinned: without this fix the message went straight to the driver.
+    expect(chatStub.resume).not.toHaveBeenCalled();
+    expect(chatStub.start).not.toHaveBeenCalled();
+  });
+
+  it('sends directly when the provider is NOT busy', async () => {
+    const w = mountChat(undefined);
+    await flushPromises();
+    chatStub.providerBusy.value = false;
+    await w.findComponent({ name: 'Composer' }).vm.$emit('submit', 'go ahead', []);
+    await flushPromises();
+    expect(chatStub.enqueueMessage).not.toHaveBeenCalled();
+    expect(chatStub.resume).toHaveBeenCalled();
   });
 });

@@ -1034,7 +1034,8 @@
         "clinicalRecordUpdate": "Corregir el expediente clínico de hoy",
         "noteCreate": "Agregar una nota",
         "plantMemorialize": "Mover al panteón",
-        "plantGift": "Marcar como regalada"
+        "plantGift": "Marcar como regalada",
+        "substrateRefresh": "Renovar el sustrato"
       }
     },
     "skipPermissions": {
@@ -1208,7 +1209,8 @@
         "cityUpdate": "Actualizar una ciudad",
         "noteCreate": "Agregar una nota",
         "plantMemorialize": "Mover al panteón",
-        "plantGift": "Marcar como regalada"
+        "plantGift": "Marcar como regalada",
+        "substrateRefresh": "Renovar el sustrato"
       }
     },
     "skipPermissions": {

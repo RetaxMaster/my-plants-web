@@ -1034,7 +1034,8 @@
         "clinicalRecordUpdate": "Revise today's clinical record",
         "noteCreate": "Add a note",
         "plantMemorialize": "Move to the pantheon",
-        "plantGift": "Mark as gifted"
+        "plantGift": "Mark as gifted",
+        "substrateRefresh": "Refresh the substrate"
       }
     },
     "skipPermissions": {
@@ -1208,7 +1209,8 @@
         "cityUpdate": "Update a city",
         "noteCreate": "Add a note",
         "plantMemorialize": "Move to the pantheon",
-        "plantGift": "Mark as gifted"
+        "plantGift": "Mark as gifted",
+        "substrateRefresh": "Refresh the substrate"
       }
     },
     "skipPermissions": {

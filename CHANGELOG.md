@@ -2,6 +2,26 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — Your plant's soil now has a story, and the app tells it
+
+**The app now keeps track of your plant's substrate over time, not just its watering.** Repotting a
+plant, registering a new one, and the care cards themselves all know when the soil itself — not just
+crowding or the calendar — is the reason for a date.
+
+### Added
+
+- **Marking "Repot" as done now asks one quick question: was it fresh substrate?** Answer yes, no, or "I
+  don't know" — and "I don't know" is a perfectly fine answer, since the app can work it out from the soil
+  mix you've already recorded instead of guessing.
+- **Registering a new plant lets you say when its substrate was last renewed, and whether it was fresh —
+  both optional.** Leave them blank and nothing changes: the app assumes the soil is already spent, which
+  is the safe assumption.
+- **A new soil mix option in the plant profile form: "All-purpose with perlite."**
+- **The care cards now explain themselves.** When a plant's next feeding is scheduled further out than
+  usual, the Fertilize card says why — the substrate is still feeding it, with the date that estimate runs
+  out. And the Repot card now tells you which of two reasons put it on your list: the plant outgrowing its
+  pot, or the soil itself wearing out.
+
 ## Unreleased — Your chat photos come back for 48 hours; the cover photo opens full screen
 
 **When you send a photo to the Plant Doctor or Gardener, you can see it again in that conversation — and now the plant cover photo opens full screen too.** A photo stays visible for 48 hours after you upload it; after that the conversation shows a note where the image was, which is expected, not a fault.

@@ -20,6 +20,12 @@ const form = reactive<CreatePlant>({
   nickname: '',
   acquiredOn: todayYmd(),
 });
+// Offered INDEPENDENTLY, both optional (Spec 1 §4.2): an owner may answer "yes, fresh" without recalling
+// the date, in which case the API anchors the clock to the registration date itself. Making the date
+// mandatory in order to answer "yes" would turn a low-friction question into a required one for no
+// modelling gain.
+const substrateRefreshedOn = ref('');
+const substrateCharged = ref<'yes' | 'no' | 'unknown'>('unknown');
 // Deferred cover selection: held here and uploaded AFTER the plant is created (no plantId exists yet).
 // ACTIVE-create only — an import uses the batch picker below instead.
 const photoFiles = ref<File[]>([]);
@@ -134,6 +140,10 @@ async function submit() {
         nickname: form.nickname || undefined,
         acquiredOn: form.acquiredOn,
         lifecycleState: isImport.value ? (importState.value as 'MEMORIAL' | 'GIFTED') : undefined,
+        // Omitted when blank/unknown: absence is the depleted default, and `substrateCharged` absent
+        // means "derive from the mix", which is NOT the same as `false`.
+        substrateRefreshedOn: substrateRefreshedOn.value || undefined,
+        substrateCharged: substrateCharged.value === 'unknown' ? undefined : substrateCharged.value === 'yes',
       }, createIdempotencyKey.value);
       createdPlantId.value = plant.id;
       plantId = plant.id;
@@ -210,6 +220,21 @@ async function submit() {
       <UiFormGroup :label="$t('plantsNew.acquiredOn')" required>
         <UiInput v-model="form.acquiredOn" type="date" />
       </UiFormGroup>
+
+      <UiFormGroup :label="$t('plantsNew.substrateRefreshedOn')" :hint="$t('plantsNew.substrateHint')">
+        <UiInput v-model="substrateRefreshedOn" type="date" />
+      </UiFormGroup>
+      <UiFormGroup :label="$t('plantsNew.substrateCharged')">
+        <UiSelectField
+          v-model="substrateCharged"
+          :options="[
+            { value: 'unknown', label: $t('plantsNew.substrateChargedUnknown') },
+            { value: 'yes', label: $t('plantsNew.substrateChargedYes') },
+            { value: 'no', label: $t('plantsNew.substrateChargedNo') },
+          ]"
+        />
+      </UiFormGroup>
+
       <UiFormGroup v-if="error" :error="error" />
       <UiButton type="submit" block :disabled="!valid || submitting" :loading="submitting">{{ $t('plants.add') }}</UiButton>
     </form>

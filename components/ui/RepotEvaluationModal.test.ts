@@ -63,3 +63,43 @@ describe('RepotEvaluationModal — the error prop renders INSIDE the modal body 
     expect(modalPanel.element.contains(alert.element)).toBe(true);
   });
 });
+
+describe('RepotEvaluationModal — frozen answers survive a close + re-open (code review finding V12)', () => {
+  const signs = [
+    { id: 's1', label: 'Roots circling the drainage holes' },
+    { id: 's2', label: 'Stunted growth this season' },
+  ];
+
+  it('keeps the checked signs when the modal closes (open=false, e.g. X/Escape/backdrop) and the ' +
+    'parent reopens it frozen — the exact sequence pages/index.vue\'s onEvaluate resume produces', async () => {
+    const w = mountModal({ signs, frozen: false });
+    await w.find('input[type="checkbox"][value="s1"]').setValue(true);
+    expect((w.find('input[type="checkbox"][value="s1"]').element as HTMLInputElement).checked).toBe(true);
+
+    // The parent freezes once a submit is attempted, then the owner closes (X/Escape/backdrop set the
+    // `open` prop to false without going through "start over") and reopens — resuming, per the parent's
+    // fix, keeps `frozen` true across that reopen.
+    await w.setProps({ frozen: true });
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    const checkbox = w.find('input[type="checkbox"][value="s1"]');
+    expect(checkbox.exists()).toBe(true);
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true);
+    // The inputs stay disabled — this is a frozen retry, not an editable form.
+    expect((checkbox.element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('still resets the answers on a genuinely fresh re-open (no outstanding key, frozen stays false)', async () => {
+    const w = mountModal({ signs, frozen: false });
+    await w.find('input[type="checkbox"][value="s1"]').setValue(true);
+
+    // A fresh attempt — e.g. a different plant, or this same plant after "start over" — reopens with
+    // frozen still false, and the pre-existing reset behavior must be unchanged.
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    const checkbox = w.find('input[type="checkbox"][value="s1"]');
+    expect((checkbox.element as HTMLInputElement).checked).toBe(false);
+  });
+});

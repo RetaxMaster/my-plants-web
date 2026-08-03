@@ -14,7 +14,10 @@ const props = defineProps<{
    * after a failure, so the answers must not change under it: a same-key retry with a DIFFERENT body is a
    * permanent 422 from the server's global idempotency interceptor, with no way out but a page reload.
    * While frozen the inputs are disabled, so the retry (the same submit button) recomputes and resends the
-   * EXACT same body deterministically — never a fresh key minted silently on an edited answer. */
+   * EXACT same body deterministically — never a fresh key minted silently on an edited answer. Also true
+   * across a close (X, Escape, backdrop) and re-open for the same plant (code review finding V12) — the
+   * parent keeps the key outstanding on a resume, so this stays frozen and the `watch(open, ...)` below
+   * must not wipe the answers that key was minted for. */
   frozen?: boolean;
 }>();
 const open = defineModel<boolean>('open', { default: false });
@@ -35,7 +38,13 @@ watch(checked, (v) => {
   if (v.length > 0) exclusive.value = 'none';
 });
 watch(open, (isOpen) => {
-  if (isOpen) {
+  // While frozen, an open→true transition is a RESUME after the owner closed the modal (X, Escape, or the
+  // backdrop) without resolving the outstanding submission (code review finding V12) — not a fresh
+  // attempt. Wiping the answers here would defeat the parent's key preservation: the retry (the same
+  // submit button) must recompute the EXACT same body the outstanding key was minted for, which requires
+  // `checked`/`exclusive` to survive the close/reopen unchanged. A non-frozen reopen (first attempt for a
+  // plant, or after "start over") still resets, as before.
+  if (isOpen && !props.frozen) {
     checked.value = [];
     exclusive.value = 'none';
     expandedHelp.value = null;

@@ -130,9 +130,21 @@ async function sendPostpone(plantId: string, task: DueTask['task'], reason?: str
 // dropped request as "no signs" would hand the owner nothing to check and then record their forced
 // `not-needed` answer as genuine negative evidence, pushing the repot date out on an infrastructure fault.
 async function onEvaluate(plantId: string) {
+  // Resume, don't reset (code review finding V12): closing the modal via X/Escape/backdrop routes back
+  // here on re-open — the card still shows "evaluate" because no verdict resolved it — and treating that
+  // like a fresh attempt threw away the only key able to replay an evaluation the server may already have
+  // stored, leaving the owner stuck on the next submit's 422. So a key outstanding for THIS SAME plant is
+  // a resume: keep the key AND the prior error untouched (RepotEvaluationModal.vue then keeps its answers
+  // frozen across the reopen, and `frozen && error` still surfaces the "start over" escape hatch). A key
+  // belongs to one plant's exact submitted body, so switching to a DIFFERENT plant intentionally abandons
+  // the previous plant's outstanding attempt rather than carrying a stale key into a new plant's body,
+  // which the server would then 422 forever — a worse bug than the one this fixes.
+  const resuming = evaluationPlantId.value === plantId && !!evaluationKey.value;
   evaluationPlantId.value = plantId;
-  evaluationKey.value = null;
-  repotError.value = false;
+  if (!resuming) {
+    evaluationKey.value = null;
+    repotError.value = false;
+  }
   evaluationLoadFailed.value = false;
   let signs: RepotSign[];
   try {

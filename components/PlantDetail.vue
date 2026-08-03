@@ -516,8 +516,20 @@ async function sendPostpone(task: TaskCode, reason?: string) {
 // check and then record their forced `not-needed` answer as genuine negative evidence, pushing the repot
 // date out on an infrastructure fault.
 async function onEvaluate() {
-  evaluationKey.value = null;
-  repotError.value = false;
+  // Resume, don't reset (code review finding V12): closing the modal via X/Escape/backdrop routes back
+  // here on re-open — the card still shows "evaluate" because no verdict resolved it — and treating that
+  // like a fresh attempt threw away the only key able to replay an evaluation the server may already have
+  // stored, leaving the owner stuck on the next submit's 422. So a key outstanding at this point is a
+  // resume: keep the key AND the prior error untouched (RepotEvaluationModal.vue then keeps its answers
+  // frozen across the reopen, and `frozen && error` still surfaces the "start over" escape hatch). Unlike
+  // pages/index.vue's onEvaluate, there is no cross-plant case to guard here — this component is pinned to
+  // one plant's `id` for its whole lifetime (mirrors pages/index.vue's same-plant check, which is always
+  // true here).
+  const resuming = !!evaluationKey.value;
+  if (!resuming) {
+    evaluationKey.value = null;
+    repotError.value = false;
+  }
   evaluationLoadFailed.value = false;
   try {
     evaluationSigns.value = (await api.getRepotSigns(id)).signs;

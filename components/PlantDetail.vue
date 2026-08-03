@@ -558,7 +558,10 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
     );
     doneKey.value = null; // discarded on success; never reused again
     doneFormOpen.value = false;
-    await Promise.all([refresh(), refreshHistory()]);
+    // A REPOT completion WRITES the plant's profile (potSizeCm, soilMix) and derives a new lastRepottedOn —
+    // fields this page renders off plant.value.profile/derived (NOT off care), so refreshPlant() must run
+    // here too, unlike sendDone()/onEvaluationSubmit() above which never touch the profile.
+    await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
   } catch {
     // Key deliberately kept on failure, same reasoning as onEvaluationSubmit.
     repotError.value = true;

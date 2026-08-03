@@ -229,6 +229,36 @@ describe('useRepotAttempt — X1/R11-1: completions are an ordered LOG drained t
     expect(seen).toEqual(['plant-A', 'plant-B']);
   });
 
+  // R13-1 — a defect the R12-2 fix itself introduced: re-draining until the cursor reached the head chased a
+  // MOVING head, so a handler appending on every invocation looped forever. Each drain now reads ONE snapshot,
+  // so a pass is always finite and the handler's own append arrives on the NEXT watcher-scheduled pass.
+  it('a handler that appends on EVERY invocation cannot hang the drain — each pass is bounded by the ' +
+    'snapshot it started from', async () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+    const first = handle.begin('plant-0', { v: 0 });
+    handle.resolveSuccess(first, 'r0');
+
+    let n = 0;
+    const seen: string[] = [];
+    handle.subscribeCompletions((c) => {
+      seen.push(c.plantId);
+      n += 1;
+      if (n < 3) { // each delivery appends again — a moving head the old loop would have chased
+        const next = handle.begin(`plant-${n}`, { v: n });
+        handle.resolveSuccess(next, `r${n}`);
+      }
+    });
+
+    // THE ASSERTION IS THAT THIS LINE IS REACHED, and with ONE record handled: the pass was bounded by the
+    // snapshot it started from and returned, rather than following the record its own handler had just added.
+    expect(seen).toEqual(['plant-0']);
+
+    // And bounded is not lossy — the appended records arrive on the watcher-scheduled passes that follow.
+    await nextTick();
+    await nextTick();
+    expect(seen).toEqual(['plant-0', 'plant-1', 'plant-2']);
+  });
+
   // R12-1 — the log is bounded, so a reader blocked in its own async setup while more than the cap lands has
   // provably missed records that no longer exist to be replayed. It must be TOLD, never silently skipped:
   // a silently dropped record is the exact class this whole design was built to delete.

@@ -668,8 +668,10 @@ async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvalu
 
 subscribeEvaluationCompletions(
   (completion) => { void handleEvaluationCompletion(completion); },
-  // R12-1: a GAP — more completions landed than the shared log retains while this renderer was blocked in
-  // its own setup, so records it needed no longer exist to be replayed. It cannot know WHICH plants it
+  // R12-1 / R13-2: a GAP — more completions landed than the shared log retains before this renderer handled
+  // them, so records it needed no longer exist to be replayed. The likeliest cause is being blocked in its
+  // own async setup, but the detector only compares this reader's cursor against the trim point and does not
+  // distinguish that case from any other way of falling behind. Either way it cannot know WHICH plants it
   // missed, so the only safe response is to reconcile everything it renders, unconditionally.
   () => { void Promise.all([refresh(), refreshHistory()]); },
 );
@@ -762,8 +764,10 @@ async function handleDoneCompletion(completion: RepotCompletion<void>) {
 
 subscribeDoneCompletions(
   (completion) => { void handleDoneCompletion(completion); },
-  // R12-1: a GAP — more completions landed than the shared log retains while this renderer was blocked in
-  // its own setup, so records it needed no longer exist to be replayed. It cannot know WHICH plants it
+  // R12-1 / R13-2: a GAP — more completions landed than the shared log retains before this renderer handled
+  // them, so records it needed no longer exist to be replayed. The likeliest cause is being blocked in its
+  // own async setup, but the detector only compares this reader's cursor against the trim point and does not
+  // distinguish that case from any other way of falling behind. Either way it cannot know WHICH plants it
   // missed, so the only safe response is to reconcile everything it renders, unconditionally.
   () => { void Promise.all([refresh(), refreshHistory(), refreshPlant()]); },
 );

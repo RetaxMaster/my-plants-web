@@ -325,11 +325,13 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   //      call that is the async-setup gap's backlog; on a `watch` firing it is whatever was just appended,
   //      which is more than one record whenever two completions coalesced into a single flush.
   //   2. ADVANCE THE CURSOR FIRST, before invoking any handler, so a handler that itself causes an append is
-  //      never re-delivered a record it is already processing — and then LOOP (R12-2), so the record that
-  //      handler appended is not missed either.
-  //   2b. REPORT A GAP (R12-1) when this reader's cursor predates the oldest record the log still holds:
-  //      `onGap` fires once, and the caller's correct response is to reconcile its data unconditionally,
-  //      because it cannot know which plants it missed.
+  //      never re-delivered a record it is already processing. A record appended DURING a pass is delivered
+  //      by the NEXT pass, which the already-registered watcher schedules (R12-2 / R13-1).
+  //   2b. REPORT A GAP (R12-1) when this reader's cursor predates the newest record the log has DROPPED.
+  //      `onGap` fires once per gap, and the caller's correct response is to reconcile its data
+  //      unconditionally, because it cannot know which plants it missed. A gap is possible for ANY reader
+  //      whose cursor falls behind the trim point — most plausibly one blocked in its own async setup, but
+  //      an already-subscribed reader is not exempt, and the detector does not distinguish them.
   //   3. WATCH for later appends, with the SAME drain function — so the catch-up path and the live path are
   //      not two implementations that can disagree; they are one function called twice.
   //
@@ -343,31 +345,41 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     onGap?: () => void,
   ): void {
     let handledSeq = cursorAtSetup;
-    // R12-2 — THE LOOP, and why it is a loop and not a single pass. The first version drained once and then
-    // registered the watcher. A handler that itself caused a NEW completion appended it while no watcher yet
-    // existed, and the watcher — registered immediately after, deliberately not `immediate` — then took that
-    // record as its starting value and never fired for it. Measured: `PROBE delivered: ["A"]`, with B lost.
-    // Re-draining until the cursor reaches the head closes re-entrancy in BOTH directions at once (nothing
-    // re-delivered, nothing missed) instead of guarding one of them. It TERMINATES because `seq` is strictly
-    // monotonic and every iteration either advances `handledSeq` or returns.
+    // R12-2 / R13-1 — WHY THE WATCHER IS REGISTERED FIRST, AND WHY EACH PASS READS A FIXED SNAPSHOT. Two
+    // defects shaped this, in order, and the current form is what closes both without a guard:
+    //
+    // R12-2: the original drained ONCE and then registered the watcher. A handler that itself caused a new
+    // completion appended it while no watcher yet existed, and the watcher — registered right after and
+    // deliberately not `immediate` — then took that record as its starting value and never fired for it.
+    // Measured: `PROBE delivered: ["A"]`, with B lost.
+    // R13-1: the first fix re-drained in a `for (;;)` until the cursor reached the head. That chases a MOVING
+    // head: a handler appending on every invocation is handled, appends again, is handled again — and the
+    // loop never returns. The comment claiming it "TERMINATES because `seq` is strictly monotonic" was wrong,
+    // and wrong in an instructive way: monotonicity buys PROGRESS, not a finite number of iterations.
+    //
+    // Registering `watch` BEFORE the first drain makes the loop unnecessary. Each drain is then ONE bounded
+    // pass over a snapshot taken at its start, so it always returns; and anything a handler appends during
+    // that pass mutates the ref while a watcher is already listening, so it arrives on the next flush instead
+    // of being chased synchronously. Vue watchers are asynchronous (`pre` flush), so the initial drain below
+    // completes before any watcher callback and the two cannot interleave.
     const drain = () => {
-      for (;;) {
-        // R12-1: records this reader needed but that were trimmed away before it looked. There is nothing
-        // left to deliver, so the only honest thing is to say so — never to skip past it silently.
-        const droppedThrough = completionDropped[flowKey] ?? 0;
-        if (handledSeq < droppedThrough) {
-          handledSeq = droppedThrough;
-          onGap?.();
-          continue;
-        }
-        const pending = completionLog.value.filter((entry) => entry.seq > handledSeq);
-        if (!pending.length) return;
-        handledSeq = pending[pending.length - 1]!.seq;
-        for (const entry of pending) handler(entry);
+      // R12-1: records this reader needed but that were trimmed away before it looked. There is nothing left
+      // to deliver, so the only honest thing is to say so — never to skip past it silently.
+      const droppedThrough = completionDropped[flowKey] ?? 0;
+      if (handledSeq < droppedThrough) {
+        handledSeq = droppedThrough;
+        onGap?.();
       }
+      // R13-1: read the log ONCE per pass. `pending` is fixed before any handler runs, so a handler's own
+      // append cannot extend this pass — it schedules the next one through the watcher above.
+      const snapshot = completionLog.value;
+      const pending = snapshot.filter((entry) => entry.seq > handledSeq);
+      if (!pending.length) return;
+      handledSeq = pending[pending.length - 1]!.seq;
+      for (const entry of pending) handler(entry);
     };
-    drain();
     watch(completionLog, drain);
+    drain();
   }
 
   return { attempts, begin, isLive, resolveSuccess, resolveFailure, invalidate, hasKeyFor, attemptFor, subscribeCompletions };

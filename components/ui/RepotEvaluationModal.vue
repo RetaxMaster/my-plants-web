@@ -19,6 +19,16 @@ const props = defineProps<{
    * parent keeps the key outstanding on a resume, so this stays frozen and the `watch(open, ...)` below
    * must not wipe the answers that key was minted for. */
   frozen?: boolean;
+  /** W3: the OUTSTANDING attempt's own stored submit body, present iff `frozen` is true. Once the attempt
+   * store moved to module scope (W1), a plant's frozen attempt can survive a detour through a DIFFERENT
+   * plant's card — e.g. plant A fails and freezes, the owner opens plant B's evaluation instead (leaving
+   * this component's local `checked`/`exclusive` refs holding B's answers), then returns to A. Without this
+   * prop the `watch(open, ...)` below has no way to tell the answers apart from B's leftover ones — it can
+   * only "not reset them", which silently displays B's checked signs under A's frozen (and about-to-be
+   * retried) form. Hydrating FROM this stored body instead means the displayed answers and the request a
+   * retry actually sends are read from the exact SAME source — never a second "remember the draft per
+   * plant" mechanism; the stored body already IS the draft. */
+  frozenAnswers?: RepotEvaluationSubmit | null;
 }>();
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ submit: [body: RepotEvaluationSubmit]; 'start-over': [] }>();
@@ -38,17 +48,36 @@ watch(checked, (v) => {
   if (v.length > 0) exclusive.value = 'none';
 });
 watch(open, (isOpen) => {
+  if (!isOpen) return;
   // While frozen, an open→true transition is a RESUME after the owner closed the modal (X, Escape, or the
   // backdrop) without resolving the outstanding submission (code review finding V12) — not a fresh
-  // attempt. Wiping the answers here would defeat the parent's key preservation: the retry (the same
-  // submit button) must recompute the EXACT same body the outstanding key was minted for, which requires
-  // `checked`/`exclusive` to survive the close/reopen unchanged. A non-frozen reopen (first attempt for a
-  // plant, or after "start over") still resets, as before.
-  if (isOpen && !props.frozen) {
-    checked.value = [];
-    exclusive.value = 'none';
-    expandedHelp.value = null;
+  // attempt.
+  //
+  // W3: a resume HYDRATES from `frozenAnswers` — the outstanding attempt's own stored submit body — rather
+  // than merely refusing to touch whatever `checked`/`exclusive` already hold. Those refs' PREVIOUS values
+  // may belong to a DIFFERENT plant (the owner closed this plant's frozen modal, opened another plant's,
+  // then came back here), so "do nothing" would display that other plant's checked signs under THIS
+  // plant's frozen modal while the retry silently resends THIS plant's original body underneath it — a
+  // display that lies about what will actually be submitted. Hydrating from the stored body keeps the two
+  // in lockstep. A non-frozen reopen (first attempt for a plant, or after "start over") still resets, as
+  // before.
+  if (props.frozen) {
+    if (props.frozenAnswers) {
+      const answers = props.frozenAnswers;
+      if (answers.answer === 'signs') {
+        exclusive.value = 'none';
+        checked.value = [...answers.signIds];
+      } else {
+        checked.value = [];
+        exclusive.value = answers.answer;
+      }
+      expandedHelp.value = null;
+    }
+    return;
   }
+  checked.value = [];
+  exclusive.value = 'none';
+  expandedHelp.value = null;
 });
 
 const canSubmit = computed(() => !props.submitting && (checked.value.length > 0 || exclusive.value !== 'none'));

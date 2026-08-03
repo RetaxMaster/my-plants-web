@@ -17,9 +17,17 @@
 // outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals, same
 // technique PlantDetail.test.ts / pages/plants/index.test.ts use.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, defineComponent, ref, shallowRef } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { RepotEvaluationResult, RepotSign } from '../types/api.js';
+// W1 moved the two REPOT-attempt stores (`'evaluation'` / `'done'`) to MODULE scope, so — unlike the
+// per-component-instance Maps this file's tests used to exercise — they now persist across every `it()` in
+// THIS file (the module is imported once and cached for the whole file). Without an explicit reset, an
+// attempt minted by an earlier test (e.g. plant A's outstanding Done key from the B1 describe block) is
+// still sitting in the store when a LATER, unrelated test mounts a fresh page and opens plant A's card again
+// — read as a "resume" it never asked for. Every test in this file uses plant ids 'A'/'B', so this collision
+// is not hypothetical; it reproduces on a plain sequential run.
+import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttempt';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -64,6 +72,9 @@ let completeRepotDeferreds: Record<string, ReturnType<typeof deferred<{ ok: true
 let completeRepotMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  // Store-isolation (W1): reset BOTH module-scope attempt stores before every test so no test's outstanding
+  // key/body/error survives into the next one.
+  __resetRepotAttemptStoresForTests();
   submitDeferreds = { A: deferred<RepotEvaluationResult>(), B: deferred<RepotEvaluationResult>() };
   completeRepotDeferreds = { A: deferred<{ ok: true }>(), B: deferred<{ ok: true }>() };
   getRepotSignsMock = vi.fn(async () => ({ signs: [] as RepotSign[] }));
@@ -138,7 +149,9 @@ const stubs = {
     props: ['open', 'signs', 'submitting', 'error', 'frozen'],
     emits: ['submit', 'start-over'],
     template:
-      '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+      // `data-error` (W2): exposes the modal's OWN `error` prop, the surface that would show a cross-plant
+      // (or cross-flow) error leak — mirrors the identical `data-error` hook already on UiRepotDoneForm below.
+      '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting" :data-error="error">' +
       '<button class="submit-btn" @click="$emit(\'submit\', { answer: \'no-signs\' })">submit</button>' +
       '</div>',
   },
@@ -720,5 +733,196 @@ describe("pages/index.vue — U2: a retry resends the ORIGINAL evaluationId even
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
     const secondPayload = completeRepotMock.mock.calls[1]![2] as { evaluationId?: string };
     expect(secondPayload.evaluationId).toBe('ev-1');
+  });
+});
+
+// W2: `repotError` used to be ONE boolean shared by the evaluation submit, the Done confirm, AND the
+// loaders, while attempts became per-plant (U1). Two plants sharing the SAME flag meant plant B's failure
+// could render on plant A's reopened modal (and the inverse: revisiting B could silently hide A's own,
+// still-genuine failure). The fix moves the failure state onto the attempt itself (`RepotAttempt.error`),
+// so a computed reading `attemptFor(currentlyShownPlantId)` can only ever surface THAT plant's own state.
+describe('pages/index.vue — W2: the mutation-failure state lives on the attempt, never a shared flag', () => {
+  it('A is still genuinely in flight, B fails: returning to A shows NO error and NO "start over" — A\'s ' +
+    'own in-flight state must never be overwritten by B\'s unrelated failure', async () => {
+    const w = await mountPage();
+    const evaluateButtons = w.findAll('.evaluate-btn');
+
+    // A: open + submit, left GENUINELY in flight — never resolved for the rest of this test.
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(submitRepotEvaluationMock.mock.calls[0]![0]).toBe('A');
+
+    // B: open + submit + FAIL.
+    await evaluateButtons[1]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    submitDeferreds.B!.reject(new Error('lost response'));
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeTruthy(); // B's OWN failure, showing now
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
+
+    // Return to A: A's OWN submit is STILL in flight (never resolved) — no error, no "start over", and the
+    // modal must show it is still submitting (never B's error, never B's frozen-with-error state).
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeFalsy();
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+
+    // "start over" is offered only once frozen AND error is showing (RepotEvaluationModal.vue's own gate);
+    // asserting no error here is what proves the affordance would not even be offered for A right now.
+  });
+
+  it('A fails, the owner opens B instead of retrying: returning to A still shows ITS OWN error and its ' +
+    'OWN "start over" — visiting B must never silently clear A\'s genuine failure', async () => {
+    const w = await mountPage();
+    const evaluateButtons = w.findAll('.evaluate-btn');
+
+    // A: open + submit + FAIL.
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    submitDeferreds.A!.reject(new Error('lost response'));
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeTruthy();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
+
+    // The owner does NOT choose "start over" — they simply open B's evaluation instead. A genuinely fresh,
+    // unrelated attempt: no error yet, not frozen.
+    await evaluateButtons[1]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeFalsy();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('false');
+
+    // Return to A: A's OWN failure must still show, exactly as the owner left it.
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeTruthy();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
+  });
+});
+
+// W3: RepotDoneForm.vue kept its draft (potSizeCm/soilMix/substrate) in a component-LOCAL slot, refreshed
+// only on a NON-frozen open — so a frozen reopen simply left whatever was already in those refs untouched.
+// That was harmless back when a plant switch always discarded the OTHER plant's attempt (pre-U1); once an
+// attempt could survive a detour through a different plant's card, "leave it untouched" started silently
+// displaying the WRONG plant's values under a frozen, about-to-be-retried form. The fix hydrates the frozen
+// form from the attempt's own stored envelope (`frozenSnapshot`, threaded down from `doneAttempt.value.body
+// .payload`) instead of merely refusing to reset.
+//
+// The `UiRepotDoneForm` stub used everywhere else in this file is STATELESS (it only ever reflects whatever
+// props the parent passes THIS render) and can never reproduce this bug or its fix — the bug lives in the
+// CHILD's own internal fields persisting across prop changes on the ONE shared modal instance. This describe
+// mounts a FAITHFUL STATEFUL stub reproducing the real component's watch(open, frozen, frozenSnapshot)
+// contract, driven through the real `update:open` / v-model:open contract exactly like the real component.
+describe("pages/index.vue — W3: the frozen Done form displays what the retry will actually send", () => {
+  const statefulDoneFormStub = defineComponent({
+    props: {
+      open: { type: Boolean, default: false },
+      currentPotSizeCm: { type: Number, default: null },
+      currentSoilMix: { type: String, default: null },
+      submitting: { type: Boolean, default: false },
+      error: { type: String, default: null },
+      frozen: { type: Boolean, default: false },
+      frozenSnapshot: { type: Object as () => { potSizeCm: number; soilMix: string; charged: boolean } | null, default: null },
+    },
+    emits: ['confirm', 'start-over', 'update:open'],
+    data() {
+      return { potSizeCm: null as number | null, soilMix: '' as string, charged: true as boolean };
+    },
+    watch: {
+      open(isOpen: boolean) {
+        if (!isOpen) return;
+        // Mirrors RepotDoneForm.vue's real `watch(open, ...)` post-W3: hydrate FROM the frozen snapshot
+        // when resuming, from the live profile props otherwise — never "leave whatever was already there".
+        if (this.frozen) {
+          if (this.frozenSnapshot) {
+            this.potSizeCm = this.frozenSnapshot.potSizeCm;
+            this.soilMix = this.frozenSnapshot.soilMix;
+            this.charged = this.frozenSnapshot.charged;
+          }
+          return;
+        }
+        this.potSizeCm = this.currentPotSizeCm;
+        this.soilMix = this.currentSoilMix;
+        this.charged = true;
+      },
+    },
+    template:
+      '<div class="done-form" :data-open="open" :data-frozen="frozen" ' +
+      ':data-pot-size="potSizeCm" :data-soil-mix="soilMix">' +
+      '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm, soilMix, charged })">confirm</button>' +
+      '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
+      '</div>',
+  });
+
+  async function mountPageWithStatefulDoneForm() {
+    const TodayPage = (await import('./index.vue')).default;
+    const w = mount(
+      { components: { TodayPage }, template: '<Suspense><TodayPage /></Suspense>' },
+      { global: { stubs: { ...stubs, UiRepotDoneForm: statefulDoneFormStub }, mocks: { $t: (k: string) => k } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  it("A fails and freezes; B is opened and closed WITHOUT confirming; returning to A displays A's ORIGINAL " +
+    "values (never B's leftover ones) — and the retry then resends A's byte-identical original request",
+    async () => {
+    const w = await mountPageWithStatefulDoneForm();
+    const doneButtons = w.findAll('.done-btn');
+
+    // Open A: fields hydrate to A's OWN profile (PLANT_PROFILES.A = potSizeCm 20 / soilMix 'potting-mix').
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-pot-size')).toBe('20');
+    expect(w.find('.done-form').attributes('data-soil-mix')).toBe('potting-mix');
+
+    // Confirm A: the request is lost/rejected, so the key + body + error are kept and the form freezes.
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds.A!.reject(new Error('lost response'));
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const firstCall = completeRepotMock.mock.calls[0]!;
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+
+    // Close A WITHOUT choosing "start over" — via the real update:open contract.
+    await w.find('.close-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+
+    // Open B instead: a genuinely fresh attempt, correctly showing B's OWN profile (25 / 'cactus-mix') — this
+    // is what overwrites the SAME shared modal instance's internal fields.
+    await doneButtons[1]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+    expect(w.find('.done-form').attributes('data-pot-size')).toBe('25');
+    expect(w.find('.done-form').attributes('data-soil-mix')).toBe('cactus-mix');
+
+    // Close B WITHOUT confirming — the owner never touched B's completion at all.
+    await w.find('.close-btn').trigger('click');
+    await flushPromises();
+
+    // Reopen A: resumes (still frozen, same outstanding key). W3 — the DISPLAYED values must be A's ORIGINAL
+    // submission, never B's leftover values still sitting in the shared modal instance's own local state.
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+    expect(w.find('.done-form').attributes('data-pot-size')).toBe('20');
+    expect(w.find('.done-form').attributes('data-soil-mix')).toBe('potting-mix');
+
+    // The retry sends the byte-identical ORIGINAL request — same plantId, occurredOn, payload, and key.
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    const secondCall = completeRepotMock.mock.calls[1]!;
+    expect(secondCall[0]).toBe(firstCall[0]);
+    expect(secondCall[1]).toBe(firstCall[1]);
+    expect(secondCall[2]).toEqual(firstCall[2]);
+    expect(secondCall[3]).toBe(firstCall[3]);
   });
 });

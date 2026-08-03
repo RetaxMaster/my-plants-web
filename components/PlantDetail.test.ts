@@ -22,6 +22,13 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import en from '../i18n/locales/en.json';
 import es from '../i18n/locales/es.json';
+// W1 moved the two REPOT-attempt stores (`'evaluation'` / `'done'`) to MODULE scope, so — unlike the
+// per-component-instance Maps this file's REPOT describe blocks used to exercise — they now persist across
+// every `it()` in THIS file. Every REPOT test here mounts the SAME plant id ('p1'), so without an explicit
+// reset a key/body left outstanding by one describe block (e.g. B1's deliberately-frozen Done attempt) is
+// still sitting in the store when the NEXT describe block (e.g. U2) mounts a fresh PlantDetail and opens
+// the Done form for 'p1' again — read as a resume it never asked for, with a STALE stored envelope.
+import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttempt';
 
 const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en, es } }).global;
 
@@ -196,6 +203,9 @@ function findButtonByText(w: ReturnType<typeof mount>, text: string) {
 }
 
 beforeEach(() => {
+  // Store-isolation (W1): reset BOTH module-scope attempt stores before every test so no test's outstanding
+  // key/body/error survives into the next one.
+  __resetRepotAttemptStoresForTests();
   memorializePlantMock.mockClear();
   giftPlantMock.mockClear();
   revivePlantMock.mockClear();
@@ -989,5 +999,151 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
     const secondPayload = completeRepotMock.mock.calls[1]![2] as { evaluationId?: string };
     expect(secondPayload.evaluationId).toBe('ev-1');
+  });
+});
+
+// W2's sibling case, specific to PlantDetail.vue: this component is pinned to ONE plant, so a leak here
+// cannot cross PLANTS — but it had the exact same shared `repotError` flag serving BOTH the evaluation
+// flow and the Done flow for that ONE plant. The ruling names this explicitly as "the same shared-flag
+// shape for its two flows", the parallel-copy defect this whole review keeps finding on this file's
+// sibling to pages/index.vue. Mirrors pages/index.test.ts's own W2 interleaving shape exactly (same two
+// cases, "plant A/B" replaced by "flow eval/done" since there is only one plant here): a flow that is
+// STILL genuinely outstanding (in flight, or frozen after its OWN failure) must never display, nor lose,
+// its own state because the OTHER flow was opened in between — a genuinely FRESH open of the other flow
+// coincidentally resets the shared flag on its own (pre-fix) reset-on-open logic, so the leak only shows
+// up on the RETURN to an already-outstanding flow, exactly as it does for plants A/B on pages/index.vue.
+describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTHER flow\'s modal (cross-flow, same plant)', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  const repotPlant = () => ({
+    ...basePlant(),
+    profile: { potSizeCm: 20, soilMix: 'potting-mix' },
+  });
+
+  const repotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  };
+
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      props: ['task'],
+      emits: ['evaluate', 'done'],
+      template:
+        '<div>' +
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+        '</div>',
+    },
+    UiRepotEvaluationModal: {
+      props: ['open', 'signs', 'submitting', 'error', 'frozen'],
+      emits: ['submit', 'start-over'],
+      template:
+        '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting" :data-error="error">' +
+        '<button class="submit-btn" @click="$emit(\'submit\', { answer: \'no-signs\' })">submit</button>' +
+        '</div>',
+    },
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over', 'update:open'],
+      template:
+        '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-error="error">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '</div>',
+    },
+  };
+
+  let submitDeferred: ReturnType<typeof deferred<{ evaluationId: string; verdict: string }>>;
+  let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
+  let completeRepotDeferred: ReturnType<typeof deferred<{ ok: true }>>;
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    submitDeferred = deferred();
+    submitRepotEvaluationMock = vi.fn(async () => submitDeferred.promise);
+    completeRepotDeferred = deferred();
+    completeRepotMock = vi.fn(async () => completeRepotDeferred.promise);
+  });
+
+  async function mountRepot() {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => repotCare,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  it('the evaluation flow is STILL genuinely in flight; the Done flow fails; returning to the evaluation ' +
+    'modal shows NO error (never Done\'s unrelated failure) and is still submitting', async () => {
+    const w = await mountRepot();
+
+    // Evaluation: open + submit, left GENUINELY in flight — never resolved for the rest of this test.
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+
+    // Done: open + confirm + FAIL.
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferred.reject(new Error('lost response'));
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-error')).toBeTruthy();
+
+    // Return to the evaluation flow: it is STILL in flight — no error, still submitting, never Done's.
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeFalsy();
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+  });
+
+  it('the evaluation flow fails and freezes; the Done form is opened (fresh) and closed unconfirmed; ' +
+    'returning to the evaluation modal STILL shows ITS OWN error and its own "start over"', async () => {
+    const w = await mountRepot();
+
+    // Evaluation: open + submit + FAIL.
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    submitDeferred.reject(new Error('lost response'));
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeTruthy();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
+
+    // The owner does NOT choose "start over" — they simply open the Done flow instead (a genuinely fresh,
+    // unrelated attempt for this plant).
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-error')).toBeFalsy();
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+
+    // Return to the evaluation flow: its OWN failure must still show, exactly as the owner left it.
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-error')).toBeTruthy();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
   });
 });

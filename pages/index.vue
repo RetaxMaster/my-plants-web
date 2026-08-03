@@ -34,9 +34,12 @@ const evaluationPlantId = ref<string | null>(null);
 // The active REPOT-evaluation submit attempts — ONE per plant (U1) — `useRepotAttempt.ts` (round-5 finding
 // V1: extracted so PlantDetail.vue, the SECOND renderer of this same flow, can share the identical
 // discipline instead of re-deriving it — see that composable's own doc comment for the full race this
-// fixes, the per-plant map, and why `shallowRef`, not `ref`, is load-bearing here). `evaluationAttempt` is a
-// computed reading the entry for whichever plant the shared evaluation modal is CURRENTLY showing
-// (`evaluationPlantId`), so switching to a different plant's card never discards another plant's entry.
+// fixes, the per-plant map, and why `shallowRef`, not `ref`, is load-bearing here). `useRepotAttempt` now
+// takes a FLOW KEY (W1): `'evaluation'` and PlantDetail.vue's own call with the SAME key resolve to the
+// identical MODULE-SCOPE store, so an evaluation attempt started here is still resumable after navigating
+// to the plant's detail page, and vice versa. `evaluationAttempt` is a computed reading the entry for
+// whichever plant the shared evaluation modal is CURRENTLY showing (`evaluationPlantId`), so switching to a
+// different plant's card never discards another plant's entry.
 const {
   attemptFor: evaluationAttemptFor,
   begin: beginEvaluationAttempt,
@@ -45,7 +48,7 @@ const {
   resolveFailure: resolveEvaluationFailure,
   invalidate: invalidateEvaluationAttempt,
   hasKeyFor: hasEvaluationKeyFor,
-} = useRepotAttempt<RepotEvaluationSubmit>();
+} = useRepotAttempt<RepotEvaluationSubmit>('evaluation');
 const evaluationAttempt = computed(() => evaluationAttemptFor(evaluationPlantId.value));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
@@ -81,7 +84,7 @@ const {
   resolveFailure: resolveDoneFailure,
   invalidate: invalidateDoneAttempt,
   hasKeyFor: hasDoneKeyFor,
-} = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>();
+} = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>('done');
 const doneAttempt = computed(() => doneAttemptFor(doneFormPlantId.value));
 const repotPostponeSubmitting = ref(false);
 
@@ -101,8 +104,17 @@ const repotPostponeSubmitting = ref(false);
 // use of the SAME banner WAS visible, which is exactly why the bug survived a manual check. The actual fix:
 // RepotEvaluationModal.vue and RepotDoneForm.vue each take their own optional `error` prop and render it
 // via `Alert` INSIDE their own (teleported) body, so it renders above the backdrop instead of behind it.
-// The page-level banner below stays — it is still the only feedback surface for `onRepotPostpone`, which
-// has no modal at all.
+//
+// W2: that `error` prop no longer reads off THIS shared flag for the two mutation flows below — it reads
+// off `evaluationAttempt?.error` / `doneAttempt?.error` instead (set by `useRepotAttempt.ts`'s
+// `resolveFailure`, keyed by plantId AND by flow). `repotError` stays for exactly two things that genuinely
+// HAVE no per-plant attempt of their own: `onRepotPostpone` (no modal, no key, no attempt) and the two
+// LOADER failures below (the repot-signs fetch, the Done form's profile prefetch) — both fail BEFORE any
+// key is ever minted, so there is no attempt yet to hang the failure off of. Before W2, this flag was ALSO
+// set/cleared inside `onEvaluationSubmit`/`onRepotDoneConfirm`, which is exactly how plant B's mutation
+// failure could render on plant A's reopened modal (and how a Done failure could render inside the
+// evaluation modal): one boolean, shared across every plant AND every flow. The page-level banner below
+// stays — it is still the only feedback surface for `onRepotPostpone`, which has no modal at all.
 const repotError = ref(false);
 
 const isDesktop = useIsDesktop();
@@ -229,8 +241,12 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   // U2: `beginEvaluationAttempt` freezes the WHOLE submitted body on the attempt the moment the key is
   // minted, and returns that STORED body (never this freshly-passed one) on a retry — so `attempt.body`,
   // never the `body` parameter, is what actually gets sent below.
+  //
+  // W2: no page-level `repotError.value = false` here any more — `beginEvaluationAttempt` itself resets
+  // THIS attempt's own `error` field the moment a submit (fresh or retry) begins, so there is nothing left
+  // to clear on the shared flag, and clearing it here used to also (wrongly) hide an unrelated postpone
+  // error for a different plant.
   const attempt = beginEvaluationAttempt(plantId, body);
-  repotError.value = false;
   try {
     const result = await api.submitRepotEvaluation(plantId, attempt.body, attempt.key);
     // Stale-attempt guard (same class as the signs-fetch race, F4, above): if this plant's OWN key was
@@ -261,11 +277,12 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
     // freezes its inputs for as long as this key is outstanding (`:frozen="!!evaluationAttempt?.key"`), but
     // the byte-identical retry no longer depends on that alone — `beginEvaluationAttempt` above resends the
     // attempt's STORED body regardless of what the (frozen) form would recompute.
+    // W2: no shared-UI guard needed to surface the error any more — `resolveEvaluationFailure` sets
+    // `error: true` on THIS plant's own attempt entry, and `evaluationAttempt` (the computed the template
+    // reads) already only ever reflects whichever plant `evaluationPlantId` currently names. There is no
+    // shared flag left for a stale response to write into, so a late failure for a plant the owner has
+    // moved on from simply updates that plant's own (currently unwatched) entry and nothing else.
     resolveEvaluationFailure(attempt);
-    // Shared-UI guard, same reasoning as the success branch above.
-    if (evaluationPlantId.value === plantId) {
-      repotError.value = true;
-    }
   }
 }
 
@@ -273,7 +290,6 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
 // a later submit mints a fresh one, instead of forcing a page reload to get out of a stuck retry.
 function onEvaluationStartOver() {
   if (evaluationPlantId.value) invalidateEvaluationAttempt(evaluationPlantId.value);
-  repotError.value = false;
 }
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
@@ -343,11 +359,12 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   // `refresh()` that resolved a different pending evaluation), either of which would 422 forever against the
   // server's idempotency interceptor.
   const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
+  // W2: no page-level `repotError.value = false` here any more — same reasoning as onEvaluationSubmit above
+  // — `beginDoneAttempt` resets THIS attempt's own `error` field the moment a confirm (fresh or retry) begins.
   const attempt = beginDoneAttempt(plantId, {
     occurredOn: today,
     payload: { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
   });
-  repotError.value = false;
   try {
     await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
     // Stale-attempt guard (same class as onEvaluationSubmit's, F4/Y1): if this plant's OWN key was
@@ -370,12 +387,11 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
     await refresh();
   } catch {
     if (!isLiveDoneAttempt(attempt)) return;
-    // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit.
+    // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit. W2: no
+    // shared-UI guard needed to surface the error any more — `resolveDoneFailure` sets `error: true` on
+    // THIS plant's own attempt entry, and `doneAttempt` already only ever reflects whichever plant
+    // `doneFormPlantId` currently names — there is no shared flag left for a stale response to write into.
     resolveDoneFailure(attempt);
-    // Shared-UI guard, same reasoning as the success branch above.
-    if (doneFormPlantId.value === plantId) {
-      repotError.value = true;
-    }
   }
 }
 
@@ -383,7 +399,6 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
 // abandons the outstanding attempt so the form unfreezes and a later confirm mints a fresh one.
 function onRepotDoneStartOver() {
   if (doneFormPlantId.value) invalidateDoneAttempt(doneFormPlantId.value);
-  repotError.value = false;
 }
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
@@ -545,8 +560,9 @@ function openProgress(plantId: string) {
       v-model:open="evaluationOpen"
       :signs="evaluationSigns"
       :submitting="!!evaluationAttempt?.submitting"
-      :error="repotError ? $t('repotEval.errorPending') : null"
+      :error="evaluationAttempt?.error ? $t('repotEval.errorPending') : null"
       :frozen="!!evaluationAttempt?.key"
+      :frozen-answers="evaluationAttempt?.body ?? null"
       @submit="onEvaluationSubmit"
       @start-over="onEvaluationStartOver"
     />
@@ -556,8 +572,9 @@ function openProgress(plantId: string) {
       :current-pot-size-cm="doneFormProfile.potSizeCm"
       :current-soil-mix="doneFormProfile.soilMix"
       :submitting="!!doneAttempt?.submitting"
-      :error="repotError ? $t('repotEval.errorPending') : null"
+      :error="doneAttempt?.error ? $t('repotEval.errorPending') : null"
       :frozen="!!doneAttempt?.key"
+      :frozen-snapshot="doneAttempt?.body.payload ?? null"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"
     />

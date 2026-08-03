@@ -27,6 +27,17 @@ const props = defineProps<{
    * edited a field would resend the SAME idempotency key with a DIFFERENT body, which the server's global
    * idempotency interceptor answers 422 forever. */
   frozen?: boolean;
+  /** W3: the OUTSTANDING attempt's own stored envelope (the `payload` half of `useRepotAttempt.ts`'s frozen
+   * `{ occurredOn, payload }` body), present iff `frozen` is true. Once the store that tracks attempts moved
+   * to module scope (W1), a plant's frozen attempt can survive a detour through a DIFFERENT plant's card —
+   * e.g. plant A fails and freezes, the owner opens plant B's form instead (leaving this component's local
+   * `potSizeCm`/`soilMix`/`substrate` refs holding B's values), then returns to A. Without this prop the
+   * `watch(open, ...)` below has no way to tell the fields apart from B's leftover values — it can only
+   * "not reset them", which silently displays B's pot size and soil mix under A's frozen (and about-to-be
+   * retried) form. Hydrating FROM this snapshot instead of merely refusing to reset means the displayed
+   * values and the request a retry actually sends are read from the exact SAME source, so they can never
+   * disagree — never a second "remember the draft per plant" mechanism; the envelope already IS the draft. */
+  frozenSnapshot?: Omit<RepotDonePayload, 'evaluationId' | 'refreshedOn'> | null;
 }>();
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ confirm: [payload: Omit<RepotDonePayload, 'evaluationId'>]; 'start-over': [] }>();
@@ -47,15 +58,28 @@ const soilMix = ref<string>('');
 const substrate = ref<'fresh' | 'reused'>('fresh');
 
 watch(open, (isOpen) => {
+  if (!isOpen) return;
   // While frozen, an open->true transition is a RESUME after the owner closed the form (X/Escape/backdrop)
-  // without resolving the outstanding confirm — not a fresh attempt. Resetting the fields here would defeat
-  // the freeze: the retry (the same confirm button) must recompute the EXACT same body the outstanding key
-  // was minted for. Mirrors RepotEvaluationModal.vue's identical `watch(open, ...)` guard.
-  if (isOpen && !props.frozen) {
-    potSizeCm.value = props.currentPotSizeCm ?? '';
-    soilMix.value = props.currentSoilMix ?? soilMixOptions.value[0]?.value ?? '';
-    substrate.value = 'fresh';
+  // without resolving the outstanding confirm — not a fresh attempt. Mirrors RepotEvaluationModal.vue's
+  // identical `watch(open, ...)` guard.
+  //
+  // W3: a resume HYDRATES from `frozenSnapshot` — the outstanding attempt's own stored envelope — rather
+  // than merely refusing to touch whatever the fields already hold. The fields' PREVIOUS values may belong
+  // to a DIFFERENT plant (the owner closed this plant's frozen form, opened another plant's, then came back
+  // here), so "do nothing" would display that other plant's pot size/soil mix under THIS plant's frozen
+  // form while the retry silently sends THIS plant's original body underneath it — a display that lies
+  // about what will actually be submitted. Hydrating from the snapshot keeps the two in lockstep.
+  if (props.frozen) {
+    if (props.frozenSnapshot) {
+      potSizeCm.value = props.frozenSnapshot.potSizeCm;
+      soilMix.value = props.frozenSnapshot.soilMix;
+      substrate.value = props.frozenSnapshot.charged ? 'fresh' : 'reused';
+    }
+    return;
   }
+  potSizeCm.value = props.currentPotSizeCm ?? '';
+  soilMix.value = props.currentSoilMix ?? soilMixOptions.value[0]?.value ?? '';
+  substrate.value = 'fresh';
 });
 
 const canConfirm = computed(

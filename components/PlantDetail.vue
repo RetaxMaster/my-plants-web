@@ -50,7 +50,10 @@ const evaluationSigns = ref<RepotSign[]>([]);
 // composable's own doc comment for the full race, the per-plant map (U1), and why `shallowRef`, not `ref`,
 // matters). This component is pinned to one plant's `id` for its whole lifetime, so `evaluationAttempt`
 // just reads that one plant's map entry, but it goes through the SAME `attemptFor` seam pages/index.vue
-// uses for its many plants — never a second, single-plant-shaped API on this composable.
+// uses for its many plants — never a second, single-plant-shaped API on this composable. W1: the FLOW KEY
+// `'evaluation'` passed here resolves to the SAME module-scope store pages/index.vue's own
+// `useRepotAttempt<RepotEvaluationSubmit>('evaluation')` call resolves to — an attempt started on the Today
+// page for this plant is visible (and resumable) here, and vice versa.
 const {
   attemptFor: evaluationAttemptFor,
   begin: beginEvaluationAttempt,
@@ -59,7 +62,7 @@ const {
   resolveFailure: resolveEvaluationFailure,
   invalidate: invalidateEvaluationAttempt,
   hasKeyFor: hasEvaluationKeyFor,
-} = useRepotAttempt<RepotEvaluationSubmit>();
+} = useRepotAttempt<RepotEvaluationSubmit>('evaluation');
 const evaluationAttempt = computed(() => evaluationAttemptFor(id));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
@@ -87,15 +90,22 @@ const {
   resolveFailure: resolveDoneFailure,
   invalidate: invalidateDoneAttempt,
   hasKeyFor: hasDoneKeyFor,
-} = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>();
+} = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>('done');
 const doneAttempt = computed(() => doneAttemptFor(id));
 const repotPostponeSubmitting = ref(false);
 
 // Every REPOT mutating flow can genuinely fail — the state a card was built from can go stale between
 // render and click. `repotEval.errorPending` covers exactly that (409/400/422). RepotEvaluationModal.vue
 // and RepotDoneForm.vue each render this via their own opt-in `error` prop (Alert INSIDE their own
-// teleported body, above the backdrop — see pages/index.vue's identical comment for the reasoning); the
-// page-level banner below stays the only feedback surface for the postpone flow, which has no modal at all.
+// teleported body, above the backdrop — see pages/index.vue's identical comment for the reasoning).
+//
+// W2: that `error` prop no longer reads off THIS shared flag for the two mutation flows — it reads off
+// `evaluationAttempt?.error` / `doneAttempt?.error` instead (set by `useRepotAttempt.ts`'s `resolveFailure`,
+// keyed by plantId AND by flow — see pages/index.vue's identical comment for the full reasoning, including
+// why a shared flag could leak one flow's failure into the other's modal on THIS same plant). `repotError`
+// stays for exactly two things with no attempt of their own: `onRepotPostpone` (no modal, no key) and the
+// evaluation-signs LOADER failure below — both fail BEFORE any key is ever minted. The page-level banner
+// below stays the only feedback surface for the postpone flow, which has no modal at all.
 const repotError = ref(false);
 
 const { data: plant, refresh: refreshPlant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
@@ -588,8 +598,11 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   // U2: `beginEvaluationAttempt` freezes the WHOLE submitted body on the attempt the moment the key is
   // minted, and returns that STORED body (never this freshly-passed one) on a retry — so `attempt.body`,
   // never the `body` parameter, is what actually gets sent below.
+  //
+  // W2: no page-level `repotError.value = false` here any more — `beginEvaluationAttempt` itself resets
+  // THIS attempt's own `error` field the moment a submit (fresh or retry) begins. See pages/index.vue's
+  // identical comment for the full reasoning.
   const attempt = beginEvaluationAttempt(id, body);
-  repotError.value = false;
   try {
     const result = await api.submitRepotEvaluation(id, attempt.body, attempt.key);
     if (!isLiveEvaluationAttempt(attempt)) return;
@@ -608,9 +621,10 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
     // owner can see the error and retry the SAME submission rather than silently losing it. The modal also
     // freezes its inputs for as long as this key is outstanding (`:frozen="!!evaluationAttempt?.key"`), but
     // the byte-identical retry no longer depends on that alone — `beginEvaluationAttempt` above resends the
-    // attempt's STORED body regardless of what the (frozen) form would recompute.
+    // attempt's STORED body regardless of what the (frozen) form would recompute. W2: `resolveEvaluationFailure`
+    // sets `error: true` on THIS attempt itself — no page-level flag to set, so this plant's own failure can
+    // never leak into the Done form's error display, nor into a different plant's evaluation modal.
     resolveEvaluationFailure(attempt);
-    repotError.value = true;
   }
 }
 
@@ -618,7 +632,6 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
 // a later submit mints a fresh one, instead of forcing a page reload to get out of a stuck retry.
 function onEvaluationStartOver() {
   invalidateEvaluationAttempt(id);
-  repotError.value = false;
 }
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
@@ -664,11 +677,11 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   // for, even across a midnight rollover or an intervening `refresh()` that resolved a different pending
   // evaluation, either of which would otherwise 422 forever against the server's idempotency interceptor.
   const pendingEval = pendingRepotEvaluation.value;
+  // W2: no page-level `repotError.value = false` here any more — same reasoning as onEvaluationSubmit above.
   const attempt = beginDoneAttempt(id, {
     occurredOn: today(),
     payload: { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
   });
-  repotError.value = false;
   try {
     await api.completeRepot(id, attempt.body.occurredOn, attempt.body.payload, attempt.key);
     if (!isLiveDoneAttempt(attempt)) return;
@@ -683,9 +696,10 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
     await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
   } catch {
     if (!isLiveDoneAttempt(attempt)) return;
-    // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit.
+    // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit. W2:
+    // `resolveDoneFailure` sets `error: true` on THIS attempt itself — no page-level flag to set, so this
+    // plant's Done failure can never leak into the evaluation modal's error display.
     resolveDoneFailure(attempt);
-    repotError.value = true;
   }
 }
 
@@ -693,7 +707,6 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
 // abandons the outstanding attempt so the form unfreezes and a later confirm mints a fresh one.
 function onRepotDoneStartOver() {
   invalidateDoneAttempt(id);
-  repotError.value = false;
 }
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
@@ -1193,8 +1206,9 @@ async function confirmRevive() {
       v-model:open="evaluationOpen"
       :signs="evaluationSigns"
       :submitting="!!evaluationAttempt?.submitting"
-      :error="repotError ? $t('repotEval.errorPending') : null"
+      :error="evaluationAttempt?.error ? $t('repotEval.errorPending') : null"
       :frozen="!!evaluationAttempt?.key"
+      :frozen-answers="evaluationAttempt?.body ?? null"
       @submit="onEvaluationSubmit"
       @start-over="onEvaluationStartOver"
     />
@@ -1204,8 +1218,9 @@ async function confirmRevive() {
       :current-pot-size-cm="doneFormProfile.potSizeCm"
       :current-soil-mix="doneFormProfile.soilMix"
       :submitting="!!doneAttempt?.submitting"
-      :error="repotError ? $t('repotEval.errorPending') : null"
+      :error="doneAttempt?.error ? $t('repotEval.errorPending') : null"
       :frozen="!!doneAttempt?.key"
+      :frozen-snapshot="doneAttempt?.body.payload ?? null"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"
     />

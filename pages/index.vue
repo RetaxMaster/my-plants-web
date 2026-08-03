@@ -47,10 +47,17 @@ const {
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
 const verdictOpen = ref(false);
-// Set only when the SIGNS FETCH itself fails (network/5xx) — never for a genuinely empty catalogue, which
-// is a valid outcome and must keep opening the questionnaire. Selects the load-specific message + retry
-// affordance on the shared repotError banner below, instead of the generic "already has an answer" text.
+// Set when a REPOT loader fails (network/5xx) — either the evaluation signs fetch below, OR (B3) the Done
+// form's `api.getPlant` profile fetch — never for a genuinely empty signs catalogue, which is a valid
+// outcome and must keep opening the questionnaire. Selects the load-specific message + retry affordance on
+// the shared repotError banner below, instead of the generic "already has an answer" text. Shared by BOTH
+// loaders on purpose (B3): a second flag with its own template branch would be a parallel copy of the same
+// banner for no reason, since only one loader can be in flight at a time from the owner's perspective.
 const evaluationLoadFailed = ref(false);
+// Holds whichever loader most recently failed, so the banner's retry button re-runs the SAME fetch that
+// failed instead of hard-wiring to one specific loader (B3) — set at the start of each loader's fetch,
+// re-runnable verbatim.
+const repotRetry = ref<(() => void) | null>(null);
 
 // REPOT is also the one task whose completion physically replaces the medium (Spec 1 §6/Task 21), so its
 // Done path opens a small pre-filled form (RepotDoneForm.vue, Task 26) instead of posting directly.
@@ -67,6 +74,7 @@ const {
   resolveSuccess: resolveDoneSuccess,
   resolveFailure: resolveDoneFailure,
   invalidate: invalidateDoneAttempt,
+  hasKeyFor: hasDoneKeyFor,
 } = useRepotAttempt();
 const repotPostponeSubmitting = ref(false);
 
@@ -170,6 +178,7 @@ async function onEvaluate(plantId: string) {
     repotError.value = false;
   }
   evaluationLoadFailed.value = false;
+  repotRetry.value = () => onEvaluate(plantId);
   let signs: RepotSign[];
   try {
     signs = (await api.getRepotSigns(plantId)).signs;
@@ -188,12 +197,6 @@ async function onEvaluate(plantId: string) {
   if (evaluationPlantId.value !== plantId) return;
   evaluationSigns.value = signs;
   evaluationOpen.value = true;
-}
-
-// Retry affordance for the page-level banner when `evaluationLoadFailed` is set — re-runs the exact same
-// fetch against the plant that triggered it.
-function retryEvaluate() {
-  if (evaluationPlantId.value) void onEvaluate(evaluationPlantId.value);
 }
 
 async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
@@ -246,18 +249,52 @@ function onEvaluationStartOver() {
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
 // 'REPOT' verdict is pending — see TaskRow's showEvaluate).
 async function onRepotDone(plantId: string) {
+  // Resume, don't reset (B1 — mirrors onEvaluate's identical guard above). The comment this replaces
+  // ("always a fresh attempt, the Done form has no resume path") was false: RepotDoneForm.vue's own
+  // `watch(open, ...)` guard deliberately skips the field reset while `frozen`, specifically to support a
+  // RESUME after the owner closes the form (X/Escape/backdrop) without resolving an outstanding confirm.
+  // Unconditionally invalidating before reopening made that resume guard unreachable — dead code standing
+  // in for a live bug: a Done confirm that committed on the server but lost its response kept the key and
+  // froze the form; the owner dismissed the modal; the next open discarded the key and re-prefilled; the
+  // next confirm then minted a FRESH idempotency key, so the server recorded a SECOND, non-deduplicated
+  // completion of a repot it had already recorded.
+  //
+  // This check runs BEFORE the fallible `api.getPlant` call below (B3, and load-bearing for the ordering):
+  // a resume must never depend on a network fetch, and must never invalidate an outstanding attempt ahead
+  // of a call that can fail.
+  const resuming = doneFormPlantId.value === plantId && hasDoneKeyFor(plantId);
   doneFormPlantId.value = plantId;
-  // Always a fresh attempt (unlike onEvaluate, the Done form has no resume path): this also invalidates any
-  // in-flight attempt for whatever plant was previously active, clearing `submitting` in the same write so
-  // it can never leak into this freshly-opened form (round-4 finding V1).
+  if (resuming) {
+    // The frozen body must stay byte-identical to the one the outstanding key was minted for: no
+    // invalidate, no error clear, and no re-read of the profile prefill — just reopen the form.
+    doneFormOpen.value = true;
+    return;
+  }
+  // Fresh attempt: invalidate whatever attempt was previously active — a different plant, or this same
+  // plant with no outstanding key — THE MOMENT we move on, rather than hoping its own in-flight request
+  // notices it went stale (round-4 finding V1). Nulling the whole object in one write clears `submitting`
+  // too, so a still-true flag from an abandoned attempt can never leak into this fresh one.
   invalidateDoneAttempt();
   repotError.value = false;
-  const plant = await api.getPlant(plantId);
-  // Race guard (code review finding F4): the SAME class as onEvaluate above — a second card click during
-  // this fetch must not overwrite the already-moved-on target with this stale response's profile.
-  if (doneFormPlantId.value !== plantId) return;
-  doneFormProfile.value = { potSizeCm: plant.profile.potSizeCm, soilMix: plant.profile.soilMix };
-  doneFormOpen.value = true;
+  evaluationLoadFailed.value = false;
+  repotRetry.value = () => onRepotDone(plantId);
+  try {
+    const plant = await api.getPlant(plantId);
+    // Race guard (code review finding F4): the SAME class as onEvaluate above — a second card click during
+    // this fetch must not overwrite the already-moved-on target with this stale response's profile.
+    if (doneFormPlantId.value !== plantId) return;
+    doneFormProfile.value = { potSizeCm: plant.profile.potSizeCm, soilMix: plant.profile.soilMix };
+    doneFormOpen.value = true;
+  } catch {
+    // B3: this fetch previously had no catch at all, so a 5xx/timeout produced an unhandled rejection — the
+    // form never opened, `repotError` stayed false, and the Done button simply looked dead: no error, no
+    // retry, no explanation. Reuse the SAME page-level banner + retry mechanism `onEvaluate` above already
+    // uses for its own load failure (finding W16) via the shared `evaluationLoadFailed`/`repotRetry` state —
+    // never a second banner or a second flag with its own template branch.
+    if (doneFormPlantId.value !== plantId) return;
+    evaluationLoadFailed.value = true;
+    repotError.value = true;
+  }
 }
 
 async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'>) {
@@ -393,7 +430,7 @@ function openProgress(plantId: string) {
       announce
       class="mp-today__repot-error"
     >
-      <UiButton v-if="evaluationLoadFailed" size="sm" variant="soft" color="neutral" @click="retryEvaluate">
+      <UiButton v-if="evaluationLoadFailed" size="sm" variant="soft" color="neutral" @click="repotRetry?.()">
         {{ $t('repotEval.retry') }}
       </UiButton>
     </UiAlert>

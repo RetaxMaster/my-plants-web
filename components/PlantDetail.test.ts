@@ -612,3 +612,145 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
     expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
   });
 });
+
+// B1: `onRepotDone` used to call `invalidateDoneAttempt()` unconditionally before opening the form, on the
+// false premise that "the Done form has no resume path" — but RepotDoneForm.vue's own `watch(open, ...)`
+// guard skips the field reset while `frozen`, specifically to support a resume after the owner closes the
+// form (X/Escape/backdrop) without resolving an outstanding confirm. Because the parent always cleared the
+// attempt first, that guard could never fire: a lost Done-confirm response kept the key and froze the
+// form, the owner dismissed it, and the next open discarded the key and re-prefilled — so the next confirm
+// minted a FRESH idempotency key and the server recorded a SECOND, non-deduplicated completion of a repot
+// it already recorded. This is finding V12's unfixed twin (V12 was fixed for the evaluation modal earlier
+// in this same review) and pages/index.vue's identical B1 fix, applied here — the SECOND renderer.
+describe('PlantDetail — B1: the Done form must resume its outstanding attempt across close and reopen', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  const repotPlant = () => ({
+    ...basePlant(),
+    profile: { potSizeCm: 20, soilMix: 'potting-mix' },
+  });
+
+  const repotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  };
+
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      props: ['task'],
+      emits: ['evaluate', 'done'],
+      template:
+        '<div>' +
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+        '</div>',
+    },
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over', 'update:open'],
+      template:
+        '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        // A close button that drives the REAL v-model:open contract (X/Escape/backdrop in the real
+        // component), never an internal function — this is how the resume test simulates the owner
+        // dismissing the form without resolving an outstanding confirm.
+        '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
+        '</div>',
+    },
+  };
+
+  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    completeRepotDeferreds = [deferred(), deferred()];
+    let completeCall = 0;
+    completeRepotMock = vi.fn(async () => completeRepotDeferreds[completeCall++]!.promise);
+  });
+
+  async function mountRepot() {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => repotCare,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  it('a failed confirm keeps the key; closing the form via its own update:open contract and reopening ' +
+    'resumes it — the retry sends the SAME idempotency key, and the form is still frozen', async () => {
+    const w = await mountRepot();
+
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds[0]!.reject(new Error('lost response'));
+    await flushPromises();
+
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const keyFirst = completeRepotMock.mock.calls[0]![3];
+    expect(keyFirst).toBeTruthy();
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+
+    // Close via the component's own update:open / v-model:open contract (X/Escape/backdrop) — NOT by
+    // calling an internal function — without resolving the outstanding confirm.
+    await w.find('.close-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+
+    // Reopen via the Done button: must RESUME, not reset — this component is pinned to one plant, so a
+    // resume just means "a key is already outstanding".
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true'); // still frozen — resumed, not reset
+
+    // The retry (the same confirm button) must send the SAME key.
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    const keySecond = completeRepotMock.mock.calls[1]![3];
+    expect(keySecond).toBe(keyFirst);
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+  });
+
+  it('a successful confirm leaves no outstanding key — reopening afterwards is a fresh attempt, not a resume', async () => {
+    const w = await mountRepot();
+
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds[0]!.resolve({ ok: true });
+    await flushPromises();
+    const keyFirst = completeRepotMock.mock.calls[0]![3];
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false'); // fresh attempt, not resumed
+
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    const keySecond = completeRepotMock.mock.calls[1]![3];
+    expect(keySecond).not.toBe(keyFirst); // two genuinely separate confirmations must never share a key
+  });
+});

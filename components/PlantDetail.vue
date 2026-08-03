@@ -79,6 +79,7 @@ const {
   resolveSuccess: resolveDoneSuccess,
   resolveFailure: resolveDoneFailure,
   invalidate: invalidateDoneAttempt,
+  hasKeyFor: hasDoneKeyFor,
 } = useRepotAttempt();
 const repotPostponeSubmitting = ref(false);
 
@@ -611,6 +612,26 @@ function onEvaluationStartOver() {
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
 // 'REPOT' verdict is pending — see TaskRow's showEvaluate).
 function onRepotDone() {
+  // Resume, don't reset (B1 — mirrors onEvaluate's identical guard above, and pages/index.vue's twin fix
+  // for the SAME defect). The comment this replaces ("always a fresh attempt, no resume path") was false:
+  // RepotDoneForm.vue's own `watch(open, ...)` guard deliberately skips the field reset while `frozen`,
+  // specifically to support a RESUME after the owner closes the form (X/Escape/backdrop) without resolving
+  // an outstanding confirm. Unconditionally invalidating before reopening made that resume guard
+  // unreachable — dead code standing in for a live bug: a Done confirm that committed on the server but
+  // lost its response kept the key and froze the form; the owner dismissed the modal; the next open
+  // discarded the key and re-prefilled; the next confirm then minted a FRESH idempotency key, so the server
+  // recorded a SECOND, non-deduplicated completion of a repot it had already recorded.
+  //
+  // Unlike pages/index.vue's onRepotDone, there is no fallible fetch here (this component already holds
+  // `plant.value` loaded for its whole lifetime) and no cross-plant case to guard — this component is
+  // pinned to one plant's `id`, so the check is simply whether a key is already outstanding for it.
+  const resuming = hasDoneKeyFor(id);
+  if (resuming) {
+    // The frozen body must stay byte-identical to the one the outstanding key was minted for: no
+    // invalidate, no error clear, and no re-read of the profile prefill — just reopen the form.
+    doneFormOpen.value = true;
+    return;
+  }
   invalidateDoneAttempt();
   repotError.value = false;
   doneFormProfile.value = { potSizeCm: plant.value?.profile.potSizeCm ?? null, soilMix: plant.value?.profile.soilMix ?? null };

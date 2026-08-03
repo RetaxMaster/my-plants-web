@@ -7,7 +7,13 @@ const props = defineProps<{
   // WATER-only species dryness slug from the care payload (e.g. 'mostly-dry'); null/absent for every
   // other task or when the field is missing → the species section is hidden.
   soilDryness?: string | null;
-  // REPOT-only species checklist from the care payload. API/species catalog data, rendered verbatim.
+  /**
+   * The plant's species rows PLUS the universal rows, already localized server-side. Same data and same
+   * resolver as the questionnaire (RepotEvaluationModal.vue): the info modal teaches, the questionnaire
+   * asks, and neither owns a second copy of the list. Sourced from `GET /plants/:id/repot-signs` —
+   * `GET /plants/:id/care` carries NO signs at all (Task 16 removed `crowding.repotSigns` outright; it was
+   * never re-sourced there). API/species catalog data — rendered verbatim, never an i18n key.
+   */
   repotSigns?: string[] | null;
   /**
    * Spec 2 §7. FERTILIZE-only. The engine models CADENCE and has no concept of CONCENTRATION, so an owner

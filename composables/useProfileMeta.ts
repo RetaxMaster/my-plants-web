@@ -17,7 +17,25 @@ export function useProfileMeta() {
   const label = (v: string | null | undefined, ns: string) =>
     v ? t(`plantProfile.${ns}.${v}`) : null;
 
+  /**
+   * Prepend an ENABLED empty option so the owner can express "I have no value for this" — and, on a field
+   * that already holds one, can go back to expressing it. A `<select>`'s own `placeholder` renders a
+   * DISABLED option instead, which can never be re-selected, so the two are not interchangeable: a
+   * placeholder says "you have not answered yet", this says "not knowing IS an answer".
+   *
+   * Lives here rather than in a component because two forms need the identical construction — the plant
+   * profile modal and the repot-Done form (QA round-3 defect D2, where the Done form's soil mix offered
+   * only a disabled placeholder and so could not be completed at all by an owner who did not know what
+   * they had potted into). One implementation, per the project's no-new-forks rule.
+   *
+   * `notSetLabel` overrides the empty option's wording where the generic "Not set" would be wrong: the
+   * growth-habit field shows the INHERITED habit there, the repot-Done mix shows "I don't know".
+   */
+  const withNotSet = (opts: { value: string; label: string }[], notSetLabel?: string | null) =>
+    [{ value: '', label: notSetLabel ?? t('plantProfile.pickOption') }, ...opts];
+
   return {
+    withNotSet,
     windowDistanceOptions: computed(() => options(WINDOW_DISTANCES, 'windowDistanceOptions')),
     potTypeOptions: computed(() => options(POT_TYPES, 'potTypeOptions')),
     soilMixOptions: computed(() => options(SOIL_MIXES, 'soilMixOptions')),

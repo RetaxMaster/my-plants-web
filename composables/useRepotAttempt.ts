@@ -132,10 +132,23 @@ export interface RepotAttempt<TBody> {
 // route transition's worth of awaits. Every question the old scheme kept getting wrong — subscriber
 // existence, the async-setup gap, watcher baselines, burst coalescing — is not answered better here, it stops
 // being a question. A guard is code that can be wrong; a removed possibility cannot.
-export interface RepotCompletion<TResult = void> {
+export interface RepotCompletion<TResult = void, TBody = unknown> {
   plantId: string;
   seq: number;
   result: TResult;
+  /**
+   * The body that was actually SENT — the attempt's own frozen envelope, not a re-read of any form. A
+   * renderer handling a completion frequently needs to know what the owner ANSWERED, not only what the
+   * server replied: the repot verdict modal picks its wording from it, because "we'll ask again on {date}"
+   * needs a different sentence when the owner answered "I couldn't check it" than when they answered "no
+   * signs yet", and the API's verdict payload deliberately carries no echo of the question.
+   *
+   * It rides on the completion record rather than being captured at the call site because a completion is
+   * routinely handled by a DIFFERENT renderer than the one that issued the request (that is the entire
+   * point of the shared log — see X1 above): a value stashed in one page's local ref would be invisible to
+   * the other. Being the attempt's stored body, it is also the exact bytes the server saw.
+   */
+  body: TBody;
 }
 
 // R11-1. How many completions each flow's log retains. A record is three small fields and the log is per
@@ -179,7 +192,7 @@ const COMPLETION_LOG_LIMIT = 50;
 // empty.
 type FlowKey = 'evaluation' | 'done';
 type AnyAttempt = RepotAttempt<unknown>;
-type AnyCompletion = RepotCompletion<unknown>;
+type AnyCompletion = RepotCompletion<unknown, unknown>;
 
 const flowStores: Partial<Record<FlowKey, ShallowRef<ReadonlyMap<string, AnyAttempt>>>> = {};
 // X1/R11-1: one completion LOG per flow key, same module-scope-per-flow shape as `flowStores` above — every
@@ -239,7 +252,7 @@ export function __resetRepotAttemptStoresForTests(): void {
 
 export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   const attempts = storeFor(flowKey) as unknown as ShallowRef<ReadonlyMap<string, RepotAttempt<TBody>>>;
-  const completionLog = completionLogFor(flowKey) as unknown as ShallowRef<readonly RepotCompletion<TResult>[]>;
+  const completionLog = completionLogFor(flowKey) as unknown as ShallowRef<readonly RepotCompletion<TResult, TBody>[]>;
 
   // R11-1. THE CURSOR, captured HERE and not by the caller. A renderer must know which completions predate
   // it, so that it reconciles the ones published during its own async setup and ignores the ones that were
@@ -320,7 +333,12 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     // R11-1: APPEND to the log — never overwrite a slot. Two completions landing back-to-back (two in-flight
     // requests settling from one network tick) are now two records, so a reader that looks once afterwards
     // still sees BOTH. Reassigned to a new array, never pushed in place, so `watch` observes the change.
-    const nextLog = [...completionLog.value, { plantId: candidate.plantId, seq: completionSeq, result: result as TResult }];
+    const nextLog = [
+      ...completionLog.value,
+      // `candidate.body` is the attempt's OWN frozen envelope — the exact bytes the request carried — so a
+      // handler reading it can never disagree with what was submitted.
+      { plantId: candidate.plantId, seq: completionSeq, result: result as TResult, body: candidate.body },
+    ];
     if (nextLog.length > COMPLETION_LOG_LIMIT) {
       // R12-1: remember the newest seq being discarded, so a reader that never saw it can be TOLD.
       const discarded = nextLog.slice(0, nextLog.length - COMPLETION_LOG_LIMIT);
@@ -412,7 +430,7 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   // be able to delay another consumer's, and Nuxt's `refresh()` cannot reject (it catches into `error` and
   // resolves), so there is nothing to swallow.
   function subscribeCompletions(
-    handler: (completion: RepotCompletion<TResult>) => void,
+    handler: (completion: RepotCompletion<TResult, TBody>) => void,
     onGap?: () => void,
   ): void {
     let handledSeq = cursorAtSetup;

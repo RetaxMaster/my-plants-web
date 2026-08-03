@@ -26,6 +26,12 @@ vi.stubGlobal('useProfileMeta', () => ({
     { value: 'potting-mix', label: 'Potting mix' },
     { value: 'cactus-mix', label: 'Cactus mix' },
   ]),
+  // The REAL implementation, copied deliberately rather than faked to something convenient: the component
+  // builds its mix options through it, so a stub that returned a different SHAPE (say, without the empty
+  // option) would make every assertion about the "I don't know" option below vacuous. It is three lines
+  // and has no dependencies of its own. See composables/useProfileMeta.ts.
+  withNotSet: (opts: { value: string; label: string }[], notSetLabel?: string | null) =>
+    [{ value: '', label: notSetLabel ?? 'plantProfile.pickOption' }, ...opts],
 }));
 
 // Real Modal/Button/FormGroup/AppIcon stubbed, but Input/SelectField/SegmentedControl left REAL so their
@@ -391,10 +397,101 @@ describe('RepotDoneForm — FIX D: the substrate answer defaults to "I don\'t kn
   });
 
   it('an empty-profile open (no recorded soil mix) leaves the select genuinely EMPTY — never silently ' +
-    'pre-selecting the catalogue\'s first entry — and `canConfirm` stays false', async () => {
+    'pre-selecting the catalogue\'s first entry', async () => {
     const w = await mountReal({ currentSoilMix: null });
 
     expect((w.find('select').element as HTMLSelectElement).value).toBe('');
+  });
+});
+
+// QA round-3 defect D2. FIX D above gave the FRESH-SUBSTRATE question a three-option treatment ("I don't
+// know" included) and stopped at that — the SOIL MIX beside it kept a DISABLED placeholder as its only
+// empty option, and `canConfirm` required a concrete mix. So an owner who genuinely did not know what they
+// had repotted into could not complete the repot at all: a dead end on the feature's own main path,
+// reachable by simply not remembering what was in the bag.
+//
+// The engine has had a first-class answer for this the whole time — a null mix routes to
+// `CHARGE_UNKNOWN_MIX_DAYS`, a named constant kept separate from `CHARGE_DEFAULT_DECLARED` precisely so a
+// no-evidence derivation can never be mistaken for a declared one (ledger L28/L29) — so this fix invents
+// no semantics. It writes `null`.
+describe('RepotDoneForm — QA D2: "I don\'t know" is a selectable answer for the soil mix, and it writes ' +
+  'null', () => {
+  function findConfirmButton(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.confirm'))!;
+  }
+
+  async function mountReal(props: Record<string, unknown> = {}) {
+    const w = mount(RepotDoneForm, {
+      props: { open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: false, ...props },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+    return w;
+  }
+
+  it('offers the empty option as an ENABLED, selectable "I don\'t know" — not a disabled placeholder, ' +
+    'which is what made the answer unreachable', async () => {
+    const w = await mountReal({ currentSoilMix: null });
+    const blank = w.findAll('option').find((o) => (o.element as HTMLOptionElement).value === '')!;
+
+    expect(blank).toBeDefined();
+    expect((blank.element as HTMLOptionElement).disabled).toBe(false);
+    expect(blank.text()).toBe('repotDone.soilMixUnknown');
+    // Exactly ONE blank option: passing a SelectField `:placeholder` alongside the prepended empty option
+    // renders a SECOND, disabled one (QA defect F, in the profile form) and the owner sees two identical
+    // blanks of which only one works.
+    expect(w.findAll('option').filter((o) => (o.element as HTMLOptionElement).value === '').length).toBe(1);
+  });
+
+  it('lets the owner CONFIRM with no mix chosen — the defect was that this button never enabled', async () => {
+    const w = await mountReal({ currentSoilMix: null });
+    expect(findConfirmButton(w).attributes('disabled')).toBeUndefined();
+  });
+
+  it('emits `soilMix: null` EXPLICITLY when the owner does not know — never an omitted key, because a ' +
+    'repot replaces the medium and an omitted key would leave the plant\'s OLD mix standing as a claim ' +
+    'about a pot it is no longer in', async () => {
+    const w = await mountReal({ currentSoilMix: null });
+    await findConfirmButton(w).trigger('click');
+
+    const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
+    expect(payload).toEqual({ potSizeCm: 20, soilMix: null });
+    expect(Object.prototype.hasOwnProperty.call(payload, 'soilMix')).toBe(true);
+  });
+
+  it('lets an owner who HAD a recorded mix go back to "I don\'t know" — the answer is reachable from a ' +
+    'filled form, not only from an empty one', async () => {
+    const w = await mountReal({ currentSoilMix: 'cactus-mix' });
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('cactus-mix');
+
+    await w.find('select').setValue('');
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: null });
+  });
+
+  it('still REQUIRES a valid pot size — "I don\'t know" applies to the mix, never to the diameter the ' +
+    'crowding ratio is computed from', async () => {
+    const w = await mountReal({ currentSoilMix: null, currentPotSizeCm: null });
     expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
+
+    await w.find('input[type="number"]').setValue('22');
+    expect(findConfirmButton(w).attributes('disabled')).toBeUndefined();
+  });
+
+  it('round-trips a frozen snapshot whose `soilMix` is null back to "I don\'t know" — never to a concrete ' +
+    'mix, which would convert a non-answer into a claim the owner never made (the same class of defect ' +
+    'as FIX D3\'s `charged` hydration)', async () => {
+    const w = mount(RepotDoneForm, {
+      props: {
+        open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix',
+        frozen: true, frozenSnapshot: { potSizeCm: 30, soilMix: null },
+      },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('');
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: null });
   });
 });

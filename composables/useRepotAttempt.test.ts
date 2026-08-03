@@ -243,6 +243,46 @@ describe('useRepotAttempt — X1/R11-1: completions are an ordered LOG drained t
     expect(seenByB[0]!.result).toEqual({ verdict: 'REPOT' });
   });
 
+  // QA round 3. A completion also carries the BODY that was sent, because a renderer routinely needs to
+  // know what the owner ANSWERED and not only what the server replied — the repot verdict modal picks its
+  // wording from it ("I couldn't check it" must not be answered with the "nothing you saw" sentence), and
+  // the API's verdict payload deliberately carries no echo of the question.
+  //
+  // It rides on the RECORD rather than being stashed in the issuing renderer, and that is the whole point:
+  // a completion is routinely drained by a DIFFERENT renderer than the one that issued the request (that is
+  // what the shared log is FOR), so a page-local capture would be invisible to the other one. This test is
+  // therefore deliberately cross-renderer, like the one above.
+  it('a completion carries the SENT body — the attempt\'s own frozen envelope — and reaches a second, ' +
+    'independently obtained handle with it intact', async () => {
+    const rendererA = useRepotAttempt<{ answer: string }, { verdict: string }>('evaluation');
+    const rendererB = useRepotAttempt<{ answer: string }, { verdict: string }>('evaluation');
+    const seenByB: { plantId: string; body: { answer: string } }[] = [];
+    rendererB.subscribeCompletions((c) => { seenByB.push({ plantId: c.plantId, body: c.body }); });
+
+    const attempt = rendererA.begin('plant-1', { answer: 'could-not-check' });
+    rendererA.resolveSuccess(attempt, { verdict: 'RE-EVALUATE' });
+    await nextTick();
+
+    expect(seenByB).toHaveLength(1);
+    expect(seenByB[0]!.body).toEqual({ answer: 'could-not-check' });
+  });
+
+  it('publishes the attempt\'s STORED body, never a body a later caller passes in — a retry reuses the ' +
+    'frozen envelope (U2), so the completion must report what was actually sent', async () => {
+    const handle = useRepotAttempt<{ answer: string }, { verdict: string }>('evaluation');
+    const seen: { body: { answer: string } }[] = [];
+    handle.subscribeCompletions((c) => { seen.push({ body: c.body }); });
+
+    handle.begin('plant-1', { answer: 'could-not-check' });
+    // A retry: `begin` returns the STORED envelope and ignores this second, different body.
+    const retried = handle.begin('plant-1', { answer: 'no-signs' });
+    handle.resolveSuccess(retried, { verdict: 'RE-EVALUATE' });
+    await nextTick();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.body).toEqual({ answer: 'could-not-check' });
+  });
+
   // R11-1 — THE REGRESSION THIS WHOLE REDESIGN EXISTS FOR. Under the previous single-latest-value ref this
   // was measured directly: two resolveSuccess calls in back-to-back microtasks delivered ONE event, for the
   // SECOND plant only, and plant A's completion was gone with no trace. On PlantDetail — pinned to plant A —

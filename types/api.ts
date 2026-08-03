@@ -194,15 +194,28 @@ export interface RepotEvaluationResult {
 }
 
 /**
- * The fields a REPOT completion carries — mirrors the API's repotDonePayloadSchema. `potSizeCm`/`soilMix`
- * are required; `charged` is OPTIONAL (FIX D): present means the owner gave an actual fresh/reused answer,
- * ABSENT means "I don't know" — the server derives the charge state from the recorded soil mix instead of
- * the app guessing. Never round-trip an absent `charged` as `false` ("reused"); see
- * `RepotDoneForm.vue`'s own frozenSnapshot hydration for the exact mistake that shape invites.
+ * The fields a REPOT completion carries — mirrors the API's repotDonePayloadSchema.
+ *
+ * `potSizeCm` is required: without the NEW pot's diameter the crowding ratio would be computed against a
+ * pot that no longer exists.
+ *
+ * The other two are the SAME question asked twice, and both of them admit "I don't know" — but they spell
+ * it differently, and the difference is load-bearing rather than stylistic:
+ *   - `soilMix` is required-but-NULLABLE (QA D2). `null` is the owner's explicit "I don't know what I
+ *     potted into", and it is sent EXPLICITLY because a repot replaces the medium — omitting the key would
+ *     leave the plant's previously recorded mix standing, which is a claim about this pot that is no
+ *     longer true.
+ *   - `charged` is OPTIONAL BY PRESENCE (FIX D). Absent means "I don't know"; the server then derives the
+ *     charge state from the recorded mix. Absence is the right spelling here because `charged` has no
+ *     stale prior value to displace — `refreshSubstrateCore` writes the column on every completion.
+ *
+ * Never round-trip either absence into a positive answer: an absent `charged` read back as `false`
+ * ("reused"), or a null `soilMix` read back as some concrete mix, both convert a non-answer into a claim
+ * the owner never made. See `RepotDoneForm.vue`'s frozenSnapshot hydration for both.
  */
 export interface RepotDonePayload {
   potSizeCm: number;
-  soilMix: string;
+  soilMix: string | null;
   charged?: boolean;
   refreshedOn?: string;
   evaluationId?: string;

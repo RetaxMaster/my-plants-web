@@ -152,3 +152,55 @@ describe('UiTaskRow — V13: RE-EVALUATE gated by reevaluateOn (server refuses a
     expect(w.find('.mp-taskrow__pending-note').exists()).toBe(false);
   });
 });
+
+// QA round-3 defect D3, presentation half. `care-plan.service.ts`'s `todaysTasks` now surfaces a REPOT row
+// on the strength of an unresolved 'REPOT' verdict alone, whatever its computed date says, and reports
+// `nextDueOn` UNCHANGED (nothing rewrote the schedule). So a plant evaluated early arrives here with
+// `status: 'upcoming'` and a due label like "in 675 days" — under which the card would offer an urgent
+// action with a not-due-for-two-years badge and, worse, NO Postpone at all, since Postpone is hidden for
+// 'upcoming'. Postpone was deliberately removed from plant detail, so Today is the only place that offers
+// the Done | Postpone pair the verdict modal's own copy promises the owner.
+describe('UiTaskRow — QA D3: an unresolved REPOT verdict outranks an upcoming due date', () => {
+  const upcomingWithVerdict = {
+    task: 'REPOT', status: 'upcoming', dueLabel: 'in 675 days', pendingVerdict: 'REPOT',
+  } as const;
+
+  it('offers POSTPONE alongside Done on an upcoming REPOT that carries a verdict — the affordance the ' +
+    'verdict modal promises, in the only place that still has it', () => {
+    const w = mountRow({ ...upcomingWithVerdict });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('check');
+    expect(icons).toContain('clock');
+  });
+
+  it('replaces the misleading due label with the verdict\'s own badge, instead of announcing an urgent ' +
+    'action as not due for two years', () => {
+    const w = mountRow({ ...upcomingWithVerdict });
+    expect(w.text()).toContain('repotEval.verdictNowBadge');
+    expect(w.text()).not.toContain('in 675 days');
+  });
+
+  it('leaves an OVERDUE verdict-carrying row completely alone — overdue is both more urgent and more ' +
+    'accurate than "repot now", so the date keeps the badge', () => {
+    const w = mountRow({ task: 'REPOT', status: 'overdue', dueLabel: '3 days late', pendingVerdict: 'REPOT' });
+    expect(w.text()).toContain('3 days late');
+    expect(w.text()).not.toContain('repotEval.verdictNowBadge');
+    expect(w.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).toContain('clock');
+  });
+
+  it('does NOT touch an upcoming REPOT with a RE-EVALUATE verdict — that one means "come back later", ' +
+    'and re-badging it "repot now" would be a lie', () => {
+    const w = mountRow({
+      task: 'REPOT', status: 'upcoming', dueLabel: 'in 30 days',
+      pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: '2099-01-01',
+    });
+    expect(w.text()).toContain('in 30 days');
+    expect(w.text()).not.toContain('repotEval.verdictNowBadge');
+  });
+
+  it('does NOT touch a non-REPOT upcoming row, whatever a stray pendingVerdict says', () => {
+    const w = mountRow({ task: 'WATER', status: 'upcoming', dueLabel: 'in 4 days', pendingVerdict: 'REPOT' });
+    expect(w.text()).toContain('in 4 days');
+    expect(w.text()).not.toContain('repotEval.verdictNowBadge');
+  });
+});

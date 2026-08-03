@@ -56,8 +56,30 @@ const emit = defineEmits<{
 
 const doneDate = ref('');
 
+// QA round-3 defect D3, presentation half. A REPOT row now reaches the Today list on the strength of an
+// unresolved 'REPOT' verdict alone, whatever its computed date says (`care-plan.service.ts`'s `todaysTasks`
+// owns that rule). Its `nextDueOn` is reported UNCHANGED — deliberately, because nothing rewrote the
+// schedule — so a plant evaluated early arrives here with `status: 'upcoming'` and a due label reading "in
+// 675 days". Rendered as-is that card would contradict itself twice over: an urgent action under a
+// not-due-for-two-years badge, and — worse — NO Postpone button at all, since Postpone is hidden for
+// 'upcoming' (see the template). The verdict is ground truth about the plant; the date is the estimate it
+// corrected. So the verdict wins here.
+//
+// Deliberately scoped to `status === 'upcoming'`: a plant that is BOTH overdue and verdict-carrying keeps
+// its overdue badge, which is the more urgent and more accurate of the two statements.
+//
+// Lives in this component, not in its callers, because both surfaces that render a REPOT card (the Today
+// page and PlantDetail) pass `pendingVerdict` already — one implementation, so the two cannot drift.
+const verdictOverridesDue = computed(
+  () => props.task === 'REPOT' && props.pendingVerdict === 'REPOT' && props.status === 'upcoming',
+);
+const effectiveStatus = computed(() => (verdictOverridesDue.value ? 'today' : props.status));
+const effectiveDueLabel = computed(() =>
+  verdictOverridesDue.value ? t('repotEval.verdictNowBadge') : props.dueLabel,
+);
+
 const badgeColor = computed(() =>
-  props.status === 'overdue' ? 'red' : props.status === 'today' ? 'amber' : 'neutral',
+  effectiveStatus.value === 'overdue' ? 'red' : effectiveStatus.value === 'today' ? 'amber' : 'neutral',
 );
 
 // REPOT stops offering a bare Done/Postpone until a verdict exists — but ONLY for a caller that has
@@ -107,7 +129,7 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
     <div class="mp-taskrow__meta">
       <AppIcon :name="TASK_ICONS[task]" :size="18" class="mp-taskrow__icon" />
       <span class="mp-taskrow__label">{{ taskLabel(task) }}</span>
-      <Badge :color="badgeColor" size="xs">{{ dueLabel }}</Badge>
+      <Badge :color="badgeColor" size="xs">{{ effectiveDueLabel }}</Badge>
       <button
         v-if="showInfo"
         type="button"
@@ -143,7 +165,7 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
         />
         <Button size="xs" color="primary" icon="check" @click="onDone">{{ t('common.done') }}</Button>
         <Button
-          v-if="status !== 'upcoming'"
+          v-if="effectiveStatus !== 'upcoming'"
           size="xs"
           color="neutral"
           variant="ghost"

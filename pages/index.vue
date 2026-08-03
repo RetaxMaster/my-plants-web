@@ -56,6 +56,12 @@ const {
 const evaluationAttempt = computed(() => evaluationAttemptFor(evaluationPlantId.value));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
+// ...and the ANSWER that produced it, read off the completion record's frozen request body. The API's
+// verdict payload deliberately carries no echo of the question, and "no signs yet" and "I couldn't check
+// it" both come back as the same RE-EVALUATE verdict — while meaning opposite things to the owner, who in
+// one case looked and saw nothing and in the other never looked at all. The modal needs the distinction to
+// say something true; nothing else does, which is why it stays a display concern and not a contract change.
+const verdictAnswer = ref<RepotEvaluationSubmit['answer'] | null>(null);
 const verdictOpen = ref(false);
 // Set when a REPOT loader fails (network/5xx) — either the evaluation signs fetch below, OR (B3) the Done
 // form's `api.getPlant` profile fetch — never for a genuinely empty signs catalogue, which is a valid
@@ -318,11 +324,12 @@ function onEvaluationStartOver() {
 // function. The renderer no longer states a baseline, a catch-up or a watcher — those lived here as four
 // hand-written copies across two files, and round 10 found two of them had already diverged on whether the
 // refresh was gated. There is nothing left here for a future edit to get out of step.
-async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvaluationResult>) {
+async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvaluationResult, RepotEvaluationSubmit>) {
   const isCurrentModal = completion.plantId === evaluationPlantId.value;
   if (isCurrentModal) {
     evaluationOpen.value = false;
     verdict.value = completion.result;
+    verdictAnswer.value = completion.body.answer;
     verdictOpen.value = true;
   }
   await refresh();
@@ -627,7 +634,7 @@ function openProgress(plantId: string) {
       @start-over="onEvaluationStartOver"
       @reload-signs="evaluationPlantId && onEvaluate(evaluationPlantId)"
     />
-    <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
+    <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" :answer="verdictAnswer" />
     <UiRepotDoneForm
       v-model:open="doneFormOpen"
       :current-pot-size-cm="doneFormProfile.potSizeCm"

@@ -13,7 +13,7 @@ const open = defineModel<boolean>({ default: false });
 const { t } = useI18n();
 const api = useApi();
 const {
-  windowDistanceOptions, potTypeOptions, soilMixOptions, growthHabitOptions, growthHabitLabel,
+  windowDistanceOptions, potTypeOptions, soilMixOptions, growthHabitOptions, growthHabitLabel, withNotSet,
 } = useProfileMeta();
 
 const loading = ref(false);
@@ -37,14 +37,13 @@ const POT_SIZE_MIN = 5;
 const POT_SIZE_MAX = 50;
 const POT_SIZE_STEP = 1;
 
-// Prepend an enabled "Not set" option so a user can CLEAR an enum (a disabled placeholder can't be reselected).
-// `notSetLabel`, when given, overrides the blank option's own label — the growth-habit field uses it to
-// show the INHERITED habit there instead of a generic "pick an option" (fix for QA defect F: passing a
-// SelectField `:placeholder` on top of this produced a second, disabled `<option value="">`, since
-// SelectField.vue renders its own placeholder option whenever `placeholder` is truthy — leaving two blank
-// options where only the enabled one here is ever selectable).
-const withNotSet = (opts: { value: string; label: string }[], notSetLabel?: string | null) =>
-  [{ value: '', label: notSetLabel ?? t('plantProfile.pickOption') }, ...opts];
+// `withNotSet` now lives in `useProfileMeta()` (destructured above) — the repot-Done form needs the exact
+// same enabled-empty-option construction, and two copies of it is the fork this project's rules forbid.
+// Its contract, including the `notSetLabel` override this file's growth-habit field uses to show the
+// INHERITED habit, is documented at the definition. Kept in mind here: passing a SelectField
+// `:placeholder` ON TOP of it produces a SECOND, disabled `<option value="">` (QA defect F), because
+// SelectField.vue renders its own placeholder option whenever `placeholder` is truthy — the two are
+// alternatives, never a pair.
 
 // The provenance line, shown ONLY while the owner has not chosen a habit themselves. This mirrors the
 // API's read-time fallback exactly; the web never copies the inherited value into the patch.

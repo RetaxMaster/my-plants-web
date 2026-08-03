@@ -52,12 +52,21 @@ const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ confirm: [payload: Omit<RepotDonePayload, 'evaluationId'>]; 'start-over': [] }>();
 
 const { t } = useI18n();
-// Same vocabulary as PlantProfileModal.vue's soil-mix select — built from the shared package's slug list,
-// never a local literal array, so a mix Spec 1 adds to that vocabulary never goes stale here.
-const { soilMixOptions } = useProfileMeta();
+// Same vocabulary AND the same enabled-empty-option construction as PlantProfileModal.vue's soil-mix
+// select — both built from the shared package's slug list via the one composable, never a local literal
+// array and never a second `withNotSet`, so a mix Spec 1 adds to that vocabulary never goes stale here.
+const { soilMixOptions, withNotSet } = useProfileMeta();
+
+// FIX QA-D2 — the mix offers an explicit, SELECTABLE "I don't know", labelled as such rather than as the
+// profile form's generic "Not set", because here it answers a question that was just asked out loud. It is
+// NOT a `SelectField` placeholder: a placeholder option is DISABLED, so it can say "you have not answered"
+// but can never be chosen as the answer — which is what left an owner who genuinely did not know what they
+// had potted into unable to complete the repot at all, the form's own main path.
+const soilMixSelectOptions = computed(() => withNotSet(soilMixOptions.value, t('repotDone.soilMixUnknown')));
 
 // '' is the empty state (Input.vue's v-model is `string | number`, never `null` — same convention as
-// PlantProfileModal.vue's ageMonths field).
+// PlantProfileModal.vue's ageMonths field). For `soilMix`, '' is ALSO the "I don't know" ANSWER, and
+// `onConfirm` sends it as an explicit `null` — see there.
 const potSizeCm = ref<number | string>('');
 const soilMix = ref<string>('');
 // FIX D1 — genuinely TRI-STATE now, in BOTH the UI and on the wire (was two-way: 'fresh' | 'reused', always
@@ -84,7 +93,11 @@ watch(open, (isOpen) => {
   if (props.frozen) {
     if (props.frozenSnapshot) {
       potSizeCm.value = props.frozenSnapshot.potSizeCm;
-      soilMix.value = props.frozenSnapshot.soilMix;
+      // `soilMix` is tri-state by NULLABILITY on the wire (`SoilMix | null`, see types/api.ts): `null` is
+      // the owner's explicit "I don't know" and must round-trip back to the EMPTY option, never to some
+      // concrete mix. Same class of defect as FIX D3 below, which turned an omitted `charged` into a
+      // positive "reused" claim the owner never made.
+      soilMix.value = props.frozenSnapshot.soilMix ?? '';
       // FIX D3 — `charged` is tri-state by PRESENCE on the wire (see types/api.ts's own comment): `undefined`
       // means "I don't know" and must round-trip back to 'unknown', never silently become 'reused'. The
       // PREVIOUS version of this line (`... ? 'fresh' : 'reused'`) turned an omitted `charged` into 'reused'
@@ -99,11 +112,16 @@ watch(open, (isOpen) => {
   potSizeCm.value = props.currentPotSizeCm ?? '';
   // FIX D4 — dropped the `soilMixOptions.value[0]?.value` fallback (used to silently pre-select the FIRST
   // catalogue entry, e.g. "Aroid mix", whenever the plant's profile had no recorded mix). An unset mix now
-  // opens genuinely EMPTY — see the SelectField's `:placeholder` below — so the owner must make an explicit
-  // choice instead of unknowingly confirming whatever slug happens to sort first. The catalogue's `other`
-  // entry already covers "I don't know what I potted into" (2026-08-02 ledger L29: `other` takes the
-  // identical no-evidence path as an unset mix on the engine side), so there is no second "unset" option to
-  // add here — that would be two spellings of the same "no evidence" meaning.
+  // opens on the explicit "I don't know" option, so the owner never unknowingly confirms whatever slug
+  // happens to sort first.
+  //
+  // FIX QA-D2 corrects what this comment used to claim. It said the catalogue's `other` entry already
+  // covered "I don't know what I potted into" and that a second option would be two spellings of one
+  // meaning. Those are two different statements and only the first is true: `other` and `null` do take the
+  // SAME engine path (ledger L29 — neither carries information about nutrient charge), but they say
+  // different things to the OWNER. `other` is a positive claim about our taxonomy ("it is a mix, and none
+  // of your nine categories fit"); `null` is the absence of a claim ("I do not know what was in the bag").
+  // An owner who cannot make the first claim was left with no way to finish the form at all.
   soilMix.value = props.currentSoilMix ?? '';
   substrate.value = 'unknown';
 });
@@ -123,15 +141,24 @@ const potSizeErrorMessage = computed(() => {
   return t('repotDone.potSizeInvalid', { max: POT_SIZE_CM_MAX });
 });
 
+// FIX QA-D2 — `soilMix` is NO LONGER part of this gate. "I don't know" is a legitimate answer to it (the
+// engine has a first-class no-evidence path for a null mix — `CHARGE_UNKNOWN_MIX_DAYS`, a named constant
+// distinct from the declared-charge one precisely so the two derivations can never collapse), so requiring
+// a concrete mix made the feature's main path un-completable for an owner who genuinely did not know.
+// `potSizeCm` stays required: without the NEW pot's diameter the crowding ratio is computed against a pot
+// that no longer exists, silently and plausibly, for the rest of the plant's life.
 const canConfirm = computed(
-  () => !props.submitting && potSizeValid.value && soilMix.value.length > 0,
+  () => !props.submitting && potSizeValid.value,
 );
 
 function onConfirm() {
   if (!canConfirm.value) return;
   const payload: Omit<RepotDonePayload, 'evaluationId'> = {
     potSizeCm: potSizeCm.value as number,
-    soilMix: soilMix.value,
+    // Explicit `null`, never an omitted key: a repot REPLACES the medium, so leaving the previously
+    // recorded mix in place would keep asserting something that is no longer true about this pot. The
+    // owner not knowing what the new medium is does not make the OLD answer correct again.
+    soilMix: soilMix.value === '' ? null : soilMix.value,
   };
   // FIX D1 — `charged` is included ONLY when the owner gave an actual fresh/reused answer. Building the
   // object WITHOUT the key at all (rather than setting it to `charged: undefined`) is deliberate: either
@@ -177,12 +204,14 @@ function onConfirm() {
       {{ t('repotDone.sameAsBefore') }}
     </Button>
 
+    <!-- No `:placeholder` here, deliberately: `soilMixSelectOptions` already prepends an ENABLED empty
+         option, and SelectField renders its own DISABLED one whenever `placeholder` is truthy — passing
+         both leaves two blank options where only one is selectable (QA defect F, in the profile form). -->
     <FormGroup :label="t('repotDone.soilMix')">
       <SelectField
         v-model="soilMix"
-        :options="soilMixOptions"
+        :options="soilMixSelectOptions"
         :disabled="frozen"
-        :placeholder="t('repotDone.soilMixPlaceholder')"
       />
     </FormGroup>
 

@@ -39,22 +39,37 @@ const checked = ref<string[]>([]);
 const exclusive = ref<'none' | 'no-signs' | 'could-not-check'>('none');
 const expandedHelp = ref<string | null>(null);
 
-// FIX E — makes the two exclusive answers DESELECTABLE (they used to stick once clicked, with no escape but
-// closing the whole modal). Toggles OFF back to 'none' when the SAME value is clicked again.
+// The two exclusive answers are DESELECTABLE (FIX E) — clicking the SAME one again clears it back to
+// 'none' — while still being ordinary `v-model`-bound radios, which is what makes them RENDER as selected
+// and be ANNOUNCED as selected by assistive technology.
 //
-// This is bound via `:checked` + `@click.prevent`, NEVER a plain `@click` handler left running ALONGSIDE
-// `v-model` on the radio — that shape cannot work, and the reason is the browser's own event order, not a
-// bug in this component: for a radio input, the browser sets the element's checkedness during the
-// "activation behavior" that runs as part of dispatching the click, and only AFTER that does it fire the
-// `change` event — which is what `v-model` actually listens on to write the new value into `exclusive`. A
-// `@click` handler added alongside `v-model` runs BEFORE that native `change` fires, so anything it writes
-// into `exclusive` (e.g. clearing it back to 'none') is immediately overwritten the instant `v-model`'s own
-// `change` handler runs right after. Binding `:checked` (not `v-model`) and calling `event.preventDefault()`
-// inside the click handler cancels the native activation behavior ENTIRELY before it ever sets checkedness
-// or queues a `change` — so `exclusive` (this ref) is left as the ONE source of truth the DOM's `:checked`
-// binding reflects back, with no native state for a re-render to fight.
-function toggleExclusive(v: 'no-signs' | 'could-not-check') {
-  exclusive.value = exclusive.value === v ? 'none' : v;
+// ⚠️ THE TRAP THIS REPLACES, stated fully, because the shape it replaces looked correct and was wrong in a
+// real browser only. FIX E originally bound `:checked` + `@click.prevent`. That renders NOTHING: for a
+// radio the browser runs its "legacy-pre-activation behavior" (set checkedness true) BEFORE dispatching
+// the click, and — when a listener calls `preventDefault()` — its "legacy-CANCELED-activation behavior"
+// AFTER every listener has run, which RESTORES checkedness to the value it had before the click, i.e.
+// false. Vue's own DOM write (`el.checked = true` from the `:checked` binding, flushed in the microtask
+// that runs the moment the listener returns) therefore lands BEFORE that restore and is overwritten by it.
+// What survived was only the `checked` ATTRIBUTE, which Vue also sets for `checked`/`value`/`selected` and
+// which does not drive rendering: measured in Chromium, `input.checked === false` while
+// `input.hasAttribute('checked') === true`. The owner saw no confirmation their answer was recorded and a
+// screen reader announced "not checked", even though `exclusive` held the right value the whole time.
+//
+// ⚠️ AND WHY NO TEST CAUGHT IT: `@vue/test-utils`'s `trigger('click')` dispatches a synthetic event, which
+// runs NONE of those activation steps — so `preventDefault()` was inert there and `.checked` read back
+// `true`. The regression test for this uses the element's OWN `.click()` (real activation) for exactly
+// that reason; see RepotEvaluationModal.test.ts.
+//
+// Why `v-model` + a plain `@click` DOES work here, when the reverse ordering is what broke the old shape:
+// the click listener runs BEFORE the native `change` that `v-model` listens on, so `exclusive` still holds
+// the PRE-click value when this function runs. Selecting a different answer therefore falls through
+// (`exclusive !== v`) and lets `v-model` do its normal job; clicking the ALREADY-selected one clears it —
+// and clicking an already-checked radio fires NO `change` event at all (its checkedness does not change),
+// so there is nothing left to overwrite the clear. `v-model`'s own directive then writes
+// `el.checked = false` on the re-render, and no activation step contradicts it because nothing was
+// cancelled.
+function onExclusiveClick(v: 'no-signs' | 'could-not-check') {
+  if (exclusive.value === v) exclusive.value = 'none';
 }
 
 // Exclusivity is enforced HERE for the owner's sake and AGAIN on the server: "no signs" arriving together
@@ -144,26 +159,29 @@ function onSubmit() {
       </li>
     </ul>
 
-    <div class="mp-repoteval__exclusive">
+    <!-- `role="radiogroup"` + a name: these two radios are a choice in their own right, offered as an
+         alternative to the sign checkboxes above, and without a group name assistive tech announces them
+         with no indication of what they are alternatives TO. -->
+    <div class="mp-repoteval__exclusive" role="radiogroup" :aria-label="t('repotEval.exclusiveGroupLabel')">
       <label class="mp-repoteval__check">
         <input
+          v-model="exclusive"
           type="radio"
           name="repoteval-exclusive"
           value="no-signs"
-          :checked="exclusive === 'no-signs'"
           :disabled="frozen"
-          @click.prevent="toggleExclusive('no-signs')"
+          @click="onExclusiveClick('no-signs')"
         />
         <span>{{ t('repotEval.noSigns') }}</span>
       </label>
       <label class="mp-repoteval__check">
         <input
+          v-model="exclusive"
           type="radio"
           name="repoteval-exclusive"
           value="could-not-check"
-          :checked="exclusive === 'could-not-check'"
           :disabled="frozen"
-          @click.prevent="toggleExclusive('could-not-check')"
+          @click="onExclusiveClick('could-not-check')"
         />
         <span>{{ t('repotEval.couldNotCheck') }}</span>
       </label>

@@ -58,6 +58,12 @@ vi.stubGlobal('useProfileMeta', () => ({
     { value: 'potting-mix', label: 'Potting mix' },
     { value: 'cactus-mix', label: 'Cactus mix' },
   ]),
+  // The REAL implementation, copied rather than faked: RepotDoneForm builds its mix options through it, and
+  // a stub returning a different SHAPE (e.g. without the prepended empty "I don't know" option) would make
+  // the form under test structurally different from the shipped one. Three lines, no dependencies. See
+  // composables/useProfileMeta.ts.
+  withNotSet: (opts: { value: string; label: string }[], notSetLabel?: string | null) =>
+    [{ value: '', label: notSetLabel ?? 'plantProfile.pickOption' }, ...opts],
 }));
 
 // A controllable, externally-resolvable/rejectable promise — lets the test hold a plant's submit "in

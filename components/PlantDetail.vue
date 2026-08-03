@@ -70,6 +70,12 @@ const {
 const evaluationAttempt = computed(() => evaluationAttemptFor(id));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
+// ...and the ANSWER that produced it, read off the completion record's frozen request body. The API's
+// verdict payload deliberately carries no echo of the question, and "no signs yet" and "I couldn't check
+// it" both come back as the same RE-EVALUATE verdict — while meaning opposite things to the owner, who in
+// one case looked and saw nothing and in the other never looked at all. The modal needs the distinction to
+// say something true; nothing else does, which is why it stays a display concern and not a contract change.
+const verdictAnswer = ref<RepotEvaluationSubmit['answer'] | null>(null);
 const verdictOpen = ref(false);
 // Set only when the SIGNS FETCH itself fails (network/5xx) — never for a genuinely empty catalogue, which
 // is a valid outcome and must keep opening the questionnaire. Selects the load-specific message + retry
@@ -673,11 +679,12 @@ function onEvaluationStartOver() {
 // during this component's own async setup — the route-transition gap where a departed Today page's promise
 // settles while this page is still awaiting its plant/care reads — and every later record, draining them
 // oldest-first through this ONE function. The renderer no longer states a baseline, a catch-up or a watcher.
-async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvaluationResult>) {
+async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvaluationResult, RepotEvaluationSubmit>) {
   const isOwnPlant = completion.plantId === id;
   if (isOwnPlant) {
     evaluationOpen.value = false;
     verdict.value = completion.result;
+    verdictAnswer.value = completion.body.answer;
     verdictOpen.value = true;
     await Promise.all([refresh(), refreshHistory()]);
   }
@@ -1296,7 +1303,7 @@ async function confirmRevive() {
       @start-over="onEvaluationStartOver"
       @reload-signs="onEvaluate()"
     />
-    <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
+    <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" :answer="verdictAnswer" />
     <UiRepotDoneForm
       v-model:open="doneFormOpen"
       :current-pot-size-cm="doneFormProfile.potSizeCm"

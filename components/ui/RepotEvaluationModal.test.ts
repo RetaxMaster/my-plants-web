@@ -8,7 +8,7 @@
 // component inside its own body, above the backdrop. This test proves the alert actually RENDERS in the
 // DOM when `error` is set (not just that the prop is accepted), using the real Alert.vue (only its AppIcon
 // dependency is stubbed) so the assertion covers Alert's own `role="alert"` markup too.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref, computed, watch, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import RepotEvaluationModal from './RepotEvaluationModal.vue';
@@ -41,10 +41,16 @@ const stubs = {
   AppIcon: true, // Alert.vue's own icon dependency; irrelevant to this assertion.
 };
 
-function mountModal(props: Record<string, unknown> = {}) {
+function mountModal(props: Record<string, unknown> = {}, opts: { attach?: boolean } = {}) {
   return mount(RepotEvaluationModal, {
     props: { open: true, signs: [], ...props },
     global: { mocks: { $t: (k: string) => k }, stubs },
+    // `attach: true` mounts into the real document instead of Vue Test Utils' default DETACHED element.
+    // Only the D1 suite needs it, and it needs it absolutely: a DOM implementation runs an input's
+    // activation behavior (checkedness, the native `change`) only for a CONNECTED element, so a
+    // `.click()` on a detached radio silently does nothing at all — measured, not assumed. A suite whose
+    // whole point is that the native activation path behaves correctly cannot run off the document.
+    ...(opts.attach ? { attachTo: document.body } : {}),
   });
 }
 
@@ -212,40 +218,140 @@ describe('RepotEvaluationModal — reload-signs on a locale switch (QA defect B)
 });
 
 // FIX E — "No signs yet" / "I couldn't check it" used to stick once clicked: every sign checkbox stayed
-// disabled and the only escape was closing the whole modal (costly on mobile). The fix binds `:checked` +
-// `@click.prevent` instead of `v-model` (see `toggleExclusive`'s own comment in the component for the exact
-// browser-event-order reason `v-model` alone cannot be made deselectable), so clicking an ALREADY-selected
-// answer clears it back to 'none'.
-describe('RepotEvaluationModal — FIX E: the exclusive answers are deselectable', () => {
+// disabled and the only escape was closing the whole modal (costly on mobile). Clicking an ALREADY-selected
+// answer now clears it back to 'none'.
+//
+// ⚠️ EVERY CLICK IN THIS SUITE GOES THROUGH THE ELEMENT'S OWN `.click()`, NEVER `trigger('click')`, AND
+// THAT IS THE POINT OF THE SUITE — see `clickRadio` below. This is the QA-round-3 D1 regression: the
+// original FIX E bound `:checked` + `@click.prevent`, which in a REAL browser leaves the radio rendering
+// UNSELECTED (the browser's legacy-canceled-activation behavior restores checkedness AFTER the listeners,
+// overwriting Vue's own `el.checked = true`), and this very suite asserted `.checked === true` and passed
+// anyway — because `trigger('click')` dispatches a SYNTHETIC event that runs none of those activation
+// steps, so `preventDefault()` was inert and Vue's write was never contradicted. A synthetic click cannot
+// falsify a defect that only the native activation steps produce.
+describe('RepotEvaluationModal — FIX E + QA D1: the exclusive answers RENDER as selected, and are ' +
+  'deselectable', () => {
   const signs = [
     { id: 's1', label: 'Roots circling the drainage holes' },
   ];
 
-  it('clicking a SELECTED exclusive answer again clears it and re-enables the sign checkboxes', async () => {
-    const w = mountModal({ signs, frozen: false });
+  /**
+   * A REAL user click: `HTMLElement.click()` runs the full activation path (legacy-pre-activation ->
+   * dispatch -> activation-or-canceled behavior, plus the native `change` a radio fires when its
+   * checkedness actually changes). `trigger('click')` implements NONE of it — it dispatches a synthetic
+   * event, so `preventDefault()` is inert and the radio's checkedness is never touched by the DOM at all.
+   *
+   * Returns the element's checkedness read SYNCHRONOUSLY, before any await — i.e. the DOM's OWN answer to
+   * the click, with Vue's (async, microtask-flushed) re-render deliberately not yet applied. That read is
+   * what makes this defect falsifiable HERE, and it is worth stating why the obvious assertion is not
+   * enough:
+   *
+   *   In a real browser the two halves interleave — the microtask checkpoint that flushes Vue's render
+   *   runs BETWEEN the click listener returning and the rest of the dispatch algorithm, so Vue writes
+   *   `el.checked = true` and the canceled-activation behavior then overwrites it back to false. Measured
+   *   in Chromium against the shipped build: `.checked === false`, `hasAttribute('checked') === true`.
+   *   happy-dom cannot reproduce that interleaving, because it invokes listeners from inside its own JS
+   *   call stack — the stack never empties mid-dispatch, so no microtask checkpoint occurs and Vue's write
+   *   lands AFTER the restore, where it survives. Asserting `.checked` only after `await nextTick()` is
+   *   therefore GREEN under both the broken and the fixed binding here: verified by running exactly that
+   *   mutation, which is why this helper exists in this shape.
+   *
+   *   The synchronous read has no such blind spot: it asks the DOM whether the activation was CANCELLED,
+   *   which is the actual root cause and is implemented faithfully. Cancelled -> false; not cancelled ->
+   *   true. Assert BOTH — the synchronous value (the click was not cancelled) and the post-render value
+   *   (Vue agrees with the DOM) — because either alone can be satisfied by a shape that is wrong in the
+   *   other half.
+   */
+  async function clickRadio(el: HTMLInputElement): Promise<boolean> {
+    el.click();
+    const survivedActivation = el.checked;
+    await nextTick();
+    return survivedActivation;
+  }
 
-    const noSigns = w.find('input[type="radio"][value="no-signs"]');
-    await noSigns.trigger('click');
-    expect((noSigns.element as HTMLInputElement).checked).toBe(true);
+  // Every mount in this suite is ATTACHED (see `mountModal`'s own note) and therefore has to be torn down:
+  // an orphaned mount leaves its radios in the document under the SAME `name`, and a radio group is scoped
+  // to the document, so a later test's clicks would resolve against a group still holding this test's
+  // inputs.
+  const mounted: { unmount: () => void }[] = [];
+  afterEach(() => {
+    while (mounted.length) mounted.pop()!.unmount();
+  });
+  function mountAttached(props: Record<string, unknown>) {
+    const w = mountModal(props, { attach: true });
+    mounted.push(w);
+    return w;
+  }
+
+  const radio = (w: ReturnType<typeof mountModal>, value: string) =>
+    w.find(`input[type="radio"][value="${value}"]`).element as HTMLInputElement;
+
+  it('a clicked exclusive answer RENDERS as selected — the DOM `checked` PROPERTY, which is what drives ' +
+    'both the visual state and what a screen reader announces (QA D1)', async () => {
+    const w = mountAttached({ signs, frozen: false });
+    const noSigns = radio(w, 'no-signs');
+
+    const survivedActivation = await clickRadio(noSigns);
+
+    // THE assertion the defect failed: the click's activation must NOT be cancelled, because a cancelled
+    // one restores checkedness to its pre-click value and no amount of Vue re-rendering wins that race in
+    // a real browser. See `clickRadio` for why this is read synchronously.
+    expect(survivedActivation).toBe(true);
+    // ...and Vue's own render agrees with the DOM — the PROPERTY, never the attribute, since only the
+    // property drives the visual state and what a screen reader announces.
+    expect(noSigns.checked).toBe(true);
+    // And the answer really was recorded — proving the two halves agree, so a future fix cannot satisfy
+    // one of them alone.
+    expect((w.find('input[type="checkbox"][value="s1"]').element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('exposes the two answers as a NAMED radio group, so assistive tech announces what they are ' +
+    'alternatives to', () => {
+    const w = mountAttached({ signs, frozen: false });
+    const group = w.find('[role="radiogroup"]');
+    expect(group.exists()).toBe(true);
+    expect(group.attributes('aria-label')).toBe('repotEval.exclusiveGroupLabel');
+    expect(group.findAll('input[type="radio"]').length).toBe(2);
+  });
+
+  it('clicking a SELECTED exclusive answer again clears it and re-enables the sign checkboxes', async () => {
+    const w = mountAttached({ signs, frozen: false });
+    const noSigns = radio(w, 'no-signs');
+
+    expect(await clickRadio(noSigns)).toBe(true);
+    expect(noSigns.checked).toBe(true);
     // Selecting an exclusive answer disables every sign checkbox (existing, unchanged behavior).
     expect((w.find('input[type="checkbox"][value="s1"]').element as HTMLInputElement).disabled).toBe(true);
 
     // Clicking the SAME radio again must clear it, not leave it stuck selected.
-    await noSigns.trigger('click');
-    expect((noSigns.element as HTMLInputElement).checked).toBe(false);
+    await clickRadio(noSigns);
+    expect(noSigns.checked).toBe(false);
     expect((w.find('input[type="checkbox"][value="s1"]').element as HTMLInputElement).disabled).toBe(false);
   });
 
   it('clicking a DIFFERENT exclusive answer switches to it, never toggling the first one back on', async () => {
-    const w = mountModal({ signs, frozen: false });
+    const w = mountAttached({ signs, frozen: false });
+    const noSigns = radio(w, 'no-signs');
+    const couldNotCheck = radio(w, 'could-not-check');
 
-    const noSigns = w.find('input[type="radio"][value="no-signs"]');
-    const couldNotCheck = w.find('input[type="radio"][value="could-not-check"]');
-    await noSigns.trigger('click');
-    expect((noSigns.element as HTMLInputElement).checked).toBe(true);
+    expect(await clickRadio(noSigns)).toBe(true);
+    expect(noSigns.checked).toBe(true);
 
-    await couldNotCheck.trigger('click');
-    expect((noSigns.element as HTMLInputElement).checked).toBe(false);
-    expect((couldNotCheck.element as HTMLInputElement).checked).toBe(true);
+    expect(await clickRadio(couldNotCheck)).toBe(true);
+    expect(noSigns.checked).toBe(false);
+    expect(couldNotCheck.checked).toBe(true);
+  });
+
+  it('a cleared answer is genuinely cleared on the WIRE too, not merely visually — the submit button ' +
+    'goes back to disabled', async () => {
+    const w = mountAttached({ signs, frozen: false });
+    const noSigns = radio(w, 'no-signs');
+    const submit = () => w.findAll('button').find((b) => b.text().includes('repotEval.submit'))!;
+
+    expect(submit().attributes('disabled')).toBeDefined();
+    await clickRadio(noSigns);
+    expect(submit().attributes('disabled')).toBeUndefined();
+    await clickRadio(noSigns);
+    expect(submit().attributes('disabled')).toBeDefined();
   });
 });

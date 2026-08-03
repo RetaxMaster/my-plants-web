@@ -336,7 +336,9 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   //      not two implementations that can disagree; they are one function called twice.
   //
   // `{ immediate: true }` is not needed and not used: the explicit `drain()` below IS the immediate pass,
-  // and expressing it explicitly keeps the ordering visible (drain, then subscribe, with no await between).
+  // and expressing it explicitly keeps the ordering visible — SUBSCRIBE, then drain, with no await between
+  // (R14-3: this said "drain, then subscribe" after R13-1 reversed the two, which is the stale-comment class
+  // this review keeps finding; the order is load-bearing and the reasoning is at the `watch` call itself).
   // Handlers may be async; their promise is deliberately not awaited here — a consumer's refresh must never
   // be able to delay another consumer's, and Nuxt's `refresh()` cannot reject (it catches into `error` and
   // resolves), so there is nothing to swallow.
@@ -345,6 +347,15 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     onGap?: () => void,
   ): void {
     let handledSeq = cursorAtSetup;
+    // R14-1 — REFUSED, proven against the real code rather than assumed. A reviewer raised that during SSR
+    // Vue returns a no-op handle for a non-immediate watcher, so a record appended by a handler DURING the
+    // initial drain could not be picked up by a later pass. True in isolation, and unreachable here: reaching
+    // that state needs a completion to already exist during SSR, and nothing writes this log on the server —
+    // all four `resolveSuccess` call sites across both renderers sit inside `onEvaluationSubmit` /
+    // `onRepotDoneConfirm`, which are client event handlers (see the SSR SAFETY note at the top of this
+    // file). On the server the log is empty, so the initial drain delivers nothing, no handler runs, and
+    // there is no re-entrant append to lose.
+    //
     // R12-2 / R13-1 — WHY THE WATCHER IS REGISTERED FIRST, AND WHY EACH PASS READS A FIXED SNAPSHOT. Two
     // defects shaped this, in order, and the current form is what closes both without a guard:
     //
@@ -358,10 +369,18 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     // and wrong in an instructive way: monotonicity buys PROGRESS, not a finite number of iterations.
     //
     // Registering `watch` BEFORE the first drain makes the loop unnecessary. Each drain is then ONE bounded
-    // pass over a snapshot taken at its start, so it always returns; and anything a handler appends during
-    // that pass mutates the ref while a watcher is already listening, so it arrives on the next flush instead
-    // of being chased synchronously. Vue watchers are asynchronous (`pre` flush), so the initial drain below
-    // completes before any watcher callback and the two cannot interleave.
+    // pass over a snapshot taken at its start; anything a handler appends during that pass mutates the ref
+    // while a watcher is already listening, so it arrives on a LATER pass instead of being chased
+    // synchronously. Vue watchers are asynchronous (`pre` flush), so the initial drain below completes before
+    // any watcher callback and the two cannot interleave.
+    //
+    // R14-2 — WHAT THIS DOES AND DOES NOT GUARANTEE, because the previous wording ("always returns", "the
+    // next flush") claimed more than the code can: ASSUMING EACH HANDLER INVOCATION RETURNS, one drain
+    // invokes the handler at most once per entry in its fixed snapshot and then returns — the snapshot bounds
+    // the pass, it cannot bound an arbitrary handler. And a `pre` watcher that mutates its own source is
+    // eligible for RECURSIVE scheduling: a handler that appends on every invocation will keep requeueing the
+    // job and eventually trip Vue's own recursive-update guard. That is a loud, bounded failure rather than
+    // the silent infinite loop R13-1 found, which is the improvement being claimed here — not immunity.
     const drain = () => {
       // R12-1: records this reader needed but that were trimmed away before it looked. There is nothing left
       // to deliver, so the only honest thing is to say so — never to skip past it silently.

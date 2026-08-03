@@ -230,10 +230,13 @@ describe('useRepotAttempt — X1/R11-1: completions are an ordered LOG drained t
   });
 
   // R13-1 — a defect the R12-2 fix itself introduced: re-draining until the cursor reached the head chased a
-  // MOVING head, so a handler appending on every invocation looped forever. Each drain now reads ONE snapshot,
-  // so a pass is always finite and the handler's own append arrives on the NEXT watcher-scheduled pass.
-  it('a handler that appends on EVERY invocation cannot hang the drain — each pass is bounded by the ' +
-    'snapshot it started from', async () => {
+  // MOVING head, so a handler appending on every invocation looped forever. Each drain now reads ONE snapshot.
+  // R14-4: what is asserted here is the REPRESENTABLE property — a BOUNDED re-entrant burst does not extend
+  // the pass that triggered it. A genuinely unbounded producer is deliberately NOT the fixture: against the
+  // old implementation it hangs the suite, and against the new one it recurses until Vue's own guard fires,
+  // so neither outcome is a clean assertion. The snapshot boundary is the mechanism, and this pins it.
+  it('a re-entrant burst does not extend the pass that triggered it — one drain delivers exactly its own ' +
+    'snapshot and returns, and the appended records arrive on later passes', async () => {
     const handle = useRepotAttempt<{ v: number }, string>('done');
     const first = handle.begin('plant-0', { v: 0 });
     handle.resolveSuccess(first, 'r0');

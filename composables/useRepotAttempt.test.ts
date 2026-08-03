@@ -206,6 +206,51 @@ describe('useRepotAttempt — X1/R11-1: completions are an ordered LOG drained t
     expect(seen.map((c) => c.plantId)).toEqual(['plant-A', 'plant-B']); // A exactly once, not twice
   });
 
+  // R12-2 — a defect wave 11's own structural fix introduced, and the reason `drain` is a LOOP. The first
+  // version drained once and THEN registered the watcher, so a record appended by a handler during that drain
+  // landed while no watcher existed and was then taken as the new watcher's starting value — never delivered.
+  it('a completion appended BY A HANDLER during the drain is still delivered — the drain re-checks instead of ' +
+    'handing an un-watched append to a watcher that will treat it as its starting value', async () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+    const first = handle.begin('plant-A', { v: 1 });
+    handle.resolveSuccess(first, 'A'); // published BEFORE subscribing -> arrives via the catch-up drain
+
+    const seen: string[] = [];
+    handle.subscribeCompletions((c) => {
+      seen.push(c.plantId);
+      if (c.plantId === 'plant-A') {
+        // The handler itself completes a second attempt, synchronously, mid-drain.
+        const second = handle.begin('plant-B', { v: 2 });
+        handle.resolveSuccess(second, 'B');
+      }
+    });
+    await nextTick();
+
+    expect(seen).toEqual(['plant-A', 'plant-B']);
+  });
+
+  // R12-1 — the log is bounded, so a reader blocked in its own async setup while more than the cap lands has
+  // provably missed records that no longer exist to be replayed. It must be TOLD, never silently skipped:
+  // a silently dropped record is the exact class this whole design was built to delete.
+  it('a subscriber whose cursor predates the oldest retained record gets an explicit GAP signal, not a ' +
+    'silent skip', () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done'); // cursor captured here, at 0
+
+    // More completions than the log retains, all while this reader has not yet subscribed.
+    for (let i = 0; i < 55; i += 1) {
+      const attempt = handle.begin(`plant-${i}`, { v: i });
+      handle.resolveSuccess(attempt, `r${i}`);
+    }
+
+    const seen: string[] = [];
+    let gaps = 0;
+    handle.subscribeCompletions((c) => { seen.push(c.plantId); }, () => { gaps += 1; });
+
+    expect(gaps).toBe(1);                    // told exactly once
+    expect(seen).toHaveLength(50);           // and still handed everything the log DOES retain
+    expect(seen[0]).toBe('plant-5');
+  });
+
   it('a completion for a plant that is NOT live (already superseded by "start over") is never published — ' +
     'a stale success must not be mistaken for a completion by any consumer', () => {
     const handle = useRepotAttempt<{ v: number }, string>('done');

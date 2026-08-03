@@ -85,13 +85,18 @@ export interface RepotCompletion<TResult = void> {
   result: TResult;
 }
 
-// R11-1. How many completions each flow's log retains. A completion record is three small fields and this is
-// per browser session, so the cap exists only to bound an unbounded-growth footgun, never as a tuning knob:
-// reaching it needs 50 SUCCESSFUL repot mutations in one uninterrupted page session, on a surface where each
-// one is a deliberate owner action on a distinct plant. If it were ever reached, the entries dropped are the
-// OLDEST — each of which already triggered its own reconcile at the time — and a reader whose cursor predates
-// the retained head simply receives everything still retained. Trimming can therefore only ever drop a record
-// a reader already handled; it can never cause the same record to be delivered twice.
+// R11-1. How many completions each flow's log retains. A record is three small fields and the log is per
+// browser session, so the cap exists to bound unbounded growth, not as a tuning knob: reaching it needs 50
+// SUCCESSFUL repot mutations in one uninterrupted page session, each a deliberate owner action.
+//
+// R12-1 — WHAT TRIMMING CAN AND CANNOT DO, stated precisely because the earlier version of this comment
+// claimed more than the code enforced. Trimming drops the OLDEST records. In the overwhelmingly common case
+// every reader has already handled those, so nothing is lost. But a reader BLOCKED IN ITS OWN ASYNC SETUP
+// while more than 50 completions land has NOT handled them, and those records are then gone — the log cannot
+// deliver what it no longer holds. That case is NOT waved away as unrealistic: a silently dropped record is
+// exactly the class this whole design exists to delete, and "it will not fire" is a reason it will not fire,
+// never a reason it may fail quietly. So the drop is RECORDED (`completionDropped`) and such a reader is
+// handed an explicit GAP signal instead of a silent skip — see `subscribeCompletions`.
 const COMPLETION_LOG_LIMIT = 50;
 
 // W1. `useRepotAttempt(flowKey)` used to create a brand-new Map every time it was CALLED, so
@@ -129,6 +134,10 @@ const flowStores: Partial<Record<FlowKey, ShallowRef<ReadonlyMap<string, AnyAtte
 // append-only within the retention window, and reassigned (never mutated in place) on every append so a
 // `watch` sees it.
 const completionLogs: Partial<Record<FlowKey, ShallowRef<readonly AnyCompletion[]>>> = {};
+// R12-1: the newest `seq` this flow has ever DROPPED off the front of its log, or 0 if it never has. A
+// subscriber whose cursor is older than this has provably missed records that no longer exist to be
+// delivered — the one case the log alone cannot recover — so it is told, rather than silently skipped.
+const completionDropped: Partial<Record<FlowKey, number>> = {};
 // Monotonic across BOTH flows: a cursor is only ever compared against seq values drawn from its own flow's
 // log, so sharing the counter costs nothing and makes every record in the session globally orderable. It is
 // deliberately NOT reset by the test helper below — monotonicity is the property that makes a cursor
@@ -169,6 +178,9 @@ export function __resetRepotAttemptStoresForTests(): void {
   for (const key of Object.keys(completionLogs) as FlowKey[]) {
     completionLogs[key] = shallowRef([]);
   }
+  for (const key of Object.keys(completionDropped) as FlowKey[]) {
+    completionDropped[key] = 0;
+  }
   // `completionSeq` is deliberately NOT reset — see its declaration.
 }
 
@@ -176,18 +188,26 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   const attempts = storeFor(flowKey) as unknown as ShallowRef<ReadonlyMap<string, RepotAttempt<TBody>>>;
   const completionLog = completionLogFor(flowKey) as unknown as ShallowRef<readonly RepotCompletion<TResult>[]>;
 
-  // R11-1. THE CURSOR, captured HERE and not by the caller — and that placement is the point, not an
-  // implementation detail. A renderer must know which completions predate it, so that it reconciles the ones
-  // published during its own async setup and ignores the ones that were already history before it mounted.
-  // Getting that right requires reading the log's head STRICTLY BEFORE the component's first top-level
-  // `await` — and for three waves that requirement lived in each renderer as a hand-written line plus a
-  // comment telling the next author not to move it. Four copies (two renderers x two flows), any of which a
-  // refactor could silently reorder past an await, with nothing failing.
+  // R11-1. THE CURSOR, captured HERE and not by the caller. A renderer must know which completions predate
+  // it, so that it reconciles the ones published during its own async setup and ignores the ones that were
+  // already history before it mounted. Getting that right requires reading the log's head BEFORE the
+  // component's first top-level `await` — and for three waves that requirement lived in each renderer as a
+  // hand-written line plus a comment telling the next author not to move it: four copies (two renderers x two
+  // flows), any of which a refactor could reorder past an await with nothing failing. Round 10 found two of
+  // those copies had already diverged.
   //
-  // `useRepotAttempt()` must already be called synchronously at the top of setup — it is where the flow's
-  // handles come from, so nothing can run before it — which makes it the one place where "before the first
-  // await" is true BY CONSTRUCTION rather than by remembering. So the cursor is captured on this line, and a
-  // renderer can no longer get it wrong because a renderer no longer states it.
+  // R12-3 — WHAT THIS PLACEMENT DOES AND DOES NOT GUARANTEE, corrected: an earlier version of this comment
+  // said the ordering was true "BY CONSTRUCTION" and that a renderer "can no longer get it wrong". That was
+  // FALSE and it is worth saying so plainly. Nothing in this API forces `useRepotAttempt()` to be called
+  // before the caller's first `await`, and nothing forces a caller holding a handle to subscribe at all.
+  // **It is true BY CONVENTION**, and the convention is load-bearing: both renderers call this at the top of
+  // `<script setup>` because that is where a flow's handles come from. WHAT WOULD BREAK IT: moving a
+  // `useRepotAttempt(...)` call below a top-level `await`, or introducing a renderer that awaits before
+  // asking for its handles — either would capture a cursor that has already advanced past completions it
+  // still needed to reconcile, and no test would fail.
+  //
+  // What this placement DOES earn, and all it needs to earn: there is exactly ONE place the cursor is read
+  // instead of four, so the convention has one site to check rather than four to keep in step.
   const cursorAtSetup = headSeq(completionLog as unknown as ShallowRef<readonly AnyCompletion[]>);
 
   // Starts (or resumes) an attempt for `plantId`. Reuses the CURRENT key AND the CURRENT stored `body` when
@@ -238,7 +258,14 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     // requests settling from one network tick) are now two records, so a reader that looks once afterwards
     // still sees BOTH. Reassigned to a new array, never pushed in place, so `watch` observes the change.
     const nextLog = [...completionLog.value, { plantId: candidate.plantId, seq: completionSeq, result: result as TResult }];
-    completionLog.value = nextLog.length > COMPLETION_LOG_LIMIT ? nextLog.slice(-COMPLETION_LOG_LIMIT) : nextLog;
+    if (nextLog.length > COMPLETION_LOG_LIMIT) {
+      // R12-1: remember the newest seq being discarded, so a reader that never saw it can be TOLD.
+      const discarded = nextLog.slice(0, nextLog.length - COMPLETION_LOG_LIMIT);
+      completionDropped[flowKey] = discarded[discarded.length - 1]!.seq;
+      completionLog.value = nextLog.slice(-COMPLETION_LOG_LIMIT);
+    } else {
+      completionLog.value = nextLog;
+    }
   }
 
   // Called on FAILURE: marks not-submitting AND errored, but KEEPS the key AND the stored body, IFF
@@ -297,8 +324,12 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   //   1. DRAIN — hand `handler` every record newer than this consumer's cursor, OLDEST FIRST. On a first
   //      call that is the async-setup gap's backlog; on a `watch` firing it is whatever was just appended,
   //      which is more than one record whenever two completions coalesced into a single flush.
-  //   2. ADVANCE THE CURSOR FIRST, before invoking any handler, so a handler that itself causes an append
-  //      (or a re-entrant flush) can never be re-delivered a record it is already processing.
+  //   2. ADVANCE THE CURSOR FIRST, before invoking any handler, so a handler that itself causes an append is
+  //      never re-delivered a record it is already processing — and then LOOP (R12-2), so the record that
+  //      handler appended is not missed either.
+  //   2b. REPORT A GAP (R12-1) when this reader's cursor predates the oldest record the log still holds:
+  //      `onGap` fires once, and the caller's correct response is to reconcile its data unconditionally,
+  //      because it cannot know which plants it missed.
   //   3. WATCH for later appends, with the SAME drain function — so the catch-up path and the live path are
   //      not two implementations that can disagree; they are one function called twice.
   //
@@ -307,13 +338,33 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   // Handlers may be async; their promise is deliberately not awaited here — a consumer's refresh must never
   // be able to delay another consumer's, and Nuxt's `refresh()` cannot reject (it catches into `error` and
   // resolves), so there is nothing to swallow.
-  function subscribeCompletions(handler: (completion: RepotCompletion<TResult>) => void): void {
+  function subscribeCompletions(
+    handler: (completion: RepotCompletion<TResult>) => void,
+    onGap?: () => void,
+  ): void {
     let handledSeq = cursorAtSetup;
+    // R12-2 — THE LOOP, and why it is a loop and not a single pass. The first version drained once and then
+    // registered the watcher. A handler that itself caused a NEW completion appended it while no watcher yet
+    // existed, and the watcher — registered immediately after, deliberately not `immediate` — then took that
+    // record as its starting value and never fired for it. Measured: `PROBE delivered: ["A"]`, with B lost.
+    // Re-draining until the cursor reaches the head closes re-entrancy in BOTH directions at once (nothing
+    // re-delivered, nothing missed) instead of guarding one of them. It TERMINATES because `seq` is strictly
+    // monotonic and every iteration either advances `handledSeq` or returns.
     const drain = () => {
-      const pending = completionLog.value.filter((entry) => entry.seq > handledSeq);
-      if (!pending.length) return;
-      handledSeq = pending[pending.length - 1]!.seq;
-      for (const entry of pending) handler(entry);
+      for (;;) {
+        // R12-1: records this reader needed but that were trimmed away before it looked. There is nothing
+        // left to deliver, so the only honest thing is to say so — never to skip past it silently.
+        const droppedThrough = completionDropped[flowKey] ?? 0;
+        if (handledSeq < droppedThrough) {
+          handledSeq = droppedThrough;
+          onGap?.();
+          continue;
+        }
+        const pending = completionLog.value.filter((entry) => entry.seq > handledSeq);
+        if (!pending.length) return;
+        handledSeq = pending[pending.length - 1]!.seq;
+        for (const entry of pending) handler(entry);
+      }
     };
     drain();
     watch(completionLog, drain);

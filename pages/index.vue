@@ -315,7 +315,13 @@ async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvalu
   await refresh();
 }
 
-subscribeEvaluationCompletions((completion) => { void handleEvaluationCompletion(completion); });
+subscribeEvaluationCompletions(
+  (completion) => { void handleEvaluationCompletion(completion); },
+  // R12-1: a GAP — more completions landed than the shared log retains while this renderer was blocked in
+  // its own setup, so records it needed no longer exist to be replayed. It cannot know WHICH plants it
+  // missed, so the only safe response is to reconcile everything it renders, unconditionally.
+  () => { void refresh(); },
+);
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
 // 'REPOT' verdict is pending — see TaskRow's showEvaluate).
@@ -425,7 +431,13 @@ async function handleDoneCompletion(completion: RepotCompletion<void>) {
   await refresh();
 }
 
-subscribeDoneCompletions((completion) => { void handleDoneCompletion(completion); });
+subscribeDoneCompletions(
+  (completion) => { void handleDoneCompletion(completion); },
+  // R12-1: a GAP — more completions landed than the shared log retains while this renderer was blocked in
+  // its own setup, so records it needed no longer exist to be replayed. It cannot know WHICH plants it
+  // missed, so the only safe response is to reconcile everything it renders, unconditionally.
+  () => { void refresh(); },
+);
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
 // known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the

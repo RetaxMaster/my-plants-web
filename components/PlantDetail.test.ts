@@ -439,3 +439,176 @@ describe('PlantDetail — the cover photo opens in the shared lightbox', () => {
     expect(lightbox).toBeTruthy();
   });
 });
+
+// Round-5 finding V1: PlantDetail.vue is the SECOND renderer of the REPOT evaluation/Done flows
+// (pages/index.vue is the first) — round-4's V1 fixed the "submitting gets stuck" race there via a single
+// attempt object (`useRepotAttempt.ts`, now shared by both files), but PlantDetail.vue kept SEPARATE
+// `evaluationSubmitting`/`evaluationKey` and `doneFormSubmitting`/`doneKey` refs with an unconditional
+// `finally`, reopening the identical race here. These tests are shown FAILING against the pre-fix code
+// (each pins the exact sequence the finding describes: a successful confirm/submit clears its OWN attempt
+// and closes its OWN modal BEFORE awaiting `refresh()`; while that await is still pending, the owner
+// reopens and resubmits; the FIRST attempt's late `refresh()` must never clobber the SECOND, still-live
+// attempt's `submitting` flag) and PASS once `useRepotAttempt.ts`'s single-object-with-identity-check
+// pattern is applied here too.
+describe('PlantDetail — round-5 finding V1: the submitting flag must never get stuck across two attempts for the SAME plant', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((res) => { resolve = res; });
+    return { promise, resolve };
+  }
+
+  const repotPlant = () => ({
+    ...basePlant(),
+    profile: { potSizeCm: 20, soilMix: 'potting-mix' },
+  });
+
+  const repotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  };
+
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      props: ['task'],
+      emits: ['evaluate', 'done'],
+      template:
+        '<div>' +
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+        '</div>',
+    },
+    UiRepotEvaluationModal: {
+      props: ['open', 'signs', 'submitting', 'error', 'frozen'],
+      emits: ['submit', 'start-over'],
+      template:
+        '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+        '<button class="submit-btn" @click="$emit(\'submit\', { answer: \'no-signs\' })">submit</button>' +
+        '</div>',
+    },
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over'],
+      template:
+        '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '</div>',
+    },
+  };
+
+  // A controllable `care-${id}` `refresh()` — the `await Promise.all([refresh(), refreshHistory()])` /
+  // `await Promise.all([refresh(), refreshHistory(), refreshPlant()])` calls both onEvaluationSubmit and
+  // onRepotDoneConfirm make on success — lets the test hold the FIRST attempt's success mid-flight (past
+  // the point where it already cleared its own attempt and closed its own modal) so a SECOND attempt can
+  // start DURING that window, exactly the gap round-4's V1 (and now round-5's V1) closes.
+  let careRefreshDeferred: ReturnType<typeof deferred<void>>;
+
+  beforeEach(() => {
+    careRefreshDeferred = deferred<void>();
+    vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: key.startsWith('care-') ? vi.fn(() => careRefreshDeferred.promise) : vi.fn(async () => {}),
+    }));
+  });
+
+  afterEach(() => {
+    // Restore the module's default (non-deferred) stub for every other describe block in this file.
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(async () => {}),
+    }));
+  });
+
+  async function mountRepot() {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => repotCare,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  let submitDeferreds: ReturnType<typeof deferred<{ evaluationId: string; verdict: string }>>[];
+  let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
+  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    submitDeferreds = [deferred(), deferred()];
+    let submitCall = 0;
+    submitRepotEvaluationMock = vi.fn(async () => submitDeferreds[submitCall++]!.promise);
+    completeRepotDeferreds = [deferred(), deferred()];
+    let completeCall = 0;
+    completeRepotMock = vi.fn(async () => completeRepotDeferreds[completeCall++]!.promise);
+  });
+
+  it('onEvaluationSubmit: a stale success must not clear a NEWER attempt\'s submitting flag when its own ' +
+    'refresh() resolves late', async () => {
+    const w = await mountRepot();
+
+    // First attempt: open + submit, succeeds, but the care refresh() is held open.
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    submitDeferreds[0]!.resolve({ evaluationId: 'ev-1', verdict: 'REPOT' });
+    await flushPromises();
+    // The first attempt's own modal already closed and its own attempt was already cleared — its
+    // refresh() is what's still pending.
+    expect(w.find('.eval-modal').attributes('data-open')).toBe('false');
+
+    // While the first attempt's refresh() is still pending, the owner reopens and submits AGAIN.
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+
+    // The FIRST attempt's refresh() now finally resolves — its own bookkeeping must NOT touch the SECOND,
+    // still-live attempt's submitting flag.
+    careRefreshDeferred.resolve();
+    await flushPromises();
+
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+  });
+
+  it('onRepotDoneConfirm: a stale success must not clear a NEWER attempt\'s submitting flag when its own ' +
+    'refresh() resolves late', async () => {
+    const w = await mountRepot();
+
+    // First attempt: open + confirm, succeeds, but the care refresh() is held open.
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds[0]!.resolve({ ok: true });
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+
+    // While the first attempt's refresh() is still pending, the owner reopens and confirms AGAIN.
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+
+    // The FIRST attempt's refresh() now finally resolves — its own bookkeeping must NOT touch the SECOND,
+    // still-live attempt's submitting flag.
+    careRefreshDeferred.resolve();
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+  });
+});

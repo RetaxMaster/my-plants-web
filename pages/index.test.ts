@@ -146,7 +146,10 @@ const stubs = {
     props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
     emits: ['confirm', 'start-over', 'update:open'],
     template:
-      '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+      // `data-error` (U3): exposes the form's OWN `error` prop — the ONE surface that would show a
+      // cross-plant error leak, since the page-level banner is hidden entirely while this form is open
+      // (`v-if="repotError && !evaluationOpen && !doneFormOpen"`) and so cannot catch that leak on its own.
+      '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting" :data-error="error">' +
       '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
       // B1: a close button that drives the REAL v-model:open contract (X/Escape/backdrop in the real
       // component), never an internal function — this is how the resume tests below simulate the owner
@@ -483,31 +486,95 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
     expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
   });
 
-  it('a different plant still mints a fresh key and re-prefills — the resume guard is per-plant, not global', async () => {
+  // U1 REPLACES a test that used to live here and BLESSED the single-slot defect: it opened plant A, failed
+  // it (freezing it with an outstanding key), then opened plant B and asserted B was unfrozen with a
+  // DIFFERENT key — true, but incomplete, because the single slot meant opening B SILENTLY DISCARDED A's
+  // only replay key, with the owner never having chosen "start over". The reachable consequence: A's Done
+  // completion may have already committed on the server before its response was lost; discarding its key
+  // let a later retry on A mint a FRESH key, and the server would record a SECOND, non-deduplicated repot
+  // completion. A test asserting a defect is worse than no test — this one proves the opposite property
+  // instead: A's key survives the detour through B, and the retry replays the exact byte-for-byte original
+  // request.
+  it("plant A's outstanding key survives opening plant B's form and returning to A; the retry resends A's " +
+    'ORIGINAL key and body (U1 — the per-plant attempt map)', async () => {
     const w = await mountPage();
     const doneButtons = w.findAll('.done-btn');
 
-    // A fails and freezes with an outstanding key.
+    // A confirms. Its response is LOST — indistinguishable, client-side, from any other rejection, from a
+    // case where the server-side commit actually SUCCEEDED and only the reply never arrived — so the key
+    // is kept and the form freezes.
     await doneButtons[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
     completeRepotDeferreds.A!.reject(new Error('lost response'));
     await flushPromises();
-    const keyA = completeRepotMock.mock.calls[0]![3];
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const firstCall = completeRepotMock.mock.calls[0]!;
+    const [keyAPlantId, keyAOccurredOn, keyAPayload, keyA] = firstCall;
+    expect(keyA).toBeTruthy();
     expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
 
-    // Opening B's Done form is a DIFFERENT plant: a fresh attempt, not a resume — re-fetches B's profile
-    // and is not frozen.
+    // The owner does NOT choose "start over" — they simply open plant B's Done form instead. Before U1,
+    // this UNCONDITIONALLY discarded A's only replay key via the single shared slot.
     await doneButtons[1]!.trigger('click');
     await flushPromises();
     expect(getPlantMock).toHaveBeenCalledWith('B');
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false'); // B is a genuinely fresh attempt
 
+    // Returning to A's card must RESUME — no re-fetch of A's profile, still frozen, same key — never a
+    // fresh attempt that would mint a NEW key and let the server record a second completion.
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(getPlantMock).toHaveBeenCalledTimes(2); // the original A open + the one B open — NOT a third for A
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+
+    // The retry sends the byte-for-byte ORIGINAL request: same plantId, same occurredOn, same payload, same
+    // key — asserted on the ACTUAL mock arguments, never on an internal ref.
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
-    const keyB = completeRepotMock.mock.calls[1]![3];
-    expect(keyB).not.toBe(keyA);
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    const secondCall = completeRepotMock.mock.calls[1]!;
+    expect(secondCall[0]).toBe(keyAPlantId);
+    expect(secondCall[1]).toBe(keyAOccurredOn);
+    expect(secondCall[2]).toEqual(keyAPayload);
+    expect(secondCall[3]).toBe(keyA);
+  });
+
+  // The same shape exists on the evaluation flow (its own useRepotAttempt instance, same per-plant map).
+  it("plant A's outstanding evaluation key survives opening plant B's evaluation modal and returning to A; " +
+    "the retry resends A's ORIGINAL key and body (U1)", async () => {
+    const w = await mountPage();
+    const evaluateButtons = w.findAll('.evaluate-btn');
+
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    submitDeferreds.A!.reject(new Error('lost response'));
+    await flushPromises();
+    expect(submitRepotEvaluationMock).toHaveBeenCalledTimes(1);
+    const [keyAPlantId, keyABody, keyA] = submitRepotEvaluationMock.mock.calls[0]!;
+    expect(keyA).toBeTruthy();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
+
+    // Open B's evaluation instead of retrying A — no "start over" was chosen.
+    await evaluateButtons[1]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('false');
+
+    // Returning to A must resume: still frozen, same key.
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
+
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(submitRepotEvaluationMock).toHaveBeenCalledTimes(2);
+    const secondCall = submitRepotEvaluationMock.mock.calls[1]!;
+    expect(secondCall[0]).toBe(keyAPlantId);
+    expect(secondCall[1]).toEqual(keyABody);
+    expect(secondCall[2]).toBe(keyA);
   });
 
   it('a successful confirm leaves no outstanding key — reopening the SAME plant afterwards is a fresh ' +
@@ -567,17 +634,91 @@ describe('pages/index.vue — B3: a failed getPlant fetch must not leave the Don
     expect(w.find('.retry-btn').exists()).toBe(false); // banner cleared once the retry succeeds
   });
 
+  // U3: this test used to drive A's getPlant() with `mockRejectedValueOnce`, an ALREADY-rejected promise,
+  // then await sequentially — so by the time B's click even fired, A's rejection had already been handled
+  // (or not) with no way for the test to observe which. The assertion ("B's form is open") was true whether
+  // or not the F4 race guard existed at all, since a same-tick microtask ordering settles A before B's own
+  // open ever runs its check. A DEFERRED promise instead holds A's fetch open on purpose, so B's card can be
+  // clicked while A is GENUINELY still in flight, and A is rejected deterministically only afterwards — the
+  // guard is what stops that now-provably-late rejection from touching B's already-open form.
   it('a stale-target click during the failed fetch is not surfaced against the wrong plant (race guard F4)', async () => {
-    getPlantMock.mockRejectedValueOnce(new Error('network error'));
+    const deferredA = deferred<{ profile: { potSizeCm: number; soilMix: string } }>();
+    getPlantMock.mockImplementationOnce(() => deferredA.promise);
     const w = await mountPage();
     const doneButtons = w.findAll('.done-btn');
 
-    await doneButtons[0]!.trigger('click'); // A's getPlant is now in flight (rejects on the next microtask)
-    // Before it settles, the owner opens B's Done form instead — a genuinely fresh, successful fetch.
+    await doneButtons[0]!.trigger('click'); // A's getPlant is now GENUINELY in flight — held open, not settled.
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('false'); // still loading, not open yet
+
+    // Before A's fetch settles, the owner opens B's Done form instead — a genuinely fresh, successful fetch.
     await doneButtons[1]!.trigger('click');
     await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('true'); // B's own open succeeded
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
 
-    // B's own open must not be clobbered by A's now-stale rejection.
+    // A's held fetch NOW rejects, deterministically, well after B has already taken over the shared target.
+    deferredA.reject(new Error('network error'));
+    await flushPromises();
+
+    // The stale rejection must never touch B's already-open form: still open, no retry affordance, and —
+    // the one surface the page-level banner's `!doneFormOpen` gate can't cover, since B's form IS open — no
+    // error surfaced INSIDE B's own form either. Without the guard, A's rejection sets the shared `repotError`
+    // flag unconditionally, which B's still-open form would render as its OWN error, even though B never failed.
     expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.repot-error-banner').exists()).toBe(false);
+    expect(w.find('.retry-btn').exists()).toBe(false);
+    expect(w.find('.done-form').attributes('data-error')).toBeFalsy();
+  });
+});
+
+// U2: freezing the VISIBLE form fields is not enough — `evaluationId` is read fresh off the live Today
+// task list at confirm time (`pendingEvaluationFor`), so if that list changes between the failed confirm
+// and the retry (a `refresh()` fired by ANY other flow — a postpone on a different plant, a poll, anything
+// that re-reads 'today'), the retry would recompute a DIFFERENT evaluationId for the SAME idempotency key.
+// The server's idempotency interceptor compares the WHOLE body, so a same-key/different-body retry is
+// answered 422 FOREVER. The fix (`beginDoneAttempt` freezing the whole envelope on the attempt, U2) must
+// make the retry resend the ORIGINAL evaluationId regardless of what the list looks like by then.
+describe("pages/index.vue — U2: a retry resends the ORIGINAL evaluationId even after an intervening refresh()", () => {
+  it("changes the pending evaluation between the failed confirm and the retry, and the retry still sends " +
+    "the FIRST evaluationId", async () => {
+    const tasksRef = ref([
+      { plantId: 'A', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: { id: 'ev-1', verdict: 'REPOT' as const } },
+    ]);
+    const refreshTasks = vi.fn(async () => {
+      // Simulates an INTERVENING refresh() — from any other flow — that resolves a DIFFERENT pending
+      // evaluation for the same plant by the time of the retry.
+      tasksRef.value = [
+        { plantId: 'A', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: { id: 'ev-2', verdict: 'REPOT' as const } },
+      ];
+    });
+    vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => {
+      if (key === 'today') return { data: tasksRef, refresh: refreshTasks };
+      return { data: ref(await fn()), refresh: vi.fn(async () => {}) };
+    });
+
+    const w = await mountPage();
+
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds.A!.reject(new Error('lost response'));
+    await flushPromises();
+
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const firstPayload = completeRepotMock.mock.calls[0]![2] as { evaluationId?: string };
+    expect(firstPayload.evaluationId).toBe('ev-1');
+
+    // Some OTHER flow refreshes the Today list before the retry — the pending evaluation now reads 'ev-2'.
+    await refreshTasks();
+    await flushPromises();
+
+    // The retry must still send the ORIGINAL evaluationId, never the one the intervening refresh() surfaced.
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    const secondPayload = completeRepotMock.mock.calls[1]![2] as { evaluationId?: string };
+    expect(secondPayload.evaluationId).toBe('ev-1');
   });
 });

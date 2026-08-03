@@ -31,19 +31,22 @@ const postponePickerOpen = ref(false);
 const evaluationOpen = ref(false);
 const evaluationSigns = ref<RepotSign[]>([]);
 const evaluationPlantId = ref<string | null>(null);
-// The active REPOT-evaluation submit attempt, or null when none is outstanding — `useRepotAttempt.ts`
-// (round-5 finding V1: extracted so PlantDetail.vue, the SECOND renderer of this same flow, can share the
-// identical discipline instead of re-deriving it — see that composable's own doc comment for the full
-// race this fixes and why `shallowRef`, not `ref`, is load-bearing here).
+// The active REPOT-evaluation submit attempts — ONE per plant (U1) — `useRepotAttempt.ts` (round-5 finding
+// V1: extracted so PlantDetail.vue, the SECOND renderer of this same flow, can share the identical
+// discipline instead of re-deriving it — see that composable's own doc comment for the full race this
+// fixes, the per-plant map, and why `shallowRef`, not `ref`, is load-bearing here). `evaluationAttempt` is a
+// computed reading the entry for whichever plant the shared evaluation modal is CURRENTLY showing
+// (`evaluationPlantId`), so switching to a different plant's card never discards another plant's entry.
 const {
-  attempt: evaluationAttempt,
+  attemptFor: evaluationAttemptFor,
   begin: beginEvaluationAttempt,
   isLive: isLiveEvaluationAttempt,
   resolveSuccess: resolveEvaluationSuccess,
   resolveFailure: resolveEvaluationFailure,
   invalidate: invalidateEvaluationAttempt,
   hasKeyFor: hasEvaluationKeyFor,
-} = useRepotAttempt();
+} = useRepotAttempt<RepotEvaluationSubmit>();
+const evaluationAttempt = computed(() => evaluationAttemptFor(evaluationPlantId.value));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
 const verdictOpen = ref(false);
@@ -64,18 +67,22 @@ const repotRetry = ref<(() => void) | null>(null);
 const doneFormOpen = ref(false);
 const doneFormPlantId = ref<string | null>(null);
 const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }>({ potSizeCm: null, soilMix: null });
-// Same single-object attempt discipline as evaluationAttempt above — its OWN `useRepotAttempt()` instance
-// (never shared with the evaluation flow's, so a Done confirm and an evaluation submit for the same plant
-// never contend for the same attempt object).
+// Same per-plant-map discipline as evaluationAttempt above — its OWN `useRepotAttempt()` instance (never
+// shared with the evaluation flow's, so a Done confirm and an evaluation submit for the same plant never
+// contend for the same attempt object). `TBody` bundles `completeRepot`'s two non-plantId, non-key
+// arguments together (U2): `occurredOn` and `evaluationId` are each read fresh at confirm time, but once a
+// key is minted for a plant, `beginDoneAttempt` freezes that WHOLE envelope on the attempt and every retry
+// resends it verbatim, regardless of what a fresh read would produce.
 const {
-  attempt: doneAttempt,
+  attemptFor: doneAttemptFor,
   begin: beginDoneAttempt,
   isLive: isLiveDoneAttempt,
   resolveSuccess: resolveDoneSuccess,
   resolveFailure: resolveDoneFailure,
   invalidate: invalidateDoneAttempt,
   hasKeyFor: hasDoneKeyFor,
-} = useRepotAttempt();
+} = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>();
+const doneAttempt = computed(() => doneAttemptFor(doneFormPlantId.value));
 const repotPostponeSubmitting = ref(false);
 
 // Every REPOT mutating flow can genuinely fail — the state a card was built from can go stale between
@@ -161,20 +168,21 @@ async function onEvaluate(plantId: string) {
   // Resume, don't reset (code review finding V12): closing the modal via X/Escape/backdrop routes back
   // here on re-open — the card still shows "evaluate" because no verdict resolved it — and treating that
   // like a fresh attempt threw away the only key able to replay an evaluation the server may already have
-  // stored, leaving the owner stuck on the next submit's 422. So a key outstanding for THIS SAME plant is
-  // a resume: keep the key AND the prior error untouched (RepotEvaluationModal.vue then keeps its answers
-  // frozen across the reopen, and `frozen && error` still surfaces the "start over" escape hatch). A key
-  // belongs to one plant's exact submitted body, so switching to a DIFFERENT plant intentionally abandons
-  // the previous plant's outstanding attempt rather than carrying a stale key into a new plant's body,
-  // which the server would then 422 forever — a worse bug than the one this fixes.
-  const resuming = evaluationPlantId.value === plantId && hasEvaluationKeyFor(plantId);
+  // stored, leaving the owner stuck on the next submit's 422. So a key outstanding for THIS plant is a
+  // resume: keep the key AND the prior error untouched (RepotEvaluationModal.vue then keeps its answers
+  // frozen across the reopen, and `frozen && error` still surfaces the "start over" escape hatch).
+  //
+  // U1: `useRepotAttempt` now keys attempts by plantId, so opening a DIFFERENT plant's card here can never
+  // touch that other plant's outstanding entry — there is nothing to invalidate when moving on. The old
+  // comment here ("switching to a different plant intentionally abandons the previous plant's outstanding
+  // attempt … a worse bug than the one this fixes") described the single-slot design this replaces: that
+  // trade only existed because there was ONE slot to contend for. It is no longer true, and abandoning
+  // another plant's key silently — without the owner ever choosing "start over" — was itself the reachable
+  // defect U1 closes (a lost Done-completion response on plant A, discarded the moment plant B's card
+  // opened, let a later retry on A mint a fresh key and record a second, non-deduplicated repot).
+  const resuming = hasEvaluationKeyFor(plantId);
   evaluationPlantId.value = plantId;
   if (!resuming) {
-    // Invalidate whatever attempt was previously active — a different plant, or this same plant with no
-    // outstanding key — THE MOMENT we move on, rather than hoping its own in-flight request notices it went
-    // stale and clears up after itself (round-4 finding V1). Nulling the whole object in one write clears
-    // `submitting` too, so a still-true flag from an abandoned attempt can never leak into this fresh one.
-    invalidateEvaluationAttempt();
     repotError.value = false;
   }
   evaluationLoadFailed.value = false;
@@ -204,45 +212,67 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   if (!plantId) return;
   // Capture the exact attempt this request belongs to (round-3/adversarial finding Y1): this ONE modal
   // instance serves EVERY plant card on the page, so switching cards while a submit is in flight abandons
-  // the request without cancelling it. Its response still arrives later, and `isLiveEvaluationAttempt` (a
-  // reference-identity check inside `useRepotAttempt.ts`) is the token that answers "is this still the
-  // live attempt?" — a stale attempt's own object was already replaced (by the invalidation in
-  // `onEvaluate`, by "start over", or by a newer submit), so it catches that unconditionally, whether the
-  // replacement happened before this request even settled or only during its own awaited `refresh()` below
-  // (round-4 finding V1).
-  const attempt = beginEvaluationAttempt(plantId);
+  // the request without cancelling it. Its response still arrives later.
+  //
+  // Two SEPARATE staleness questions apply here, not one (U1 split what the single slot used to answer with
+  // a single check):
+  //   1. `isLiveEvaluationAttempt` — is this still the live attempt for ITS OWN plant (never superseded by
+  //      "start over" or a newer submit for that SAME plant)? This governs the attempt's own bookkeeping
+  //      (key/body/submitting) and must always run, regardless of which plant the shared modal is showing —
+  //      a plant the owner has since navigated away from still needs its OWN key/retry state kept correct.
+  //   2. `evaluationPlantId.value === plantId`, checked separately below — is this plant STILL the one the
+  //      ONE shared modal is CURRENTLY displaying? A late response for a plant the owner has moved on from
+  //      must never touch the modal, the verdict, or the page-level error banner — only the CURRENT
+  //      target's own response may drive that shared UI. `refresh()` is the one exception: it re-reads the
+  //      whole Today list, which benefits every card, so it always runs regardless of the current target.
+  //
+  // U2: `beginEvaluationAttempt` freezes the WHOLE submitted body on the attempt the moment the key is
+  // minted, and returns that STORED body (never this freshly-passed one) on a retry — so `attempt.body`,
+  // never the `body` parameter, is what actually gets sent below.
+  const attempt = beginEvaluationAttempt(plantId, body);
   repotError.value = false;
   try {
-    const result = await api.submitRepotEvaluation(plantId, body, attempt.key);
-    // Stale-attempt guard (same class as the signs-fetch race, F4, above): if the owner moved on — a
-    // different plant's evaluate was clicked, or this plant's key was superseded by "start over" — while
-    // this request was in flight, its response belongs to an ABANDONED attempt and must be ignored
-    // entirely, never touching the now-active attempt's state.
+    const result = await api.submitRepotEvaluation(plantId, attempt.body, attempt.key);
+    // Stale-attempt guard (same class as the signs-fetch race, F4, above): if this plant's OWN key was
+    // superseded by "start over" or a newer submit for the SAME plant while this request was in flight, its
+    // response belongs to an ABANDONED attempt and must be ignored entirely, never touching this plant's
+    // now-active attempt state.
     if (!isLiveEvaluationAttempt(attempt)) return;
-    // Clear the WHOLE attempt (key + submitting together) here, before `await refresh()` below — never in a
-    // deferred `finally` — so a newer attempt started during that refresh can never be clobbered by this
-    // one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure mode).
+    // Clear the WHOLE attempt (key + body + submitting together) here, before `await refresh()` below —
+    // never in a deferred `finally` — so a newer attempt started during that refresh can never be clobbered
+    // by this one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure
+    // mode). This always runs for THIS plant, independent of the shared-modal target check below.
     resolveEvaluationSuccess(attempt); // discarded on success; never reused again
-    evaluationOpen.value = false;
-    verdict.value = result;
-    verdictOpen.value = true;
+    // Shared-UI guard: only touch the ONE shared modal/verdict if it is STILL showing this plant — the owner
+    // may have already opened a DIFFERENT plant's card while this request was in flight (U1: that no longer
+    // discards this plant's attempt, but it also must not let this late response hijack whatever the modal
+    // is showing now).
+    if (evaluationPlantId.value === plantId) {
+      evaluationOpen.value = false;
+      verdict.value = result;
+      verdictOpen.value = true;
+    }
     await refresh();
   } catch {
     if (!isLiveEvaluationAttempt(attempt)) return;
-    // Key deliberately kept (not cleared) on failure: a lost-response retry must reuse the same key, per
-    // the stable-idempotency-key rule. The modal stays open so the owner can see the error and retry the
-    // SAME submission rather than silently losing it. The modal freezes its inputs for exactly as long as
-    // this key is outstanding (`:frozen="!!evaluationAttempt?.key"`), so the retry recomputes the SAME body
-    // — never a same-key/different-body retry, which the server's idempotency interceptor answers 422 forever.
+    // Key AND stored body deliberately kept (not cleared) on failure: a lost-response retry must reuse
+    // both, per the stable-idempotency-key rule and U2's whole-envelope freeze. The modal stays open so the
+    // owner can see the error and retry the SAME submission rather than silently losing it. The modal also
+    // freezes its inputs for as long as this key is outstanding (`:frozen="!!evaluationAttempt?.key"`), but
+    // the byte-identical retry no longer depends on that alone — `beginEvaluationAttempt` above resends the
+    // attempt's STORED body regardless of what the (frozen) form would recompute.
     resolveEvaluationFailure(attempt);
-    repotError.value = true;
+    // Shared-UI guard, same reasoning as the success branch above.
+    if (evaluationPlantId.value === plantId) {
+      repotError.value = true;
+    }
   }
 }
 
 // Explicit escape hatch (code review finding W17): abandons the outstanding key so the form unfreezes and
 // a later submit mints a fresh one, instead of forcing a page reload to get out of a stuck retry.
 function onEvaluationStartOver() {
-  invalidateEvaluationAttempt();
+  if (evaluationPlantId.value) invalidateEvaluationAttempt(evaluationPlantId.value);
   repotError.value = false;
 }
 
@@ -259,22 +289,20 @@ async function onRepotDone(plantId: string) {
   // next confirm then minted a FRESH idempotency key, so the server recorded a SECOND, non-deduplicated
   // completion of a repot it had already recorded.
   //
-  // This check runs BEFORE the fallible `api.getPlant` call below (B3, and load-bearing for the ordering):
-  // a resume must never depend on a network fetch, and must never invalidate an outstanding attempt ahead
-  // of a call that can fail.
-  const resuming = doneFormPlantId.value === plantId && hasDoneKeyFor(plantId);
+  // U1: `useRepotAttempt` now keys attempts by plantId, so this check no longer needs to ALSO confirm we're
+  // still on the same plant we were last time (`doneFormPlantId.value === plantId`) — a key outstanding for
+  // `plantId` is a resume regardless of what the shared form was last showing, because opening a DIFFERENT
+  // plant's card never touches this plant's entry in the first place. This runs BEFORE the fallible
+  // `api.getPlant` call below (B3, and load-bearing for the ordering): a resume must never depend on a
+  // network fetch.
+  const resuming = hasDoneKeyFor(plantId);
   doneFormPlantId.value = plantId;
   if (resuming) {
-    // The frozen body must stay byte-identical to the one the outstanding key was minted for: no
-    // invalidate, no error clear, and no re-read of the profile prefill — just reopen the form.
+    // The frozen body must stay byte-identical to the one the outstanding key was minted for: no error
+    // clear, and no re-read of the profile prefill — just reopen the form.
     doneFormOpen.value = true;
     return;
   }
-  // Fresh attempt: invalidate whatever attempt was previously active — a different plant, or this same
-  // plant with no outstanding key — THE MOMENT we move on, rather than hoping its own in-flight request
-  // notices it went stale (round-4 finding V1). Nulling the whole object in one write clears `submitting`
-  // too, so a still-true flag from an abandoned attempt can never leak into this fresh one.
-  invalidateDoneAttempt();
   repotError.value = false;
   evaluationLoadFailed.value = false;
   repotRetry.value = () => onRepotDone(plantId);
@@ -306,39 +334,55 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   // still arrives later, and `isLiveDoneAttempt` (a reference-identity check inside `useRepotAttempt.ts`)
   // answers "is this still the live attempt?" unconditionally — whether that got superseded before this
   // request even settled or only during its own awaited `refresh()` below (round-4 finding V1).
-  const attempt = beginDoneAttempt(plantId);
+  //
+  // U2: `occurredOn` and `evaluationId` are each read fresh, right here, on EVERY confirm click — including
+  // a retry. That is deliberate: `beginDoneAttempt` freezes the WHOLE envelope on the attempt the moment the
+  // key is minted and returns the STORED envelope (never this freshly-built one) on a retry, so recomputing
+  // here costs nothing and a retry still resends the byte-identical body the key was minted for — never a
+  // NEW `occurredOn` (a midnight rollover between confirms) or a NEW `evaluationId` (an intervening
+  // `refresh()` that resolved a different pending evaluation), either of which would 422 forever against the
+  // server's idempotency interceptor.
+  const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
+  const attempt = beginDoneAttempt(plantId, {
+    occurredOn: today,
+    payload: { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
+  });
   repotError.value = false;
   try {
-    const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
-    await api.completeRepot(
-      plantId,
-      today,
-      { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
-      attempt.key,
-    );
-    // Stale-attempt guard (same class as onEvaluationSubmit's, F4/Y1): if the owner moved on — a different
-    // plant's Done form was opened, or this plant's key was superseded by "start over" — while this
-    // request was in flight, its response belongs to an ABANDONED attempt and must be ignored entirely,
-    // never touching the now-active attempt's state.
+    await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
+    // Stale-attempt guard (same class as onEvaluationSubmit's, F4/Y1): if this plant's OWN key was
+    // superseded by "start over" or a newer confirm for the SAME plant while this request was in flight, its
+    // response belongs to an ABANDONED attempt and must be ignored entirely, never touching this plant's
+    // now-active attempt state.
     if (!isLiveDoneAttempt(attempt)) return;
-    // Clear the WHOLE attempt (key + submitting together) here, before `await refresh()` below — never in a
-    // deferred `finally` — so a newer attempt started during that refresh can never be clobbered by this
-    // one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure mode).
+    // Clear the WHOLE attempt (key + body + submitting together) here, before `await refresh()` below —
+    // never in a deferred `finally` — so a newer attempt started during that refresh can never be clobbered
+    // by this one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure
+    // mode). This always runs for THIS plant, independent of the shared-form target check below.
     resolveDoneSuccess(attempt); // discarded on success; never reused again
-    doneFormOpen.value = false;
+    // Shared-UI guard (same reasoning as onEvaluationSubmit's): only close the ONE shared Done form if it is
+    // STILL showing this plant — the owner may have already opened a DIFFERENT plant's Done form while this
+    // request was in flight (U1: that no longer discards this plant's attempt, but it also must not let this
+    // late response hijack whatever the form is showing now).
+    if (doneFormPlantId.value === plantId) {
+      doneFormOpen.value = false;
+    }
     await refresh();
   } catch {
     if (!isLiveDoneAttempt(attempt)) return;
-    // Key deliberately kept on failure, same reasoning as onEvaluationSubmit.
+    // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit.
     resolveDoneFailure(attempt);
-    repotError.value = true;
+    // Shared-UI guard, same reasoning as the success branch above.
+    if (doneFormPlantId.value === plantId) {
+      repotError.value = true;
+    }
   }
 }
 
 // Explicit escape hatch for the Done form (code review finding Y2, mirrors onEvaluationStartOver above):
 // abandons the outstanding attempt so the form unfreezes and a later confirm mints a fresh one.
 function onRepotDoneStartOver() {
-  invalidateDoneAttempt();
+  if (doneFormPlantId.value) invalidateDoneAttempt(doneFormPlantId.value);
   repotError.value = false;
 }
 

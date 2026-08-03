@@ -754,3 +754,240 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
     expect(keySecond).not.toBe(keyFirst); // two genuinely separate confirmations must never share a key
   });
 });
+
+// U2: PlantDetail.vue recomputes `occurredOn` via `today()` on EVERY confirm click — including a retry —
+// unlike pages/index.vue's module-level constant (that asymmetry is exactly what U2's ruling names). The
+// recompute is safe ONLY because `beginDoneAttempt` freezes the WHOLE envelope on the attempt the moment
+// the key is minted and resends the STORED envelope (never a freshly recomputed one) on every retry. This
+// test proves that by moving the SYSTEM CLOCK itself across a simulated midnight rollover between the
+// failed confirm and the retry — i.e. by controlling what `todayYmd()` (which `today()` calls) actually
+// reads, never by editing the handler.
+describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a simulated midnight rollover', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  const repotPlant = () => ({
+    ...basePlant(),
+    profile: { potSizeCm: 20, soilMix: 'potting-mix' },
+  });
+
+  const repotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  };
+
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      props: ['task'],
+      emits: ['evaluate', 'done'],
+      template:
+        '<div>' +
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+        '</div>',
+    },
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over', 'update:open'],
+      template:
+        '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '</div>',
+    },
+  };
+
+  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    completeRepotDeferreds = [deferred(), deferred()];
+    let completeCall = 0;
+    completeRepotMock = vi.fn(async () => completeRepotDeferreds[completeCall++]!.promise);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function mountRepot() {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => repotCare,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  it('holds the ORIGINAL occurredOn on a retry sent after the clock rolled over to the next calendar day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 0)); // Jan 1, 23:59 local
+
+    const w = await mountRepot();
+
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds[0]!.reject(new Error('lost response'));
+    await flushPromises();
+
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const firstOccurredOn = completeRepotMock.mock.calls[0]![1];
+    expect(firstOccurredOn).toBe('2026-01-01');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+
+    // The clock rolls over past midnight before the owner retries.
+    vi.setSystemTime(new Date(2026, 0, 2, 0, 5, 0)); // Jan 2, 00:05 local
+
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    const secondOccurredOn = completeRepotMock.mock.calls[1]![1];
+    // The retry must still carry the ORIGINAL day — never the new one the clock now reads.
+    expect(secondOccurredOn).toBe(firstOccurredOn);
+    expect(secondOccurredOn).toBe('2026-01-01');
+  });
+});
+
+// U2's sibling case: `evaluationId` is read fresh off `pendingRepotEvaluation` (sourced from the `care-${id}`
+// read) at EVERY confirm click too. An intervening `refresh()` — from any other flow that re-reads this
+// plant's care — must not let a retry carry a DIFFERENT evaluationId than the one its key was minted for.
+describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even after an intervening care refresh()', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  const repotPlant = () => ({
+    ...basePlant(),
+    profile: { potSizeCm: 20, soilMix: 'potting-mix' },
+  });
+
+  type RepotCare = {
+    plantId: string;
+    tasks: Array<{
+      task: string; status: string; daysUntilDue: number;
+      pendingEvaluation: { id: string; verdict: string } | null;
+    }>;
+  };
+  const careV1: RepotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: { id: 'ev-1', verdict: 'REPOT' } }],
+  };
+  const careV2: RepotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: { id: 'ev-2', verdict: 'REPOT' } }],
+  };
+
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      props: ['task'],
+      emits: ['evaluate', 'done'],
+      template:
+        '<div>' +
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+        '</div>',
+    },
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over', 'update:open'],
+      template:
+        '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '</div>',
+    },
+  };
+
+  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+  let careRef: ReturnType<typeof ref<RepotCare>>;
+  let refreshCare: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    completeRepotDeferreds = [deferred(), deferred()];
+    let completeCall = 0;
+    completeRepotMock = vi.fn(async () => completeRepotDeferreds[completeCall++]!.promise);
+    careRef = ref(careV1);
+    refreshCare = vi.fn(async () => { careRef.value = careV2; });
+    vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => {
+      if (key.startsWith('care-')) return { data: careRef, refresh: refreshCare };
+      return { data: ref(await fn()), refresh: vi.fn(async () => {}) };
+    });
+  });
+
+  afterEach(() => {
+    // Restore the module's default (non-deferred) stub for every other describe block in this file.
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(async () => {}),
+    }));
+  });
+
+  async function mountRepot() {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => careV1,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  it('changes the pending evaluation between the failed confirm and the retry, and the retry still sends ' +
+    'the FIRST evaluationId', async () => {
+    const w = await mountRepot();
+
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds[0]!.reject(new Error('lost response'));
+    await flushPromises();
+
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const firstPayload = completeRepotMock.mock.calls[0]![2] as { evaluationId?: string };
+    expect(firstPayload.evaluationId).toBe('ev-1');
+
+    // Some OTHER flow refreshes this plant's care read before the retry — the pending evaluation now reads
+    // 'ev-2'.
+    await refreshCare();
+    await flushPromises();
+
+    // The retry must still send the ORIGINAL evaluationId, never the one the intervening refresh() surfaced.
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    const secondPayload = completeRepotMock.mock.calls[1]![2] as { evaluationId?: string };
+    expect(secondPayload.evaluationId).toBe('ev-1');
+  });
+});

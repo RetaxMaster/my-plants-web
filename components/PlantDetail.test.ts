@@ -85,6 +85,10 @@ function stubApi(plant: ReturnType<typeof basePlant>) {
     listPlaces: async () => [{ id: 'pl1', ownerId: 'o1', name: 'Study', indoor: true }],
     getPlantHistory: async () => [],
     getPlantPhotos: async () => [],
+    // The REPOT info modal's signs section (Task 28) is a deferred, client-only, unconditional read —
+    // fired on every mount regardless of whether this test ever opens that modal — so every useApi stub in
+    // this file needs it, even though none of these tests exercise the REPOT flow itself.
+    getRepotSigns: async () => ({ signs: [] }),
     invalidatePlant: vi.fn(),
     memorializePlant: memorializePlantMock,
     giftPlant: giftPlantMock,
@@ -339,6 +343,7 @@ describe('PlantDetail — async photo reconcile', () => {
       listPlaces: async () => [],
       getPlantHistory,
       getPlantPhotos,
+      getRepotSigns: async () => ({ signs: [] }),
       invalidatePlant,
     }));
 
@@ -379,6 +384,7 @@ describe('PlantDetail — async photo reconcile', () => {
       listPlaces: async () => [],
       getPlantHistory: async () => progressHistory(0), // all photos already READY
       getPlantPhotos,
+      getRepotSigns: async () => ({ signs: [] }),
       invalidatePlant: vi.fn(),
     }));
 

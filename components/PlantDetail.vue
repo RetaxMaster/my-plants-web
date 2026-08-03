@@ -11,6 +11,7 @@ import { onUnmounted } from 'vue';
 import { type TaskCode, type DueState } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
+import type { RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload } from '../types/api.js';
 
 const props = defineProps<{ id: string }>();
 
@@ -22,27 +23,44 @@ const { dueLabelLong, healthLabel } = useTaskMeta();
 const route = useRoute();
 const api = useApi();
 
-const { earlyWaterOptions, postponeOptions, repotPostponeOptions } = useFeedbackReasons();
+const { earlyWaterOptions, postponeOptions } = useFeedbackReasons();
 
 const pending = ref<{ task: TaskCode; type: 'DONE' | 'POSTPONED'; occurredOn?: string } | null>(null);
 const earlyPickerOpen = ref(false);
 const postponePickerOpen = ref(false);
-// REPOT is an INSPECTION (spec F.7). NOTE: a queued UX change removes Postpone from this screen; when it
-// lands, this picker moves with the button. The Today list is the canonical entry point.
-const repotPickerOpen = ref(false);
-// REPOT is also the one task whose completion physically replaces the medium (Spec 1 §6/Task 21), so its
-// Done path asks a follow-up question via the same ReasonPicker surface — no new modal component.
-const substratePickerOpen = ref(false);
-const pendingRepotDoneOn = ref<string | undefined>(undefined);
-// Three values, mapped to the tri-state the API expects. 'unknown' sends NO key at all — absent means
-// "derive from the recorded mix", which is NOT the same as false.
-const substrateOptions = computed(() => [
-  { value: 'yes', label: t('feedback.freshSubstrateYes') },
-  { value: 'no', label: t('feedback.freshSubstrateNo') },
-  { value: 'unknown', label: t('feedback.freshSubstrateUnknown') },
-]);
 const isDesktop = useIsDesktop();
 const id = props.id;
+
+// REPOT is a verdict-driven state machine (Task 27 shipped it on the Today page; migrated here Task 28):
+// the card offers "time to evaluate" until an evaluation resolves it (RepotEvaluationModal.vue), and only
+// a 'REPOT' verdict unlocks the classic Done | Postpone — see TaskRow.vue's `showEvaluate`. Same flow, same
+// components, same idempotency discipline as pages/index.vue — this is the second (and last) renderer.
+const evaluationOpen = ref(false);
+const evaluationSigns = ref<RepotSign[]>([]);
+const evaluationSubmitting = ref(false);
+// STABLE per submission: minted lazily on the first attempt, reused verbatim across retries of that same
+// submission, and discarded the moment it succeeds or the owner abandons the modal. NEVER content-derived —
+// two genuinely separate evaluations of one plant must not collapse into one.
+const evaluationKey = ref<string | null>(null);
+// The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
+const verdict = ref<RepotEvaluationResult | null>(null);
+const verdictOpen = ref(false);
+
+// REPOT is also the one task whose completion physically replaces the medium (Spec 1 §6/Task 21), so its
+// Done path opens a small pre-filled form (RepotDoneForm.vue) instead of posting directly.
+const doneFormOpen = ref(false);
+const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }>({ potSizeCm: null, soilMix: null });
+const doneFormSubmitting = ref(false);
+// Same stable-key discipline as evaluationKey.
+const doneKey = ref<string | null>(null);
+const repotPostponeSubmitting = ref(false);
+
+// Every REPOT mutating flow can genuinely fail — the state a card was built from can go stale between
+// render and click. `repotEval.errorPending` covers exactly that (409/400/422). RepotEvaluationModal.vue
+// and RepotDoneForm.vue each render this via their own opt-in `error` prop (Alert INSIDE their own
+// teleported body, above the backdrop — see pages/index.vue's identical comment for the reasoning); the
+// page-level banner below stays the only feedback surface for the postpone flow, which has no modal at all.
+const repotError = ref(false);
 
 const { data: plant, refresh: refreshPlant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
 const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPlantCare(id));
@@ -343,9 +361,15 @@ const taskInfoDryness = computed(() =>
   taskInfoTask.value === 'WATER' ? (care.value?.soilDrynessBeforeWatering ?? null) : null,
 );
 // REPOT-only: the species' repotting signs. The due date is an INSPECTION reminder, so the modal names
-// what to look for. Species catalog data — rendered verbatim (the known API-supplied English-leak class).
+// what to look for. `care.value.crowding` carries NO signs any more (Task 16 removed `repotSigns` from the
+// care payload outright) — sourced instead from `GET /plants/:id/repot-signs`, the SAME catalogue endpoint
+// `onEvaluate` below reads for the questionnaire (one resolver, two renderers — never a second copy of the
+// list). Secondary read, deferred to client like `places`/`history`/`photos` above. Already localized
+// server-side — rendered verbatim (the known API-supplied English-leak class).
+const { data: repotSignsCatalogue } =
+  useLazyAsyncData(`repot-signs-${id}`, () => api.getRepotSigns(id).then((r) => r.signs), { server: false });
 const taskInfoRepotSigns = computed(() =>
-  taskInfoTask.value === 'REPOT' ? (care.value?.crowding?.repotSigns ?? null) : null,
+  taskInfoTask.value === 'REPOT' ? (repotSignsCatalogue.value ?? []).map((s) => s.label) : null,
 );
 // Juvenile state (Spec 2 §7.3): FERTILIZE-only dose warning, plus surfaced as its own care-basis chip so
 // the state isn't modal-only. `care.value?.juvenile` is optional (older API during a rolling deploy), so
@@ -462,6 +486,12 @@ function careDueState(row: { daysUntilDue: number; status: string }): DueState {
   return { kind: 'inDays', days: row.daysUntilDue };
 }
 
+// The pending REPOT evaluation for this plant, read off the already-loaded care payload — never a fresh
+// fetch. Used BOTH to render the card's :pending-verdict (before any click) and to attach the
+// evaluationId to a REPOT Done/Postpone that follows a resolved verdict. Mirrors pages/index.vue's
+// `pendingEvaluationFor`, scoped to this plant's single care read instead of the whole Today list.
+const pendingRepotEvaluation = computed(() => care.value?.tasks.find((t) => t.task === 'REPOT')?.pendingEvaluation ?? null);
+
 async function sendDone(task: TaskCode, occurredOn?: string, reason?: string) {
   await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
   // A completed action becomes a history item (kind:'action', e.g. "Watered today"), so refresh the
@@ -474,29 +504,112 @@ async function sendPostpone(task: TaskCode, reason?: string) {
   await refresh();
 }
 
-// A REPOT postpone sends NO client date: the API derives a FLOOR from the reason, and a floor can never pin.
-async function sendRepotPostpone(reason: string) {
-  await api.sendFeedback(id, { task: 'REPOT', type: 'POSTPONED', occurredOn: today(), reason });
-  await refresh();
+// Evaluate: opens the signs checklist. Fetches the species' repotting signs fresh every time the modal
+// opens (mirrors pages/index.vue's onEvaluate); an empty list simply renders no signs rather than blocking
+// the picker.
+async function onEvaluate() {
+  evaluationKey.value = null;
+  repotError.value = false;
+  evaluationSigns.value = await api.getRepotSigns(id).then((r) => r.signs).catch(() => []);
+  evaluationOpen.value = true;
 }
 
-// A WATER done on a not-yet-due task (status 'upcoming') is an early watering → ask why; otherwise send.
+async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
+  if (!evaluationKey.value) evaluationKey.value = crypto.randomUUID();
+  evaluationSubmitting.value = true;
+  repotError.value = false;
+  try {
+    const result = await api.submitRepotEvaluation(id, body, evaluationKey.value);
+    evaluationKey.value = null; // discarded on success; never reused again
+    evaluationOpen.value = false;
+    verdict.value = result;
+    verdictOpen.value = true;
+    await Promise.all([refresh(), refreshHistory()]);
+  } catch {
+    // Key deliberately kept (not cleared) on failure: a lost-response retry must reuse the same key, per
+    // the stable-idempotency-key rule. The modal stays open so the owner can see the error and retry the
+    // SAME submission rather than silently losing it.
+    repotError.value = true;
+  } finally {
+    evaluationSubmitting.value = false;
+  }
+}
+
+// Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
+// 'REPOT' verdict is pending — see TaskRow's showEvaluate).
+function onRepotDone() {
+  doneKey.value = null;
+  repotError.value = false;
+  doneFormProfile.value = { potSizeCm: plant.value?.profile.potSizeCm ?? null, soilMix: plant.value?.profile.soilMix ?? null };
+  doneFormOpen.value = true;
+}
+
+async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'>) {
+  if (!doneKey.value) doneKey.value = crypto.randomUUID();
+  doneFormSubmitting.value = true;
+  repotError.value = false;
+  try {
+    const pendingEval = pendingRepotEvaluation.value;
+    await api.completeRepot(
+      id,
+      today(),
+      { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
+      doneKey.value,
+    );
+    doneKey.value = null; // discarded on success; never reused again
+    doneFormOpen.value = false;
+    await Promise.all([refresh(), refreshHistory()]);
+  } catch {
+    // Key deliberately kept on failure, same reasoning as onEvaluationSubmit.
+    repotError.value = true;
+  } finally {
+    doneFormSubmitting.value = false;
+  }
+}
+
+// A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
+// known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the
+// same verdict row instead of leaving it open.
+async function onRepotPostpone() {
+  if (repotPostponeSubmitting.value) return; // in-flight guard: no key/modal to gate this action the way
+  // the two flows above are gated, so a double-click without this would fire two POSTs carrying the SAME
+  // evaluationId — the second 400s ("already-resolved") with no visible feedback.
+  repotPostponeSubmitting.value = true;
+  repotError.value = false;
+  try {
+    const pendingEval = pendingRepotEvaluation.value;
+    await api.sendFeedback(id, {
+      task: 'REPOT',
+      type: 'POSTPONED',
+      occurredOn: today(),
+      reason: 'needed-cannot-now',
+      ...(pendingEval ? { payload: { evaluationId: pendingEval.id } } : {}),
+    });
+    await refresh();
+  } catch {
+    repotError.value = true;
+  } finally {
+    repotPostponeSubmitting.value = false;
+  }
+}
+
+// A WATER done on a not-yet-due task (status 'upcoming') is an early watering → ask why. A REPOT done
+// (only reachable once a 'REPOT' verdict is pending) opens the completion form. Any other done sends
+// immediately.
 function onDone(task: TaskCode, status: 'overdue' | 'today' | 'upcoming', occurredOn?: string) {
   if (task === 'WATER' && status === 'upcoming') {
     pending.value = { task, type: 'DONE', occurredOn };
     earlyPickerOpen.value = true;
     return;
   }
-  // REPOT is the one task whose completion physically replaces the medium, so it is the one task whose
-  // Done needs a follow-up question. Every other task's Done path is untouched.
   if (task === 'REPOT') {
-    pendingRepotDoneOn.value = occurredOn;
-    substratePickerOpen.value = true;
-    return;
+    return onRepotDone();
   }
   return sendDone(task, occurredOn);
 }
 
+// Postpone: WATER asks why; a REPOT postpone (only reachable once a verdict is pending) sends immediately
+// with the fixed "needed, can't right now" reason; every other task sends immediately (unchanged).
 function onPostpone(task: TaskCode) {
   if (task === 'WATER') {
     pending.value = { task, type: 'POSTPONED' };
@@ -504,8 +617,7 @@ function onPostpone(task: TaskCode) {
     return;
   }
   if (task === 'REPOT') {
-    repotPickerOpen.value = true;
-    return;
+    return onRepotPostpone();
   }
   return sendPostpone(task);
 }
@@ -520,21 +632,6 @@ function confirmPostpone(reason: string) {
   const p = pending.value;
   pending.value = null;
   if (p) void sendPostpone(p.task, reason);
-}
-
-function confirmRepotPostpone(reason: string) {
-  void sendRepotPostpone(reason);
-}
-
-async function confirmRepotDone(answer: string) {
-  await api.sendFeedback(id, {
-    task: 'REPOT',
-    type: 'DONE',
-    occurredOn: pendingRepotDoneOn.value ?? today(),
-    // 'unknown' deliberately sends no payload at all.
-    ...(answer === 'unknown' ? {} : { payload: { substrateCharged: answer === 'yes' } }),
-  });
-  await Promise.all([refresh(), refreshHistory()]);
 }
 
 // --- Lifecycle transitions (Plant Lifecycle feature, Task 30): memorialize/gift on an ACTIVE plant,
@@ -833,6 +930,17 @@ async function confirmRevive() {
             :description="$t('plantDetail.poorDesc')"
           />
 
+          <!-- Only the postpone flow (no modal of its own) relies on this page-level banner; the evaluation
+               and done-form flows surface the SAME message inside their own modal body — see the repotError
+               comment above. -->
+          <UiAlert
+            v-if="repotError && !evaluationOpen && !doneFormOpen"
+            color="red"
+            :description="$t('repotEval.errorPending')"
+            announce
+            class="mp-detail__repot-error"
+          />
+
           <UiSectionTitle>{{ $t('plantDetail.care') }}</UiSectionTitle>
 
           <!-- A frozen plant's care payload always carries tasks:[] (no recompute), so this empty state is
@@ -850,12 +958,14 @@ async function confirmRevive() {
                 :status="t3.status"
                 :due-label="dueLabelLong(careDueState(t3))"
                 :explanation="taskExplanation(t3.task)"
+                :pending-verdict="t3.pendingEvaluation?.verdict ?? null"
                 with-done-date
                 show-info
                 @done="e => onDone(e.task, t3.status, e.occurredOn)"
                 @postpone="e => onPostpone(e.task)"
                 @info="openTaskInfo"
                 @log-progress="openProgress"
+                @evaluate="onEvaluate"
               />
             </div>
           </UiCard>
@@ -945,20 +1055,21 @@ async function confirmRevive() {
       :confirm-label="$t('common.postpone')"
       @confirm="confirmPostpone"
     />
-    <UiReasonPicker
-      v-model:open="repotPickerOpen"
-      :title="$t('feedback.repotInspectTitle')"
-      :options="repotPostponeOptions"
-      :signs="care?.crowding?.repotSigns ?? []"
-      :signs-heading="$t('feedback.repotSignsHeading')"
-      :confirm-label="$t('common.postpone')"
-      @confirm="confirmRepotPostpone"
+    <UiRepotEvaluationModal
+      v-model:open="evaluationOpen"
+      :signs="evaluationSigns"
+      :submitting="evaluationSubmitting"
+      :error="repotError ? $t('repotEval.errorPending') : null"
+      @submit="onEvaluationSubmit"
     />
-    <UiReasonPicker
-      v-model:open="substratePickerOpen"
-      :title="$t('feedback.freshSubstrateTitle')"
-      :options="substrateOptions"
-      @confirm="confirmRepotDone"
+    <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
+    <UiRepotDoneForm
+      v-model:open="doneFormOpen"
+      :current-pot-size-cm="doneFormProfile.potSizeCm"
+      :current-soil-mix="doneFormProfile.soilMix"
+      :submitting="doneFormSubmitting"
+      :error="repotError ? $t('repotEval.errorPending') : null"
+      @confirm="onRepotDoneConfirm"
     />
 
     <!-- Lifecycle transition modals (Plant Lifecycle feature, Task 30). -->
@@ -1180,6 +1291,10 @@ async function confirmRevive() {
 }
 
 .mp-detail__alert {
+  margin-bottom: 14px;
+}
+
+.mp-detail__repot-error {
   margin-bottom: 14px;
 }
 

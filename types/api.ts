@@ -175,6 +175,18 @@ export interface RepotSign {
   help: string | null;
 }
 
+/**
+ * `GET /plants/:id/repot-signs` response. `typicalIntervalMonths` is INFORMATIVE-ONLY context rendered next
+ * to the questionnaire — how often this species is typically repotted, sourced from the curated species
+ * record's `repotting.typicalIntervalMonths`. It feeds no engine input, changes no verdict, no submitted
+ * value, and no request body; it is `null` whenever the species is un-curated (see `docs/api/README.md`'s
+ * `GET /plants/:id/repot-signs` entry).
+ */
+export interface RepotSignsResponse {
+  signs: RepotSign[];
+  typicalIntervalMonths: number | null;
+}
+
 export type RepotVerdict = 'REPOT' | 'RE-EVALUATE';
 
 export interface PendingRepotEvaluation {

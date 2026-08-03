@@ -6,6 +6,12 @@ import Alert from './Alert.vue';
 
 const props = defineProps<{
   signs: RepotSign[];
+  /** Informative-only context: how often this species is typically repotted, sourced from the curated
+   * species record's `repotting.typicalIntervalMonths` (`GET /plants/:id/repot-signs`). Feeds no engine
+   * input and changes nothing about the questionnaire itself — copy only. `null`/absent (un-curated
+   * species, or the parent's fetch failing before it resolves) renders NOTHING, never an empty/"unknown"
+   * sentence. */
+  typicalIntervalMonths?: number | null;
   loading?: boolean;
   submitting?: boolean;
   error?: string | null;
@@ -137,6 +143,9 @@ function onSubmit() {
     <Alert v-if="error" color="red" :description="error" announce class="mp-repoteval__error" />
 
     <p class="mp-repoteval__intro">{{ t('repotEval.intro') }}</p>
+    <p v-if="typicalIntervalMonths != null" class="mp-repoteval__typicalinterval">
+      {{ t('repotEval.typicalInterval', { months: typicalIntervalMonths }) }}
+    </p>
 
     <h3 class="mp-repoteval__heading">{{ t('repotEval.signsHeading') }}</h3>
     <ul class="mp-repoteval__list">
@@ -207,6 +216,12 @@ function onSubmit() {
 }
 
 .mp-repoteval__intro {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.mp-repoteval__typicalinterval {
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
   color: var(--text-muted);

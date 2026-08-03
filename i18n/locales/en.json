@@ -286,6 +286,7 @@
     "title": "What can you see?",
     "intro": "Tick anything you can actually see right now. We will work out whether it needs repotting — you do not have to decide.",
     "signsHeading": "Signs",
+    "typicalInterval": "Plants of this species are usually repotted about every {months} months.",
     "noSigns": "No signs yet",
     "couldNotCheck": "I couldn't check it",
     "exclusiveGroupLabel": "If none of the signs apply",

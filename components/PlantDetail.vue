@@ -47,6 +47,9 @@ const id = props.id;
 // components, same idempotency discipline as pages/index.vue — this is the second (and last) renderer.
 const evaluationOpen = ref(false);
 const evaluationSigns = ref<RepotSign[]>([]);
+// Informative-only context for the questionnaire (how often this species is typically repotted) — sourced
+// from the SAME `GET /plants/:id/repot-signs` call as `evaluationSigns` above, never a second fetch.
+const evaluationTypicalIntervalMonths = ref<number | null>(null);
 // The active REPOT-evaluation submit attempt for THIS plant — `useRepotAttempt.ts`, the SAME
 // implementation pages/index.vue uses for its own evaluation flow (round-5 finding V1: the two renderers
 // previously kept SEPARATE `evaluationSubmitting`/`evaluationKey` refs and an unconditional `finally`,
@@ -590,7 +593,9 @@ async function onEvaluate() {
   }
   evaluationLoadFailed.value = false;
   try {
-    evaluationSigns.value = (await api.getRepotSigns(id)).signs;
+    const result = await api.getRepotSigns(id);
+    evaluationSigns.value = result.signs;
+    evaluationTypicalIntervalMonths.value = result.typicalIntervalMonths;
   } catch {
     evaluationLoadFailed.value = true;
     repotError.value = true;
@@ -1288,6 +1293,7 @@ async function confirmRevive() {
     <UiRepotEvaluationModal
       v-model:open="evaluationOpen"
       :signs="evaluationSigns"
+      :typical-interval-months="evaluationTypicalIntervalMonths"
       :submitting="!!evaluationAttempt?.submitting"
       :error="evaluationAttempt?.error ? $t(repotFailureMessageKey(evaluationAttempt.error)) : null"
       :frozen="isAttemptFrozen(evaluationAttempt)"

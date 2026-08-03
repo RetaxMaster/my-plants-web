@@ -14,7 +14,7 @@ import type {
   MediaAssetView, CreateBlogpost, UpdateBlogpost,
   AgentProposal, DoctorSessionSettings,
   ClinicalRecordSummary, ClinicalRecordDetail,
-  RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
+  RepotSign, RepotSignsResponse, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
 } from '../types/api.js';
 
 // Bounded wait for the two REPOT mutating submits (round-4 finding V2): a plain JSON POST via ofetch has NO
@@ -302,7 +302,7 @@ export function useApi() {
       api<PlantProfile>(`/plants/${id}/profile`, { method: 'PATCH', body: patch }),
     getPlantPhotos: (id: string) => api<PlantPhotoItem[]>(`/plants/${id}/photos`),
     getPlantCare: (id: string) => api<PlantCare>(`/plants/${id}/care`),
-    getRepotSigns: (plantId: string) => api<{ signs: RepotSign[] }>(`/plants/${plantId}/repot-signs`),
+    getRepotSigns: (plantId: string) => api<RepotSignsResponse>(`/plants/${plantId}/repot-signs`),
 
     /**
      * The submit boundary. `idempotencyKey` is a STABLE key minted at the submit boundary and reused across

@@ -195,6 +195,28 @@ describe('RepotEvaluationModal — W3: frozenAnswers hydrates the REAL component
   });
 });
 
+// Owner ruling (substrate:13 addendum, informative-only context): `typicalIntervalMonths` is copy shown
+// next to the questionnaire — how often this species is typically repotted. It must render when present and
+// render NOTHING (no empty/"unknown" sentence) when null/absent, since an un-curated species or a still-
+// pending fetch must never surface a broken-looking line.
+describe('RepotEvaluationModal — typicalIntervalMonths context line (informative-only)', () => {
+  it('renders the context line when the prop is a number', () => {
+    const w = mountModal({ typicalIntervalMonths: 18 });
+    expect(w.find('.mp-repoteval__typicalinterval').exists()).toBe(true);
+    expect(w.find('.mp-repoteval__typicalinterval').text()).toContain('repotEval.typicalInterval');
+  });
+
+  it('renders NOTHING when the prop is null', () => {
+    const w = mountModal({ typicalIntervalMonths: null });
+    expect(w.find('.mp-repoteval__typicalinterval').exists()).toBe(false);
+  });
+
+  it('renders NOTHING when the prop is absent entirely', () => {
+    const w = mountModal();
+    expect(w.find('.mp-repoteval__typicalinterval').exists()).toBe(false);
+  });
+});
+
 // QA defect B fix: the sign catalogue is DATA resolved server-side in the request locale (see
 // `composables/useApi.ts`'s locale-keyed GET cache and `PlantDetail.vue`'s `watch: [locale]` on its own
 // fetch). This modal has no fetch of its own — it asks the parent to redo ITS fetch by emitting

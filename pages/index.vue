@@ -33,6 +33,9 @@ const postponePickerOpen = ref(false);
 // classic Done | Postpone — see TaskRow.vue's `showEvaluate`.
 const evaluationOpen = ref(false);
 const evaluationSigns = ref<RepotSign[]>([]);
+// Informative-only context for the questionnaire (how often this species is typically repotted) — sourced
+// from the SAME `GET /plants/:id/repot-signs` call as `evaluationSigns` above, never a second fetch.
+const evaluationTypicalIntervalMonths = ref<number | null>(null);
 const evaluationPlantId = ref<string | null>(null);
 // The active REPOT-evaluation submit attempts — ONE per plant (U1) — `useRepotAttempt.ts` (round-5 finding
 // V1: extracted so PlantDetail.vue, the SECOND renderer of this same flow, can share the identical
@@ -219,8 +222,11 @@ async function onEvaluate(plantId: string) {
   evaluationLoadFailed.value = false;
   repotRetry.value = () => onEvaluate(plantId);
   let signs: RepotSign[];
+  let typicalIntervalMonths: number | null;
   try {
-    signs = (await api.getRepotSigns(plantId)).signs;
+    const result = await api.getRepotSigns(plantId);
+    signs = result.signs;
+    typicalIntervalMonths = result.typicalIntervalMonths;
   } catch {
     // Race guard (code review finding F4): only surface the failure if we're still on the plant that
     // triggered it — a later click on a different card already moved evaluationPlantId on.
@@ -235,6 +241,7 @@ async function onEvaluate(plantId: string) {
   // silently show the wrong plant's signs list under the wrong plant's modal.
   if (evaluationPlantId.value !== plantId) return;
   evaluationSigns.value = signs;
+  evaluationTypicalIntervalMonths.value = typicalIntervalMonths;
   evaluationOpen.value = true;
 }
 
@@ -626,6 +633,7 @@ function openProgress(plantId: string) {
     <UiRepotEvaluationModal
       v-model:open="evaluationOpen"
       :signs="evaluationSigns"
+      :typical-interval-months="evaluationTypicalIntervalMonths"
       :submitting="!!evaluationAttempt?.submitting"
       :error="evaluationAttempt?.error ? $t(repotFailureMessageKey(evaluationAttempt.error)) : null"
       :frozen="isAttemptFrozen(evaluationAttempt)"

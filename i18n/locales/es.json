@@ -286,6 +286,7 @@
     "title": "¿Qué alcanzas a ver?",
     "intro": "Marca lo que de verdad puedas ver ahora mismo. Nosotros calculamos si necesita trasplante — tú no tienes que decidirlo.",
     "signsHeading": "Señales",
+    "typicalInterval": "Las plantas de esta especie normalmente se trasplantan cada {months} meses aproximadamente.",
     "noSigns": "Todavía no veo señales",
     "couldNotCheck": "No pude revisarla",
     "exclusiveGroupLabel": "Si ninguna señal aplica",

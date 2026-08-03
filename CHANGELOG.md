@@ -2,6 +2,27 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — Repotting now asks what you can see
+
+**The repot reminder used to give you two buttons — *Done* or *Postpone* — which both asked you to decide
+something you could not see.** It now opens a short checklist of things you can actually look for, tells you
+whether it is time, and asks again later if it is not. When it *is* time, marking it done asks three quick
+questions about the new pot so the schedule keeps up.
+
+### Added
+
+- **The Repot card now opens a checklist instead of asking you to decide blind.** Tap it and you get a short
+  list of things to look for on the plant — roots at the drainage holes, roots circling the surface, water
+  running straight through, a cracked or deformed pot, that kind of thing — instead of two buttons asking you
+  to already know whether it's time.
+- **The checklist tells you the verdict, not just a form to fill in.** Check off what you actually see and
+  the app tells you plainly whether it's time to repot or whether it's better to wait and check again later.
+  Only once the verdict is "time to repot" do Done and Postpone appear.
+- **Marking it done now asks three quick questions about the new pot** — its size, whether the substrate is
+  fresh, and the soil mix — so the next schedule is based on what actually changed, not a guess.
+- **The checklist and its questions are fully translated**, so switching to Spanish shows the same signs and
+  verdict in Spanish, not just the surrounding screen.
+
 ## Unreleased — The app now treats a young plant differently from a mature one
 
 **A young plant needs different care than an adult of the same species, and the app now shows you that.**

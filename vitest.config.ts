@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, type Plugin } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 
@@ -28,6 +29,16 @@ function importMetaClientPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [importMetaClientPlugin(), vue()],
+  // Mirrors `.nuxt/tsconfig.json`'s own `"~": [".."]` / `"~/*": ["../*"]` — Nuxt's real dev/build pipeline
+  // resolves this alias through its own tooling, which plain `vitest.config.ts` never sees. Needed the
+  // moment a component test mounts a `.vue` file that imports a composable via an explicit `~/composables/
+  // ...` path rather than relying on Nuxt's auto-import (TaskRow.vue is the first — every other
+  // `components/ui/*.vue` file relies on auto-import, so this alias was never needed before it).
+  resolve: {
+    alias: {
+      '~': fileURLToPath(new URL('.', import.meta.url)),
+    },
+  },
   test: {
     // `server/**` carries the BFF proxy's wire test: it boots the REAL event handler over a REAL socket,
     // because the shape the browser receives is produced by the proxy and is invisible to both the API's

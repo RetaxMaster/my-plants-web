@@ -11,9 +11,16 @@ const props = withDefaults(
     title?: string;
     description?: string;
     icon?: string;
+    /** Opt-in: renders `role="alert" aria-live="assertive"` on the root so screen readers announce this
+     * instance the moment it appears. Defaults to false so every PRE-EXISTING call site of this shared
+     * primitive keeps rendering with neither attribute, byte-identical to before this prop existed — only
+     * the few call sites that are genuinely a standalone, non-nested announcement (never wrapping
+     * interactive controls or another live region) should opt in. */
+    announce?: boolean;
   }>(),
   {
     color: 'amber',
+    announce: false,
   },
 );
 
@@ -30,7 +37,12 @@ const resolvedIcon = computed(() =>
 </script>
 
 <template>
-  <div :class="['mp-alert', `mp-alert--${color}`]" v-bind="$attrs">
+  <div
+    :class="['mp-alert', `mp-alert--${color}`]"
+    :role="announce ? 'alert' : undefined"
+    :aria-live="announce ? 'assertive' : undefined"
+    v-bind="$attrs"
+  >
     <AppIcon v-if="resolvedIcon" :name="resolvedIcon" :size="20" class="mp-alert__icon" />
     <div class="mp-alert__body">
       <div v-if="title" class="mp-alert__title">{{ title }}</div>

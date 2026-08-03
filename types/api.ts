@@ -113,7 +113,21 @@ export interface PlantDetail extends Plant {
   derived: PlantDerived;
 }
 
-export interface DueTaskResponse { plantId: string; task: TaskCode; nextDueOn: string }
+// `pendingEvaluation` (repoteval:27's own dependency): present on the REPOT row iff an unresolved
+// evaluation exists, null on every other task and when nothing is pending. Mirrors PlantCareTask's own
+// field exactly (same shape, same source) — added to /care-plan/today's response so the Today card can
+// render its "time to evaluate" vs Done/Postpone state correctly BEFORE any click, never from an
+// on-demand per-card fetch. See PendingRepotEvaluation below.
+export interface DueTaskResponse {
+  plantId: string;
+  task: TaskCode;
+  nextDueOn: string;
+  // Optional at the type level so an older API during a rolling deploy still types — the same convention
+  // this file already uses for `crowding`/`juvenile` above (web and api deploy independently, see
+  // deploy.sh --web). The runtime read (`pendingEvaluationFor`, pages/index.vue) already defaults to
+  // `null` when absent, so this is a type-contract correction with no behavior change.
+  pendingEvaluation?: PendingRepotEvaluation | null;
+}
 
 export type FeedbackType = 'DONE' | 'POSTPONED' | 'SYMPTOM';
 export interface Feedback {

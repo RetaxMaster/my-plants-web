@@ -7,6 +7,7 @@
 import type { RepotDonePayload } from '~/types/api';
 import Modal from './Modal.vue';
 import Button from './Button.vue';
+import Alert from './Alert.vue';
 import FormGroup from './FormGroup.vue';
 import Input from './Input.vue';
 import SelectField from './SelectField.vue';
@@ -17,6 +18,7 @@ const props = defineProps<{
   currentPotSizeCm: number | null;
   currentSoilMix: string | null;
   submitting?: boolean;
+  error?: string | null;
 }>();
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ confirm: [payload: Omit<RepotDonePayload, 'evaluationId'>] }>();
@@ -57,6 +59,12 @@ function onConfirm() {
 
 <template>
   <Modal v-model="open" :title="t('repotDone.title')">
+    <!-- Rendered INSIDE the modal body (Modal.vue teleports to <body> with a fixed, viewport-covering
+         backdrop), so this stays visible above it — a page-level banner sitting in the ordinary document
+         flow renders BEHIND the teleported backdrop while this modal is open. See RepotEvaluationModal.vue
+         and pages/index.vue's repotError comment for the same reasoning. -->
+    <Alert v-if="error" color="red" :description="error" announce class="mp-repotdone__error" />
+
     <p class="mp-repotdone__intro">{{ t('repotDone.intro') }}</p>
 
     <FormGroup :label="t('repotDone.potSize')" :hint="t('repotDone.potSizeHint')">
@@ -97,6 +105,10 @@ function onConfirm() {
 
 <style scoped>
 /* Design-system tokens only — no magic values. Class conventions follow RepotEvaluationModal.vue. */
+.mp-repotdone__error {
+  margin: 0 0 var(--space-4);
+}
+
 .mp-repotdone__intro {
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);

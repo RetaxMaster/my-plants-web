@@ -2,8 +2,9 @@
 import type { RepotSign, RepotEvaluationSubmit } from '~/types/api';
 import Modal from './Modal.vue';
 import Button from './Button.vue';
+import Alert from './Alert.vue';
 
-const props = defineProps<{ signs: RepotSign[]; loading?: boolean; submitting?: boolean }>();
+const props = defineProps<{ signs: RepotSign[]; loading?: boolean; submitting?: boolean; error?: string | null }>();
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ submit: [body: RepotEvaluationSubmit] }>();
 
@@ -41,6 +42,12 @@ function onSubmit() {
 
 <template>
   <Modal v-model="open" :title="t('repotEval.title')" size="lg">
+    <!-- Rendered INSIDE the modal body (Modal.vue teleports to <body> with a fixed, viewport-covering
+         backdrop), so this stays visible above it — a page-level banner sitting in the ordinary document
+         flow renders BEHIND the teleported backdrop while this modal is open. See RepotDoneForm.vue and
+         pages/index.vue's repotError comment for the same reasoning. -->
+    <Alert v-if="error" color="red" :description="error" announce class="mp-repoteval__error" />
+
     <p class="mp-repoteval__intro">{{ t('repotEval.intro') }}</p>
 
     <h3 class="mp-repoteval__heading">{{ t('repotEval.signsHeading') }}</h3>
@@ -85,6 +92,10 @@ function onSubmit() {
 
 <style scoped>
 /* Design-system tokens only — no magic values. Class conventions follow ReasonPicker.vue. */
+.mp-repoteval__error {
+  margin: 0 0 var(--space-4);
+}
+
 .mp-repoteval__intro {
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);

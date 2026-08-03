@@ -244,24 +244,46 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   const plantId = doneFormPlantId.value;
   if (!plantId) return;
   if (!doneKey.value) doneKey.value = crypto.randomUUID();
+  // Capture the exact attempt this request belongs to — the SAME class of race as onEvaluationSubmit above
+  // (Y1's sibling defect, ruled in the same pass): this ONE Done form is shared by every plant card, so
+  // switching cards while a confirm is in flight abandons the request without cancelling it. Its response
+  // still arrives later, and without this pair the try/catch/finally below would apply it to whatever
+  // plant/key is active BY THEN — clobbering a different plant's outstanding key or closing its open form.
+  const attemptPlantId = plantId;
+  const attemptKey = doneKey.value;
   doneFormSubmitting.value = true;
   repotError.value = false;
+  // Whether THIS attempt is still the active one at the moment its response arrives — captured ONCE into a
+  // local, rather than re-derived from the refs in `finally`: the success branch below deliberately nulls
+  // `doneKey` on its own current attempt, so re-checking `doneKey.value === attemptKey` in `finally` would
+  // wrongly read even the attempt that just succeeded as "stale" (the exact mistake caught by Y1's test).
+  let isCurrentAttempt = false;
   try {
     const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
     await api.completeRepot(
       plantId,
       today,
       { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
-      doneKey.value,
+      attemptKey,
     );
+    // Stale-attempt guard (same class as onEvaluationSubmit's, F4/Y1): if the owner moved on — a different
+    // plant's Done form was opened, or this plant's key was superseded by "start over" — while this
+    // request was in flight, its response belongs to an ABANDONED attempt and must be ignored entirely,
+    // never touching the now-active attempt's state.
+    isCurrentAttempt = doneFormPlantId.value === attemptPlantId && doneKey.value === attemptKey;
+    if (!isCurrentAttempt) return;
     doneKey.value = null; // discarded on success; never reused again
     doneFormOpen.value = false;
     await refresh();
   } catch {
+    isCurrentAttempt = doneFormPlantId.value === attemptPlantId && doneKey.value === attemptKey;
+    if (!isCurrentAttempt) return;
     // Key deliberately kept on failure, same reasoning as onEvaluationSubmit.
     repotError.value = true;
   } finally {
-    doneFormSubmitting.value = false;
+    // Only the still-active attempt may clear the submitting flag — an abandoned attempt's finally must
+    // not stomp the loading state of whatever attempt (same plant retried, or a different plant) replaced it.
+    if (isCurrentAttempt) doneFormSubmitting.value = false;
   }
 }
 

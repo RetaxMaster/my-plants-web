@@ -7,6 +7,12 @@
 // no showing A's verdict as if it belonged to B. This file pins the fix directly against `onEvaluationSubmit`
 // (there is no other test file for pages/index.vue at all — same gap TaskRow.test.ts's header documents).
 //
+// `onRepotDoneConfirm` shares the exact same shape (its own Done form is likewise ONE instance shared by
+// every plant card) and carried the identical defect — ruled as an in-scope fix in the SAME review pass
+// (leaving one guarded and its sibling unguarded, in the same file, right next to each other, is exactly
+// the parallel-copy bug class this project names as its highest-yield). The second describe block below
+// pins that fix the same way.
+//
 // `ref`/`computed` are Vue's own reactivity primitives, normally auto-imported by Nuxt's build pipeline —
 // outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals, same
 // technique PlantDetail.test.ts / pages/plants/index.test.ts use.
@@ -41,14 +47,25 @@ const TASKS = [
   { plantId: 'B', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: null },
 ];
 
+const PLANT_PROFILES: Record<string, { potSizeCm: number; soilMix: string }> = {
+  A: { potSizeCm: 20, soilMix: 'potting-mix' },
+  B: { potSizeCm: 25, soilMix: 'cactus-mix' },
+};
+
 let getRepotSignsMock: ReturnType<typeof vi.fn>;
 let submitDeferreds: Record<string, ReturnType<typeof deferred<RepotEvaluationResult>>>;
 let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
+let getPlantMock: ReturnType<typeof vi.fn>;
+let completeRepotDeferreds: Record<string, ReturnType<typeof deferred<{ ok: true }>>>;
+let completeRepotMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   submitDeferreds = { A: deferred<RepotEvaluationResult>(), B: deferred<RepotEvaluationResult>() };
+  completeRepotDeferreds = { A: deferred<{ ok: true }>(), B: deferred<{ ok: true }>() };
   getRepotSignsMock = vi.fn(async () => ({ signs: [] as RepotSign[] }));
   submitRepotEvaluationMock = vi.fn(async (plantId: string) => submitDeferreds[plantId].promise);
+  getPlantMock = vi.fn(async (plantId: string) => ({ profile: PLANT_PROFILES[plantId] }));
+  completeRepotMock = vi.fn(async (plantId: string) => completeRepotDeferreds[plantId].promise);
 
   vi.stubGlobal('useApi', () => ({
     todaysTasks: async () => TASKS,
@@ -56,6 +73,8 @@ beforeEach(() => {
     listPlaces: async () => [],
     getRepotSigns: getRepotSignsMock,
     submitRepotEvaluation: submitRepotEvaluationMock,
+    getPlant: getPlantMock,
+    completeRepot: completeRepotMock,
   }));
   vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
     data: ref(await fn()),
@@ -92,8 +111,12 @@ const stubs = {
   },
   UiTaskRow: {
     props: ['task'],
-    emits: ['evaluate'],
-    template: '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>',
+    emits: ['evaluate', 'done'],
+    template:
+      '<div>' +
+      '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+      '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+      '</div>',
   },
   UiRepotEvaluationModal: {
     props: ['open', 'signs', 'submitting', 'error', 'frozen'],
@@ -103,7 +126,14 @@ const stubs = {
       '<button class="submit-btn" @click="$emit(\'submit\', { answer: \'no-signs\' })">submit</button>' +
       '</div>',
   },
-  UiRepotDoneForm: true,
+  UiRepotDoneForm: {
+    props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+    emits: ['confirm', 'start-over'],
+    template:
+      '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
+      '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+      '</div>',
+  },
   NuxtLink: { template: '<a><slot /></a>' },
 };
 
@@ -163,5 +193,59 @@ describe('pages/index.vue — a late response from an ABANDONED evaluation submi
     expect(w.find('.eval-modal').attributes('data-submitting')).toBe('false');
     expect(w.find('.verdict-modal').attributes('data-open')).toBe('true');
     expect(w.find('.verdict-modal').attributes('data-verdict')).toBe('RE-EVALUATE');
+  });
+});
+
+describe('pages/index.vue — a late response from an ABANDONED Done-form confirm (Y1\'s sibling, ruled ' +
+  'in the same pass)', () => {
+  it('never clobbers the now-active plant\'s outstanding doneKey or open Done form', async () => {
+    const w = await mountPage();
+    const doneButtons = w.findAll('.done-btn');
+    expect(doneButtons).toHaveLength(2); // one card per plant — A first, B second
+
+    // Open + confirm for plant A: mints a doneKey, the request is now in flight (never resolved yet).
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(getPlantMock).toHaveBeenCalledWith('A');
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    expect(completeRepotMock.mock.calls[0]![0]).toBe('A');
+    const keyA = completeRepotMock.mock.calls[0]![3];
+    expect(keyA).toBeTruthy();
+
+    // Abandon A without cancelling its request: switch to plant B's card. onRepotDone unconditionally
+    // resets doneKey for the newly-opened plant, so B starts a genuinely fresh attempt.
+    await doneButtons[1]!.trigger('click');
+    await flushPromises();
+    expect(getPlantMock).toHaveBeenCalledWith('B');
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false'); // fresh attempt, not frozen yet
+
+    // Confirm for B: mints its OWN doneKey, its own in-flight request.
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    expect(completeRepotMock.mock.calls[1]![0]).toBe('B');
+    const keyB = completeRepotMock.mock.calls[1]![3];
+    expect(keyB).toBeTruthy();
+    expect(keyB).not.toBe(keyA); // two genuinely separate confirmations must never share a key
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+
+    // A's LATE response now arrives — resolved only now, after B has fully taken over the shared form.
+    completeRepotDeferreds.A!.resolve({ ok: true });
+    await flushPromises();
+
+    // The abandoned A response must be ignored entirely: B's form stays open and B's confirm is still
+    // (from this test's perspective) in flight.
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+
+    // B's own response now arrives — THIS is the active attempt, and it closes the shared form as normal.
+    completeRepotDeferreds.B!.resolve({ ok: true });
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('false');
   });
 });

@@ -63,7 +63,7 @@ function onConfirm() {
          backdrop), so this stays visible above it — a page-level banner sitting in the ordinary document
          flow renders BEHIND the teleported backdrop while this modal is open. See RepotEvaluationModal.vue
          and pages/index.vue's repotError comment for the same reasoning. -->
-    <Alert v-if="error" color="red" :description="error" class="mp-repotdone__error" />
+    <Alert v-if="error" color="red" :description="error" announce class="mp-repotdone__error" />
 
     <p class="mp-repotdone__intro">{{ t('repotDone.intro') }}</p>
 

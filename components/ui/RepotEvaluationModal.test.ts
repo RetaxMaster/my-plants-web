@@ -21,9 +21,12 @@ vi.stubGlobal('useI18n', () => ({ t: (k: string) => k }));
 const stubs = {
   // Collapsed to a real-ish v-model/slot contract (same technique PlantProfileModal.test.ts's UiModalStub
   // uses) so the default AND footer slots — where the Alert and the submit button live — actually render.
+  // `data-modal-stub` is a stable hook naming THIS element as the Modal's own rendered panel, distinct from
+  // the component's outer (possibly multi-root/fragment) template — the containment assertion below needs
+  // a concrete node to check against, not "is it anywhere in the mounted tree".
   Modal: {
     props: ['modelValue', 'title', 'size'],
-    template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>',
+    template: '<div data-modal-stub v-if="modelValue"><slot /><slot name="footer" /></div>',
   },
   Button: { props: ['disabled', 'icon'], template: '<button :disabled="disabled"><slot /></button>' },
   AppIcon: true, // Alert.vue's own icon dependency; irrelevant to this assertion.
@@ -52,5 +55,11 @@ describe('RepotEvaluationModal — the error prop renders INSIDE the modal body 
     const alert = w.find('[role="alert"]');
     expect(alert.exists()).toBe(true);
     expect(alert.text()).toContain('Something went wrong. Please try again.');
+    // Containment, not mere existence (round-3 review): asserting only `exists()` also passes if the alert
+    // were rendered as a SIBLING outside <Modal>, which is exactly the regression F2 fixed. The modal stub
+    // marks its own rendered panel with `data-modal-stub`; the alert must be a genuine DOM descendant of it.
+    const modalPanel = w.find('[data-modal-stub]');
+    expect(modalPanel.exists()).toBe(true);
+    expect(modalPanel.element.contains(alert.element)).toBe(true);
   });
 });

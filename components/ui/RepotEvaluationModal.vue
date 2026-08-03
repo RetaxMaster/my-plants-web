@@ -46,7 +46,7 @@ function onSubmit() {
          backdrop), so this stays visible above it — a page-level banner sitting in the ordinary document
          flow renders BEHIND the teleported backdrop while this modal is open. See RepotDoneForm.vue and
          pages/index.vue's repotError comment for the same reasoning. -->
-    <Alert v-if="error" color="red" :description="error" class="mp-repoteval__error" />
+    <Alert v-if="error" color="red" :description="error" announce class="mp-repoteval__error" />
 
     <p class="mp-repoteval__intro">{{ t('repotEval.intro') }}</p>
 

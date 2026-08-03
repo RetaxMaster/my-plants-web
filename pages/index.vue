@@ -281,6 +281,7 @@ function openProgress(plantId: string) {
       v-if="repotError && !evaluationOpen && !doneFormOpen"
       color="red"
       :description="$t('repotEval.errorPending')"
+      announce
       class="mp-today__repot-error"
     />
 

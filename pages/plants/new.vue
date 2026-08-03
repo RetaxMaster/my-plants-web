@@ -227,12 +227,12 @@ async function submit() {
         <UiInput v-model="substrateRefreshedOn" type="date" />
       </UiFormGroup>
       <UiFormGroup :label="$t('plantsNew.substrateCharged')">
-        <UiSelectField
+        <UiSegmentedControl
           v-model="substrateCharged"
           :options="[
-            { value: 'unknown', label: $t('plantsNew.substrateChargedUnknown') },
-            { value: 'yes', label: $t('plantsNew.substrateChargedYes') },
-            { value: 'no', label: $t('plantsNew.substrateChargedNo') },
+            { key: 'unknown', label: $t('plantsNew.substrateChargedUnknown') },
+            { key: 'yes', label: $t('plantsNew.substrateChargedYes') },
+            { key: 'no', label: $t('plantsNew.substrateChargedNo') },
           ]"
         />
       </UiFormGroup>

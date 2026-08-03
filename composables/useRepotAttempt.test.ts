@@ -105,3 +105,81 @@ describe('useRepotAttempt — W2: the mutation-failure state (`error`) lives on 
     expect(handle.attemptFor('plant-1')).toBeNull();
   });
 });
+
+describe('useRepotAttempt — X1: resolveSuccess publishes a completion signal, invalidate() never does', () => {
+  it('resolveSuccess publishes a completion naming the plant and carrying the result, visible through a ' +
+    'SECOND, independently obtained handle for the SAME flow key — the exact shape of pages/index.vue and ' +
+    "PlantDetail.vue both watching useRepotAttempt('evaluation')'s completion", () => {
+    const rendererA = useRepotAttempt<{ answer: string }, { verdict: string }>('evaluation');
+    const rendererB = useRepotAttempt<{ answer: string }, { verdict: string }>('evaluation');
+
+    expect(rendererB.completion.value).toBeNull(); // nothing published yet
+
+    const attempt = rendererA.begin('plant-1', { answer: 'no-signs' });
+    rendererA.resolveSuccess(attempt, { verdict: 'REPOT' });
+
+    // The SECOND handle sees the SAME completion — not null, not a separate signal.
+    expect(rendererB.completion.value).not.toBeNull();
+    expect(rendererB.completion.value!.plantId).toBe('plant-1');
+    expect(rendererB.completion.value!.result).toEqual({ verdict: 'REPOT' });
+  });
+
+  it('a completion for a plant that is NOT live (already superseded by "start over") is never published — ' +
+    'a stale success must not be mistaken for a completion by any watcher', () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+    const attempt = handle.begin('plant-1', { v: 1 });
+    handle.invalidate('plant-1'); // the owner's explicit "start over" — attempt is no longer live
+
+    handle.resolveSuccess(attempt, 'ignored'); // a late response for the now-abandoned attempt
+
+    expect(handle.completion.value).toBeNull();
+  });
+
+  it('invalidate() (the "start over" escape hatch) itself never publishes a completion, even though it ' +
+    'discards the attempt exactly like a success would', () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+    handle.begin('plant-1', { v: 1 });
+    handle.invalidate('plant-1');
+
+    expect(handle.completion.value).toBeNull();
+  });
+
+  it('each publish carries a monotonically increasing `seq`, so a SECOND completion for the SAME plant is ' +
+    'always its own distinguishable event, never conflated with the first', () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+
+    const first = handle.begin('plant-1', { v: 1 });
+    handle.resolveSuccess(first, 'first');
+    const firstSeq = handle.completion.value!.seq;
+
+    const second = handle.begin('plant-1', { v: 2 }); // a wholly separate, later attempt for the same plant
+    handle.resolveSuccess(second, 'second');
+
+    expect(handle.completion.value!.seq).toBeGreaterThan(firstSeq);
+    expect(handle.completion.value!.result).toBe('second');
+  });
+
+  it("does NOT share the completion signal across DIFFERENT flow keys — 'evaluation' and 'done' stay two " +
+    'separate signals', () => {
+    const evaluationHandle = useRepotAttempt<{ answer: string }, string>('evaluation');
+    const doneHandle = useRepotAttempt<{ occurredOn: string }, string>('done');
+
+    const attempt = evaluationHandle.begin('plant-1', { answer: 'no-signs' });
+    evaluationHandle.resolveSuccess(attempt, 'REPOT');
+
+    expect(doneHandle.completion.value).toBeNull();
+  });
+
+  it('__resetRepotAttemptStoresForTests clears the completion signal too, not just the attempt map', () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+    const attempt = handle.begin('plant-1', { v: 1 });
+    handle.resolveSuccess(attempt, 'done');
+    expect(handle.completion.value).not.toBeNull();
+
+    __resetRepotAttemptStoresForTests();
+
+    // A fresh handle for the same flow key reads a clean signal, not the previous test's leftover.
+    const freshHandle = useRepotAttempt<{ v: number }, string>('done');
+    expect(freshHandle.completion.value).toBeNull();
+  });
+});

@@ -17,9 +17,12 @@
 // outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals, same
 // technique PlantDetail.test.ts / pages/plants/index.test.ts use.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computed, defineComponent, ref, shallowRef } from 'vue';
+import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { RepotEvaluationResult, RepotSign } from '../types/api.js';
+// X2: the parent-level integration test near the end of this file mounts the REAL RepotDoneForm.vue (never a
+// re-implemented stub of its hydration watcher — see that describe block's own header comment for why).
+import RealRepotDoneForm from '../components/ui/RepotDoneForm.vue';
 // W1 moved the two REPOT-attempt stores (`'evaluation'` / `'done'`) to MODULE scope, so — unlike the
 // per-component-instance Maps this file's tests used to exercise — they now persist across every `it()` in
 // THIS file (the module is imported once and cached for the whole file). Without an explicit reset, an
@@ -32,6 +35,11 @@ import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttemp
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('shallowRef', shallowRef);
+// `watch` (X1: pages/index.vue now watches the shared completion signal) and `inject` (X2: the parent-level
+// integration test below mounts the REAL RepotDoneForm.vue, whose real Input.vue/SelectField.vue call
+// `inject('mpFieldId', ...)`) — same technique as the `ref`/`computed`/`shallowRef` stubs above.
+vi.stubGlobal('watch', watch);
+vi.stubGlobal('inject', inject);
 vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, d: () => '', locale: ref('en') }));
 vi.stubGlobal('useIsDesktop', () => ref(true));
 vi.stubGlobal('useHead', () => {});
@@ -41,6 +49,15 @@ vi.stubGlobal('useTaskMeta', () => ({ dueLabel: () => 'Today' }));
 vi.stubGlobal('useFeedbackReasons', () => ({
   earlyWaterOptions: computed(() => []),
   postponeOptions: computed(() => []),
+}));
+// X2: only needed by the parent-level integration test below, which mounts the REAL RepotDoneForm.vue (it
+// calls this composable for its soil-mix options) — both plant fixtures' soil mixes must resolve to a real
+// <option>, or the native <select>'s displayed value would silently blank instead of reflecting the model.
+vi.stubGlobal('useProfileMeta', () => ({
+  soilMixOptions: computed(() => [
+    { value: 'potting-mix', label: 'Potting mix' },
+    { value: 'cactus-mix', label: 'Cactus mix' },
+  ]),
 }));
 
 // A controllable, externally-resolvable/rejectable promise — lets the test hold a plant's submit "in
@@ -805,124 +822,110 @@ describe('pages/index.vue — W2: the mutation-failure state lives on the attemp
   });
 });
 
-// W3: RepotDoneForm.vue kept its draft (potSizeCm/soilMix/substrate) in a component-LOCAL slot, refreshed
-// only on a NON-frozen open — so a frozen reopen simply left whatever was already in those refs untouched.
-// That was harmless back when a plant switch always discarded the OTHER plant's attempt (pre-U1); once an
-// attempt could survive a detour through a different plant's card, "leave it untouched" started silently
-// displaying the WRONG plant's values under a frozen, about-to-be-retried form. The fix hydrates the frozen
-// form from the attempt's own stored envelope (`frozenSnapshot`, threaded down from `doneAttempt.value.body
-// .payload`) instead of merely refusing to reset.
-//
-// The `UiRepotDoneForm` stub used everywhere else in this file is STATELESS (it only ever reflects whatever
-// props the parent passes THIS render) and can never reproduce this bug or its fix — the bug lives in the
-// CHILD's own internal fields persisting across prop changes on the ONE shared modal instance. This describe
-// mounts a FAITHFUL STATEFUL stub reproducing the real component's watch(open, frozen, frozenSnapshot)
-// contract, driven through the real `update:open` / v-model:open contract exactly like the real component.
-describe("pages/index.vue — W3: the frozen Done form displays what the retry will actually send", () => {
-  const statefulDoneFormStub = defineComponent({
-    props: {
-      open: { type: Boolean, default: false },
-      currentPotSizeCm: { type: Number, default: null },
-      currentSoilMix: { type: String, default: null },
-      submitting: { type: Boolean, default: false },
-      error: { type: String, default: null },
-      frozen: { type: Boolean, default: false },
-      frozenSnapshot: { type: Object as () => { potSizeCm: number; soilMix: string; charged: boolean } | null, default: null },
+// X2: the OLD version of this block defined `statefulDoneFormStub` — a hand-rolled component that
+// REIMPLEMENTED RepotDoneForm.vue's own `watch(open, frozen, frozenSnapshot)` hydration logic inside the
+// TEST ITSELF, then asserted against that reimplementation. Deleting the real hydration in
+// components/ui/RepotDoneForm.vue would never have made THAT test fail — it only proved the copy was
+// internally consistent with itself, never that the real component does the same thing. This block now
+// mounts the REAL `RepotDoneForm.vue` (its own component-level frozenSnapshot coverage lives in
+// RepotDoneForm.test.ts's "W3" describe block — this is the ONE parent-level integration assertion tying
+// the real component's RENDERED values to the ACTUAL api arguments pages/index.vue sends).
+describe("pages/index.vue — W3: the frozen Done form displays what the retry will actually send " +
+  "(mounts the REAL RepotDoneForm.vue, never a reimplementation of its hydration)", () => {
+  // Modal/Button/FormGroup stubbed (same shape as RepotDoneForm.test.ts's own stubsWithRealInputs()); Input/
+  // SelectField/SegmentedControl are left OUT of the stub map on purpose, so the REAL components render and
+  // their actual DOM values (input[type=number], select, .mp-seg button) are what this test asserts against.
+  const realDoneFormStubs = {
+    ...stubs,
+    UiRepotDoneForm: RealRepotDoneForm,
+    Modal: {
+      props: ['modelValue', 'title'],
+      template: '<div data-modal-stub v-if="modelValue"><slot /><slot name="footer" /></div>',
     },
-    emits: ['confirm', 'start-over', 'update:open'],
-    data() {
-      return { potSizeCm: null as number | null, soilMix: '' as string, charged: true as boolean };
-    },
-    watch: {
-      open(isOpen: boolean) {
-        if (!isOpen) return;
-        // Mirrors RepotDoneForm.vue's real `watch(open, ...)` post-W3: hydrate FROM the frozen snapshot
-        // when resuming, from the live profile props otherwise — never "leave whatever was already there".
-        if (this.frozen) {
-          if (this.frozenSnapshot) {
-            this.potSizeCm = this.frozenSnapshot.potSizeCm;
-            this.soilMix = this.frozenSnapshot.soilMix;
-            this.charged = this.frozenSnapshot.charged;
-          }
-          return;
-        }
-        this.potSizeCm = this.currentPotSizeCm;
-        this.soilMix = this.currentSoilMix;
-        this.charged = true;
-      },
-    },
-    template:
-      '<div class="done-form" :data-open="open" :data-frozen="frozen" ' +
-      ':data-pot-size="potSizeCm" :data-soil-mix="soilMix">' +
-      '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm, soilMix, charged })">confirm</button>' +
-      '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
-      '</div>',
-  });
+    Button: { props: ['disabled', 'icon', 'loading'], template: '<button :disabled="disabled"><slot /></button>' },
+    FormGroup: { props: ['label', 'hint'], template: '<div><slot /></div>' },
+    AppIcon: true,
+  };
 
-  async function mountPageWithStatefulDoneForm() {
+  async function mountPageWithRealDoneForm() {
     const TodayPage = (await import('./index.vue')).default;
     const w = mount(
       { components: { TodayPage }, template: '<Suspense><TodayPage /></Suspense>' },
-      { global: { stubs: { ...stubs, UiRepotDoneForm: statefulDoneFormStub }, mocks: { $t: (k: string) => k } } },
+      { global: { stubs: realDoneFormStubs, mocks: { $t: (k: string) => k } } },
     );
     await flushPromises();
     return w;
   }
 
-  it("A fails and freezes; B is opened and closed WITHOUT confirming; returning to A displays A's ORIGINAL " +
-    "values (never B's leftover ones) — and the retry then resends A's byte-identical original request",
-    async () => {
-    const w = await mountPageWithStatefulDoneForm();
+  function findConfirmButton(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.confirm'))!;
+  }
+
+  it("A fails and freezes; B is opened and closed WITHOUT confirming; returning to A RENDERS A's ORIGINAL " +
+    "values (never B's leftover ones) — and the retry then resends the EXACT rendered values, byte-identical " +
+    "to the original request", async () => {
+    const w = await mountPageWithRealDoneForm();
     const doneButtons = w.findAll('.done-btn');
 
-    // Open A: fields hydrate to A's OWN profile (PLANT_PROFILES.A = potSizeCm 20 / soilMix 'potting-mix').
+    // Open A: the REAL form's fields hydrate to A's OWN profile (PLANT_PROFILES.A = potSizeCm 20 / soilMix
+    // 'potting-mix') — rendered DOM values, not an internal ref.
     await doneButtons[0]!.trigger('click');
     await flushPromises();
-    expect(w.find('.done-form').attributes('data-pot-size')).toBe('20');
-    expect(w.find('.done-form').attributes('data-soil-mix')).toBe('potting-mix');
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('20');
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('potting-mix');
 
     // Confirm A: the request is lost/rejected, so the key + body + error are kept and the form freezes.
-    await w.find('.confirm-btn').trigger('click');
+    await findConfirmButton(w).trigger('click');
     await flushPromises();
     completeRepotDeferreds.A!.reject(new Error('lost response'));
     await flushPromises();
     expect(completeRepotMock).toHaveBeenCalledTimes(1);
     const firstCall = completeRepotMock.mock.calls[0]!;
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+    expect(w.find('input[type="number"]').attributes('disabled')).toBeDefined(); // frozen — disabled
 
-    // Close A WITHOUT choosing "start over" — via the real update:open contract.
-    await w.find('.close-btn').trigger('click');
+    // Close A WITHOUT choosing "start over" — the real Modal's own close affordance. The stub renders no
+    // close control of its own, so drive it the same way the app does: the header's X button. Since Modal is
+    // stubbed here (bare passthrough), simulate the parent's real "start over"-free close via v-model — the
+    // page's own onRepotDone/onRepotDoneConfirm never calls this directly, so exercise it through the ACTUAL
+    // v-model:open contract pages/index.vue binds (`v-model:open="doneFormOpen"`), by finding the real
+    // component instance and setting its own open prop false — mirroring X/Escape/backdrop.
+    const realFormVm = w.findComponent(RealRepotDoneForm);
+    realFormVm.vm.$emit('update:open', false);
     await flushPromises();
-    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+    expect(w.find('[data-modal-stub]').exists()).toBe(false);
 
-    // Open B instead: a genuinely fresh attempt, correctly showing B's OWN profile (25 / 'cactus-mix') — this
-    // is what overwrites the SAME shared modal instance's internal fields.
+    // Open B instead: a genuinely fresh attempt, correctly RENDERING B's OWN profile (25 / 'cactus-mix') —
+    // this is what overwrites the SAME shared form instance's own internal fields.
     await doneButtons[1]!.trigger('click');
     await flushPromises();
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
-    expect(w.find('.done-form').attributes('data-pot-size')).toBe('25');
-    expect(w.find('.done-form').attributes('data-soil-mix')).toBe('cactus-mix');
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('25');
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('cactus-mix');
+    expect(w.find('input[type="number"]').attributes('disabled')).toBeUndefined(); // B is unfrozen
 
     // Close B WITHOUT confirming — the owner never touched B's completion at all.
-    await w.find('.close-btn').trigger('click');
+    w.findComponent(RealRepotDoneForm).vm.$emit('update:open', false);
     await flushPromises();
 
-    // Reopen A: resumes (still frozen, same outstanding key). W3 — the DISPLAYED values must be A's ORIGINAL
-    // submission, never B's leftover values still sitting in the shared modal instance's own local state.
+    // Reopen A: resumes (still frozen, same outstanding key). W3 — the RENDERED values must be A's ORIGINAL
+    // submission, never B's leftover values still sitting in the shared form instance's own local state.
     await doneButtons[0]!.trigger('click');
     await flushPromises();
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
-    expect(w.find('.done-form').attributes('data-pot-size')).toBe('20');
-    expect(w.find('.done-form').attributes('data-soil-mix')).toBe('potting-mix');
+    expect(w.find('input[type="number"]').attributes('disabled')).toBeDefined();
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('20');
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('potting-mix');
 
-    // The retry sends the byte-identical ORIGINAL request — same plantId, occurredOn, payload, and key.
-    await w.find('.confirm-btn').trigger('click');
+    // ONE parent-level integration assertion: the retry sends the byte-identical ORIGINAL request to the
+    // ACTUAL api mock — same plantId, occurredOn, payload, and key — and that payload equals exactly what
+    // was just RENDERED (potSizeCm 20 / soilMix 'potting-mix'), never a value the real component merely
+    // claims to show.
+    await findConfirmButton(w).trigger('click');
     await flushPromises();
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
     const secondCall = completeRepotMock.mock.calls[1]!;
     expect(secondCall[0]).toBe(firstCall[0]);
     expect(secondCall[1]).toBe(firstCall[1]);
     expect(secondCall[2]).toEqual(firstCall[2]);
+    expect(secondCall[2]).toEqual(expect.objectContaining({ potSizeCm: 20, soilMix: 'potting-mix' }));
     expect(secondCall[3]).toBe(firstCall[3]);
   });
 });

@@ -17,10 +17,35 @@ vi.stubGlobal('watch', watch);
 vi.stubGlobal('inject', inject);
 vi.stubGlobal('useI18n', () => ({ t: (k: string) => k }));
 // Auto-imported in RepotDoneForm.vue (no explicit import, same convention TaskRow.test.ts documents for
-// useTaskMeta) — stubbed here with a single fixed option, irrelevant to the error-rendering assertion.
+// useTaskMeta) — stubbed here with two fixed options (the error-rendering assertions only ever need
+// 'potting-mix', still first so `soilMixOptions.value[0]` stays unchanged for them; 'cactus-mix' is needed by
+// the W3 frozenSnapshot tests below, which hydrate a DIFFERENT plant's snapshot to prove the real <select>
+// reflects the prop, not a hardcoded default).
 vi.stubGlobal('useProfileMeta', () => ({
-  soilMixOptions: computed(() => [{ value: 'potting-mix', label: 'Potting mix' }]),
+  soilMixOptions: computed(() => [
+    { value: 'potting-mix', label: 'Potting mix' },
+    { value: 'cactus-mix', label: 'Cactus mix' },
+  ]),
 }));
+
+// Real Modal/Button/FormGroup/AppIcon stubbed, but Input/SelectField/SegmentedControl left REAL so their
+// actual `disabled` attribute (and, below, their actual rendered value) can be asserted — used by both the
+// frozen-disabling suite and the W3 hydration suite below (module scope: no closure over either describe
+// block's own state, so hoisting it here is a plain dedup, not a fork).
+function stubsWithRealInputs() {
+  return {
+    Modal: {
+      props: ['modelValue', 'title'],
+      template: '<div data-modal-stub v-if="modelValue"><slot /><slot name="footer" /></div>',
+    },
+    Button: {
+      props: ['disabled', 'icon', 'loading'],
+      template: '<button :disabled="disabled"><slot /></button>',
+    },
+    FormGroup: { props: ['label', 'hint'], template: '<div><slot /></div>' },
+    AppIcon: true,
+  };
+}
 
 const stubs = {
   // `data-modal-stub` is a stable hook naming THIS element as the Modal's own rendered panel, distinct from
@@ -76,20 +101,6 @@ describe('RepotDoneForm — the error prop renders INSIDE the modal body (round-
 // interceptor answers 422 forever. The fix reuses RepotEvaluationModal's own `frozen` prop + "start over"
 // pattern verbatim (never a second mechanism) — these tests mirror RepotEvaluationModal.test.ts's V12 suite.
 describe('RepotDoneForm — frozen while an idempotency key is outstanding (code review finding Y2)', () => {
-  function stubsWithRealInputs() {
-    return {
-      Modal: {
-        props: ['modelValue', 'title'],
-        template: '<div data-modal-stub v-if="modelValue"><slot /><slot name="footer" /></div>',
-      },
-      Button: {
-        props: ['disabled', 'icon', 'loading'],
-        template: '<button :disabled="disabled"><slot /></button>',
-      },
-      FormGroup: { props: ['label', 'hint'], template: '<div><slot /></div>' },
-      AppIcon: true,
-    };
-  }
 
   it('disables pot size, soil mix and the substrate toggle while frozen', () => {
     const w = mount(RepotDoneForm, {
@@ -169,5 +180,80 @@ describe('RepotDoneForm — frozen while an idempotency key is outstanding (code
     expect(startOverBtn).toBeTruthy();
     await startOverBtn!.trigger('click');
     expect(w.emitted('start-over')).toBeTruthy();
+  });
+});
+
+// X2: the suite above only ever proves that whatever the fields happened to hold LOCALLY (typed in by the
+// test itself) survives a close/reopen — it never once passes the `frozenSnapshot` PROP, so it can never
+// catch a regression in the hydrate-FROM-the-prop branch of `watch(open, ...)` (W3's own fix). These tests
+// mount the REAL component with `frozenSnapshot` driving the resume directly — the RENDERED input/select/
+// segmented-control values must reflect the PROP, not whatever the fields happened to hold locally, and the
+// emitted `confirm` body on a retry must match what is rendered.
+describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (never fields that merely happen ' +
+  'to survive)', () => {
+  function findConfirmButton(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.confirm'))!;
+  }
+
+  it('hydrates pot size, soil mix and the substrate toggle from frozenSnapshot on a resumed open — not ' +
+    'from currentPotSizeCm/currentSoilMix, and resubmits exactly what is rendered', async () => {
+    const w = mount(RepotDoneForm, {
+      props: {
+        open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
+        frozenSnapshot: { potSizeCm: 30, soilMix: 'cactus-mix', charged: false },
+      },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    // `watch(open, ...)` only runs on a false→true TRANSITION (never the initial mount value) — same reason
+    // the existing frozen suite above always starts `open: false`/`true` then flips it.
+    await w.setProps({ open: true });
+
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('30');
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('cactus-mix');
+    // charged:false -> the "reused" segment (index 1) is the active one, not "fresh" (index 0).
+    const segButtons = w.findAll('.mp-seg button');
+    expect(segButtons[0]!.attributes('aria-pressed')).toBe('false');
+    expect(segButtons[1]!.attributes('aria-pressed')).toBe('true');
+
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: 'cactus-mix', charged: false });
+  });
+
+  it('changing which plant\'s snapshot is frozen updates the RENDERED values on the next resume — a ' +
+    'detour through a DIFFERENT plant\'s (fresh, unfrozen) form must not leave THIS plant\'s reopened, ' +
+    'frozen form showing the wrong values', async () => {
+    // Plant A fails and freezes with its own snapshot.
+    const w = mount(RepotDoneForm, {
+      props: {
+        open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
+        frozenSnapshot: { potSizeCm: 20, soilMix: 'potting-mix', charged: true },
+      },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('20');
+
+    // Close A, open a DIFFERENT plant's form instance fresh (frozen: false, no frozenSnapshot, a DIFFERENT
+    // current profile) and edit a field — simulating the SAME shared form component now showing plant B.
+    await w.setProps({ open: false });
+    await w.setProps({
+      frozen: false, frozenSnapshot: null, currentPotSizeCm: 25, currentSoilMix: 'cactus-mix', open: true,
+    });
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('25'); // B's own profile
+    await w.find('input[type="number"]').setValue(99); // the owner edits B's field
+
+    // Close B without confirming, then resume A: the REAL component must hydrate from A's frozenSnapshot
+    // again, never leaving B's leftover edited value (99) visible under A's frozen, about-to-be-retried form.
+    await w.setProps({ open: false });
+    await w.setProps({
+      frozen: true, frozenSnapshot: { potSizeCm: 20, soilMix: 'potting-mix', charged: true },
+      currentPotSizeCm: 20, currentSoilMix: 'potting-mix', open: true,
+    });
+
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('20');
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('potting-mix');
+
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')!.at(-1)![0]).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', charged: true });
   });
 });

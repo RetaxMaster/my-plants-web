@@ -103,3 +103,79 @@ describe('RepotEvaluationModal — frozen answers survive a close + re-open (cod
     expect((checkbox.element as HTMLInputElement).checked).toBe(false);
   });
 });
+
+// X2: the V12 suite above only ever proves a component-LOCAL answer (typed in by the test itself) survives
+// a close/reopen — it never once passes the `frozenAnswers` PROP, so it can never catch a regression in the
+// hydrate-FROM-the-prop branch of `watch(open, ...)` (W3's own fix). These tests mount the REAL component
+// with `frozenAnswers` driving the resume directly — the RENDERED checkbox/radio state must reflect the
+// PROP, not whatever the fields happened to hold locally, and the emitted `submit` body on a retry must
+// match what is rendered (never a second, independently-tracked "what will actually be sent").
+describe('RepotEvaluationModal — W3: frozenAnswers hydrates the REAL component (never a component-local ' +
+  'answer that merely happens to survive)', () => {
+  const signs = [
+    { id: 's1', label: 'Roots circling the drainage holes' },
+    { id: 's2', label: 'Stunted growth this season' },
+  ];
+
+  // The Button stub renders plain <button> tags (no distinguishing class) — same convention as the
+  // existing "start over" test above, which finds it by its (mocked passthrough) i18n key text.
+  function findSubmitButton(w: ReturnType<typeof mountModal>) {
+    return w.findAll('button').find((b) => b.text().includes('repotEval.submit'))!;
+  }
+
+  it('a "signs" frozenAnswers hydrates the checked signs — rendered AND resubmitted', async () => {
+    // `watch(open, ...)` only runs on a false→true TRANSITION (never on the initial mount value) — same
+    // reason the existing V12 suite above always starts `open: false` and flips it. Mount closed, THEN open
+    // frozen, so the resume path (not the mount) is what's under test.
+    const w = mountModal({ signs, frozen: true, frozenAnswers: { answer: 'signs', signIds: ['s2'] }, open: false });
+    await w.setProps({ open: true });
+
+    const s1 = w.find('input[type="checkbox"][value="s1"]');
+    const s2 = w.find('input[type="checkbox"][value="s2"]');
+    expect((s1.element as HTMLInputElement).checked).toBe(false);
+    expect((s2.element as HTMLInputElement).checked).toBe(true);
+    expect((s2.element as HTMLInputElement).disabled).toBe(true); // frozen — a retry, not an editable form
+
+    await findSubmitButton(w).trigger('click');
+    expect(w.emitted('submit')![0]![0]).toEqual({ answer: 'signs', signIds: ['s2'] });
+  });
+
+  it('a "no-signs" frozenAnswers hydrates the exclusive radio — rendered AND resubmitted', async () => {
+    const w = mountModal({ signs, frozen: true, frozenAnswers: { answer: 'no-signs' }, open: false });
+    await w.setProps({ open: true });
+
+    const noSigns = w.find('input[type="radio"][value="no-signs"]');
+    expect((noSigns.element as HTMLInputElement).checked).toBe(true);
+    expect(w.findAll('input[type="checkbox"]').every((c) => !(c.element as HTMLInputElement).checked)).toBe(true);
+
+    await findSubmitButton(w).trigger('click');
+    expect(w.emitted('submit')![0]![0]).toEqual({ answer: 'no-signs' });
+  });
+
+  it('changing which plant\'s snapshot is frozen updates the RENDERED answers on the next resume — a ' +
+    'detour through a DIFFERENT plant\'s (fresh, unfrozen) modal must not leave THIS plant\'s reopened, ' +
+    'frozen modal showing the wrong answers', async () => {
+    // Plant A fails and freezes with signIds ['s1'].
+    const w = mountModal({ signs, frozen: true, frozenAnswers: { answer: 'signs', signIds: ['s1'] }, open: false });
+    await w.setProps({ open: true });
+    expect((w.find('input[value="s1"]').element as HTMLInputElement).checked).toBe(true);
+
+    // Close A, open a DIFFERENT plant's modal instance fresh (frozen: false, no frozenAnswers) and check a
+    // DIFFERENT sign — simulating the SAME shared modal component now showing plant B.
+    await w.setProps({ open: false });
+    await w.setProps({ frozen: false, frozenAnswers: null, open: true });
+    await w.find('input[value="s2"]').setValue(true);
+    expect((w.find('input[value="s2"]').element as HTMLInputElement).checked).toBe(true);
+
+    // Close B without submitting, then resume A: the REAL component must hydrate from A's frozenAnswers
+    // again, never leaving B's leftover checked state visible under A's frozen, about-to-be-retried modal.
+    await w.setProps({ open: false });
+    await w.setProps({ frozen: true, frozenAnswers: { answer: 'signs', signIds: ['s1'] }, open: true });
+
+    expect((w.find('input[value="s1"]').element as HTMLInputElement).checked).toBe(true);
+    expect((w.find('input[value="s2"]').element as HTMLInputElement).checked).toBe(false);
+
+    await findSubmitButton(w).trigger('click');
+    expect(w.emitted('submit')!.at(-1)![0]).toEqual({ answer: 'signs', signIds: ['s1'] });
+  });
+});

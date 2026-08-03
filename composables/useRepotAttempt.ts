@@ -31,6 +31,36 @@ export interface RepotAttempt<TBody> {
   error: boolean;
 }
 
+// X1. Wave 8 (W1) shared the KEY across renderers but left the TERMINAL OUTCOME — what to do once a
+// request finally succeeds — local to whichever component's own try/catch happened to run it. That is the
+// remaining race: the two renderers are never mounted at the same time (separate routes), but a departed
+// page's in-flight PROMISE keeps running after the owner navigates away. Reachable case: the owner confirms
+// a Done on the Today page, then navigates to the plant's detail page before the request settles. The
+// detail page sees the shared outstanding key (W1) and can open its own Done form frozen, resuming it. The
+// Today request then succeeds: ITS OWN handler deletes the shared attempt and calls ONLY Today's now-dead
+// `refresh()` — the detail page's `doneAttempt` computed goes null (the map entry is gone), so its still-
+// open form silently UNFREEZES, while its own care/history/profile were never refreshed. Confirming again
+// from that stale, unfrozen UI mints a FRESH key and the server records the SAME repot a SECOND time, with
+// the owner never having chosen "start over".
+//
+// The fix: `resolveSuccess` below — the ONLY function that ever clears a live attempt on success — ALSO
+// publishes a per-flow, module-scope COMPLETION signal naming the plant that just completed (and, for a flow
+// that has one, the result — the evaluation flow's verdict; the Done flow has none). Both renderers `watch`
+// the SAME signal (via the `completion` ref returned below), so whichever one is mounted when the request
+// finally settles — the originator or a later one — reacts to the identical event. `seq` is a module-level
+// monotonic counter bumped on every publish, so a SECOND completion for the SAME plant (a later, wholly
+// separate attempt) is always its own distinguishable event for a watcher that fires on every change, never
+// silently conflated with the first just because the fields look alike.
+//
+// `invalidate` (the owner's explicit "start over") deliberately never publishes a completion — abandoning an
+// attempt is not completing it, and conflating the two would let a "start over" masquerade as a success to
+// whichever renderer is watching.
+export interface RepotCompletion<TResult = void> {
+  plantId: string;
+  seq: number;
+  result: TResult;
+}
+
 // W1. `useRepotAttempt(flowKey)` used to create a brand-new Map every time it was CALLED, so
 // `pages/index.vue` (ONE modal instance for the whole Today list) and `PlantDetail.vue` (the second
 // renderer of the identical flows) each ended up owning their OWN, component-lifetime-scoped store — two
@@ -58,8 +88,13 @@ export interface RepotAttempt<TBody> {
 // empty.
 type FlowKey = 'evaluation' | 'done';
 type AnyAttempt = RepotAttempt<unknown>;
+type AnyCompletion = RepotCompletion<unknown>;
 
 const flowStores: Partial<Record<FlowKey, ShallowRef<ReadonlyMap<string, AnyAttempt>>>> = {};
+// X1: one completion signal per flow key, same module-scope-per-flow shape as `flowStores` above — every
+// caller asking for the same flow key (Today, the plant detail page) watches the SAME signal.
+const completionStores: Partial<Record<FlowKey, ShallowRef<AnyCompletion | null>>> = {};
+let completionSeq = 0;
 
 function storeFor(flowKey: FlowKey): ShallowRef<ReadonlyMap<string, AnyAttempt>> {
   const existing = flowStores[flowKey];
@@ -69,18 +104,30 @@ function storeFor(flowKey: FlowKey): ShallowRef<ReadonlyMap<string, AnyAttempt>>
   return created;
 }
 
+function completionStoreFor(flowKey: FlowKey): ShallowRef<AnyCompletion | null> {
+  const existing = completionStores[flowKey];
+  if (existing) return existing;
+  const created = shallowRef<AnyCompletion | null>(null);
+  completionStores[flowKey] = created;
+  return created;
+}
+
 // TEST-ONLY. A module-scope store is a shared-state hazard across test CASES within the same test file (the
 // module is imported once and cached, so its state otherwise leaks from one `it()` into the next) — this
-// resets every flow's store back to a fresh, empty Map. Call it from a `beforeEach` in any test file that
-// mounts a component using this composable. Never called from application code.
+// resets every flow's attempt store AND completion signal back to empty/null. Call it from a `beforeEach` in
+// any test file that mounts a component using this composable. Never called from application code.
 export function __resetRepotAttemptStoresForTests(): void {
   for (const key of Object.keys(flowStores) as FlowKey[]) {
     flowStores[key] = shallowRef(new Map());
   }
+  for (const key of Object.keys(completionStores) as FlowKey[]) {
+    completionStores[key] = shallowRef(null);
+  }
 }
 
-export function useRepotAttempt<TBody>(flowKey: FlowKey) {
+export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   const attempts = storeFor(flowKey) as unknown as ShallowRef<ReadonlyMap<string, RepotAttempt<TBody>>>;
+  const completion = completionStoreFor(flowKey) as unknown as ShallowRef<RepotCompletion<TResult> | null>;
 
   // Starts (or resumes) an attempt for `plantId`. Reuses the CURRENT key AND the CURRENT stored `body` when
   // an attempt is already outstanding for this plant (a same-plant retry must reuse the same idempotency
@@ -114,11 +161,19 @@ export function useRepotAttempt<TBody>(flowKey: FlowKey) {
   // Called on SUCCESS: removes `candidate`'s plant entry entirely (key + body + submitting + error together)
   // IFF `candidate` is still live — a stale/abandoned attempt's own late success must never touch a newer
   // attempt's state, for this plant OR any other.
-  function resolveSuccess(candidate: RepotAttempt<TBody>): void {
+  //
+  // X1: this is also the ONLY place a completion is published — and it happens ONLY inside the `isLive`
+  // branch, so a stale/superseded attempt's late success (isLive false) publishes NOTHING and no watcher
+  // anywhere ever fires for it, exactly like it never touches the attempt map above. `result` is the flow's
+  // terminal payload where one exists (the evaluation verdict); flows with nothing to carry (Done) simply
+  // never pass it, and it reads back as `undefined`.
+  function resolveSuccess(candidate: RepotAttempt<TBody>, result?: TResult): void {
     if (!isLive(candidate)) return;
     const nextMap = new Map(attempts.value);
     nextMap.delete(candidate.plantId);
     attempts.value = nextMap;
+    completionSeq += 1;
+    completion.value = { plantId: candidate.plantId, seq: completionSeq, result: result as TResult };
   }
 
   // Called on FAILURE: marks not-submitting AND errored, but KEEPS the key AND the stored body, IFF
@@ -138,6 +193,9 @@ export function useRepotAttempt<TBody>(flowKey: FlowKey) {
   // explicit "start over" escape hatch. Per-plant and explicit on purpose (U1): opening a DIFFERENT plant's
   // card is no longer a reason to invalidate anything, so the only caller of this function now is the
   // owner's own choice to abandon their OWN outstanding key.
+  //
+  // X1: deliberately does NOT publish a completion. An explicit "start over" abandons the attempt — it does
+  // not complete it — and a watcher reacting to this as if it were a success would be exactly backwards.
   function invalidate(plantId: string): void {
     if (!attempts.value.has(plantId)) return;
     const nextMap = new Map(attempts.value);
@@ -163,5 +221,5 @@ export function useRepotAttempt<TBody>(flowKey: FlowKey) {
     return plantId ? attempts.value.get(plantId) ?? null : null;
   }
 
-  return { attempts, begin, isLive, resolveSuccess, resolveFailure, invalidate, hasKeyFor, attemptFor };
+  return { attempts, completion, begin, isLive, resolveSuccess, resolveFailure, invalidate, hasKeyFor, attemptFor };
 }

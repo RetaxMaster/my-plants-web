@@ -42,13 +42,14 @@ const evaluationPlantId = ref<string | null>(null);
 // different plant's card never discards another plant's entry.
 const {
   attemptFor: evaluationAttemptFor,
+  completion: evaluationCompletion,
   begin: beginEvaluationAttempt,
   isLive: isLiveEvaluationAttempt,
   resolveSuccess: resolveEvaluationSuccess,
   resolveFailure: resolveEvaluationFailure,
   invalidate: invalidateEvaluationAttempt,
   hasKeyFor: hasEvaluationKeyFor,
-} = useRepotAttempt<RepotEvaluationSubmit>('evaluation');
+} = useRepotAttempt<RepotEvaluationSubmit, RepotEvaluationResult>('evaluation');
 const evaluationAttempt = computed(() => evaluationAttemptFor(evaluationPlantId.value));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
@@ -78,6 +79,7 @@ const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }
 // resends it verbatim, regardless of what a fresh read would produce.
 const {
   attemptFor: doneAttemptFor,
+  completion: doneCompletion,
   begin: beginDoneAttempt,
   isLive: isLiveDoneAttempt,
   resolveSuccess: resolveDoneSuccess,
@@ -249,26 +251,14 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   const attempt = beginEvaluationAttempt(plantId, body);
   try {
     const result = await api.submitRepotEvaluation(plantId, attempt.body, attempt.key);
-    // Stale-attempt guard (same class as the signs-fetch race, F4, above): if this plant's OWN key was
-    // superseded by "start over" or a newer submit for the SAME plant while this request was in flight, its
-    // response belongs to an ABANDONED attempt and must be ignored entirely, never touching this plant's
-    // now-active attempt state.
-    if (!isLiveEvaluationAttempt(attempt)) return;
-    // Clear the WHOLE attempt (key + body + submitting together) here, before `await refresh()` below —
-    // never in a deferred `finally` — so a newer attempt started during that refresh can never be clobbered
-    // by this one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure
-    // mode). This always runs for THIS plant, independent of the shared-modal target check below.
-    resolveEvaluationSuccess(attempt); // discarded on success; never reused again
-    // Shared-UI guard: only touch the ONE shared modal/verdict if it is STILL showing this plant — the owner
-    // may have already opened a DIFFERENT plant's card while this request was in flight (U1: that no longer
-    // discards this plant's attempt, but it also must not let this late response hijack whatever the modal
-    // is showing now).
-    if (evaluationPlantId.value === plantId) {
-      evaluationOpen.value = false;
-      verdict.value = result;
-      verdictOpen.value = true;
-    }
-    await refresh();
+    // X1: `resolveEvaluationSuccess` is the ONLY place that clears the attempt AND publishes the flow's
+    // completion signal (naming this plant + the verdict) — it already no-ops both (clears nothing,
+    // publishes nothing) when `attempt` is no longer live, so there is no separate staleness check to
+    // duplicate here any more (the old `isLiveEvaluationAttempt` guard this replaced governed exactly that).
+    // Closing the modal, showing the verdict, and refreshing the today list are handled EXCLUSIVELY by the
+    // completion watcher below — see its own comment for why that is the SINGLE owner of that effect, on
+    // both this renderer and PlantDetail.vue, so neither one can double-handle its own completion.
+    resolveEvaluationSuccess(attempt, result);
   } catch {
     if (!isLiveEvaluationAttempt(attempt)) return;
     // Key AND stored body deliberately kept (not cleared) on failure: a lost-response retry must reuse
@@ -291,6 +281,25 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
 function onEvaluationStartOver() {
   if (evaluationPlantId.value) invalidateEvaluationAttempt(evaluationPlantId.value);
 }
+
+// X1: the flow's TERMINAL OUTCOME, shared across renderers via `useRepotAttempt.ts`'s module-scope
+// `completion` signal — published by `resolveEvaluationSuccess` the instant a LIVE submit succeeds,
+// regardless of which renderer's own request produced it. Both this page and PlantDetail.vue watch the SAME
+// signal, so a submit confirmed here, whose response only settles after the owner has navigated to the
+// plant's detail page, still closes THAT page's own modal and refreshes ITS OWN data — the race X1 exists to
+// close (a departed page's promise keeps running after navigation). THIS WATCHER IS THE SINGLE OWNER of
+// "close the modal / show the verdict / refresh the today list" for a successful submit: `onEvaluationSubmit`
+// above no longer does any of it inline, so the SAME renderer that originated the request cannot
+// double-handle it either. `invalidate()` (the "start over" escape hatch) never publishes a completion, so
+// abandoning an attempt can never be mistaken for completing one here.
+watch(evaluationCompletion, async (completion) => {
+  if (!completion) return;
+  if (completion.plantId !== evaluationPlantId.value) return; // not the plant THIS renderer is showing
+  evaluationOpen.value = false;
+  verdict.value = completion.result;
+  verdictOpen.value = true;
+  await refresh();
+});
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
 // 'REPOT' verdict is pending — see TaskRow's showEvaluate).
@@ -367,24 +376,11 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   });
   try {
     await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
-    // Stale-attempt guard (same class as onEvaluationSubmit's, F4/Y1): if this plant's OWN key was
-    // superseded by "start over" or a newer confirm for the SAME plant while this request was in flight, its
-    // response belongs to an ABANDONED attempt and must be ignored entirely, never touching this plant's
-    // now-active attempt state.
-    if (!isLiveDoneAttempt(attempt)) return;
-    // Clear the WHOLE attempt (key + body + submitting together) here, before `await refresh()` below —
-    // never in a deferred `finally` — so a newer attempt started during that refresh can never be clobbered
-    // by this one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure
-    // mode). This always runs for THIS plant, independent of the shared-form target check below.
-    resolveDoneSuccess(attempt); // discarded on success; never reused again
-    // Shared-UI guard (same reasoning as onEvaluationSubmit's): only close the ONE shared Done form if it is
-    // STILL showing this plant — the owner may have already opened a DIFFERENT plant's Done form while this
-    // request was in flight (U1: that no longer discards this plant's attempt, but it also must not let this
-    // late response hijack whatever the form is showing now).
-    if (doneFormPlantId.value === plantId) {
-      doneFormOpen.value = false;
-    }
-    await refresh();
+    // X1: same reasoning as onEvaluationSubmit's identical comment above — `resolveDoneSuccess` is the ONLY
+    // place that clears the attempt AND publishes the completion signal (the Done flow has no verdict to
+    // carry, so its completion names only the plant), and it already no-ops both when `attempt` is no longer
+    // live. Closing the form and refreshing the today list are the completion watcher's job alone, below.
+    resolveDoneSuccess(attempt);
   } catch {
     if (!isLiveDoneAttempt(attempt)) return;
     // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit. W2: no
@@ -400,6 +396,16 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
 function onRepotDoneStartOver() {
   if (doneFormPlantId.value) invalidateDoneAttempt(doneFormPlantId.value);
 }
+
+// X1: the Done flow's sibling to the evaluation completion watcher above — see its comment for the full
+// reasoning (the same cross-renderer race, the same single-owner rule). The Done flow has no verdict to
+// show, so this watcher's only job is closing the form and refreshing the today list.
+watch(doneCompletion, async (completion) => {
+  if (!completion) return;
+  if (completion.plantId !== doneFormPlantId.value) return; // not the plant THIS renderer is showing
+  doneFormOpen.value = false;
+  await refresh();
+});
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
 // known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the

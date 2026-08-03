@@ -56,13 +56,14 @@ const evaluationSigns = ref<RepotSign[]>([]);
 // page for this plant is visible (and resumable) here, and vice versa.
 const {
   attemptFor: evaluationAttemptFor,
+  completion: evaluationCompletion,
   begin: beginEvaluationAttempt,
   isLive: isLiveEvaluationAttempt,
   resolveSuccess: resolveEvaluationSuccess,
   resolveFailure: resolveEvaluationFailure,
   invalidate: invalidateEvaluationAttempt,
   hasKeyFor: hasEvaluationKeyFor,
-} = useRepotAttempt<RepotEvaluationSubmit>('evaluation');
+} = useRepotAttempt<RepotEvaluationSubmit, RepotEvaluationResult>('evaluation');
 const evaluationAttempt = computed(() => evaluationAttemptFor(id));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
@@ -84,6 +85,7 @@ const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }
 // verbatim, regardless of what a fresh read would produce.
 const {
   attemptFor: doneAttemptFor,
+  completion: doneCompletion,
   begin: beginDoneAttempt,
   isLive: isLiveDoneAttempt,
   resolveSuccess: resolveDoneSuccess,
@@ -605,15 +607,14 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   const attempt = beginEvaluationAttempt(id, body);
   try {
     const result = await api.submitRepotEvaluation(id, attempt.body, attempt.key);
-    if (!isLiveEvaluationAttempt(attempt)) return;
-    // Clear the WHOLE attempt (key + submitting together) here, before the awaited refresh below — never
-    // in a deferred `finally` — so a newer attempt started during that refresh can never be clobbered by
-    // this one's own bookkeeping once it finally resolves (round-5 finding V1).
-    resolveEvaluationSuccess(attempt); // discarded on success; never reused again
-    evaluationOpen.value = false;
-    verdict.value = result;
-    verdictOpen.value = true;
-    await Promise.all([refresh(), refreshHistory()]);
+    // X1: same reasoning as pages/index.vue's identical comment — `resolveEvaluationSuccess` is the ONLY
+    // place that clears the attempt AND publishes the flow's completion signal (naming this plant + the
+    // verdict), and it already no-ops both when `attempt` is no longer live, so there is no separate
+    // staleness check to duplicate here any more. Closing the modal, showing the verdict, and refreshing
+    // care/history are handled EXCLUSIVELY by the completion watcher below — see its own comment for why
+    // that is the SINGLE owner of that effect, on both this renderer and pages/index.vue, so neither one can
+    // double-handle its own completion.
+    resolveEvaluationSuccess(attempt, result);
   } catch {
     if (!isLiveEvaluationAttempt(attempt)) return;
     // Key AND stored body deliberately kept (not cleared) on failure: a lost-response retry must reuse
@@ -633,6 +634,28 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
 function onEvaluationStartOver() {
   invalidateEvaluationAttempt(id);
 }
+
+// X1: the flow's TERMINAL OUTCOME, shared across renderers via `useRepotAttempt.ts`'s module-scope
+// `completion` signal — published by `resolveEvaluationSuccess` the instant a LIVE submit succeeds,
+// regardless of which renderer's own request produced it. This component and pages/index.vue watch the SAME
+// signal, so a submit confirmed on the Today page, whose response only settles after the owner has
+// navigated here, still closes THIS page's own modal and refreshes ITS OWN data — the race X1 exists to
+// close (a departed page's promise keeps running after navigation). THIS WATCHER IS THE SINGLE OWNER of
+// "close the modal / show the verdict / refresh care+history" for a successful submit: `onEvaluationSubmit`
+// above no longer does any of it inline, so this SAME renderer cannot double-handle its own completion
+// either. `invalidateEvaluationAttempt` (the "start over" escape hatch) never publishes a completion, so
+// abandoning an attempt can never be mistaken for completing one here. This component is pinned to one
+// plant's `id` for its whole lifetime, so the plant-match check below is really "is this MY plant's
+// completion" rather than "which plant is the shared modal currently showing" (pages/index.vue's version) —
+// same seam, same guard, just against a fixed id instead of a movable one.
+watch(evaluationCompletion, async (completion) => {
+  if (!completion) return;
+  if (completion.plantId !== id) return; // a foreign plant's completion — not this page, ignore it
+  evaluationOpen.value = false;
+  verdict.value = completion.result;
+  verdictOpen.value = true;
+  await Promise.all([refresh(), refreshHistory()]);
+});
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
 // 'REPOT' verdict is pending — see TaskRow's showEvaluate).
@@ -684,16 +707,12 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   });
   try {
     await api.completeRepot(id, attempt.body.occurredOn, attempt.body.payload, attempt.key);
-    if (!isLiveDoneAttempt(attempt)) return;
-    // Clear the WHOLE attempt (key + body + submitting together) here, before the awaited refreshes below —
-    // never in a deferred `finally` — so a newer attempt started during those refreshes can never be
-    // clobbered by this one's own bookkeeping once it finally resolves (round-5 finding V1).
-    resolveDoneSuccess(attempt); // discarded on success; never reused again
-    doneFormOpen.value = false;
-    // A REPOT completion WRITES the plant's profile (potSizeCm, soilMix) and derives a new lastRepottedOn —
-    // fields this page renders off plant.value.profile/derived (NOT off care), so refreshPlant() must run
-    // here too, unlike sendDone()/onEvaluationSubmit() above which never touch the profile.
-    await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
+    // X1: same reasoning as onEvaluationSubmit's identical comment above — `resolveDoneSuccess` is the ONLY
+    // place that clears the attempt AND publishes the completion signal (the Done flow has no verdict to
+    // carry, so its completion names only the plant), and it already no-ops both when `attempt` is no longer
+    // live. Closing the form and refreshing care/history/the plant's own profile are the completion
+    // watcher's job alone, below.
+    resolveDoneSuccess(attempt);
   } catch {
     if (!isLiveDoneAttempt(attempt)) return;
     // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit. W2:
@@ -708,6 +727,19 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
 function onRepotDoneStartOver() {
   invalidateDoneAttempt(id);
 }
+
+// X1: the Done flow's sibling to the evaluation completion watcher above — see its comment for the full
+// reasoning (the same cross-renderer race, the same single-owner rule, the same fixed-`id` plant-match
+// check). The Done flow has no verdict to show, so this watcher's only job is closing the form and
+// refreshing care/history/the plant's own profile — a REPOT completion writes potSizeCm/soilMix and derives
+// a new lastRepottedOn, fields this page renders off plant.value.profile/derived, so refreshPlant() runs here
+// too, unlike the evaluation watcher above which never touches the profile.
+watch(doneCompletion, async (completion) => {
+  if (!completion) return;
+  if (completion.plantId !== id) return; // a foreign plant's completion — not this page, ignore it
+  doneFormOpen.value = false;
+  await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
+});
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
 // known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the

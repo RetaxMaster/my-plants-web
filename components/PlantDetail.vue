@@ -611,6 +611,13 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   }
 }
 
+// Explicit escape hatch for the Done form (code review finding Y2, mirrors onEvaluationStartOver above):
+// abandons the outstanding doneKey so the form unfreezes and a later confirm mints a fresh one.
+function onRepotDoneStartOver() {
+  doneKey.value = null;
+  repotError.value = false;
+}
+
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
 // known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the
 // same verdict row instead of leaving it open.
@@ -1120,7 +1127,9 @@ async function confirmRevive() {
       :current-soil-mix="doneFormProfile.soilMix"
       :submitting="doneFormSubmitting"
       :error="repotError ? $t('repotEval.errorPending') : null"
+      :frozen="!!doneKey"
       @confirm="onRepotDoneConfirm"
+      @start-over="onRepotDoneStartOver"
     />
 
     <!-- Lifecycle transition modals (Plant Lifecycle feature, Task 30). -->

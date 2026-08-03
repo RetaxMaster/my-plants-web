@@ -19,9 +19,17 @@ const props = defineProps<{
   currentSoilMix: string | null;
   submitting?: boolean;
   error?: string | null;
+  /** Same contract as RepotEvaluationModal.vue's `frozen` (code review finding Y2 — this form had the exact
+   * idempotency defect already fixed there): true from the moment a confirm is first attempted until it
+   * succeeds or the owner explicitly starts over. While frozen the inputs are disabled, so a retry (the
+   * same confirm button) resends the EXACT same body — pot size, soil mix and the fresh-substrate toggle
+   * never change under an outstanding key. Without this, a failed/lost-response retry after the owner
+   * edited a field would resend the SAME idempotency key with a DIFFERENT body, which the server's global
+   * idempotency interceptor answers 422 forever. */
+  frozen?: boolean;
 }>();
 const open = defineModel<boolean>('open', { default: false });
-const emit = defineEmits<{ confirm: [payload: Omit<RepotDonePayload, 'evaluationId'>] }>();
+const emit = defineEmits<{ confirm: [payload: Omit<RepotDonePayload, 'evaluationId'>]; 'start-over': [] }>();
 
 const { t } = useI18n();
 // Same vocabulary as PlantProfileModal.vue's soil-mix select — built from the shared package's slug list,
@@ -39,10 +47,15 @@ const soilMix = ref<string>('');
 const substrate = ref<'fresh' | 'reused'>('fresh');
 
 watch(open, (isOpen) => {
-  if (!isOpen) return;
-  potSizeCm.value = props.currentPotSizeCm ?? '';
-  soilMix.value = props.currentSoilMix ?? soilMixOptions.value[0]?.value ?? '';
-  substrate.value = 'fresh';
+  // While frozen, an open->true transition is a RESUME after the owner closed the form (X/Escape/backdrop)
+  // without resolving the outstanding confirm — not a fresh attempt. Resetting the fields here would defeat
+  // the freeze: the retry (the same confirm button) must recompute the EXACT same body the outstanding key
+  // was minted for. Mirrors RepotEvaluationModal.vue's identical `watch(open, ...)` guard.
+  if (isOpen && !props.frozen) {
+    potSizeCm.value = props.currentPotSizeCm ?? '';
+    soilMix.value = props.currentSoilMix ?? soilMixOptions.value[0]?.value ?? '';
+    substrate.value = 'fresh';
+  }
 });
 
 const canConfirm = computed(
@@ -70,26 +83,27 @@ function onConfirm() {
     <p class="mp-repotdone__intro">{{ t('repotDone.intro') }}</p>
 
     <FormGroup :label="t('repotDone.potSize')" :hint="t('repotDone.potSizeHint')">
-      <Input v-model.number="potSizeCm" type="number" min="1" step="1" />
+      <Input v-model.number="potSizeCm" type="number" min="1" step="1" :disabled="frozen" />
     </FormGroup>
     <Button
       size="xs"
       variant="ghost"
       color="neutral"
       class="mp-repotdone__sameasbefore"
-      :disabled="currentPotSizeCm === null"
+      :disabled="frozen || currentPotSizeCm === null"
       @click="potSizeCm = currentPotSizeCm ?? ''"
     >
       {{ t('repotDone.sameAsBefore') }}
     </Button>
 
     <FormGroup :label="t('repotDone.soilMix')">
-      <SelectField v-model="soilMix" :options="soilMixOptions" />
+      <SelectField v-model="soilMix" :options="soilMixOptions" :disabled="frozen" />
     </FormGroup>
 
     <FormGroup :label="t('repotDone.substrate')">
       <SegmentedControl
         v-model="substrate"
+        :disabled="frozen"
         :options="[
           { key: 'fresh', label: t('repotDone.substrateFresh') },
           { key: 'reused', label: t('repotDone.substrateReused') },
@@ -98,6 +112,12 @@ function onConfirm() {
     </FormGroup>
 
     <template #footer>
+      <!-- Only offered once there is something to recover FROM (mirrors RepotEvaluationModal.vue): a
+           frozen form with no error yet is simply an in-flight confirm, where the right action is to wait,
+           not to abandon it. -->
+      <Button v-if="frozen && error" variant="soft" color="neutral" @click="emit('start-over')">
+        {{ t('repotEval.startOver') }}
+      </Button>
       <Button color="primary" icon="check" :disabled="!canConfirm" :loading="submitting" @click="onConfirm">
         {{ t('repotDone.confirm') }}
       </Button>

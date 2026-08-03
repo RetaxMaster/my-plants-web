@@ -176,16 +176,36 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   const plantId = evaluationPlantId.value;
   if (!plantId) return;
   if (!evaluationKey.value) evaluationKey.value = crypto.randomUUID();
+  // Capture the exact attempt this request belongs to (round-3/adversarial finding Y1): this ONE modal
+  // instance serves EVERY plant card on the page, so switching cards while a submit is in flight abandons
+  // the request without cancelling it. Its response still arrives later, and without this pair the
+  // try/catch/finally below would apply it to whatever plant/key is active BY THEN — clobbering a different
+  // plant's outstanding key, closing that plant's modal, or showing this plant's stale verdict over it.
+  const attemptPlantId = plantId;
+  const attemptKey = evaluationKey.value;
   evaluationSubmitting.value = true;
   repotError.value = false;
+  // Whether THIS attempt is still the active one at the moment its response arrives — captured ONCE into a
+  // local, rather than re-derived from the refs in `finally`: the success branch below deliberately nulls
+  // `evaluationKey` on its own current attempt, so re-checking `evaluationKey.value === attemptKey` in
+  // `finally` would wrongly read even the attempt that just succeeded as "stale".
+  let isCurrentAttempt = false;
   try {
-    const result = await api.submitRepotEvaluation(plantId, body, evaluationKey.value);
+    const result = await api.submitRepotEvaluation(plantId, body, attemptKey);
+    // Stale-attempt guard (same class as the signs-fetch race, F4, above): if the owner moved on — a
+    // different plant's evaluate was clicked, or this plant's key was superseded by "start over" — while
+    // this request was in flight, its response belongs to an ABANDONED attempt and must be ignored
+    // entirely, never touching the now-active attempt's state.
+    isCurrentAttempt = evaluationPlantId.value === attemptPlantId && evaluationKey.value === attemptKey;
+    if (!isCurrentAttempt) return;
     evaluationKey.value = null; // discarded on success; never reused again
     evaluationOpen.value = false;
     verdict.value = result;
     verdictOpen.value = true;
     await refresh();
   } catch {
+    isCurrentAttempt = evaluationPlantId.value === attemptPlantId && evaluationKey.value === attemptKey;
+    if (!isCurrentAttempt) return;
     // Key deliberately kept (not cleared) on failure: a lost-response retry must reuse the same key, per
     // the stable-idempotency-key rule. The modal stays open so the owner can see the error and retry the
     // SAME submission rather than silently losing it. The modal freezes its inputs for exactly as long as
@@ -193,7 +213,9 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
     // a same-key/different-body retry, which the server's idempotency interceptor answers 422 forever.
     repotError.value = true;
   } finally {
-    evaluationSubmitting.value = false;
+    // Only the still-active attempt may clear the submitting flag — an abandoned attempt's finally must
+    // not stomp the loading state of whatever attempt (same plant retried, or a different plant) replaced it.
+    if (isCurrentAttempt) evaluationSubmitting.value = false;
   }
 }
 
@@ -241,6 +263,13 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   } finally {
     doneFormSubmitting.value = false;
   }
+}
+
+// Explicit escape hatch for the Done form (code review finding Y2, mirrors onEvaluationStartOver above):
+// abandons the outstanding doneKey so the form unfreezes and a later confirm mints a fresh one.
+function onRepotDoneStartOver() {
+  doneKey.value = null;
+  repotError.value = false;
 }
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
@@ -414,7 +443,9 @@ function openProgress(plantId: string) {
       :current-soil-mix="doneFormProfile.soilMix"
       :submitting="doneFormSubmitting"
       :error="repotError ? $t('repotEval.errorPending') : null"
+      :frozen="!!doneKey"
       @confirm="onRepotDoneConfirm"
+      @start-over="onRepotDoneStartOver"
     />
   </div>
 </template>

@@ -4,18 +4,20 @@
 // compact look; the default `md` matches the design bundle's `.mp-seg`.
 defineOptions({ inheritAttrs: false });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     options: { key: string; label: string }[];
     ariaLabel?: string;
     size?: 'sm' | 'md';
+    disabled?: boolean;
   }>(),
-  { size: 'md' },
+  { size: 'md', disabled: false },
 );
 
 const model = defineModel<string>({ required: true });
 
 function choose(key: string) {
+  if (props.disabled) return;
   if (key !== model.value) model.value = key;
 }
 </script>
@@ -26,6 +28,7 @@ function choose(key: string) {
       v-for="o in options"
       :key="o.key"
       type="button"
+      :disabled="disabled"
       :class="{ on: o.key === model }"
       :aria-pressed="o.key === model"
       @click="choose(o.key)"
@@ -65,5 +68,9 @@ function choose(key: string) {
 .mp-seg button:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
+}
+.mp-seg button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 </style>

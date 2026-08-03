@@ -54,7 +54,7 @@ function mountRow(props: Record<string, unknown> = {}) {
 }
 
 describe('UiTaskRow — the REPOT showEvaluate state machine (repoteval:27, F1 regression coverage)', () => {
-  it('a caller that OMITS pendingVerdict entirely (PlantDetail.vue\'s exact shape) gets classic Done/Postpone, NOT "time to evaluate"', () => {
+  it('a caller that OMITS pendingVerdict entirely (a generic not-yet-migrated consumer — no real call site has this shape today) gets classic Done/Postpone, NOT "time to evaluate"', () => {
     const w = mountRow(); // no pendingVerdict prop at all — undefined
     const buttons = w.findAll('.stub-btn');
     const icons = buttons.map((b) => b.attributes('data-icon'));

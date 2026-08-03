@@ -385,3 +385,64 @@ describe('Z2 — the completion signal must not be LOSSY across PlantDetail\'s o
     expect(getPlantHistoryMock.mock.calls.length).toBeGreaterThan(1);
   });
 });
+
+// R11-1: the composable-level test in useRepotAttempt.test.ts already proves the LOG itself retains both
+// records of a two-plant burst. This is the renderer-level sibling — the actual PlantDetail component,
+// pinned to ONE plant for its whole lifetime, must still notice ITS OWN completion when it lands in the same
+// burst as a DIFFERENT plant's, not just whichever one happens to be last. Two attempts are begun directly
+// through the shared module-scope 'done' store (the same store a Today confirm on each of two different
+// plants would leave outstanding), never via mounting Today — the only thing this test needs from the burst
+// is that both plants have a live attempt when they resolve.
+describe('R11-1 — cross-renderer: a burst of two same-flow completions must not let the SECOND plant\'s ' +
+  'completion overwrite the FIRST plant\'s for a live renderer', () => {
+  it('detail page\'s own-plant completion, resolved FIRST in a two-plant back-to-back burst, still closes ' +
+    'its form and reconciles its own care/history — never silently swallowed by the OTHER plant\'s ' +
+    'completion landing right after', async () => {
+    const handle =
+      useRepotAttempt<{ occurredOn: string; payload: { potSizeCm: number; soilMix: string } }>('done');
+    const ownAttempt = handle.begin('p1', { occurredOn: '2026-01-01', payload: { potSizeCm: 22, soilMix: 'cactus-mix' } });
+    const otherAttempt = handle.begin('p2', { occurredOn: '2026-01-01', payload: { potSizeCm: 18, soilMix: 'potting-mix' } });
+
+    const detail = await mountDetail();
+
+    // The detail page's own "Done" click sees the shared outstanding key for ITS OWN plant (p1) and resumes
+    // it frozen — same resume proof the first describe block above already pins.
+    await detail.find('.done-btn').trigger('click');
+    await flushPromises();
+    expect(detail.find('.done-form').attributes('data-open')).toBe('true');
+    expect(detail.find('.done-form').attributes('data-frozen')).toBe('true');
+
+    const careReadsBeforeCompletion = getPlantCareMock.mock.calls.length;
+    const historyReadsBeforeCompletion = getPlantHistoryMock.mock.calls.length;
+
+    // Both attempts resolve from the SAME network tick: their continuations run in two consecutive
+    // microtasks, strictly less time than a Vue watcher flush — the exact shape the composable-level test
+    // measures the bug with. The detail page's OWN plant (p1) resolves FIRST and the other plant (p2)
+    // resolves SECOND: under the old single-latest-value ref this is exactly the ordering that makes p1's
+    // record the one overwritten before any watcher ever observes it.
+    await Promise.all([
+      Promise.resolve().then(() => { handle.resolveSuccess(ownAttempt); }),
+      Promise.resolve().then(() => { handle.resolveSuccess(otherAttempt); }),
+    ]);
+    await flushPromises();
+
+    // The detail page's own form still closes and its own care/history reconcile — the own-plant completion
+    // was NOT swallowed by the other plant's completion landing in the same burst.
+    expect(detail.find('.done-form').attributes('data-open')).toBe('false');
+    expect(getPlantCareMock.mock.calls.length).toBeGreaterThan(careReadsBeforeCompletion);
+    expect(getPlantHistoryMock.mock.calls.length).toBeGreaterThan(historyReadsBeforeCompletion);
+
+    // The attempt is genuinely cleared, not just visually unfrozen while still open: reopening is a FRESH,
+    // unfrozen form, and confirming it mints a key different from the one the original (now-completed)
+    // attempt held — never a resubmission of a repot the server already recorded.
+    await detail.find('.done-btn').trigger('click');
+    await flushPromises();
+    expect(detail.find('.done-form').attributes('data-frozen')).toBe('false');
+    await detail.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const key = completeRepotMock.mock.calls[0]![3];
+    expect(key).toBeTruthy();
+    expect(key).not.toBe(ownAttempt.key);
+  });
+});

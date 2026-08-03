@@ -5,6 +5,7 @@
 // the composable directly (no Vue component involved) to pin that guarantee at its source, independent of
 // which renderer (Today page or plant detail) happens to be asking.
 import { describe, it, expect, beforeEach } from 'vitest';
+import { nextTick } from 'vue';
 import { useRepotAttempt, __resetRepotAttemptStoresForTests } from './useRepotAttempt';
 
 beforeEach(() => {
@@ -106,80 +107,167 @@ describe('useRepotAttempt — W2: the mutation-failure state (`error`) lives on 
   });
 });
 
-describe('useRepotAttempt — X1: resolveSuccess publishes a completion signal, invalidate() never does', () => {
+describe('useRepotAttempt — X1/R11-1: completions are an ordered LOG drained through subscribeCompletions', () => {
+  // Every test here consumes completions the ONLY way the renderers do — `subscribeCompletions`. There is no
+  // second read path any more (the old `completion` ref is gone), so a test cannot pass against a seam the
+  // product does not use.
+  function collector<TResult>(handle: { subscribeCompletions: (h: (c: { plantId: string; seq: number; result: TResult }) => void) => void }) {
+    const seen: { plantId: string; seq: number; result: TResult }[] = [];
+    handle.subscribeCompletions((c) => { seen.push(c); });
+    return seen;
+  }
+
   it('resolveSuccess publishes a completion naming the plant and carrying the result, visible through a ' +
     'SECOND, independently obtained handle for the SAME flow key — the exact shape of pages/index.vue and ' +
-    "PlantDetail.vue both watching useRepotAttempt('evaluation')'s completion", () => {
+    "PlantDetail.vue both consuming useRepotAttempt('evaluation')'s completions", async () => {
     const rendererA = useRepotAttempt<{ answer: string }, { verdict: string }>('evaluation');
     const rendererB = useRepotAttempt<{ answer: string }, { verdict: string }>('evaluation');
+    const seenByB = collector(rendererB);
 
-    expect(rendererB.completion.value).toBeNull(); // nothing published yet
+    expect(seenByB).toEqual([]); // nothing published yet
 
     const attempt = rendererA.begin('plant-1', { answer: 'no-signs' });
     rendererA.resolveSuccess(attempt, { verdict: 'REPOT' });
+    await nextTick(); // the LIVE path is a watcher flush; the catch-up drain is the synchronous one
 
-    // The SECOND handle sees the SAME completion — not null, not a separate signal.
-    expect(rendererB.completion.value).not.toBeNull();
-    expect(rendererB.completion.value!.plantId).toBe('plant-1');
-    expect(rendererB.completion.value!.result).toEqual({ verdict: 'REPOT' });
+    // The SECOND handle receives the SAME completion — not silence, not a separate signal.
+    expect(seenByB).toHaveLength(1);
+    expect(seenByB[0]!.plantId).toBe('plant-1');
+    expect(seenByB[0]!.result).toEqual({ verdict: 'REPOT' });
+  });
+
+  // R11-1 — THE REGRESSION THIS WHOLE REDESIGN EXISTS FOR. Under the previous single-latest-value ref this
+  // was measured directly: two resolveSuccess calls in back-to-back microtasks delivered ONE event, for the
+  // SECOND plant only, and plant A's completion was gone with no trace. On PlantDetail — pinned to plant A —
+  // that meant no refresh and no modal close while A's attempt had already been deleted, so the form
+  // unfroze and confirming again minted a fresh idempotency key over a write the server had already made.
+  it('TWO completions of the same flow landing back-to-back are BOTH delivered, oldest first — a burst can ' +
+    'never coalesce into "only the last one happened"', async () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+    const seen = collector(handle);
+
+    const a = handle.begin('plant-A', { v: 1 });
+    const b = handle.begin('plant-B', { v: 2 });
+
+    // Two in-flight requests whose responses arrive from the same network tick: their continuations run in
+    // two consecutive microtasks, which is strictly less time than a Vue watcher flush.
+    await Promise.all([
+      Promise.resolve().then(() => { handle.resolveSuccess(a, 'verdict-A'); }),
+      Promise.resolve().then(() => { handle.resolveSuccess(b, 'verdict-B'); }),
+    ]);
+    await nextTick();
+
+    expect(seen.map((c) => c.plantId)).toEqual(['plant-A', 'plant-B']);
+    expect(seen.map((c) => c.result)).toEqual(['verdict-A', 'verdict-B']);
+  });
+
+  it('a subscriber that registers LATE — after the completions were already published, the async-setup gap — ' +
+    'still receives every record published since its handle was obtained, in order', () => {
+    // `useRepotAttempt()` is what captures the cursor, exactly as a renderer calls it at the top of setup,
+    // BEFORE its own top-level awaits. Everything published after that line is this consumer's backlog.
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+
+    const a = handle.begin('plant-A', { v: 1 });
+    handle.resolveSuccess(a, 'A');
+    const b = handle.begin('plant-B', { v: 2 });
+    handle.resolveSuccess(b, 'B');
+
+    // Only NOW does the consumer subscribe — the shape of a renderer registering after `await useAsyncData`.
+    const seen = collector(handle);
+
+    expect(seen.map((c) => c.plantId)).toEqual(['plant-A', 'plant-B']);
+  });
+
+  it('a consumer whose handle was obtained AFTER a completion never receives it — history predating a ' +
+    'renderer is not replayed onto it on some unrelated later mount', () => {
+    const earlier = useRepotAttempt<{ v: number }, string>('done');
+    const a = earlier.begin('plant-A', { v: 1 });
+    earlier.resolveSuccess(a, 'A');
+
+    // A NEW renderer mounting later: its cursor starts at the log's current head.
+    const later = useRepotAttempt<{ v: number }, string>('done');
+    const seen = collector(later);
+
+    expect(seen).toEqual([]);
+  });
+
+  it('no record is ever delivered twice to the same consumer, across the catch-up drain and the live watch', async () => {
+    const handle = useRepotAttempt<{ v: number }, string>('done');
+    const a = handle.begin('plant-A', { v: 1 });
+    handle.resolveSuccess(a, 'A'); // published BEFORE subscribing -> arrives via the catch-up drain
+
+    const seen = collector(handle);
+    expect(seen).toHaveLength(1);
+
+    const b = handle.begin('plant-B', { v: 2 });
+    handle.resolveSuccess(b, 'B'); // published AFTER subscribing -> arrives via the live watch
+    await nextTick();
+
+    expect(seen.map((c) => c.plantId)).toEqual(['plant-A', 'plant-B']); // A exactly once, not twice
   });
 
   it('a completion for a plant that is NOT live (already superseded by "start over") is never published — ' +
-    'a stale success must not be mistaken for a completion by any watcher', () => {
+    'a stale success must not be mistaken for a completion by any consumer', () => {
     const handle = useRepotAttempt<{ v: number }, string>('done');
+    const seen = collector(handle);
     const attempt = handle.begin('plant-1', { v: 1 });
     handle.invalidate('plant-1'); // the owner's explicit "start over" — attempt is no longer live
 
     handle.resolveSuccess(attempt, 'ignored'); // a late response for the now-abandoned attempt
 
-    expect(handle.completion.value).toBeNull();
+    expect(seen).toEqual([]);
   });
 
   it('invalidate() (the "start over" escape hatch) itself never publishes a completion, even though it ' +
     'discards the attempt exactly like a success would', () => {
     const handle = useRepotAttempt<{ v: number }, string>('done');
+    const seen = collector(handle);
     handle.begin('plant-1', { v: 1 });
     handle.invalidate('plant-1');
 
-    expect(handle.completion.value).toBeNull();
+    expect(seen).toEqual([]);
   });
 
-  it('each publish carries a monotonically increasing `seq`, so a SECOND completion for the SAME plant is ' +
-    'always its own distinguishable event, never conflated with the first', () => {
+  it('each record carries a monotonically increasing `seq`, so a SECOND completion for the SAME plant is ' +
+    'always its own distinguishable record, never conflated with the first', async () => {
     const handle = useRepotAttempt<{ v: number }, string>('done');
+    const seen = collector(handle);
 
     const first = handle.begin('plant-1', { v: 1 });
     handle.resolveSuccess(first, 'first');
-    const firstSeq = handle.completion.value!.seq;
 
     const second = handle.begin('plant-1', { v: 2 }); // a wholly separate, later attempt for the same plant
     handle.resolveSuccess(second, 'second');
+    await nextTick();
 
-    expect(handle.completion.value!.seq).toBeGreaterThan(firstSeq);
-    expect(handle.completion.value!.result).toBe('second');
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.seq).toBeGreaterThan(seen[0]!.seq);
+    expect(seen.map((c) => c.result)).toEqual(['first', 'second']);
   });
 
-  it("does NOT share the completion signal across DIFFERENT flow keys — 'evaluation' and 'done' stay two " +
-    'separate signals', () => {
+  it("does NOT share completions across DIFFERENT flow keys — 'evaluation' and 'done' stay two separate logs", () => {
     const evaluationHandle = useRepotAttempt<{ answer: string }, string>('evaluation');
     const doneHandle = useRepotAttempt<{ occurredOn: string }, string>('done');
+    const seenByDone = collector(doneHandle);
 
     const attempt = evaluationHandle.begin('plant-1', { answer: 'no-signs' });
     evaluationHandle.resolveSuccess(attempt, 'REPOT');
 
-    expect(doneHandle.completion.value).toBeNull();
+    expect(seenByDone).toEqual([]);
   });
 
-  it('__resetRepotAttemptStoresForTests clears the completion signal too, not just the attempt map', () => {
+  it('__resetRepotAttemptStoresForTests clears the completion LOG too, not just the attempt map', async () => {
     const handle = useRepotAttempt<{ v: number }, string>('done');
+    const seen = collector(handle);
     const attempt = handle.begin('plant-1', { v: 1 });
     handle.resolveSuccess(attempt, 'done');
-    expect(handle.completion.value).not.toBeNull();
+    await nextTick();
+    expect(seen).toHaveLength(1);
 
     __resetRepotAttemptStoresForTests();
 
-    // A fresh handle for the same flow key reads a clean signal, not the previous test's leftover.
+    // A fresh handle for the same flow key reads a clean log, not the previous test's leftover.
     const freshHandle = useRepotAttempt<{ v: number }, string>('done');
-    expect(freshHandle.completion.value).toBeNull();
+    expect(collector(freshHandle)).toEqual([]);
   });
 });

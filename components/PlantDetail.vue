@@ -16,7 +16,7 @@ import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 // FIRST renderer of the same REPOT flows) share ONE attempt-tracking implementation instead of two
 // separately-maintained copies (the fourth time in this review a fix landed on one of these files and not
 // its sibling — see the composable's own doc comment for the race this closes).
-import { useRepotAttempt } from '../composables/useRepotAttempt';
+import { useRepotAttempt, type RepotCompletion } from '../composables/useRepotAttempt';
 import type { RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload } from '../types/api.js';
 
 const props = defineProps<{ id: string }>();
@@ -56,7 +56,7 @@ const evaluationSigns = ref<RepotSign[]>([]);
 // page for this plant is visible (and resumable) here, and vice versa.
 const {
   attemptFor: evaluationAttemptFor,
-  completion: evaluationCompletion,
+  subscribeCompletions: subscribeEvaluationCompletions,
   begin: beginEvaluationAttempt,
   isLive: isLiveEvaluationAttempt,
   resolveSuccess: resolveEvaluationSuccess,
@@ -64,11 +64,6 @@ const {
   invalidate: invalidateEvaluationAttempt,
   hasKeyFor: hasEvaluationKeyFor,
 } = useRepotAttempt<RepotEvaluationSubmit, RepotEvaluationResult>('evaluation');
-// Z2: snapshotted SYNCHRONOUSLY, right here — before this component's own top-level `await
-// useAsyncData(...)` reads below (plant, then care). See the catch-up check beside the completion watcher
-// further down for why this baseline is what lets a completion published DURING those awaits be told apart
-// from one this renderer already knew about before the awaits ever started.
-const evaluationCompletionSeqAtSetup = evaluationCompletion.value?.seq ?? 0;
 const evaluationAttempt = computed(() => evaluationAttemptFor(id));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
@@ -90,7 +85,7 @@ const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }
 // verbatim, regardless of what a fresh read would produce.
 const {
   attemptFor: doneAttemptFor,
-  completion: doneCompletion,
+  subscribeCompletions: subscribeDoneCompletions,
   begin: beginDoneAttempt,
   isLive: isLiveDoneAttempt,
   resolveSuccess: resolveDoneSuccess,
@@ -98,8 +93,6 @@ const {
   invalidate: invalidateDoneAttempt,
   hasKeyFor: hasDoneKeyFor,
 } = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>('done');
-// Z2: same reasoning as evaluationCompletionSeqAtSetup above — captured before the same top-level awaits.
-const doneCompletionSeqAtSetup = doneCompletion.value?.seq ?? 0;
 const doneAttempt = computed(() => doneAttemptFor(id));
 const repotPostponeSubmitting = ref(false);
 
@@ -644,8 +637,8 @@ function onEvaluationStartOver() {
 
 // X1: the flow's TERMINAL OUTCOME, shared across renderers via `useRepotAttempt.ts`'s module-scope
 // `completion` signal — published by `resolveEvaluationSuccess` the instant a LIVE submit succeeds,
-// regardless of which renderer's own request produced it. This component and pages/index.vue watch the SAME
-// signal, so a submit confirmed on the Today page, whose response only settles after the owner has
+// regardless of which renderer's own request produced it. This component and pages/index.vue consume the SAME
+// per-flow completion log (R11-1), so a submit confirmed on the Today page, whose response only settles after the owner has
 // navigated here, still closes THIS page's own modal and refreshes ITS OWN data — the race X1 exists to
 // close (a departed page's promise keeps running after navigation). `invalidateEvaluationAttempt` (the
 // "start over" escape hatch) never publishes a completion, so abandoning an attempt can never be mistaken
@@ -657,10 +650,13 @@ function onEvaluationStartOver() {
 // a completion naming a DIFFERENT plant carries no data this page has ever fetched — there is nothing of
 // "this renderer's own data" to refresh for a foreign plant. That collapse is what pages/index.vue's own Z1
 // comment calls "trivially true" — the SHAPE (two separate questions) still matches; only the boolean
-// happens to answer both here. `handleEvaluationCompletion` is the single implementation both the catch-up
-// check below and the live watcher call, so the two paths can never diverge in what "handling a completion"
-// means.
-async function handleEvaluationCompletion(completion: NonNullable<typeof evaluationCompletion.value>) {
+// happens to answer both here.
+//
+// R11-1: this handler is registered through `subscribeCompletions`, which owns BOTH the backlog published
+// during this component's own async setup — the route-transition gap where a departed Today page's promise
+// settles while this page is still awaiting its plant/care reads — and every later record, draining them
+// oldest-first through this ONE function. The renderer no longer states a baseline, a catch-up or a watcher.
+async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvaluationResult>) {
   const isOwnPlant = completion.plantId === id;
   if (isOwnPlant) {
     evaluationOpen.value = false;
@@ -670,29 +666,7 @@ async function handleEvaluationCompletion(completion: NonNullable<typeof evaluat
   }
 }
 
-// Z2: a completion can be published DURING this component's own top-level awaits above (`plant-${id}` /
-// `care-${id}`) — the exact gap this ruling closes: Today starts a Done/submit request, navigation begins,
-// Today unmounts, THIS component begins setup and is still awaiting its own plant/care reads when the old
-// Today promise settles and calls `resolveSuccess()`. The `watch()` right below only fires on a FUTURE
-// change to `evaluationCompletion`, never on whatever is already sitting in `.value` the moment it
-// registers, so a completion published in that gap would otherwise never be seen — this component would
-// register its watcher AFTER the fact, take the already-current value as its baseline, and never fire.
-// `evaluationCompletionSeqAtSetup`, captured synchronously before those awaits, is what tells a completion
-// published DURING the gap apart from one this renderer already knew about before the gap even opened. Read
-// synchronously, dispatched WITHOUT awaiting, then the watcher registered immediately after — all in the
-// same synchronous span, no `await` in between — so nothing published between this check and the watcher
-// taking over can slip through either. (Do NOT reach for `watch(..., { immediate: true })` here instead: the
-// module-scoped `completion` ref retains its last value across mounts, so an immediate watcher would replay
-// a stale, already-handled completion on every future unrelated mount of this component — e.g. navigating
-// back to this same plant's detail page later.)
-const missedEvaluationCompletion = evaluationCompletion.value;
-if (missedEvaluationCompletion && missedEvaluationCompletion.seq > evaluationCompletionSeqAtSetup) {
-  void handleEvaluationCompletion(missedEvaluationCompletion);
-}
-watch(evaluationCompletion, (completion) => {
-  if (!completion) return;
-  void handleEvaluationCompletion(completion);
-});
+subscribeEvaluationCompletions((completion) => { void handleEvaluationCompletion(completion); });
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
 // 'REPOT' verdict is pending — see TaskRow's showEvaluate).
@@ -767,12 +741,12 @@ function onRepotDoneStartOver() {
 
 // X1/Z1: the Done flow's sibling to the evaluation completion handling above — see its comments for the
 // full reasoning (the same cross-renderer race, the same fixed-`id` collapse of "own the data" and "own the
-// modal", the same Z2 catch-up shape). The Done flow has no verdict to show, so this handler's only job is
+// modal", the same single `subscribeCompletions` seam). The Done flow has no verdict to show, so this handler's only job is
 // closing the form and refreshing care/history/the plant's own profile — a REPOT completion writes
 // potSizeCm/soilMix and derives a new lastRepottedOn, fields this page renders off
 // plant.value.profile/derived, so refreshPlant() runs here too, unlike the evaluation handler above which
 // never touches the profile.
-async function handleDoneCompletion(completion: NonNullable<typeof doneCompletion.value>) {
+async function handleDoneCompletion(completion: RepotCompletion<void>) {
   const isOwnPlant = completion.plantId === id;
   if (isOwnPlant) {
     doneFormOpen.value = false;
@@ -780,16 +754,7 @@ async function handleDoneCompletion(completion: NonNullable<typeof doneCompletio
   }
 }
 
-// Z2: same reasoning as the evaluation flow's identical catch-up above, against the Done flow's own
-// baseline/signal.
-const missedDoneCompletion = doneCompletion.value;
-if (missedDoneCompletion && missedDoneCompletion.seq > doneCompletionSeqAtSetup) {
-  void handleDoneCompletion(missedDoneCompletion);
-}
-watch(doneCompletion, (completion) => {
-  if (!completion) return;
-  void handleDoneCompletion(completion);
-});
+subscribeDoneCompletions((completion) => { void handleDoneCompletion(completion); });
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already
 // known, so no picker is needed. Sends the evaluationId when one is pending so the server resolves the

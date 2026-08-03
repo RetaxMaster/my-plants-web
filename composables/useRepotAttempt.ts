@@ -1,4 +1,4 @@
-import { shallowRef, type ShallowRef } from 'vue';
+import { shallowRef, watch, type ShallowRef } from 'vue';
 
 // An in-flight (or just-resolved-and-frozen) REPOT mutation attempt: the evaluation submit and the
 // Done-form confirm each track a SEPARATE flow (`useRepotAttempt('evaluation')` / `useRepotAttempt('done')`
@@ -44,22 +44,55 @@ export interface RepotAttempt<TBody> {
 // the owner never having chosen "start over".
 //
 // The fix: `resolveSuccess` below — the ONLY function that ever clears a live attempt on success — ALSO
-// publishes a per-flow, module-scope COMPLETION signal naming the plant that just completed (and, for a flow
-// that has one, the result — the evaluation flow's verdict; the Done flow has none). Both renderers `watch`
-// the SAME signal (via the `completion` ref returned below), so whichever one is mounted when the request
-// finally settles — the originator or a later one — reacts to the identical event. `seq` is a module-level
+// records a per-flow, module-scope COMPLETION naming the plant that just completed (and, for a flow that has
+// one, the result — the evaluation flow's verdict; the Done flow has none). Both renderers consume the SAME
+// per-flow record stream through `subscribeCompletions` below, so whichever one is mounted when the request
+// finally settles — the originator or a later one — handles the identical record. `seq` is a module-level
 // monotonic counter bumped on every publish, so a SECOND completion for the SAME plant (a later, wholly
-// separate attempt) is always its own distinguishable event for a watcher that fires on every change, never
-// silently conflated with the first just because the fields look alike.
+// separate attempt) is always its own distinguishable record, never conflated with the first just because
+// the fields look alike. (Wave 9 published into a single latest-value ref; R11-1 below is why that shape had
+// to go, and what replaced it.)
 //
 // `invalidate` (the owner's explicit "start over") deliberately never publishes a completion — abandoning an
 // attempt is not completing it, and conflating the two would let a "start over" masquerade as a success to
 // whichever renderer is watching.
+//
+// R11-1 — WHY THIS IS A LOG AND NOT A "LATEST COMPLETION" REF, and why that distinction is the whole design.
+// From wave 9 through wave 10 the completion was published into a SINGLE latest-value `shallowRef`, and every
+// renderer read it either through a `watch` or through a one-shot catch-up. Both readers can only ever observe
+// the value that happens to be sitting in the slot when they look — so two completions of the SAME flow
+// landing between two observations leave only the second one observable, and the first is gone with no trace.
+// That is not a hypothetical: measured directly against this composable, two `resolveSuccess` calls in
+// back-to-back microtasks (exactly what two in-flight requests settling from one network tick produce) fire a
+// registered watcher ONCE, for the second plant only. The consequence is the duplicate-write hole every wave
+// since W1 has been chasing: `PlantDetail`, pinned to the FIRST plant, never learns that plant completed, so
+// it never refreshes and never closes its form — while `resolveSuccess` has already deleted the attempt, so
+// the form silently unfreezes and confirming again mints a FRESH idempotency key over data the server has
+// already written.
+//
+// Ten rounds of this review patched a NOTIFICATION scheme — who owns the refresh, had the subscriber
+// registered yet, does the watcher's baseline swallow the signal — and each patch relocated the hazard instead
+// of removing it. The structural move is to stop treating a completion as an EVENT that must reach a live
+// listener at the right instant, and treat it as an ordered RECORD that is still there whenever a reader gets
+// around to looking. A reader cannot miss an entry in a log: it asks "what has happened since the point I last
+// knew about?", and the answer is the same whether it asks immediately, one microtask later, or after a
+// route transition's worth of awaits. Every question the old scheme kept getting wrong — subscriber
+// existence, the async-setup gap, watcher baselines, burst coalescing — is not answered better here, it stops
+// being a question. A guard is code that can be wrong; a removed possibility cannot.
 export interface RepotCompletion<TResult = void> {
   plantId: string;
   seq: number;
   result: TResult;
 }
+
+// R11-1. How many completions each flow's log retains. A completion record is three small fields and this is
+// per browser session, so the cap exists only to bound an unbounded-growth footgun, never as a tuning knob:
+// reaching it needs 50 SUCCESSFUL repot mutations in one uninterrupted page session, on a surface where each
+// one is a deliberate owner action on a distinct plant. If it were ever reached, the entries dropped are the
+// OLDEST — each of which already triggered its own reconcile at the time — and a reader whose cursor predates
+// the retained head simply receives everything still retained. Trimming can therefore only ever drop a record
+// a reader already handled; it can never cause the same record to be delivered twice.
+const COMPLETION_LOG_LIMIT = 50;
 
 // W1. `useRepotAttempt(flowKey)` used to create a brand-new Map every time it was CALLED, so
 // `pages/index.vue` (ONE modal instance for the whole Today list) and `PlantDetail.vue` (the second
@@ -91,9 +124,15 @@ type AnyAttempt = RepotAttempt<unknown>;
 type AnyCompletion = RepotCompletion<unknown>;
 
 const flowStores: Partial<Record<FlowKey, ShallowRef<ReadonlyMap<string, AnyAttempt>>>> = {};
-// X1: one completion signal per flow key, same module-scope-per-flow shape as `flowStores` above — every
-// caller asking for the same flow key (Today, the plant detail page) watches the SAME signal.
-const completionStores: Partial<Record<FlowKey, ShallowRef<AnyCompletion | null>>> = {};
+// X1/R11-1: one completion LOG per flow key, same module-scope-per-flow shape as `flowStores` above — every
+// caller asking for the same flow key (Today, the plant detail page) reads the SAME log. Ordered oldest-first,
+// append-only within the retention window, and reassigned (never mutated in place) on every append so a
+// `watch` sees it.
+const completionLogs: Partial<Record<FlowKey, ShallowRef<readonly AnyCompletion[]>>> = {};
+// Monotonic across BOTH flows: a cursor is only ever compared against seq values drawn from its own flow's
+// log, so sharing the counter costs nothing and makes every record in the session globally orderable. It is
+// deliberately NOT reset by the test helper below — monotonicity is the property that makes a cursor
+// meaningful, and a counter that restarts could make a NEW record compare as older than a handled one.
 let completionSeq = 0;
 
 function storeFor(flowKey: FlowKey): ShallowRef<ReadonlyMap<string, AnyAttempt>> {
@@ -104,30 +143,52 @@ function storeFor(flowKey: FlowKey): ShallowRef<ReadonlyMap<string, AnyAttempt>>
   return created;
 }
 
-function completionStoreFor(flowKey: FlowKey): ShallowRef<AnyCompletion | null> {
-  const existing = completionStores[flowKey];
+function completionLogFor(flowKey: FlowKey): ShallowRef<readonly AnyCompletion[]> {
+  const existing = completionLogs[flowKey];
   if (existing) return existing;
-  const created = shallowRef<AnyCompletion | null>(null);
-  completionStores[flowKey] = created;
+  const created = shallowRef<readonly AnyCompletion[]>([]);
+  completionLogs[flowKey] = created;
   return created;
+}
+
+// The seq of the newest record currently in `log`, or 0 when the log is empty. This is what a reader captures
+// as its cursor: "everything up to here either happened before I existed, or I have already handled it".
+function headSeq(log: ShallowRef<readonly AnyCompletion[]>): number {
+  const entries = log.value;
+  return entries.length ? entries[entries.length - 1]!.seq : 0;
 }
 
 // TEST-ONLY. A module-scope store is a shared-state hazard across test CASES within the same test file (the
 // module is imported once and cached, so its state otherwise leaks from one `it()` into the next) — this
-// resets every flow's attempt store AND completion signal back to empty/null. Call it from a `beforeEach` in
+// resets every flow's attempt store AND completion log back to empty. Call it from a `beforeEach` in
 // any test file that mounts a component using this composable. Never called from application code.
 export function __resetRepotAttemptStoresForTests(): void {
   for (const key of Object.keys(flowStores) as FlowKey[]) {
     flowStores[key] = shallowRef(new Map());
   }
-  for (const key of Object.keys(completionStores) as FlowKey[]) {
-    completionStores[key] = shallowRef(null);
+  for (const key of Object.keys(completionLogs) as FlowKey[]) {
+    completionLogs[key] = shallowRef([]);
   }
+  // `completionSeq` is deliberately NOT reset — see its declaration.
 }
 
 export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   const attempts = storeFor(flowKey) as unknown as ShallowRef<ReadonlyMap<string, RepotAttempt<TBody>>>;
-  const completion = completionStoreFor(flowKey) as unknown as ShallowRef<RepotCompletion<TResult> | null>;
+  const completionLog = completionLogFor(flowKey) as unknown as ShallowRef<readonly RepotCompletion<TResult>[]>;
+
+  // R11-1. THE CURSOR, captured HERE and not by the caller — and that placement is the point, not an
+  // implementation detail. A renderer must know which completions predate it, so that it reconciles the ones
+  // published during its own async setup and ignores the ones that were already history before it mounted.
+  // Getting that right requires reading the log's head STRICTLY BEFORE the component's first top-level
+  // `await` — and for three waves that requirement lived in each renderer as a hand-written line plus a
+  // comment telling the next author not to move it. Four copies (two renderers x two flows), any of which a
+  // refactor could silently reorder past an await, with nothing failing.
+  //
+  // `useRepotAttempt()` must already be called synchronously at the top of setup — it is where the flow's
+  // handles come from, so nothing can run before it — which makes it the one place where "before the first
+  // await" is true BY CONSTRUCTION rather than by remembering. So the cursor is captured on this line, and a
+  // renderer can no longer get it wrong because a renderer no longer states it.
+  const cursorAtSetup = headSeq(completionLog as unknown as ShallowRef<readonly AnyCompletion[]>);
 
   // Starts (or resumes) an attempt for `plantId`. Reuses the CURRENT key AND the CURRENT stored `body` when
   // an attempt is already outstanding for this plant (a same-plant retry must reuse the same idempotency
@@ -173,7 +234,11 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     nextMap.delete(candidate.plantId);
     attempts.value = nextMap;
     completionSeq += 1;
-    completion.value = { plantId: candidate.plantId, seq: completionSeq, result: result as TResult };
+    // R11-1: APPEND to the log — never overwrite a slot. Two completions landing back-to-back (two in-flight
+    // requests settling from one network tick) are now two records, so a reader that looks once afterwards
+    // still sees BOTH. Reassigned to a new array, never pushed in place, so `watch` observes the change.
+    const nextLog = [...completionLog.value, { plantId: candidate.plantId, seq: completionSeq, result: result as TResult }];
+    completionLog.value = nextLog.length > COMPLETION_LOG_LIMIT ? nextLog.slice(-COMPLETION_LOG_LIMIT) : nextLog;
   }
 
   // Called on FAILURE: marks not-submitting AND errored, but KEEPS the key AND the stored body, IFF
@@ -221,5 +286,38 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     return plantId ? attempts.value.get(plantId) ?? null : null;
   }
 
-  return { attempts, completion, begin, isLive, resolveSuccess, resolveFailure, invalidate, hasKeyFor, attemptFor };
+  // R11-1. THE ONE WAY A RENDERER CONSUMES COMPLETIONS. Call it from setup — after the top-level awaits is
+  // both allowed and expected, because the handler needs the data handles those awaits produce, and the
+  // cursor that makes late registration safe was already taken above.
+  //
+  // It does three things in one place, so the two renderers cannot implement them differently from each
+  // other (they did: the previous shape had each renderer hand-write a baseline, a catch-up block and a
+  // `watch`, four times over, and round 10 found the two copies had diverged on whether the refresh was
+  // gated):
+  //   1. DRAIN — hand `handler` every record newer than this consumer's cursor, OLDEST FIRST. On a first
+  //      call that is the async-setup gap's backlog; on a `watch` firing it is whatever was just appended,
+  //      which is more than one record whenever two completions coalesced into a single flush.
+  //   2. ADVANCE THE CURSOR FIRST, before invoking any handler, so a handler that itself causes an append
+  //      (or a re-entrant flush) can never be re-delivered a record it is already processing.
+  //   3. WATCH for later appends, with the SAME drain function — so the catch-up path and the live path are
+  //      not two implementations that can disagree; they are one function called twice.
+  //
+  // `{ immediate: true }` is not needed and not used: the explicit `drain()` below IS the immediate pass,
+  // and expressing it explicitly keeps the ordering visible (drain, then subscribe, with no await between).
+  // Handlers may be async; their promise is deliberately not awaited here — a consumer's refresh must never
+  // be able to delay another consumer's, and Nuxt's `refresh()` cannot reject (it catches into `error` and
+  // resolves), so there is nothing to swallow.
+  function subscribeCompletions(handler: (completion: RepotCompletion<TResult>) => void): void {
+    let handledSeq = cursorAtSetup;
+    const drain = () => {
+      const pending = completionLog.value.filter((entry) => entry.seq > handledSeq);
+      if (!pending.length) return;
+      handledSeq = pending[pending.length - 1]!.seq;
+      for (const entry of pending) handler(entry);
+    };
+    drain();
+    watch(completionLog, drain);
+  }
+
+  return { attempts, begin, isLive, resolveSuccess, resolveFailure, invalidate, hasKeyFor, attemptFor, subscribeCompletions };
 }

@@ -375,6 +375,7 @@ function openProgress(plantId: string) {
             :status="rowStatus(t2.nextDueOn)"
             :due-label="dueLabel(dueState(t2.nextDueOn))"
             :pending-verdict="pendingEvaluationFor(plantId)?.verdict ?? null"
+            :pending-reevaluate-on="pendingEvaluationFor(plantId)?.reevaluateOn ?? null"
             @done="e => onDone(plantId, e.task, rowStatus(t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"

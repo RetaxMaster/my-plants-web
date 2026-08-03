@@ -294,6 +294,7 @@
     "verdictReevaluateTitle": "Not yet — we'll ask again",
     "verdictReevaluateBody": "Nothing you saw says it needs repotting yet. We'll bring this back on {date}.",
     "cardAction": "Time to evaluate",
+    "pendingReevaluateNote": "Already checked — we'll ask again on {date}.",
     "errorPending": "This plant already has an answer waiting. Refresh the page.",
     "loadError": "We couldn't load the checklist. Please try again.",
     "retry": "Try again",

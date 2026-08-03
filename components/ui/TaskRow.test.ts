@@ -19,7 +19,9 @@ import TaskRow from './TaskRow.vue';
 
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('ref', ref);
-vi.stubGlobal('useI18n', () => ({ t: (k: string) => k }));
+// `d` (vue-i18n's date formatter) is exercised by the V13 `reevaluateNoticeDate` computed — stub it as a
+// plain passthrough so the pending-note branch renders without needing a real i18n date formatter.
+vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, d: (date: Date) => date.toISOString() }));
 // `TaskRow.vue` imports `useTaskMeta` via an EXPLICIT `~/composables/useTaskMeta` path (unlike every other
 // `components/ui/*.vue` file, which relies on Nuxt's auto-import) — `vi.stubGlobal` only intercepts a
 // global reference, never an explicit import statement, so the module itself must be mocked.
@@ -71,7 +73,7 @@ describe('UiTaskRow — the REPOT showEvaluate state machine (repoteval:27, F1 r
     expect(icons).not.toContain('magnifying-glass');
   });
 
-  it('a caller that passes pendingVerdict: \'RE-EVALUATE\' (not due yet) still shows "time to evaluate"', () => {
+  it('a caller that passes pendingVerdict: \'RE-EVALUATE\' with NO pendingReevaluateOn (defensive: missing date treated as arrived, per V13 constraint 5) still shows "time to evaluate"', () => {
     const w = mountRow({ pendingVerdict: 'RE-EVALUATE' });
     const buttons = w.findAll('.stub-btn');
     const icons = buttons.map((b) => b.attributes('data-icon'));
@@ -87,5 +89,61 @@ describe('UiTaskRow — the REPOT showEvaluate state machine (repoteval:27, F1 r
       expect(icons).toContain('check');
       expect(icons).not.toContain('magnifying-glass');
     }
+  });
+});
+
+// V13: the card must not offer the evaluate affordance while a RE-EVALUATE verdict's `reevaluateOn` has
+// not arrived yet (the server 409s that exact attempt — see repot-evaluation.write-core.ts). "Arrived" is
+// answered on the OWNER's local calendar day via `dueState` (utils/tasks.ts), never a UTC-derived
+// comparison, so these dates are built from local Date components, not toISOString().
+function ymdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function daysFromToday(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return ymdLocal(d);
+}
+
+describe('UiTaskRow — V13: RE-EVALUATE gated by reevaluateOn (server refuses an early re-evaluation)', () => {
+  it('reevaluateOn in the FUTURE: hides the evaluate affordance AND the classic Done/Postpone, shows the pending note instead', () => {
+    const w = mountRow({ pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: daysFromToday(5) });
+    const buttons = w.findAll('.stub-btn');
+    const icons = buttons.map((b) => b.attributes('data-icon'));
+    expect(icons).not.toContain('magnifying-glass');
+    expect(icons).not.toContain('check');
+    expect(w.find('.mp-taskrow__pending-note').exists()).toBe(true);
+  });
+
+  it('reevaluateOn is TODAY: the affordance is offered again (arrived, not just past)', () => {
+    const w = mountRow({ pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: daysFromToday(0) });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass');
+    expect(w.find('.mp-taskrow__pending-note').exists()).toBe(false);
+  });
+
+  it('reevaluateOn in the PAST: the affordance is offered (overdue counts as arrived)', () => {
+    const w = mountRow({ pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: daysFromToday(-3) });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass');
+    expect(w.find('.mp-taskrow__pending-note').exists()).toBe(false);
+  });
+
+  it('reevaluateOn is null (defensive: should not happen for a real RE-EVALUATE row) is treated as arrived', () => {
+    const w = mountRow({ pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: null });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass');
+    expect(w.find('.mp-taskrow__pending-note').exists()).toBe(false);
+  });
+
+  it('a REPOT verdict (already confirmed) is unaffected by pendingReevaluateOn — classic Done/Postpone regardless', () => {
+    const w = mountRow({ pendingVerdict: 'REPOT', pendingReevaluateOn: daysFromToday(5) });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('check');
+    expect(icons).not.toContain('magnifying-glass');
+    expect(w.find('.mp-taskrow__pending-note').exists()).toBe(false);
   });
 });

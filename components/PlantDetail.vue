@@ -1007,6 +1007,7 @@ async function confirmRevive() {
                 :due-label="dueLabelLong(careDueState(t3))"
                 :explanation="taskExplanation(t3.task)"
                 :pending-verdict="t3.pendingEvaluation?.verdict ?? null"
+                :pending-reevaluate-on="t3.pendingEvaluation?.reevaluateOn ?? null"
                 with-done-date
                 show-info
                 @done="e => onDone(e.task, t3.status, e.occurredOn)"

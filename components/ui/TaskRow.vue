@@ -3,12 +3,14 @@ import AppIcon from './AppIcon.vue';
 import Badge from './Badge.vue';
 import Button from './Button.vue';
 import type { TaskCode } from '~/utils/tasks';
+import { dueState } from '~/utils/tasks';
+import { ymdToLocalDate } from '~/utils/localDate';
 import { useTaskMeta } from '~/composables/useTaskMeta';
 
 defineOptions({ inheritAttrs: false });
 
 const { TASK_ICONS, taskLabel } = useTaskMeta();
-const { t } = useI18n();
+const { t, d } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -30,6 +32,16 @@ const props = withDefaults(
      * can't right now".
      */
     pendingVerdict?: 'REPOT' | 'RE-EVALUATE' | null;
+    /**
+     * ADDITIVE, optional, and only meaningful alongside `pendingVerdict: 'RE-EVALUATE'` — the
+     * `reevaluateOn` (YYYY-MM-DD) of that pending evaluation. V13: a RE-EVALUATE verdict means "come back
+     * on this date", so `showEvaluate` must NOT offer the affordance again before that date arrives — the
+     * server (`repot-evaluation.write-core.ts`) 409s a re-evaluation attempted before `reevaluateOn`, and
+     * the card was inviting exactly that rejected action. Left undefined/null (should not happen for a
+     * real RE-EVALUATE row, but data is data) the date is treated as ALREADY ARRIVED — see
+     * `reevaluateArrived` below — so missing data never blocks the owner.
+     */
+    pendingReevaluateOn?: string | null;
   }>(),
   { withDoneDate: false, showInfo: false },
 );
@@ -55,8 +67,32 @@ const badgeColor = computed(() =>
 // buttons the moment this component's default changes (a real regression a code review caught: the old
 // unconditional `pendingVerdict: null` default made EVERY consumer, migrated or not, show "time to
 // evaluate" with no way to complete or postpone a repot from the plant-detail page).
-const showEvaluate = computed(
-  () => props.task === 'REPOT' && props.pendingVerdict !== undefined && props.pendingVerdict !== 'REPOT',
+// V13 fix: a pending 'RE-EVALUATE' verdict whose `reevaluateOn` has NOT arrived yet must not offer the
+// evaluate affordance — the server 409s that exact attempt ("The re-evaluation date has not arrived
+// yet."). "Arrived" is answered on the OWNER's local calendar day via `dueState` (the same helper
+// `dueLabel`/`dueLabelLong` use elsewhere), never a UTC-derived comparison. Missing `reevaluateOn` (should
+// not happen for a real RE-EVALUATE row) is treated as arrived — blocking the owner on absent data is the
+// worse failure than occasionally re-offering the affordance a beat early.
+const reevaluateArrived = computed(() => {
+  if (!props.pendingReevaluateOn) return true;
+  const kind = dueState(props.pendingReevaluateOn).kind;
+  return kind === 'overdue' || kind === 'today';
+});
+
+const showEvaluate = computed(() => {
+  if (props.task !== 'REPOT' || props.pendingVerdict === undefined) return false;
+  if (props.pendingVerdict === null) return true;
+  if (props.pendingVerdict === 'REPOT') return false;
+  return reevaluateArrived.value; // 'RE-EVALUATE': only once its date has arrived
+});
+
+// The card's replacement affordance while a 'RE-EVALUATE' verdict is pending and not yet due: instead of a
+// disabled button with no explanation, the owner sees what happened and when to look again.
+const reevaluatePending = computed(
+  () => props.task === 'REPOT' && props.pendingVerdict === 'RE-EVALUATE' && !reevaluateArrived.value,
+);
+const reevaluateNoticeDate = computed(() =>
+  props.pendingReevaluateOn ? d(ymdToLocalDate(props.pendingReevaluateOn), 'short') : '',
 );
 
 const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
@@ -91,6 +127,11 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
         <Button size="xs" color="primary" icon="magnifying-glass" @click="onEvaluate">
           {{ t('repotEval.cardAction') }}
         </Button>
+      </template>
+      <template v-else-if="reevaluatePending">
+        <span class="mp-taskrow__pending-note">
+          {{ t('repotEval.pendingReevaluateNote', { date: reevaluateNoticeDate }) }}
+        </span>
       </template>
       <template v-else>
         <input
@@ -156,6 +197,12 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.mp-taskrow__pending-note {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 
 .mp-taskrow__date {

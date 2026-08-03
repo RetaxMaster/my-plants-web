@@ -6,7 +6,10 @@
 // which renderer (Today page or plant detail) happens to be asking.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
-import { useRepotAttempt, __resetRepotAttemptStoresForTests } from './useRepotAttempt';
+import {
+  useRepotAttempt, __resetRepotAttemptStoresForTests,
+  classifyRepotFailure, repotFailureMessageKey, isAttemptFrozen,
+} from './useRepotAttempt';
 
 beforeEach(() => {
   __resetRepotAttemptStoresForTests();
@@ -31,9 +34,9 @@ describe('useRepotAttempt — W1: one module-scope store PER FLOW KEY, shared ac
     expect(rendererB.hasKeyFor('plant-1')).toBe(true);
 
     // A failure recorded through B is visible through A too — genuinely the SAME store, not a copy.
-    rendererB.resolveFailure(seenFromB!);
+    rendererB.resolveFailure(seenFromB!, 'pending');
     const seenAgainFromA = rendererA.attemptFor('plant-1');
-    expect(seenAgainFromA!.error).toBe(true);
+    expect(seenAgainFromA!.error).toBe('pending');
     expect(seenAgainFromA!.key).toBe(attempt.key); // same key survives, per the stable-idempotency-key rule
   });
 
@@ -55,7 +58,7 @@ describe('useRepotAttempt — W1: one module-scope store PER FLOW KEY, shared ac
     'entirely, and a brand-new useRepotAttempt() call must still see the outstanding attempt', () => {
     const todayPageInstance = useRepotAttempt<{ answer: string }>('evaluation');
     const attempt = todayPageInstance.begin('plant-1', { answer: 'no-signs' });
-    todayPageInstance.resolveFailure(attempt); // fails and freezes — key kept, error set
+    todayPageInstance.resolveFailure(attempt, 'pending'); // fails and freezes — key kept, error set
 
     // "Today's component unmounts" is simulated by simply never touching `todayPageInstance` again and
     // obtaining a BRAND NEW handle, exactly as PlantDetail.vue's own <script setup> would on navigation.
@@ -63,22 +66,24 @@ describe('useRepotAttempt — W1: one module-scope store PER FLOW KEY, shared ac
     expect(plantDetailInstance.hasKeyFor('plant-1')).toBe(true);
     const resumed = plantDetailInstance.attemptFor('plant-1');
     expect(resumed!.key).toBe(attempt.key);
-    expect(resumed!.error).toBe(true);
+    expect(resumed!.error).toBe('pending');
     expect(resumed!.body).toEqual({ answer: 'no-signs' });
   });
 });
 
 describe('useRepotAttempt — W2: the mutation-failure state (`error`) lives on the attempt itself', () => {
-  it('begin() always resets `error` to false — a retry (fresh or resumed) is a fresh in-flight request, ' +
+  it('begin() always resets `error` to null — a retry (fresh or resumed) is a fresh in-flight request, ' +
     'never still displaying the PREVIOUS attempt\'s failure', () => {
     const handle = useRepotAttempt<{ v: number }>('done');
     const first = handle.begin('plant-1', { v: 1 });
-    handle.resolveFailure(first);
-    expect(handle.attemptFor('plant-1')!.error).toBe(true);
+    // 'pending' (not 'invalid') — this test is about the error being cleared on retry, not about FIX C2's
+    // resume-vs-fresh-key split, which has its own describe block below.
+    handle.resolveFailure(first, 'pending');
+    expect(handle.attemptFor('plant-1')!.error).toBe('pending');
 
     // Retrying (begin() again for the SAME plant) must clear the error, even though the key/body are reused.
     const retried = handle.begin('plant-1', { v: 1 });
-    expect(retried.error).toBe(false);
+    expect(retried.error).toBeNull();
     expect(retried.key).toBe(first.key); // same key — a retry, not a fresh attempt
   });
 
@@ -88,22 +93,124 @@ describe('useRepotAttempt — W2: the mutation-failure state (`error`) lives on 
     const attemptA = handle.begin('plant-A', { v: 1 });
     handle.begin('plant-B', { v: 2 });
 
-    handle.resolveFailure(attemptA);
+    handle.resolveFailure(attemptA, 'pending');
 
-    expect(handle.attemptFor('plant-A')!.error).toBe(true);
-    expect(handle.attemptFor('plant-B')!.error).toBe(false);
+    expect(handle.attemptFor('plant-A')!.error).toBe('pending');
+    expect(handle.attemptFor('plant-B')!.error).toBeNull();
   });
 
   it('resolveSuccess deletes the whole entry — a later attemptFor() reads null, never a stale error', () => {
     const handle = useRepotAttempt<{ v: number }>('done');
     const attempt = handle.begin('plant-1', { v: 1 });
-    handle.resolveFailure(attempt);
-    expect(handle.attemptFor('plant-1')!.error).toBe(true);
+    handle.resolveFailure(attempt, 'unknown');
+    expect(handle.attemptFor('plant-1')!.error).toBe('unknown');
 
     // A fresh attempt (begin() again) that this time SUCCEEDS clears everything, including the error.
     const retried = handle.begin('plant-1', { v: 1 });
     handle.resolveSuccess(retried);
     expect(handle.attemptFor('plant-1')).toBeNull();
+  });
+});
+
+// FIX C1 — the classifier and mapper functions, tested directly against the shapes an ofetch rejection
+// actually takes (mirrors useApi.ts's own `handle401` accessor: `e?.statusCode ?? e?.response?.status`).
+describe('classifyRepotFailure — maps a caught error to a RepotAttemptFailure kind', () => {
+  it('400 -> invalid (the server rejected the VALUES, nothing committed)', () => {
+    expect(classifyRepotFailure({ statusCode: 400 })).toBe('invalid');
+  });
+
+  it('409 -> pending (an outstanding/conflicting attempt genuinely exists)', () => {
+    expect(classifyRepotFailure({ statusCode: 409 })).toBe('pending');
+  });
+
+  it('422 -> pending (a retried body no longer matches what the idempotency layer stored)', () => {
+    expect(classifyRepotFailure({ statusCode: 422 })).toBe('pending');
+  });
+
+  it('500 -> unknown', () => {
+    expect(classifyRepotFailure({ statusCode: 500 })).toBe('unknown');
+  });
+
+  it('a network error with no status at all -> unknown', () => {
+    expect(classifyRepotFailure(new Error('network error'))).toBe('unknown');
+  });
+
+  it('reads the status off `e.response.status` too — the SAME accessor useApi.ts\'s handle401 uses', () => {
+    expect(classifyRepotFailure({ response: { status: 400 } })).toBe('invalid');
+    expect(classifyRepotFailure({ response: { status: 409 } })).toBe('pending');
+  });
+});
+
+describe('repotFailureMessageKey — one message key per failure kind', () => {
+  it('maps each kind to its own key', () => {
+    expect(repotFailureMessageKey('invalid')).toBe('repotEval.errorInvalid');
+    expect(repotFailureMessageKey('pending')).toBe('repotEval.errorPending');
+    expect(repotFailureMessageKey('unknown')).toBe('repotEval.errorUnknown');
+  });
+});
+
+describe('isAttemptFrozen — every failure kind freezes the fields EXCEPT \'invalid\'', () => {
+  it('null (no attempt at all) is not frozen', () => {
+    expect(isAttemptFrozen(null)).toBe(false);
+    expect(isAttemptFrozen(undefined)).toBe(false);
+  });
+
+  it('an attempt with no failure yet (still in flight) is frozen', () => {
+    expect(isAttemptFrozen({ plantId: 'p', key: 'k', body: {}, submitting: true, error: null })).toBe(true);
+  });
+
+  it('\'pending\' and \'unknown\' stay frozen — an outstanding key / an undetermined outcome must not let ' +
+    'the owner edit fields under it', () => {
+    expect(isAttemptFrozen({ plantId: 'p', key: 'k', body: {}, submitting: false, error: 'pending' })).toBe(true);
+    expect(isAttemptFrozen({ plantId: 'p', key: 'k', body: {}, submitting: false, error: 'unknown' })).toBe(true);
+  });
+
+  it('\'invalid\' UNFREEZES — a 400 means nothing committed, so the owner must be able to correct the value', () => {
+    expect(isAttemptFrozen({ plantId: 'p', key: 'k', body: {}, submitting: false, error: 'invalid' })).toBe(false);
+  });
+});
+
+// FIX C2 — the load-bearing half of FIX C: an 'invalid' failure must NOT be resumable, or the owner's
+// corrected value would retry under the SAME key the server already 400'd, which the idempotency
+// interceptor then answers 422 FOREVER (it compares the whole body, never just the key).
+describe('begin() — FIX C2: an \'invalid\' failure mints a FRESH key on the next begin(); every other ' +
+  'failure kind resumes the SAME key and the ORIGINAL body', () => {
+  it('after an \'invalid\' (400) failure, begin() returns a DIFFERENT key and the NEWLY PASSED body — never ' +
+    'a resume of the rejected one', () => {
+    const handle = useRepotAttempt<{ potSizeCm: number }>('done');
+    const first = handle.begin('plant-1', { potSizeCm: 22.5 }); // the owner's original (bad) value
+    handle.resolveFailure(first, 'invalid');
+
+    // The owner corrects the value and confirms again.
+    const retried = handle.begin('plant-1', { potSizeCm: 22 });
+    expect(retried.key).not.toBe(first.key); // a genuinely NEW submission, not a retry of the rejected one
+    expect(retried.body).toEqual({ potSizeCm: 22 }); // the NEW body, never the stale rejected one
+    expect(retried.error).toBeNull();
+  });
+
+  it('after a \'pending\' (409/422) failure, begin() returns the SAME key and the ORIGINAL body — a genuine ' +
+    'resume, exactly as before this fix', () => {
+    const handle = useRepotAttempt<{ potSizeCm: number }>('done');
+    const first = handle.begin('plant-1', { potSizeCm: 22 });
+    handle.resolveFailure(first, 'pending');
+
+    // Even if the caller passes a DIFFERENT value in (e.g. a fresh recompute), the resume ignores it and
+    // resends the ORIGINAL — same rule U2 already establishes for the stored envelope.
+    const retried = handle.begin('plant-1', { potSizeCm: 999 });
+    expect(retried.key).toBe(first.key);
+    expect(retried.body).toEqual({ potSizeCm: 22 }); // the ORIGINAL body, never the freshly-passed one
+    expect(retried.error).toBeNull();
+  });
+
+  it('after an \'unknown\' failure (e.g. a network timeout with no status), begin() also resumes the SAME ' +
+    'key and the ORIGINAL body — only \'invalid\' gets the fresh-key treatment', () => {
+    const handle = useRepotAttempt<{ potSizeCm: number }>('done');
+    const first = handle.begin('plant-1', { potSizeCm: 22 });
+    handle.resolveFailure(first, 'unknown');
+
+    const retried = handle.begin('plant-1', { potSizeCm: 999 });
+    expect(retried.key).toBe(first.key);
+    expect(retried.body).toEqual({ potSizeCm: 22 });
   });
 });
 

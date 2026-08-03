@@ -210,3 +210,42 @@ describe('RepotEvaluationModal — reload-signs on a locale switch (QA defect B)
     expect(w.emitted('reload-signs')).toBeFalsy();
   });
 });
+
+// FIX E — "No signs yet" / "I couldn't check it" used to stick once clicked: every sign checkbox stayed
+// disabled and the only escape was closing the whole modal (costly on mobile). The fix binds `:checked` +
+// `@click.prevent` instead of `v-model` (see `toggleExclusive`'s own comment in the component for the exact
+// browser-event-order reason `v-model` alone cannot be made deselectable), so clicking an ALREADY-selected
+// answer clears it back to 'none'.
+describe('RepotEvaluationModal — FIX E: the exclusive answers are deselectable', () => {
+  const signs = [
+    { id: 's1', label: 'Roots circling the drainage holes' },
+  ];
+
+  it('clicking a SELECTED exclusive answer again clears it and re-enables the sign checkboxes', async () => {
+    const w = mountModal({ signs, frozen: false });
+
+    const noSigns = w.find('input[type="radio"][value="no-signs"]');
+    await noSigns.trigger('click');
+    expect((noSigns.element as HTMLInputElement).checked).toBe(true);
+    // Selecting an exclusive answer disables every sign checkbox (existing, unchanged behavior).
+    expect((w.find('input[type="checkbox"][value="s1"]').element as HTMLInputElement).disabled).toBe(true);
+
+    // Clicking the SAME radio again must clear it, not leave it stuck selected.
+    await noSigns.trigger('click');
+    expect((noSigns.element as HTMLInputElement).checked).toBe(false);
+    expect((w.find('input[type="checkbox"][value="s1"]').element as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('clicking a DIFFERENT exclusive answer switches to it, never toggling the first one back on', async () => {
+    const w = mountModal({ signs, frozen: false });
+
+    const noSigns = w.find('input[type="radio"][value="no-signs"]');
+    const couldNotCheck = w.find('input[type="radio"][value="could-not-check"]');
+    await noSigns.trigger('click');
+    expect((noSigns.element as HTMLInputElement).checked).toBe(true);
+
+    await couldNotCheck.trigger('click');
+    expect((noSigns.element as HTMLInputElement).checked).toBe(false);
+    expect((couldNotCheck.element as HTMLInputElement).checked).toBe(true);
+  });
+});

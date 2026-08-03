@@ -16,7 +16,10 @@ import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 // FIRST renderer of the same REPOT flows) share ONE attempt-tracking implementation instead of two
 // separately-maintained copies (the fourth time in this review a fix landed on one of these files and not
 // its sibling — see the composable's own doc comment for the race this closes).
-import { useRepotAttempt, type RepotCompletion } from '../composables/useRepotAttempt';
+import {
+  useRepotAttempt, classifyRepotFailure, repotFailureMessageKey, isAttemptFrozen,
+  type RepotCompletion, type RepotAttemptFailure,
+} from '../composables/useRepotAttempt';
 import type { RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload } from '../types/api.js';
 
 const props = defineProps<{ id: string }>();
@@ -97,9 +100,12 @@ const doneAttempt = computed(() => doneAttemptFor(id));
 const repotPostponeSubmitting = ref(false);
 
 // Every REPOT mutating flow can genuinely fail — the state a card was built from can go stale between
-// render and click. `repotEval.errorPending` covers exactly that (409/400/422). RepotEvaluationModal.vue
-// and RepotDoneForm.vue each render this via their own opt-in `error` prop (Alert INSIDE their own
-// teleported body, above the backdrop — see pages/index.vue's identical comment for the reasoning).
+// render and click. FIX C: the message shown is no longer one hardcoded string for every kind of failure —
+// `classifyRepotFailure`/`repotFailureMessageKey` (useRepotAttempt.ts) tell a 409/422 ("an outstanding
+// answer, reload") apart from a 400 ("the server rejected your VALUES, correct them") apart from anything
+// else. RepotEvaluationModal.vue and RepotDoneForm.vue each render this via their own opt-in `error` prop
+// (Alert INSIDE their own teleported body, above the backdrop — see pages/index.vue's identical comment for
+// the reasoning).
 //
 // W2: that `error` prop no longer reads off THIS shared flag for the two mutation flows — it reads off
 // `evaluationAttempt?.error` / `doneAttempt?.error` instead (set by `useRepotAttempt.ts`'s `resolveFailure`,
@@ -109,6 +115,10 @@ const repotPostponeSubmitting = ref(false);
 // evaluation-signs LOADER failure below — both fail BEFORE any key is ever minted. The page-level banner
 // below stays the only feedback surface for the postpone flow, which has no modal at all.
 const repotError = ref(false);
+// FIX C: same reasoning as pages/index.vue's identical ref — `onRepotPostpone` has no attempt/key of its own
+// to classify through `useRepotAttempt.ts`'s per-attempt `error` field, so this carries the SAME
+// classification for the postpone banner's own non-loader branch below.
+const repotPostponeFailure = ref<RepotAttemptFailure>('unknown');
 
 const { data: plant, refresh: refreshPlant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
 const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPlantCare(id));
@@ -621,17 +631,18 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
     // that is the SINGLE owner of that effect, on both this renderer and pages/index.vue, so neither one can
     // double-handle its own completion.
     resolveEvaluationSuccess(attempt, result);
-  } catch {
+  } catch (e) {
     if (!isLiveEvaluationAttempt(attempt)) return;
     // Key AND stored body deliberately kept (not cleared) on failure: a lost-response retry must reuse
     // both, per the stable-idempotency-key rule and U2's whole-envelope freeze. The modal stays open so the
-    // owner can see the error and retry the SAME submission rather than silently losing it. The modal also
-    // freezes its inputs for as long as this key is outstanding (`:frozen="!!evaluationAttempt?.key"`), but
-    // the byte-identical retry no longer depends on that alone — `beginEvaluationAttempt` above resends the
-    // attempt's STORED body regardless of what the (frozen) form would recompute. W2: `resolveEvaluationFailure`
-    // sets `error: true` on THIS attempt itself — no page-level flag to set, so this plant's own failure can
-    // never leak into the Done form's error display, nor into a different plant's evaluation modal.
-    resolveEvaluationFailure(attempt);
+    // owner can see the error and retry the SAME submission rather than silently losing it. The modal
+    // freezes its inputs for as long as `isAttemptFrozen(evaluationAttempt)` says so — true for every
+    // failure kind EXCEPT 'invalid' (FIX C) — but the byte-identical retry no longer depends on that alone —
+    // `beginEvaluationAttempt` above resends the attempt's STORED body regardless of what the (frozen) form
+    // would recompute. W2/FIX C1: `resolveEvaluationFailure` sets `error` (the classified FAILURE KIND) on
+    // THIS attempt itself — no page-level flag to set, so this plant's own failure can never leak into the
+    // Done form's error display, nor into a different plant's evaluation modal.
+    resolveEvaluationFailure(attempt, classifyRepotFailure(e));
   }
 }
 
@@ -738,12 +749,12 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
     // live. Closing the form and refreshing care/history/the plant's own profile are the completion
     // watcher's job alone, below.
     resolveDoneSuccess(attempt);
-  } catch {
+  } catch (e) {
     if (!isLiveDoneAttempt(attempt)) return;
-    // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit. W2:
-    // `resolveDoneFailure` sets `error: true` on THIS attempt itself — no page-level flag to set, so this
-    // plant's Done failure can never leak into the evaluation modal's error display.
-    resolveDoneFailure(attempt);
+    // Key AND stored envelope deliberately kept on failure, same reasoning as onEvaluationSubmit. W2/FIX C1:
+    // `resolveDoneFailure` sets `error` (the classified FAILURE KIND) on THIS attempt itself — no page-level
+    // flag to set, so this plant's Done failure can never leak into the evaluation modal's error display.
+    resolveDoneFailure(attempt, classifyRepotFailure(e));
   }
 }
 
@@ -797,8 +808,11 @@ async function onRepotPostpone() {
       ...(pendingEval ? { payload: { evaluationId: pendingEval.id } } : {}),
     });
     await refresh();
-  } catch {
+  } catch (e) {
     repotError.value = true;
+    // FIX C: classify the same way the two attempt-backed flows do — see `repotPostponeFailure`'s own
+    // comment above.
+    repotPostponeFailure.value = classifyRepotFailure(e);
   } finally {
     repotPostponeSubmitting.value = false;
   }
@@ -1147,7 +1161,7 @@ async function confirmRevive() {
           <UiAlert
             v-if="repotError && !evaluationOpen && !doneFormOpen"
             color="red"
-            :description="$t(evaluationLoadFailed ? 'repotEval.loadError' : 'repotEval.errorPending')"
+            :description="$t(evaluationLoadFailed ? 'repotEval.loadError' : repotFailureMessageKey(repotPostponeFailure))"
             announce
             class="mp-detail__repot-error"
           >
@@ -1275,8 +1289,8 @@ async function confirmRevive() {
       v-model:open="evaluationOpen"
       :signs="evaluationSigns"
       :submitting="!!evaluationAttempt?.submitting"
-      :error="evaluationAttempt?.error ? $t('repotEval.errorPending') : null"
-      :frozen="!!evaluationAttempt?.key"
+      :error="evaluationAttempt?.error ? $t(repotFailureMessageKey(evaluationAttempt.error)) : null"
+      :frozen="isAttemptFrozen(evaluationAttempt)"
       :frozen-answers="evaluationAttempt?.body ?? null"
       @submit="onEvaluationSubmit"
       @start-over="onEvaluationStartOver"
@@ -1288,8 +1302,8 @@ async function confirmRevive() {
       :current-pot-size-cm="doneFormProfile.potSizeCm"
       :current-soil-mix="doneFormProfile.soilMix"
       :submitting="!!doneAttempt?.submitting"
-      :error="doneAttempt?.error ? $t('repotEval.errorPending') : null"
-      :frozen="!!doneAttempt?.key"
+      :error="doneAttempt?.error ? $t(repotFailureMessageKey(doneAttempt.error)) : null"
+      :frozen="isAttemptFrozen(doneAttempt)"
       :frozen-snapshot="doneAttempt?.body.payload ?? null"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"

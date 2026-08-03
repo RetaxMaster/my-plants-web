@@ -42,7 +42,12 @@ function stubsWithRealInputs() {
       props: ['disabled', 'icon', 'loading'],
       template: '<button :disabled="disabled"><slot /></button>',
     },
-    FormGroup: { props: ['label', 'hint'], template: '<div><slot /></div>' },
+    // `error` is rendered (via a stable `.fg-error` hook), unlike the plain `stubs` map's FormGroup below —
+    // FIX C4's inline pot-size validation message needs somewhere to actually show up in the DOM.
+    FormGroup: {
+      props: ['label', 'hint', 'error'],
+      template: '<div><slot /><span v-if="error" class="fg-error">{{ error }}</span></div>',
+    },
     AppIcon: true,
   };
 }
@@ -210,13 +215,44 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
 
     expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('30');
     expect((w.find('select').element as HTMLSelectElement).value).toBe('cactus-mix');
-    // charged:false -> the "reused" segment (index 1) is the active one, not "fresh" (index 0).
+    // FIX D1: the control is now three-way — 'unknown' (index 0), 'fresh' (index 1), 'reused' (index 2).
+    // charged:false -> the "reused" segment (index 2) is the active one.
     const segButtons = w.findAll('.mp-seg button');
     expect(segButtons[0]!.attributes('aria-pressed')).toBe('false');
-    expect(segButtons[1]!.attributes('aria-pressed')).toBe('true');
+    expect(segButtons[1]!.attributes('aria-pressed')).toBe('false');
+    expect(segButtons[2]!.attributes('aria-pressed')).toBe('true');
 
     await findConfirmButton(w).trigger('click');
     expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: 'cactus-mix', charged: false });
+  });
+
+  // FIX D3 — the ONE snapshot shape the two tests around this one never exercise: `charged` OMITTED.
+  // `undefined` is falsy exactly like `false`, so the pre-fix ternary (`snapshot.charged ? 'fresh' :
+  // 'reused'`) silently rendered "reused" for an owner who had said "I don't know" — and then RESUBMITTED
+  // `charged: false`, turning a non-answer into an assertion that the medium carries no reserve. This test
+  // exists because a mutation of the fix stayed GREEN against the sibling tests above: both of them pin a
+  // present `charged`, so neither can see this branch at all.
+  it('hydrates an OMITTED charged back to "I don\'t know" — never silently to "reused" — and resubmits it ' +
+    'with no charged key', async () => {
+    const w = mount(RepotDoneForm, {
+      props: {
+        open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
+        // No `charged` key at all — the wire shape a "I don't know" answer produces.
+        frozenSnapshot: { potSizeCm: 30, soilMix: 'cactus-mix' },
+      },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+
+    const segButtons = w.findAll('.mp-seg button');
+    expect(segButtons[0]!.attributes('aria-pressed')).toBe('true');  // 'unknown'
+    expect(segButtons[1]!.attributes('aria-pressed')).toBe('false'); // 'fresh'
+    expect(segButtons[2]!.attributes('aria-pressed')).toBe('false'); // 'reused'
+
+    await findConfirmButton(w).trigger('click');
+    const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
+    expect(payload).toEqual({ potSizeCm: 30, soilMix: 'cactus-mix' });
+    expect('charged' in payload).toBe(false);
   });
 
   it('changing which plant\'s snapshot is frozen updates the RENDERED values on the next resume — a ' +
@@ -255,5 +291,110 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
 
     await findConfirmButton(w).trigger('click');
     expect(w.emitted('confirm')!.at(-1)![0]).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', charged: true });
+  });
+});
+
+// FIX C4/C — a realistic owner input (a decimal pot diameter, or one over the server's ceiling) used to
+// reach the server, get a clean 400 back, and then be MISREPORTED as "this plant already has an answer
+// waiting" while freezing every field. The root fix lives server-side and in useRepotAttempt.ts (FIX C1-C3);
+// this file's own responsibility is to never let the bad value leave the form in the first place.
+describe('RepotDoneForm — FIX C4: client-side pot-size validation blocks a bad value before it ever reaches the server', () => {
+  function findConfirmButton(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.confirm'))!;
+  }
+
+  async function mountReal(props: Record<string, unknown> = {}) {
+    const w = mount(RepotDoneForm, {
+      props: { open: false, currentPotSizeCm: null, currentSoilMix: 'potting-mix', frozen: false, ...props },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    // `watch(open, ...)` only fires on a false→true TRANSITION — same convention as every other test above.
+    await w.setProps({ open: true });
+    return w;
+  }
+
+  it('a decimal pot diameter (e.g. 22.5) blocks confirm and shows the inline validation message', async () => {
+    const w = await mountReal();
+    await w.find('input[type="number"]').setValue('22.5');
+
+    expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
+    expect(w.find('.fg-error').exists()).toBe(true);
+    expect(w.find('.fg-error').text()).toContain('repotDone.potSizeInvalid');
+  });
+
+  it('a pot diameter over the server ceiling (e.g. 9999) blocks confirm and shows the inline validation ' +
+    'message', async () => {
+    const w = await mountReal();
+    await w.find('input[type="number"]').setValue('9999');
+
+    expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
+    expect(w.find('.fg-error').exists()).toBe(true);
+  });
+
+  it('a valid positive integer within range shows no validation message and allows confirm', async () => {
+    const w = await mountReal();
+    await w.find('input[type="number"]').setValue('22');
+
+    expect(w.find('.fg-error').exists()).toBe(false);
+    expect(findConfirmButton(w).attributes('disabled')).toBeUndefined();
+  });
+});
+
+// FIX D — the substrate control is now three-way and defaults to "I don't know" (never a pre-pressed guess
+// in either direction), and an unset soil mix opens genuinely EMPTY rather than silently pre-selecting the
+// catalogue's first entry.
+describe('RepotDoneForm — FIX D: the substrate answer defaults to "I don\'t know" and an unset mix opens empty', () => {
+  function findConfirmButton(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.confirm'))!;
+  }
+
+  async function mountReal(props: Record<string, unknown> = {}) {
+    const w = mount(RepotDoneForm, {
+      props: { open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: false, ...props },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+    return w;
+  }
+
+  it('opens with "I don\'t know" (index 0) pressed by default, and confirming sends NO `charged` key at ' +
+    'all — never a guessed true/false', async () => {
+    const w = await mountReal();
+
+    const segButtons = w.findAll('.mp-seg button');
+    expect(segButtons[0]!.attributes('aria-pressed')).toBe('true'); // 'unknown'
+    expect(segButtons[1]!.attributes('aria-pressed')).toBe('false'); // 'fresh'
+    expect(segButtons[2]!.attributes('aria-pressed')).toBe('false'); // 'reused'
+
+    await findConfirmButton(w).trigger('click');
+    const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
+    expect(payload).toEqual({ potSizeCm: 20, soilMix: 'potting-mix' });
+    expect(Object.prototype.hasOwnProperty.call(payload, 'charged')).toBe(false);
+  });
+
+  it('choosing "reused" (index 2) emits `charged: false`', async () => {
+    const w = await mountReal();
+    const segButtons = w.findAll('.mp-seg button');
+    await segButtons[2]!.trigger('click'); // 'reused'
+
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', charged: false });
+  });
+
+  it('choosing "fresh" (index 1) emits `charged: true`', async () => {
+    const w = await mountReal();
+    const segButtons = w.findAll('.mp-seg button');
+    await segButtons[1]!.trigger('click'); // 'fresh'
+
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', charged: true });
+  });
+
+  it('an empty-profile open (no recorded soil mix) leaves the select genuinely EMPTY — never silently ' +
+    'pre-selecting the catalogue\'s first entry — and `canConfirm` stays false', async () => {
+    const w = await mountReal({ currentSoilMix: null });
+
+    expect((w.find('select').element as HTMLSelectElement).value).toBe('');
+    expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
   });
 });

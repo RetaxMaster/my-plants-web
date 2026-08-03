@@ -39,6 +39,24 @@ const checked = ref<string[]>([]);
 const exclusive = ref<'none' | 'no-signs' | 'could-not-check'>('none');
 const expandedHelp = ref<string | null>(null);
 
+// FIX E — makes the two exclusive answers DESELECTABLE (they used to stick once clicked, with no escape but
+// closing the whole modal). Toggles OFF back to 'none' when the SAME value is clicked again.
+//
+// This is bound via `:checked` + `@click.prevent`, NEVER a plain `@click` handler left running ALONGSIDE
+// `v-model` on the radio — that shape cannot work, and the reason is the browser's own event order, not a
+// bug in this component: for a radio input, the browser sets the element's checkedness during the
+// "activation behavior" that runs as part of dispatching the click, and only AFTER that does it fire the
+// `change` event — which is what `v-model` actually listens on to write the new value into `exclusive`. A
+// `@click` handler added alongside `v-model` runs BEFORE that native `change` fires, so anything it writes
+// into `exclusive` (e.g. clearing it back to 'none') is immediately overwritten the instant `v-model`'s own
+// `change` handler runs right after. Binding `:checked` (not `v-model`) and calling `event.preventDefault()`
+// inside the click handler cancels the native activation behavior ENTIRELY before it ever sets checkedness
+// or queues a `change` — so `exclusive` (this ref) is left as the ONE source of truth the DOM's `:checked`
+// binding reflects back, with no native state for a re-render to fight.
+function toggleExclusive(v: 'no-signs' | 'could-not-check') {
+  exclusive.value = exclusive.value === v ? 'none' : v;
+}
+
 // Exclusivity is enforced HERE for the owner's sake and AGAIN on the server: "no signs" arriving together
 // with a checked sign is a 400, never a silently-resolved contradiction.
 watch(exclusive, (v) => {
@@ -128,11 +146,25 @@ function onSubmit() {
 
     <div class="mp-repoteval__exclusive">
       <label class="mp-repoteval__check">
-        <input v-model="exclusive" type="radio" value="no-signs" :disabled="frozen" />
+        <input
+          type="radio"
+          name="repoteval-exclusive"
+          value="no-signs"
+          :checked="exclusive === 'no-signs'"
+          :disabled="frozen"
+          @click.prevent="toggleExclusive('no-signs')"
+        />
         <span>{{ t('repotEval.noSigns') }}</span>
       </label>
       <label class="mp-repoteval__check">
-        <input v-model="exclusive" type="radio" value="could-not-check" :disabled="frozen" />
+        <input
+          type="radio"
+          name="repoteval-exclusive"
+          value="could-not-check"
+          :checked="exclusive === 'could-not-check'"
+          :disabled="frozen"
+          @click.prevent="toggleExclusive('could-not-check')"
+        />
         <span>{{ t('repotEval.couldNotCheck') }}</span>
       </label>
     </div>

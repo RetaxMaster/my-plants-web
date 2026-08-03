@@ -1,5 +1,48 @@
 import { shallowRef, watch, type ShallowRef } from 'vue';
 
+// FIX C1 — the failure's KIND, not just that one occurred. A server rejection carries information about
+// WHETHER the outstanding key/body should still be treated as "outstanding" at all:
+//   - 'pending'  — 409/422: the idempotency layer genuinely has an outstanding or conflicting attempt under
+//     this key. Nothing here tells the owner their VALUES were wrong, so the right advice is "reload / start
+//     over", and the key must stay frozen exactly as before.
+//   - 'invalid'  — 400: the server rejected the VALUES before committing anything. The key is now USELESS —
+//     see `begin()`'s FIX C2 handling below — and the owner should be told to correct the input, not to
+//     reload.
+//   - 'unknown'  — anything else, including a network error with no status at all (a timeout, a dropped
+//     connection). The server may or may not have committed, so this is treated exactly like 'pending' was
+//     treated before this fix: keep the key, offer "start over" as the only escape hatch.
+export type RepotAttemptFailure = 'pending' | 'invalid' | 'unknown';
+
+// FIX C1 — read the status off the error the SAME way `useApi.ts`'s `handle401` already does
+// (`e?.statusCode ?? e?.response?.status`), so this file never invents a second convention for "what status
+// did this ofetch error carry". See useApi.ts's `handle401` for the sibling accessor this mirrors.
+export function classifyRepotFailure(e: unknown): RepotAttemptFailure {
+  const status = (e as { statusCode?: number; response?: { status?: number } } | null | undefined)?.statusCode
+    ?? (e as { response?: { status?: number } } | null | undefined)?.response?.status;
+  if (status === 409 || status === 422) return 'pending';
+  if (status === 400) return 'invalid';
+  return 'unknown';
+}
+
+// FIX C1 — the ONE mapping from a failure kind to the message key shown in the modal/form's own `error`
+// prop, so all six binding sites (pages/index.vue x3, PlantDetail.vue x3) read one implementation instead of
+// each hand-rolling `attempt?.error ? t('repotEval.errorPending') : null`.
+export function repotFailureMessageKey(failure: RepotAttemptFailure): string {
+  if (failure === 'invalid') return 'repotEval.errorInvalid';
+  if (failure === 'unknown') return 'repotEval.errorUnknown';
+  return 'repotEval.errorPending';
+}
+
+// FIX C1/C3 — the ONE "should this attempt's fields stay disabled" predicate. True iff there is an attempt
+// AND its failure is not 'invalid'. A 400 means the server rejected the request before doing ANYTHING —
+// nothing was committed under that key — so the owner has been told what to fix and must be allowed to
+// fix it: keeping the fields frozen after a 400 is exactly the QA-reported defect (a decimal/over-max pot
+// size froze every field with no way out short of a full reload). Every OTHER failure kind (or none at all,
+// including "still submitting") keeps the existing frozen behavior unchanged.
+export function isAttemptFrozen(attempt: RepotAttempt<unknown> | null | undefined): boolean {
+  return !!attempt && attempt.error !== 'invalid';
+}
+
 // An in-flight (or just-resolved-and-frozen) REPOT mutation attempt: the evaluation submit and the
 // Done-form confirm each track a SEPARATE flow (`useRepotAttempt('evaluation')` / `useRepotAttempt('done')`
 // below), and each flow tracks ONE entry PER PLANT (U1), not one attempt total.
@@ -23,12 +66,22 @@ import { shallowRef, watch, type ShallowRef } from 'vue';
 // was ALSO shared between the evaluation submit and the Done confirm). This is distinct from a LOADER
 // failure (the repot-signs fetch, the Done form's profile prefetch) — those have no attempt to hang off of
 // (they run BEFORE a key is ever minted) and stay page-scoped, exactly as before.
+//
+// FIX C1 — `error` widened from a bare `boolean` to `RepotAttemptFailure | null`. A boolean recorded only
+// THAT a request failed and discarded the one fact that determines what should happen next: a 400 means the
+// server rejected the VALUES before committing anything (nothing to resume, the owner should be allowed to
+// correct the input), while a 409/422/network failure means the outstanding key genuinely needs to stay
+// frozen. Collapsing all three into one `true` is what produced the reported defect — a decimal/over-max pot
+// size (a clean, correctable 400) was shown the SAME "this plant already has an answer waiting, reload the
+// page" message as a genuine idempotency conflict, and froze every field with no way out. `null` replaces
+// `false` as "no failure recorded" — see `classifyRepotFailure`/`repotFailureMessageKey`/`isAttemptFrozen`
+// above, the three functions every caller uses instead of reading/mapping this field by hand.
 export interface RepotAttempt<TBody> {
   plantId: string;
   key: string;
   body: TBody;
   submitting: boolean;
-  error: boolean;
+  error: RepotAttemptFailure | null;
 }
 
 // X1. Wave 8 (W1) shared the KEY across renderers but left the TERMINAL OUTCOME — what to do once a
@@ -218,14 +271,24 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   // `occurredOn` past midnight, or a NEW `evaluationId` after an intervening `refresh()`), and the whole
   // point of freezing the envelope is that the retry ignores it and resends the ORIGINAL.
   //
-  // `error` is always reset to `false` here (W2) — starting (or retrying) an attempt means a fresh in-flight
+  // `error` is always reset to `null` here (W2) — starting (or retrying) an attempt means a fresh in-flight
   // request, so any PREVIOUS failure this same attempt carried must stop being displayed the instant a new
   // submit begins, whether this is the plant's first attempt or its fifth retry.
+  //
+  // FIX C2 — an existing attempt is a RESUME (same key, same frozen envelope) ONLY when its previous failure
+  // was NOT 'invalid'. This is the load-bearing half of FIX C: `isAttemptFrozen` above unfreezes the FIELDS
+  // the instant a 400 comes back, precisely so the owner can correct a bad value — but if `begin()` still
+  // resent the OLD key with the OLD (bad) body, the corrected submission would arrive under a key the server
+  // already has a 400 verdict for, and the idempotency interceptor treats a same-key/different-body retry as
+  // a PERMANENT 422 (it compares the whole body, never just the key). A 400 means the server committed
+  // NOTHING under that key — there is nothing to "resume" — so the next submit is a genuinely NEW submission:
+  // a fresh key, and the body the caller just passed in (the corrected one), never the stale rejected one.
   function begin(plantId: string, body: TBody): RepotAttempt<TBody> {
     const existing = attempts.value.get(plantId);
-    const next: RepotAttempt<TBody> = existing
-      ? { plantId, key: existing.key, body: existing.body, submitting: true, error: false }
-      : { plantId, key: crypto.randomUUID(), body, submitting: true, error: false };
+    const resumable = existing && existing.error !== 'invalid';
+    const next: RepotAttempt<TBody> = resumable
+      ? { plantId, key: existing!.key, body: existing!.body, submitting: true, error: null }
+      : { plantId, key: crypto.randomUUID(), body, submitting: true, error: null };
     const nextMap = new Map(attempts.value);
     nextMap.set(plantId, next);
     attempts.value = nextMap;
@@ -270,14 +333,20 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
 
   // Called on FAILURE: marks not-submitting AND errored, but KEEPS the key AND the stored body, IFF
   // `candidate` is still live — a lost-response retry must reuse both (the stable-idempotency-key rule, and
-  // U2's whole-envelope freeze), so failure never clears either. Setting `error: true` HERE (W2), on the
-  // attempt keyed by `candidate.plantId`, is what makes the failure state belong to exactly this plant and
-  // this flow — a caller's `computed(() => attemptFor(theCurrentlyShownPlantId).error)` can never read
-  // another plant's or another flow's failure, because there is no shared flag left to leak through.
-  function resolveFailure(candidate: RepotAttempt<TBody>): void {
+  // U2's whole-envelope freeze), so failure never clears either. `resolveFailure` records WHAT the key/body
+  // are kept FOR, never whether they get reused — that decision lives in `begin()` (FIX C2): an 'invalid'
+  // failure still keeps the key/body sitting here, but the NEXT `begin()` call for this plant mints a fresh
+  // one anyway rather than resuming this one.
+  //
+  // FIX C1 — `failure` is now the caller-supplied KIND (`classifyRepotFailure`'s result), not a bare `true`.
+  // Setting `error: failure` HERE, on the attempt keyed by `candidate.plantId`, is what makes the failure
+  // state belong to exactly this plant and this flow — a caller's
+  // `computed(() => attemptFor(theCurrentlyShownPlantId).error)` can never read another plant's or another
+  // flow's failure, because there is no shared flag left to leak through.
+  function resolveFailure(candidate: RepotAttempt<TBody>, failure: RepotAttemptFailure): void {
     if (!isLive(candidate)) return;
     const nextMap = new Map(attempts.value);
-    nextMap.set(candidate.plantId, { ...candidate, submitting: false, error: true });
+    nextMap.set(candidate.plantId, { ...candidate, submitting: false, error: failure });
     attempts.value = nextMap;
   }
 

@@ -1,10 +1,19 @@
 <script setup lang="ts">
-// Marks a REPOT task done. Pre-fills the three fields the care engine actually needs to stop computing
-// against the old pot (potSizeCm, soilMix, charged) with whatever the plant's current profile already
-// knows, so confirming a repot that changed nothing is a single tap. Only EMITS the payload — the caller
-// (the Today-page card / plant-detail flow, not this component) owns the API call and the stable
-// idempotency key, same division of responsibility as RepotEvaluationModal.vue's `submit` emit.
+// Marks a REPOT task done. Pre-fills potSizeCm and soilMix — the two fields the care engine needs to stop
+// computing against the old pot — with whatever the plant's current profile already knows, so confirming a
+// repot that changed neither of those two is close to a single tap. FIX D: the THIRD field, the
+// fresh-substrate answer, is deliberately NOT pre-filled with a guess any more — it defaults to "I don't
+// know" (see the `substrate` ref below), because a pre-pressed answer in EITHER direction was wrong: a
+// guessed "fresh" on an empty profile silently wrote a 45-day fertilizing hold the owner never asserted, and
+// a pre-pressed "fresh" was wrong-direction even on a complete profile (repotting into REUSED soil is
+// common). Only EMITS the payload — the caller (the Today-page card / plant-detail flow, not this component)
+// owns the API call and the stable idempotency key, same division of responsibility as
+// RepotEvaluationModal.vue's `submit` emit.
 import type { RepotDonePayload } from '~/types/api';
+// FIX C4/D4 — the single source for the pot-size ceiling, never a local literal: `types/api.ts` already
+// imports plant-profile constants from this same module (the project's "no new forks" rule), so this
+// follows the same convention rather than hardcoding `500` here.
+import { POT_SIZE_CM_MAX } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 import Modal from './Modal.vue';
 import Button from './Button.vue';
 import Alert from './Alert.vue';
@@ -51,11 +60,14 @@ const { soilMixOptions } = useProfileMeta();
 // PlantProfileModal.vue's ageMonths field).
 const potSizeCm = ref<number | string>('');
 const soilMix = ref<string>('');
-// Tri-state in the UI, boolean on the wire: "reused / inert" maps to `charged: false`, which tells the
-// engine no carryover should be assumed and it may feed sooner. That is the FEED-SOONER direction, not
-// the app's doubt-default (which assumes charge remains and withholds feeding) — this ref defaults to
-// 'fresh' above, not to this branch.
-const substrate = ref<'fresh' | 'reused'>('fresh');
+// FIX D1 — genuinely TRI-STATE now, in BOTH the UI and on the wire (was two-way: 'fresh' | 'reused', always
+// pre-pressed to 'fresh'). 'unknown' is the default and means exactly what it says — the owner has not
+// asserted a fresh/reused answer, so `onConfirm` below sends NO `charged` key at all and the server derives
+// the charge state from the recorded soil mix instead of the app guessing. 'fresh' -> `charged: true` (a
+// full nutrient reserve — hold off feeding until the derived window ends); 'reused' -> `charged: false` (no
+// carryover assumed — the engine may feed sooner). Registration (PlantEditModal's create flow) already
+// offers this same three-way choice; this form offering only two was the defect FIX D closes.
+const substrate = ref<'unknown' | 'fresh' | 'reused'>('unknown');
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -73,26 +85,63 @@ watch(open, (isOpen) => {
     if (props.frozenSnapshot) {
       potSizeCm.value = props.frozenSnapshot.potSizeCm;
       soilMix.value = props.frozenSnapshot.soilMix;
-      substrate.value = props.frozenSnapshot.charged ? 'fresh' : 'reused';
+      // FIX D3 — `charged` is tri-state by PRESENCE on the wire (see types/api.ts's own comment): `undefined`
+      // means "I don't know" and must round-trip back to 'unknown', never silently become 'reused'. The
+      // PREVIOUS version of this line (`... ? 'fresh' : 'reused'`) turned an omitted `charged` into 'reused'
+      // — the OPPOSITE of what the owner actually said (nothing) — because `undefined` is falsy in a ternary
+      // exactly like `false` is.
+      substrate.value = props.frozenSnapshot.charged === undefined
+        ? 'unknown'
+        : (props.frozenSnapshot.charged ? 'fresh' : 'reused');
     }
     return;
   }
   potSizeCm.value = props.currentPotSizeCm ?? '';
-  soilMix.value = props.currentSoilMix ?? soilMixOptions.value[0]?.value ?? '';
-  substrate.value = 'fresh';
+  // FIX D4 — dropped the `soilMixOptions.value[0]?.value` fallback (used to silently pre-select the FIRST
+  // catalogue entry, e.g. "Aroid mix", whenever the plant's profile had no recorded mix). An unset mix now
+  // opens genuinely EMPTY — see the SelectField's `:placeholder` below — so the owner must make an explicit
+  // choice instead of unknowingly confirming whatever slug happens to sort first. The catalogue's `other`
+  // entry already covers "I don't know what I potted into" (2026-08-02 ledger L29: `other` takes the
+  // identical no-evidence path as an unset mix on the engine side), so there is no second "unset" option to
+  // add here — that would be two spellings of the same "no evidence" meaning.
+  soilMix.value = props.currentSoilMix ?? '';
+  substrate.value = 'unknown';
+});
+
+// FIX C4 — client-side validation so a realistic bad pot-size input (a decimal like `22.5`, or an
+// over-the-ceiling value like `9999`) never reaches the server at all, rather than round-tripping to a 400
+// the owner then has to interpret. `potSizeCm` must be a positive INTEGER at most `POT_SIZE_CM_MAX` — the
+// exact constraint the API enforces (see this file's own `POT_SIZE_CM_MAX` import).
+const potSizeValid = computed(
+  () => typeof potSizeCm.value === 'number' && Number.isInteger(potSizeCm.value)
+    && potSizeCm.value > 0 && potSizeCm.value <= POT_SIZE_CM_MAX,
+);
+// Shown only once the owner has typed SOMETHING — an empty field is simply "not filled in yet" (canConfirm
+// already gates on that), never an inline error of its own.
+const potSizeErrorMessage = computed(() => {
+  if (potSizeCm.value === '' || potSizeValid.value) return undefined;
+  return t('repotDone.potSizeInvalid', { max: POT_SIZE_CM_MAX });
 });
 
 const canConfirm = computed(
-  () => !props.submitting && typeof potSizeCm.value === 'number' && potSizeCm.value > 0 && soilMix.value.length > 0,
+  () => !props.submitting && potSizeValid.value && soilMix.value.length > 0,
 );
 
 function onConfirm() {
   if (!canConfirm.value) return;
-  emit('confirm', {
+  const payload: Omit<RepotDonePayload, 'evaluationId'> = {
     potSizeCm: potSizeCm.value as number,
     soilMix: soilMix.value,
-    charged: substrate.value === 'fresh',
-  });
+  };
+  // FIX D1 — `charged` is included ONLY when the owner gave an actual fresh/reused answer. Building the
+  // object WITHOUT the key at all (rather than setting it to `charged: undefined`) is deliberate: either
+  // spelling reaches the server identically, because `JSON.stringify` drops a property whose value is
+  // `undefined` the exact same way it drops an absent key — but an object literal that never assigns the key
+  // is what keeps this honest to read, rather than relying on a stringify detail nobody re-checks later.
+  if (substrate.value !== 'unknown') {
+    payload.charged = substrate.value === 'fresh';
+  }
+  emit('confirm', payload);
 }
 </script>
 
@@ -106,8 +155,16 @@ function onConfirm() {
 
     <p class="mp-repotdone__intro">{{ t('repotDone.intro') }}</p>
 
-    <FormGroup :label="t('repotDone.potSize')" :hint="t('repotDone.potSizeHint')">
-      <Input v-model.number="potSizeCm" type="number" min="1" step="1" :disabled="frozen" />
+    <FormGroup :label="t('repotDone.potSize')" :hint="t('repotDone.potSizeHint')" :error="potSizeErrorMessage">
+      <Input
+        v-model.number="potSizeCm"
+        type="number"
+        min="1"
+        :max="POT_SIZE_CM_MAX"
+        step="1"
+        :disabled="frozen"
+        :error="potSizeErrorMessage"
+      />
     </FormGroup>
     <Button
       size="xs"
@@ -121,7 +178,12 @@ function onConfirm() {
     </Button>
 
     <FormGroup :label="t('repotDone.soilMix')">
-      <SelectField v-model="soilMix" :options="soilMixOptions" :disabled="frozen" />
+      <SelectField
+        v-model="soilMix"
+        :options="soilMixOptions"
+        :disabled="frozen"
+        :placeholder="t('repotDone.soilMixPlaceholder')"
+      />
     </FormGroup>
 
     <FormGroup :label="t('repotDone.substrate')">
@@ -129,6 +191,7 @@ function onConfirm() {
         v-model="substrate"
         :disabled="frozen"
         :options="[
+          { key: 'unknown', label: t('repotDone.substrateUnknown') },
           { key: 'fresh', label: t('repotDone.substrateFresh') },
           { key: 'reused', label: t('repotDone.substrateReused') },
         ]"

@@ -193,11 +193,17 @@ export interface RepotEvaluationResult {
   reevaluateOn?: string; // YYYY-MM-DD, present iff verdict is RE-EVALUATE
 }
 
-/** The three fields a REPOT completion must carry — mirrors the API's repotDonePayloadSchema. */
+/**
+ * The fields a REPOT completion carries — mirrors the API's repotDonePayloadSchema. `potSizeCm`/`soilMix`
+ * are required; `charged` is OPTIONAL (FIX D): present means the owner gave an actual fresh/reused answer,
+ * ABSENT means "I don't know" — the server derives the charge state from the recorded soil mix instead of
+ * the app guessing. Never round-trip an absent `charged` as `false` ("reused"); see
+ * `RepotDoneForm.vue`'s own frozenSnapshot hydration for the exact mistake that shape invites.
+ */
 export interface RepotDonePayload {
   potSizeCm: number;
   soilMix: string;
-  charged: boolean;
+  charged?: boolean;
   refreshedOn?: string;
   evaluationId?: string;
 }

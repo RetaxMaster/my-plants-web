@@ -11,6 +11,7 @@ import { onUnmounted } from 'vue';
 import { type TaskCode, type DueState } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
+import { repotExplanation } from '../utils/repotExplanation.js';
 // Explicit import, same reasoning as `onUnmounted` above: the composable's OWN `shallowRef` import makes
 // it test-environment-agnostic. Round-5 finding V1 — extracted so this file and pages/index.vue (the
 // FIRST renderer of the same REPOT flows) share ONE attempt-tracking implementation instead of two
@@ -460,17 +461,9 @@ function taskExplanation(task: string): string | undefined {
     return t('taskInfo.substrate.fertilizeFloor', { date: d(ymdToLocalDate(s.fertilizeFloorOn), 'short') });
   }
   if (task === 'REPOT' && s.repotDriver) {
-    // Two independent facts (substrate:13 final ruling): what the engine's estimate is based on
-    // (always true, driver-dependent), and — additionally, never in its place — whether the owner's
-    // own postponement is what's binding the date currently shown. Both can be true at once, so the
-    // override sentence is appended, never substituted for the driver sentence.
-    const driver =
-      s.repotDriver === 'SUBSTRATE'
-        ? t('taskInfo.substrate.repotDriverSubstrate')
-        : t('taskInfo.substrate.repotDriverCrowding');
-    return s.repotOverrideBinding
-      ? `${driver} ${t('taskInfo.substrate.repotOverrideBinding')}`
-      : driver;
+    // Composition extracted to utils/repotExplanation.ts (its own dedicated unit test covers the
+    // append-never-substitute rule) — see that file's comment for the full rationale.
+    return repotExplanation(s, t);
   }
   return undefined;
 }

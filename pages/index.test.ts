@@ -17,12 +17,13 @@
 // outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals, same
 // technique PlantDetail.test.ts / pages/plants/index.test.ts use.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computed, ref } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { RepotEvaluationResult, RepotSign } from '../types/api.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
+vi.stubGlobal('shallowRef', shallowRef);
 vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, d: () => '', locale: ref('en') }));
 vi.stubGlobal('useIsDesktop', () => ref(true));
 vi.stubGlobal('useHead', () => {});
@@ -34,12 +35,15 @@ vi.stubGlobal('useFeedbackReasons', () => ({
   postponeOptions: computed(() => []),
 }));
 
-// A controllable, externally-resolvable promise — lets the test hold a plant's submit "in flight" and
-// settle it at a chosen moment, independent of any other plant's own in-flight submit.
+// A controllable, externally-resolvable/rejectable promise — lets the test hold a plant's submit "in
+// flight" and settle it (success OR failure — round-4 finding V2 needs the latter, to prove a rejection
+// reaches the same recovery state a timeout depends on) at a chosen moment, independent of any other
+// plant's own in-flight submit.
 function deferred<T>() {
   let resolve!: (v: T) => void;
-  const promise = new Promise<T>((res) => { resolve = res; });
-  return { promise, resolve };
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 const TASKS = [
@@ -193,6 +197,165 @@ describe('pages/index.vue — a late response from an ABANDONED evaluation submi
     expect(w.find('.eval-modal').attributes('data-submitting')).toBe('false');
     expect(w.find('.verdict-modal').attributes('data-open')).toBe('true');
     expect(w.find('.verdict-modal').attributes('data-verdict')).toBe('RE-EVALUATE');
+  });
+});
+
+describe('pages/index.vue — round-4 finding V1: the submitting flag must never get stuck (failure 1)', () => {
+  it('onEvaluationSubmit: opening a DIFFERENT plant while a submit is still in flight must not leave the ' +
+    'new modal stuck "submitting" forever', async () => {
+    const w = await mountPage();
+    const evaluateButtons = w.findAll('.evaluate-btn');
+
+    // Start a submit for A and leave it in flight — never resolved.
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+
+    // Abandon A WITHOUT submitting or resolving it: just open B's card. B has submitted nothing yet, so its
+    // freshly-opened modal must read submitting=false — the bug left it stuck `true` forever because A's
+    // own `finally` never runs (its plant/key pair never matches again once evaluationPlantId moved on).
+    await evaluateButtons[1]!.trigger('click');
+    await flushPromises();
+
+    expect(w.find('.eval-modal').attributes('data-open')).toBe('true');
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('false');
+  });
+
+  it('onRepotDoneConfirm: opening a DIFFERENT plant\'s Done form while a confirm is still in flight must ' +
+    'not leave the new form stuck "submitting" forever', async () => {
+    const w = await mountPage();
+    const doneButtons = w.findAll('.done-btn');
+
+    // Start a confirm for A and leave it in flight — never resolved.
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+
+    // Abandon A WITHOUT confirming or resolving it: just open B's Done form.
+    await doneButtons[1]!.trigger('click');
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('false');
+  });
+});
+
+describe('pages/index.vue — round-4 finding V1: the submitting flag must never get stuck (failure 2)', () => {
+  it('onEvaluationSubmit: a stale success must not clear a NEWER attempt\'s submitting flag when its own ' +
+    'refresh() resolves late', async () => {
+    // A controllable `refresh()` lets the test hold A's success mid-flight (past the point where it has
+    // already closed its own modal) so a newer attempt (B) can start DURING that window — exactly the gap
+    // where the old code's `finally` clobbered B's flag once A's refresh() finally resolved.
+    const refreshDeferred = deferred<void>();
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(() => refreshDeferred.promise),
+    }));
+
+    const w = await mountPage();
+    const evaluateButtons = w.findAll('.evaluate-btn');
+
+    // Submit A; it succeeds, but its refresh() is held open.
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    submitDeferreds.A!.resolve({ evaluationId: 'ev-A', verdict: 'REPOT' });
+    await flushPromises();
+    // A's own modal already closed and its own attempt was already cleared — refresh() is what's still
+    // pending.
+    expect(w.find('.eval-modal').attributes('data-open')).toBe('false');
+
+    // While A's refresh() is still pending, the owner opens B and submits.
+    await evaluateButtons[1]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+
+    // A's refresh() now finally resolves — its own bookkeeping must NOT touch B's now-active submitting.
+    refreshDeferred.resolve();
+    await flushPromises();
+
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+  });
+
+  it('onRepotDoneConfirm: a stale success must not clear a NEWER attempt\'s submitting flag when its own ' +
+    'refresh() resolves late', async () => {
+    const refreshDeferred = deferred<void>();
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(() => refreshDeferred.promise),
+    }));
+
+    const w = await mountPage();
+    const doneButtons = w.findAll('.done-btn');
+
+    // Confirm A; it succeeds, but its refresh() is held open.
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds.A!.resolve({ ok: true });
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+
+    // While A's refresh() is still pending, the owner opens B's Done form and confirms.
+    await doneButtons[1]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+
+    // A's refresh() now finally resolves — its own bookkeeping must NOT touch B's now-active submitting.
+    refreshDeferred.resolve();
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+  });
+});
+
+describe('pages/index.vue — round-4 finding V2: a failed submit (including a request useApi.ts now times ' +
+  'out instead of letting hang forever) must leave a way out', () => {
+  it('onEvaluationSubmit: a rejection clears submitting, keeps the key (frozen stays true), surfaces the ' +
+    'error, and leaves the modal open — never a dead end', async () => {
+    const w = await mountPage();
+    await w.findAll('.evaluate-btn')[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
+
+    // A hung connection that useApi.ts's new `timeout` option (REPOT_SUBMIT_TIMEOUT_MS) eventually aborts
+    // rejects exactly like this — the recovery this fix depends on is that ANY rejection here (not just a
+    // 4xx/5xx) reaches the same "frozen && error" state RepotEvaluationModal.vue gates "start over" on.
+    submitDeferreds.A!.reject(Object.assign(new Error('[TimeoutError]: aborted due to timeout'), { statusCode: undefined }));
+    await flushPromises();
+
+    expect(w.find('.eval-modal').attributes('data-submitting')).toBe('false');
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true'); // key kept — a retry reuses it
+    expect(w.find('.eval-modal').attributes('data-open')).toBe('true'); // never force-closed — no dead end
+  });
+
+  it('onRepotDoneConfirm: a rejection clears submitting, keeps the key (frozen stays true), surfaces the ' +
+    'error, and leaves the form open — never a dead end', async () => {
+    const w = await mountPage();
+    await w.findAll('.done-btn')[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
+
+    completeRepotDeferreds.A!.reject(Object.assign(new Error('[TimeoutError]: aborted due to timeout'), { statusCode: undefined }));
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-submitting')).toBe('false');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
   });
 });
 

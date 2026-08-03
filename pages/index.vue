@@ -27,11 +27,21 @@ const postponePickerOpen = ref(false);
 const evaluationOpen = ref(false);
 const evaluationSigns = ref<RepotSign[]>([]);
 const evaluationPlantId = ref<string | null>(null);
-const evaluationSubmitting = ref(false);
-// STABLE per submission: minted lazily on the first attempt, reused verbatim across retries of that same
-// submission, and discarded the moment it succeeds or the owner abandons the modal. NEVER content-derived —
-// two genuinely separate evaluations of one plant must not collapse into one.
-const evaluationKey = ref<string | null>(null);
+// The active REPOT-evaluation submit attempt, or null when none is outstanding. A SINGLE object — round-4
+// finding V1 ruled that tracking the key and the `submitting` flag as two separate refs is exactly what let
+// `submitting` get stuck: a stale attempt's own resolution handler could find its plant/key pair no longer
+// matched the live one and skip clearing `submitting` entirely (nothing else ever did either), or — after
+// clearing the key first and only THEN awaiting `refresh()` — clear a NEWER attempt's flag by mistake once
+// that stale `finally` finally ran. Object IDENTITY is now the token: `key` is minted lazily on the first
+// attempt and reused verbatim across retries of that same submission (NEVER content-derived — two genuinely
+// separate evaluations of one plant must not collapse into one); the whole object is replaced/discarded in
+// ONE write the moment it succeeds, fails, or the owner abandons the modal, so key and submitting can never
+// go out of sync with each other. `shallowRef`, deliberately NOT `ref`: `ref()` on an object auto-wraps it
+// in a reactive Proxy, so `.value` never `===` the plain object a caller captured — the `!==` identity check
+// below would then ALWAYS read "stale", even for the very attempt that just resolved. `shallowRef` tracks
+// reactivity only on whole-value reassignment (exactly what every write below does — replace or null the
+// whole object, never mutate a field in place), so the captured reference survives intact for comparison.
+const evaluationAttempt = shallowRef<{ plantId: string; key: string; submitting: boolean } | null>(null);
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
 const verdictOpen = ref(false);
@@ -45,9 +55,11 @@ const evaluationLoadFailed = ref(false);
 const doneFormOpen = ref(false);
 const doneFormPlantId = ref<string | null>(null);
 const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }>({ potSizeCm: null, soilMix: null });
-const doneFormSubmitting = ref(false);
-// Same stable-key discipline as evaluationKey.
-const doneKey = ref<string | null>(null);
+// Same single-object attempt discipline as evaluationAttempt above (round-4 finding V1's sibling fix in
+// onRepotDoneConfirm) — key + submitting travel together so nulling/replacing the pair is always atomic.
+// `shallowRef`, same reasoning as evaluationAttempt above: a plain `ref()` would wrap the object in a
+// reactive Proxy and break the `!==` identity check that tells a stale attempt it is stale.
+const doneAttempt = shallowRef<{ plantId: string; key: string; submitting: boolean } | null>(null);
 const repotPostponeSubmitting = ref(false);
 
 // Every REPOT mutating flow can genuinely fail — the state a card was built from can go stale between
@@ -139,10 +151,14 @@ async function onEvaluate(plantId: string) {
   // belongs to one plant's exact submitted body, so switching to a DIFFERENT plant intentionally abandons
   // the previous plant's outstanding attempt rather than carrying a stale key into a new plant's body,
   // which the server would then 422 forever — a worse bug than the one this fixes.
-  const resuming = evaluationPlantId.value === plantId && !!evaluationKey.value;
+  const resuming = evaluationPlantId.value === plantId && !!evaluationAttempt.value?.key;
   evaluationPlantId.value = plantId;
   if (!resuming) {
-    evaluationKey.value = null;
+    // Invalidate whatever attempt was previously active — a different plant, or this same plant with no
+    // outstanding key — THE MOMENT we move on, rather than hoping its own in-flight request notices it went
+    // stale and clears up after itself (round-4 finding V1). Nulling the whole object in one write clears
+    // `submitting` too, so a still-true flag from an abandoned attempt can never leak into this fresh one.
+    evaluationAttempt.value = null;
     repotError.value = false;
   }
   evaluationLoadFailed.value = false;
@@ -175,54 +191,47 @@ function retryEvaluate() {
 async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   const plantId = evaluationPlantId.value;
   if (!plantId) return;
-  if (!evaluationKey.value) evaluationKey.value = crypto.randomUUID();
   // Capture the exact attempt this request belongs to (round-3/adversarial finding Y1): this ONE modal
   // instance serves EVERY plant card on the page, so switching cards while a submit is in flight abandons
-  // the request without cancelling it. Its response still arrives later, and without this pair the
-  // try/catch/finally below would apply it to whatever plant/key is active BY THEN — clobbering a different
-  // plant's outstanding key, closing that plant's modal, or showing this plant's stale verdict over it.
-  const attemptPlantId = plantId;
-  const attemptKey = evaluationKey.value;
-  evaluationSubmitting.value = true;
+  // the request without cancelling it. Its response still arrives later, and reference equality against
+  // THIS object is the token that answers "is this still the live attempt?" — a stale attempt's own object
+  // was already replaced (by the invalidation in `onEvaluate`, by "start over", or by a newer submit), so
+  // `evaluationAttempt.value !== attempt` catches it unconditionally, whether that replacement happened
+  // before this request even settled or only during its own awaited `refresh()` below (round-4 finding V1).
+  const attempt = { plantId, key: evaluationAttempt.value?.key ?? crypto.randomUUID(), submitting: true };
+  evaluationAttempt.value = attempt;
   repotError.value = false;
-  // Whether THIS attempt is still the active one at the moment its response arrives — captured ONCE into a
-  // local, rather than re-derived from the refs in `finally`: the success branch below deliberately nulls
-  // `evaluationKey` on its own current attempt, so re-checking `evaluationKey.value === attemptKey` in
-  // `finally` would wrongly read even the attempt that just succeeded as "stale".
-  let isCurrentAttempt = false;
   try {
-    const result = await api.submitRepotEvaluation(plantId, body, attemptKey);
+    const result = await api.submitRepotEvaluation(plantId, body, attempt.key);
     // Stale-attempt guard (same class as the signs-fetch race, F4, above): if the owner moved on — a
     // different plant's evaluate was clicked, or this plant's key was superseded by "start over" — while
     // this request was in flight, its response belongs to an ABANDONED attempt and must be ignored
     // entirely, never touching the now-active attempt's state.
-    isCurrentAttempt = evaluationPlantId.value === attemptPlantId && evaluationKey.value === attemptKey;
-    if (!isCurrentAttempt) return;
-    evaluationKey.value = null; // discarded on success; never reused again
+    if (evaluationAttempt.value !== attempt) return;
+    // Clear the WHOLE attempt (key + submitting together) here, before `await refresh()` below — never in a
+    // deferred `finally` — so a newer attempt started during that refresh can never be clobbered by this
+    // one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure mode).
+    evaluationAttempt.value = null; // discarded on success; never reused again
     evaluationOpen.value = false;
     verdict.value = result;
     verdictOpen.value = true;
     await refresh();
   } catch {
-    isCurrentAttempt = evaluationPlantId.value === attemptPlantId && evaluationKey.value === attemptKey;
-    if (!isCurrentAttempt) return;
+    if (evaluationAttempt.value !== attempt) return;
     // Key deliberately kept (not cleared) on failure: a lost-response retry must reuse the same key, per
     // the stable-idempotency-key rule. The modal stays open so the owner can see the error and retry the
     // SAME submission rather than silently losing it. The modal freezes its inputs for exactly as long as
-    // this key is outstanding (`:frozen="!!evaluationKey"`), so the retry recomputes the SAME body — never
-    // a same-key/different-body retry, which the server's idempotency interceptor answers 422 forever.
+    // this key is outstanding (`:frozen="!!evaluationAttempt?.key"`), so the retry recomputes the SAME body
+    // — never a same-key/different-body retry, which the server's idempotency interceptor answers 422 forever.
+    evaluationAttempt.value = { ...attempt, submitting: false };
     repotError.value = true;
-  } finally {
-    // Only the still-active attempt may clear the submitting flag — an abandoned attempt's finally must
-    // not stomp the loading state of whatever attempt (same plant retried, or a different plant) replaced it.
-    if (isCurrentAttempt) evaluationSubmitting.value = false;
   }
 }
 
 // Explicit escape hatch (code review finding W17): abandons the outstanding key so the form unfreezes and
 // a later submit mints a fresh one, instead of forcing a page reload to get out of a stuck retry.
 function onEvaluationStartOver() {
-  evaluationKey.value = null;
+  evaluationAttempt.value = null;
   repotError.value = false;
 }
 
@@ -230,7 +239,10 @@ function onEvaluationStartOver() {
 // 'REPOT' verdict is pending — see TaskRow's showEvaluate).
 async function onRepotDone(plantId: string) {
   doneFormPlantId.value = plantId;
-  doneKey.value = null;
+  // Always a fresh attempt (unlike onEvaluate, the Done form has no resume path): this also invalidates any
+  // in-flight attempt for whatever plant was previously active, clearing `submitting` in the same write so
+  // it can never leak into this freshly-opened form (round-4 finding V1).
+  doneAttempt.value = null;
   repotError.value = false;
   const plant = await api.getPlant(plantId);
   // Race guard (code review finding F4): the SAME class as onEvaluate above — a second card click during
@@ -243,54 +255,46 @@ async function onRepotDone(plantId: string) {
 async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'>) {
   const plantId = doneFormPlantId.value;
   if (!plantId) return;
-  if (!doneKey.value) doneKey.value = crypto.randomUUID();
   // Capture the exact attempt this request belongs to — the SAME class of race as onEvaluationSubmit above
   // (Y1's sibling defect, ruled in the same pass): this ONE Done form is shared by every plant card, so
   // switching cards while a confirm is in flight abandons the request without cancelling it. Its response
-  // still arrives later, and without this pair the try/catch/finally below would apply it to whatever
-  // plant/key is active BY THEN — clobbering a different plant's outstanding key or closing its open form.
-  const attemptPlantId = plantId;
-  const attemptKey = doneKey.value;
-  doneFormSubmitting.value = true;
+  // still arrives later, and reference equality against THIS object answers "is this still the live
+  // attempt?" unconditionally — whether that got superseded before this request even settled or only during
+  // its own awaited `refresh()` below (round-4 finding V1).
+  const attempt = { plantId, key: doneAttempt.value?.key ?? crypto.randomUUID(), submitting: true };
+  doneAttempt.value = attempt;
   repotError.value = false;
-  // Whether THIS attempt is still the active one at the moment its response arrives — captured ONCE into a
-  // local, rather than re-derived from the refs in `finally`: the success branch below deliberately nulls
-  // `doneKey` on its own current attempt, so re-checking `doneKey.value === attemptKey` in `finally` would
-  // wrongly read even the attempt that just succeeded as "stale" (the exact mistake caught by Y1's test).
-  let isCurrentAttempt = false;
   try {
     const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
     await api.completeRepot(
       plantId,
       today,
       { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
-      attemptKey,
+      attempt.key,
     );
     // Stale-attempt guard (same class as onEvaluationSubmit's, F4/Y1): if the owner moved on — a different
     // plant's Done form was opened, or this plant's key was superseded by "start over" — while this
     // request was in flight, its response belongs to an ABANDONED attempt and must be ignored entirely,
     // never touching the now-active attempt's state.
-    isCurrentAttempt = doneFormPlantId.value === attemptPlantId && doneKey.value === attemptKey;
-    if (!isCurrentAttempt) return;
-    doneKey.value = null; // discarded on success; never reused again
+    if (doneAttempt.value !== attempt) return;
+    // Clear the WHOLE attempt (key + submitting together) here, before `await refresh()` below — never in a
+    // deferred `finally` — so a newer attempt started during that refresh can never be clobbered by this
+    // one's own bookkeeping once refresh() finally resolves (round-4 finding V1's second failure mode).
+    doneAttempt.value = null; // discarded on success; never reused again
     doneFormOpen.value = false;
     await refresh();
   } catch {
-    isCurrentAttempt = doneFormPlantId.value === attemptPlantId && doneKey.value === attemptKey;
-    if (!isCurrentAttempt) return;
+    if (doneAttempt.value !== attempt) return;
     // Key deliberately kept on failure, same reasoning as onEvaluationSubmit.
+    doneAttempt.value = { ...attempt, submitting: false };
     repotError.value = true;
-  } finally {
-    // Only the still-active attempt may clear the submitting flag — an abandoned attempt's finally must
-    // not stomp the loading state of whatever attempt (same plant retried, or a different plant) replaced it.
-    if (isCurrentAttempt) doneFormSubmitting.value = false;
   }
 }
 
 // Explicit escape hatch for the Done form (code review finding Y2, mirrors onEvaluationStartOver above):
-// abandons the outstanding doneKey so the form unfreezes and a later confirm mints a fresh one.
+// abandons the outstanding attempt so the form unfreezes and a later confirm mints a fresh one.
 function onRepotDoneStartOver() {
-  doneKey.value = null;
+  doneAttempt.value = null;
   repotError.value = false;
 }
 
@@ -452,9 +456,9 @@ function openProgress(plantId: string) {
     <UiRepotEvaluationModal
       v-model:open="evaluationOpen"
       :signs="evaluationSigns"
-      :submitting="evaluationSubmitting"
+      :submitting="!!evaluationAttempt?.submitting"
       :error="repotError ? $t('repotEval.errorPending') : null"
-      :frozen="!!evaluationKey"
+      :frozen="!!evaluationAttempt?.key"
       @submit="onEvaluationSubmit"
       @start-over="onEvaluationStartOver"
     />
@@ -463,9 +467,9 @@ function openProgress(plantId: string) {
       v-model:open="doneFormOpen"
       :current-pot-size-cm="doneFormProfile.potSizeCm"
       :current-soil-mix="doneFormProfile.soilMix"
-      :submitting="doneFormSubmitting"
+      :submitting="!!doneAttempt?.submitting"
       :error="repotError ? $t('repotEval.errorPending') : null"
-      :frozen="!!doneKey"
+      :frozen="!!doneAttempt?.key"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"
     />

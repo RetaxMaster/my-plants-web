@@ -17,6 +17,20 @@ import type {
   RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
 } from '../types/api.js';
 
+// Bounded wait for the two REPOT mutating submits (round-4 finding V2): a plain JSON POST via ofetch has NO
+// default timeout, so a connection that HANGS (rather than rejecting) leaves RepotEvaluationModal.vue /
+// RepotDoneForm.vue's `submitting` spinner spinning and every control disabled forever — `frozen && error`
+// never becomes true because no error ever arrives, so the "start over" escape hatch never renders either.
+// Same technique the sliding-session refresh already uses (`utils/refreshMemo.ts`'s `REFRESH_TIMEOUT_MS`,
+// wired through ofetch's own `timeout` option in `server/middleware/session-slide.ts`) rather than the
+// uploads' XHR watchdog (`utils/upload.ts`) — these are plain JSON bodies with no upload-progress events to
+// arm a stall timer against, so ofetch's built-in abort-after-`timeout` is the right-sized tool, not a
+// second XHR machinery. 20s is generous for a same-origin write + one plant's care recompute (no image
+// processing, no R2 round-trip) while still bounding the wait to something the owner can act on: on timeout
+// ofetch aborts and rejects like any other network failure, so the callers' existing catch block (keep the
+// idempotency key, surface `repotError`) already produces the exact recovery state this fix requires.
+const REPOT_SUBMIT_TIMEOUT_MS = 20_000;
+
 // Client-side app-scoped GET cache (one per browser tab, lives until a full reload). The SERVER cache is
 // request-scoped instead (hung off the SSR event context below) — a server module-global would leak one
 // user's data into another user's render.
@@ -285,6 +299,7 @@ export function useApi() {
         method: 'POST',
         body,
         headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+        timeout: REPOT_SUBMIT_TIMEOUT_MS,
       }),
 
     /** A REPOT completion. Same stable-key discipline as the evaluation submit. */
@@ -293,6 +308,7 @@ export function useApi() {
         method: 'POST',
         body: { task: 'REPOT', type: 'DONE', occurredOn, payload },
         headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+        timeout: REPOT_SUBMIT_TIMEOUT_MS,
       }),
     // `idempotencyKey`, when passed, is PINNED as the Idempotency-Key header — Task 8's withIdempotencyKey
     // (inside api(), above) preserves a caller-pinned key rather than minting its own. This is what lets

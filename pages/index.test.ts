@@ -929,3 +929,125 @@ describe("pages/index.vue — W3: the frozen Done form displays what the retry w
     expect(secondCall[3]).toBe(firstCall[3]);
   });
 });
+
+// Z1: wave 9 introduced the shared completion signal (X1) but gated its watcher's `refresh()` call on the
+// SAME check that gates the modal-close/verdict actions ("is this the plant the ONE shared modal is
+// currently showing?"). `resolveSuccess()` has already deleted the completed plant's attempt by the time the
+// watcher runs, REGARDLESS of what the modal is currently showing — so the early return silently skipped
+// the Today refresh too, leaving a plant the owner isn't currently looking at stale with its attempt gone:
+// its own card's next click minted a FRESH idempotency key and could duplicate the already-recorded repot.
+// These tests reproduce the exact scenario the ruling describes: confirm plant A, dismiss/abandon its
+// in-flight form by opening plant B's WITHOUT submitting, then let A settle — Today must still refresh, B
+// must stay open and untouched, and reopening A must never resume a stale, already-cleared attempt.
+describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
+  it('evaluation flow: plant A\'s submit settles while plant B\'s UNSUBMITTED modal is open — Today ' +
+    'refreshes, B stays open and untouched, and reopening A is a genuinely FRESH attempt', async () => {
+    // A spy on the fetcher itself (not just the `refresh()` wrapper) is what proves the Today list actually
+    // re-fetched — asserting on the `refresh()` mock would only prove it was CALLED, never that it re-ran
+    // the real fetcher, and this override makes `refresh()` do that (mirrors the cross-renderer test file's
+    // own `useAsyncData` stub, documented there as the generic reason to assert on the underlying api mock's
+    // call count, never on the refresh() wrapper itself).
+    const todaysTasksMock = vi.fn(async () => TASKS);
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref(await fn());
+      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+    });
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: todaysTasksMock,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      completeRepot: completeRepotMock,
+    }));
+
+    const w = await mountPage();
+    const evaluateButtons = w.findAll('.evaluate-btn');
+
+    // Confirm plant A: open + submit — mints a key, the request is in flight (never resolved yet).
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-btn').trigger('click');
+    await flushPromises();
+    expect(submitRepotEvaluationMock.mock.calls[0]![0]).toBe('A');
+
+    // Open plant B's card WITHOUT submitting — abandons A's modal ownership (the shared modal now shows B),
+    // but A's request keeps running underneath.
+    await evaluateButtons[1]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-open')).toBe('true');
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('false'); // fresh, unsubmitted B attempt
+
+    const tasksReadsBeforeCompletion = todaysTasksMock.mock.calls.length;
+
+    // A's response now arrives while B's UNSUBMITTED modal is showing.
+    submitDeferreds.A!.resolve({ evaluationId: 'ev-A', verdict: 'REPOT' });
+    await flushPromises();
+
+    // The Today list must reconcile regardless — B's modal is not A's, but the refresh is unconditional.
+    expect(todaysTasksMock.mock.calls.length).toBeGreaterThan(tasksReadsBeforeCompletion);
+    // B stays open and untouched: no verdict shown for A's response, B's own modal state undisturbed.
+    expect(w.find('.eval-modal').attributes('data-open')).toBe('true');
+    expect(w.find('.verdict-modal').attributes('data-open')).toBe('false');
+
+    // Reopening A offers no stale duplicate action: A's attempt was cleared by resolveSuccess(), so this is
+    // a genuinely FRESH (unfrozen) attempt, never a resume of the already-completed one.
+    await evaluateButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-open')).toBe('true');
+    expect(w.find('.eval-modal').attributes('data-frozen')).toBe('false');
+  });
+
+  it('Done flow: plant A\'s confirm settles while plant B\'s UNSUBMITTED Done form is open — Today ' +
+    'refreshes, B stays open and untouched, and reopening A is a genuinely FRESH attempt', async () => {
+    const todaysTasksMock = vi.fn(async () => TASKS);
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref(await fn());
+      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+    });
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: todaysTasksMock,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      completeRepot: completeRepotMock,
+    }));
+
+    const w = await mountPage();
+    const doneButtons = w.findAll('.done-btn');
+
+    // Confirm plant A: open + confirm — mints a key, the request is in flight (never resolved yet).
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock.mock.calls[0]![0]).toBe('A');
+
+    // Open plant B's Done form WITHOUT confirming.
+    await doneButtons[1]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false'); // fresh, unconfirmed B attempt
+
+    const tasksReadsBeforeCompletion = todaysTasksMock.mock.calls.length;
+
+    // A's response now arrives while B's UNCONFIRMED form is showing.
+    completeRepotDeferreds.A!.resolve({ ok: true });
+    await flushPromises();
+
+    // The Today list must reconcile regardless.
+    expect(todaysTasksMock.mock.calls.length).toBeGreaterThan(tasksReadsBeforeCompletion);
+    // B stays open and untouched.
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+
+    // Reopening A offers no stale duplicate action: A's attempt was cleared, so this is a genuinely FRESH
+    // (unfrozen) attempt.
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+  });
+});

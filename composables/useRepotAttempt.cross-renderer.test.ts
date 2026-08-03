@@ -24,7 +24,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { RepotEvaluationResult } from '../types/api.js';
-import { __resetRepotAttemptStoresForTests } from './useRepotAttempt';
+import { __resetRepotAttemptStoresForTests, useRepotAttempt } from './useRepotAttempt';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -324,5 +324,64 @@ describe('X1 — cross-renderer: the evaluation-flow sibling — a submit confir
     expect(detail.find('.verdict-modal').attributes('data-verdict')).toBe('REPOT');
     expect(getPlantCareMock.mock.calls.length).toBeGreaterThan(careReadsBeforeCompletion);
     expect(getPlantHistoryMock.mock.calls.length).toBeGreaterThan(historyReadsBeforeCompletion);
+  });
+});
+
+// Z2: the two describe blocks above both mount BOTH renderers SIMULTANEOUSLY, which guarantees a subscriber
+// (the detail page's completion watcher) already exists the instant `resolveSuccess()` runs — that can never
+// reach the race Z2 closes. The real gap is narrower and lives entirely INSIDE one renderer's own async
+// setup: PlantDetail awaits its own plant/care reads at the top of `setup()` and registers its completion
+// watchers only AFTERWARDS. A completion published DURING that window — a departed Today page's leftover
+// promise settling while PlantDetail is still fetching its OWN data — used to be silently lost: `watch()`
+// only fires on a FUTURE change to the ref, never on whatever is already sitting in `.value` the moment it
+// registers, so PlantDetail would take the already-current (already-handled-by-nobody) completion as its
+// baseline and never react to it — closing nothing, refreshing nothing, and leaving its own Done attempt
+// gone with a stale, unfrozen form none the wiser.
+//
+// This test reaches that gap directly, WITHOUT ever mounting Today (or any other subscriber) at all — the
+// whole point is that the completion is published while genuinely nobody is listening yet, which "mount
+// both renderers together" can never reproduce. It never extends the describe blocks above; it is its own
+// case, per the ruling's own instruction.
+describe('Z2 — the completion signal must not be LOSSY across PlantDetail\'s own async route-setup gap', () => {
+  it('a completion published WHILE PlantDetail is still awaiting its own care read — strictly before its ' +
+    'completion watcher has registered — is still caught: its own care/history reconcile still runs, never ' +
+    'silently missed just because no subscriber existed at the moment it was published', async () => {
+    // Hold PlantDetail's OWN care read open so its setup is provably still mid-flight (past the baseline
+    // capture, which happens before even the FIRST await, but before the watcher registration, which happens
+    // only after this SECOND await resolves) when the stale completion below is published.
+    const careDeferred = deferred<typeof CARE>();
+    getPlantCareMock.mockImplementationOnce(async () => careDeferred.promise);
+
+    // Deliberately NOT awaited yet: PlantDetail's setup runs through its plant read and blocks on care.
+    const detailPromise = mountDetail();
+    await flushPromises();
+
+    // The stale Done mutation "commits" now — published through the SAME 'done' flow store PlantDetail
+    // itself reads, exactly as a departed Today page's leftover promise handler would on a real navigation,
+    // but WITHOUT ever mounting Today (or anything else) as a subscriber. `useRepotAttempt('done')` resolves
+    // to the identical module-scope store PlantDetail's own call resolves to (W1) — this is a second,
+    // independently-obtained handle onto it, exactly the shape a genuinely separate page component would use.
+    const staleDoneHandle =
+      useRepotAttempt<{ occurredOn: string; payload: { potSizeCm: number; soilMix: string } }>('done');
+    const staleAttempt = staleDoneHandle.begin('p1', {
+      occurredOn: '2026-01-01',
+      payload: { potSizeCm: 22, soilMix: 'cactus-mix' },
+    });
+    staleDoneHandle.resolveSuccess(staleAttempt);
+
+    // ONLY NOW does PlantDetail's own care read resolve, letting its setup continue past the gap — the
+    // completion above was published strictly BEFORE this point, i.e. strictly before PlantDetail's own
+    // completion watcher has had any chance to register.
+    careDeferred.resolve(CARE);
+    await flushPromises();
+    await detailPromise;
+
+    // Before the Z2 fix: the watcher registers AFTER the completion already published, takes the
+    // already-current value as its own baseline, and never fires for it — care/history are never refreshed
+    // beyond their one initial fetch. After the fix: the setup-continuation catch-up (comparing the
+    // completion's `seq` against the baseline captured before the awaits) sees it as unprocessed and handles
+    // it BEFORE the watcher takes over, so both reads re-run a second time.
+    expect(getPlantCareMock.mock.calls.length).toBeGreaterThan(1);
+    expect(getPlantHistoryMock.mock.calls.length).toBeGreaterThan(1);
   });
 });

@@ -64,6 +64,11 @@ const {
   invalidate: invalidateEvaluationAttempt,
   hasKeyFor: hasEvaluationKeyFor,
 } = useRepotAttempt<RepotEvaluationSubmit, RepotEvaluationResult>('evaluation');
+// Z2: snapshotted SYNCHRONOUSLY, right here — before this component's own top-level `await
+// useAsyncData(...)` reads below (plant, then care). See the catch-up check beside the completion watcher
+// further down for why this baseline is what lets a completion published DURING those awaits be told apart
+// from one this renderer already knew about before the awaits ever started.
+const evaluationCompletionSeqAtSetup = evaluationCompletion.value?.seq ?? 0;
 const evaluationAttempt = computed(() => evaluationAttemptFor(id));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
@@ -93,6 +98,8 @@ const {
   invalidate: invalidateDoneAttempt,
   hasKeyFor: hasDoneKeyFor,
 } = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>('done');
+// Z2: same reasoning as evaluationCompletionSeqAtSetup above — captured before the same top-level awaits.
+const doneCompletionSeqAtSetup = doneCompletion.value?.seq ?? 0;
 const doneAttempt = computed(() => doneAttemptFor(id));
 const repotPostponeSubmitting = ref(false);
 
@@ -640,21 +647,51 @@ function onEvaluationStartOver() {
 // regardless of which renderer's own request produced it. This component and pages/index.vue watch the SAME
 // signal, so a submit confirmed on the Today page, whose response only settles after the owner has
 // navigated here, still closes THIS page's own modal and refreshes ITS OWN data — the race X1 exists to
-// close (a departed page's promise keeps running after navigation). THIS WATCHER IS THE SINGLE OWNER of
-// "close the modal / show the verdict / refresh care+history" for a successful submit: `onEvaluationSubmit`
-// above no longer does any of it inline, so this SAME renderer cannot double-handle its own completion
-// either. `invalidateEvaluationAttempt` (the "start over" escape hatch) never publishes a completion, so
-// abandoning an attempt can never be mistaken for completing one here. This component is pinned to one
-// plant's `id` for its whole lifetime, so the plant-match check below is really "is this MY plant's
-// completion" rather than "which plant is the shared modal currently showing" (pages/index.vue's version) —
-// same seam, same guard, just against a fixed id instead of a movable one.
-watch(evaluationCompletion, async (completion) => {
+// close (a departed page's promise keeps running after navigation). `invalidateEvaluationAttempt` (the
+// "start over" escape hatch) never publishes a completion, so abandoning an attempt can never be mistaken
+// for completing one here.
+//
+// Z1: same separation pages/index.vue draws between "refresh this renderer's own data" (unconditional) and
+// "own the modal, so close it / show the verdict" (conditional). Here the two questions collapse onto the
+// SAME check, `completion.plantId === id`: this component is pinned to one plant for its whole lifetime, so
+// a completion naming a DIFFERENT plant carries no data this page has ever fetched — there is nothing of
+// "this renderer's own data" to refresh for a foreign plant. That collapse is what pages/index.vue's own Z1
+// comment calls "trivially true" — the SHAPE (two separate questions) still matches; only the boolean
+// happens to answer both here. `handleEvaluationCompletion` is the single implementation both the catch-up
+// check below and the live watcher call, so the two paths can never diverge in what "handling a completion"
+// means.
+async function handleEvaluationCompletion(completion: NonNullable<typeof evaluationCompletion.value>) {
+  const isOwnPlant = completion.plantId === id;
+  if (isOwnPlant) {
+    evaluationOpen.value = false;
+    verdict.value = completion.result;
+    verdictOpen.value = true;
+    await Promise.all([refresh(), refreshHistory()]);
+  }
+}
+
+// Z2: a completion can be published DURING this component's own top-level awaits above (`plant-${id}` /
+// `care-${id}`) — the exact gap this ruling closes: Today starts a Done/submit request, navigation begins,
+// Today unmounts, THIS component begins setup and is still awaiting its own plant/care reads when the old
+// Today promise settles and calls `resolveSuccess()`. The `watch()` right below only fires on a FUTURE
+// change to `evaluationCompletion`, never on whatever is already sitting in `.value` the moment it
+// registers, so a completion published in that gap would otherwise never be seen — this component would
+// register its watcher AFTER the fact, take the already-current value as its baseline, and never fire.
+// `evaluationCompletionSeqAtSetup`, captured synchronously before those awaits, is what tells a completion
+// published DURING the gap apart from one this renderer already knew about before the gap even opened. Read
+// synchronously, dispatched WITHOUT awaiting, then the watcher registered immediately after — all in the
+// same synchronous span, no `await` in between — so nothing published between this check and the watcher
+// taking over can slip through either. (Do NOT reach for `watch(..., { immediate: true })` here instead: the
+// module-scoped `completion` ref retains its last value across mounts, so an immediate watcher would replay
+// a stale, already-handled completion on every future unrelated mount of this component — e.g. navigating
+// back to this same plant's detail page later.)
+const missedEvaluationCompletion = evaluationCompletion.value;
+if (missedEvaluationCompletion && missedEvaluationCompletion.seq > evaluationCompletionSeqAtSetup) {
+  void handleEvaluationCompletion(missedEvaluationCompletion);
+}
+watch(evaluationCompletion, (completion) => {
   if (!completion) return;
-  if (completion.plantId !== id) return; // a foreign plant's completion — not this page, ignore it
-  evaluationOpen.value = false;
-  verdict.value = completion.result;
-  verdictOpen.value = true;
-  await Promise.all([refresh(), refreshHistory()]);
+  void handleEvaluationCompletion(completion);
 });
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
@@ -728,17 +765,30 @@ function onRepotDoneStartOver() {
   invalidateDoneAttempt(id);
 }
 
-// X1: the Done flow's sibling to the evaluation completion watcher above — see its comment for the full
-// reasoning (the same cross-renderer race, the same single-owner rule, the same fixed-`id` plant-match
-// check). The Done flow has no verdict to show, so this watcher's only job is closing the form and
-// refreshing care/history/the plant's own profile — a REPOT completion writes potSizeCm/soilMix and derives
-// a new lastRepottedOn, fields this page renders off plant.value.profile/derived, so refreshPlant() runs here
-// too, unlike the evaluation watcher above which never touches the profile.
-watch(doneCompletion, async (completion) => {
+// X1/Z1: the Done flow's sibling to the evaluation completion handling above — see its comments for the
+// full reasoning (the same cross-renderer race, the same fixed-`id` collapse of "own the data" and "own the
+// modal", the same Z2 catch-up shape). The Done flow has no verdict to show, so this handler's only job is
+// closing the form and refreshing care/history/the plant's own profile — a REPOT completion writes
+// potSizeCm/soilMix and derives a new lastRepottedOn, fields this page renders off
+// plant.value.profile/derived, so refreshPlant() runs here too, unlike the evaluation handler above which
+// never touches the profile.
+async function handleDoneCompletion(completion: NonNullable<typeof doneCompletion.value>) {
+  const isOwnPlant = completion.plantId === id;
+  if (isOwnPlant) {
+    doneFormOpen.value = false;
+    await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
+  }
+}
+
+// Z2: same reasoning as the evaluation flow's identical catch-up above, against the Done flow's own
+// baseline/signal.
+const missedDoneCompletion = doneCompletion.value;
+if (missedDoneCompletion && missedDoneCompletion.seq > doneCompletionSeqAtSetup) {
+  void handleDoneCompletion(missedDoneCompletion);
+}
+watch(doneCompletion, (completion) => {
   if (!completion) return;
-  if (completion.plantId !== id) return; // a foreign plant's completion — not this page, ignore it
-  doneFormOpen.value = false;
-  await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
+  void handleDoneCompletion(completion);
 });
 
 // A REPOT postpone after a verdict is "yes, it needs it, but I can't right now" — the outcome is already

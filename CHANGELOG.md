@@ -9,6 +9,15 @@ something you could not see.** It now opens a short checklist of things you can 
 whether it is time, and asks again later if it is not. When it *is* time, marking it done asks three quick
 questions about the new pot so the schedule keeps up.
 
+### Fixed
+
+- **The repot checklist now tells you how often this species is usually repotted**, right above the
+  questions, so you have a reference point while deciding what you can see. It is context only — it does
+  not change the verdict — and it simply does not appear for a species we have no figure for.
+- **"Was it fresh substrate?" is now asked the same way everywhere.** Registering a plant used a dropdown
+  while marking a repot done used a row of buttons, for the identical question with the identical answers.
+  Both are now the row of buttons.
+
 ### Added
 
 - **The Repot card now opens a checklist instead of asking you to decide blind.** Tap it and you get a short

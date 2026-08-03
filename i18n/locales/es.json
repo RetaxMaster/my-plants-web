@@ -241,7 +241,7 @@
     "substrateChargedYes": "Sí — mezcla nueva con alimento",
     "substrateChargedNo": "No — sustrato reusado o inerte",
     "substrateChargedUnknown": "No sé",
-    "substrateHint": "Déjalo en blanco si no estás seguro — asumiremos que el sustrato ya está agotado, que es lo prudente."
+    "substrateHint": "Déjalo en blanco si no estás seguro — asumiremos que el sustrato todavía tiene algo de alimento y esperaremos antes de la primera fertilización, que es lo prudente."
   },
   "plantDetail": {
     "backAll": "Todas las plantas",
@@ -295,6 +295,9 @@
     "verdictReevaluateBody": "Nada de lo que viste dice que ya necesite trasplante. Volvemos a preguntarte el {date}.",
     "cardAction": "Toca evaluar",
     "errorPending": "Esta planta ya tiene una respuesta pendiente. Recarga la página.",
+    "loadError": "No pudimos cargar la lista de señales. Intenta de nuevo.",
+    "retry": "Intentar de nuevo",
+    "startOver": "Empezar de nuevo",
     "helpToggle": "¿Qué debo buscar?"
   },
   "repotDone": {

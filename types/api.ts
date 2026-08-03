@@ -70,7 +70,9 @@ export interface CreatePlant {
   lastDone?: { task: CareActionTask; doneOn: string }[]; // PROGRESS excluded — journaled, never seeded
   // Import-on-create: creates the plant already frozen (MEMORIAL/GIFTED) with an import progress entry.
   lifecycleState?: 'MEMORIAL' | 'GIFTED';
-  /** Spec 1 §5.5 rung 1 — YYYY-MM-DD. Optional; blank means "assume depleted", the safe default. */
+  /** Spec 1 §5.5 rung 1 — YYYY-MM-DD. Optional; blank means the engine assumes charge still remains and
+   * withholds the first feeding until it expires — the safe default (a delayed feed self-corrects; an
+   * early one does not). */
   substrateRefreshedOn?: string;
   /** Tri-state by PRESENCE: omitted = derive from the mix, true = fresh charged, false = reused/inert. */
   substrateCharged?: boolean;

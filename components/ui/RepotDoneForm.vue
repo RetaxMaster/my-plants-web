@@ -32,8 +32,10 @@ const { soilMixOptions } = useProfileMeta();
 // PlantProfileModal.vue's ageMonths field).
 const potSizeCm = ref<number | string>('');
 const soilMix = ref<string>('');
-// Tri-state in the UI, boolean on the wire: "reused / inert" maps to `charged: false`, the conservative
-// default (under-feeding is recoverable; salt burn from an already-charged mix is not).
+// Tri-state in the UI, boolean on the wire: "reused / inert" maps to `charged: false`, which tells the
+// engine no carryover should be assumed and it may feed sooner. That is the FEED-SOONER direction, not
+// the app's doubt-default (which assumes charge remains and withholds feeding) — this ref defaults to
+// 'fresh' above, not to this branch.
 const substrate = ref<'fresh' | 'reused'>('fresh');
 
 watch(open, (isOpen) => {

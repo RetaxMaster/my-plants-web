@@ -140,8 +140,10 @@ async function submit() {
         nickname: form.nickname || undefined,
         acquiredOn: form.acquiredOn,
         lifecycleState: isImport.value ? (importState.value as 'MEMORIAL' | 'GIFTED') : undefined,
-        // Omitted when blank/unknown: absence is the depleted default, and `substrateCharged` absent
-        // means "derive from the mix", which is NOT the same as `false`.
+        // Omitted when blank/unknown: absence means the engine assumes a bounded charge window still
+        // remains (never depleted) and withholds the first feeding until it expires — the safe direction,
+        // since a delayed feed self-corrects but an early one does not. `substrateCharged` absent
+        // separately means "derive from the mix", which is NOT the same as `false`.
         substrateRefreshedOn: substrateRefreshedOn.value || undefined,
         substrateCharged: substrateCharged.value === 'unknown' ? undefined : substrateCharged.value === 'yes',
       }, createIdempotencyKey.value);

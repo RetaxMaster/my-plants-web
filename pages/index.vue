@@ -35,6 +35,10 @@ const evaluationKey = ref<string | null>(null);
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
 const verdict = ref<RepotEvaluationResult | null>(null);
 const verdictOpen = ref(false);
+// Set only when the SIGNS FETCH itself fails (network/5xx) — never for a genuinely empty catalogue, which
+// is a valid outcome and must keep opening the questionnaire. Selects the load-specific message + retry
+// affordance on the shared repotError banner below, instead of the generic "already has an answer" text.
+const evaluationLoadFailed = ref(false);
 
 // REPOT is also the one task whose completion physically replaces the medium (Spec 1 §6/Task 21), so its
 // Done path opens a small pre-filled form (RepotDoneForm.vue, Task 26) instead of posting directly.
@@ -120,18 +124,40 @@ async function sendPostpone(plantId: string, task: DueTask['task'], reason?: str
 }
 
 // Evaluate: opens the signs checklist. Fetches the species' repotting signs fresh every time the modal
-// opens; an empty list simply renders no signs rather than blocking the picker.
+// opens; an empty SUCCESSFUL list simply renders no signs rather than blocking the picker. A FAILED fetch
+// is a different thing entirely and must NOT open the questionnaire (code review finding W16): the
+// universal, app-seeded pot-physics rows mean a real success is essentially never empty, so treating a
+// dropped request as "no signs" would hand the owner nothing to check and then record their forced
+// `not-needed` answer as genuine negative evidence, pushing the repot date out on an infrastructure fault.
 async function onEvaluate(plantId: string) {
   evaluationPlantId.value = plantId;
   evaluationKey.value = null;
   repotError.value = false;
-  const signs = await api.getRepotSigns(plantId).then((r) => r.signs).catch(() => []);
+  evaluationLoadFailed.value = false;
+  let signs: RepotSign[];
+  try {
+    signs = (await api.getRepotSigns(plantId)).signs;
+  } catch {
+    // Race guard (code review finding F4): only surface the failure if we're still on the plant that
+    // triggered it — a later click on a different card already moved evaluationPlantId on.
+    if (evaluationPlantId.value === plantId) {
+      evaluationLoadFailed.value = true;
+      repotError.value = true;
+    }
+    return;
+  }
   // Race guard (code review finding F4): if the owner clicked a DIFFERENT card's evaluate action while
   // this fetch was in flight, `evaluationPlantId` has already moved on — applying this response now would
   // silently show the wrong plant's signs list under the wrong plant's modal.
   if (evaluationPlantId.value !== plantId) return;
   evaluationSigns.value = signs;
   evaluationOpen.value = true;
+}
+
+// Retry affordance for the page-level banner when `evaluationLoadFailed` is set — re-runs the exact same
+// fetch against the plant that triggered it.
+function retryEvaluate() {
+  if (evaluationPlantId.value) void onEvaluate(evaluationPlantId.value);
 }
 
 async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
@@ -150,11 +176,20 @@ async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
   } catch {
     // Key deliberately kept (not cleared) on failure: a lost-response retry must reuse the same key, per
     // the stable-idempotency-key rule. The modal stays open so the owner can see the error and retry the
-    // SAME submission rather than silently losing it.
+    // SAME submission rather than silently losing it. The modal freezes its inputs for exactly as long as
+    // this key is outstanding (`:frozen="!!evaluationKey"`), so the retry recomputes the SAME body — never
+    // a same-key/different-body retry, which the server's idempotency interceptor answers 422 forever.
     repotError.value = true;
   } finally {
     evaluationSubmitting.value = false;
   }
+}
+
+// Explicit escape hatch (code review finding W17): abandons the outstanding key so the form unfreezes and
+// a later submit mints a fresh one, instead of forcing a page reload to get out of a stuck retry.
+function onEvaluationStartOver() {
+  evaluationKey.value = null;
+  repotError.value = false;
 }
 
 // Done: opens the completion form, pre-filled with the plant's current profile (only reachable once a
@@ -280,10 +315,14 @@ function openProgress(plantId: string) {
     <UiAlert
       v-if="repotError && !evaluationOpen && !doneFormOpen"
       color="red"
-      :description="$t('repotEval.errorPending')"
+      :description="$t(evaluationLoadFailed ? 'repotEval.loadError' : 'repotEval.errorPending')"
       announce
       class="mp-today__repot-error"
-    />
+    >
+      <UiButton v-if="evaluationLoadFailed" size="sm" variant="soft" color="neutral" @click="retryEvaluate">
+        {{ $t('repotEval.retry') }}
+      </UiButton>
+    </UiAlert>
 
     <UiCard v-if="!grouped.size" padded>
       <UiEmptyState>{{ $t('today.empty') }}</UiEmptyState>
@@ -351,7 +390,9 @@ function openProgress(plantId: string) {
       :signs="evaluationSigns"
       :submitting="evaluationSubmitting"
       :error="repotError ? $t('repotEval.errorPending') : null"
+      :frozen="!!evaluationKey"
       @submit="onEvaluationSubmit"
+      @start-over="onEvaluationStartOver"
     />
     <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
     <UiRepotDoneForm

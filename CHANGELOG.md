@@ -49,13 +49,12 @@ crowding or the calendar — is the reason for a date.
 
 ### Added
 
-- **Marking "Repot" as done now asks about the new pot.** This shipped first as a single fresh-substrate
-  question; it has since grown into the three-question Done form described in the "Repotting now asks what
-  you can see" section above (new pot size, soil mix, and whether the substrate is fresh) — that form, with
-  its plain yes/no substrate toggle, is what ships today.
+- **Marking "Repot" as done now asks about the new pot** — its size, the soil mix, and whether the substrate
+  is fresh — using the three-question Done form described in the "Repotting now asks what you can see"
+  section above.
 - **Registering a new plant lets you say when its substrate was last renewed, and whether it was fresh —
-  both optional.** Leave them blank and nothing changes: the app assumes the soil is already spent, which
-  is the safe assumption.
+  both optional.** Leave them blank and the app assumes the soil still holds some charge and holds off on
+  the first feeding, which is the safe assumption.
 - **A new soil mix option in the plant profile form: "All-purpose with perlite."**
 - **The care cards now explain themselves.** When a plant's next feeding is scheduled further out than
   usual, the Fertilize card says why — the substrate is still feeding it, with the date that estimate runs

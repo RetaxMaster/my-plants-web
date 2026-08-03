@@ -4,9 +4,21 @@ import Modal from './Modal.vue';
 import Button from './Button.vue';
 import Alert from './Alert.vue';
 
-const props = defineProps<{ signs: RepotSign[]; loading?: boolean; submitting?: boolean; error?: string | null }>();
+const props = defineProps<{
+  signs: RepotSign[];
+  loading?: boolean;
+  submitting?: boolean;
+  error?: string | null;
+  /** True from the moment a submit is first attempted until it succeeds or the owner explicitly starts
+   * over (code review finding W17) — an idempotency key is outstanding for the whole span, in flight AND
+   * after a failure, so the answers must not change under it: a same-key retry with a DIFFERENT body is a
+   * permanent 422 from the server's global idempotency interceptor, with no way out but a page reload.
+   * While frozen the inputs are disabled, so the retry (the same submit button) recomputes and resends the
+   * EXACT same body deterministically — never a fresh key minted silently on an edited answer. */
+  frozen?: boolean;
+}>();
 const open = defineModel<boolean>('open', { default: false });
-const emit = defineEmits<{ submit: [body: RepotEvaluationSubmit] }>();
+const emit = defineEmits<{ submit: [body: RepotEvaluationSubmit]; 'start-over': [] }>();
 
 const { t } = useI18n();
 
@@ -54,7 +66,7 @@ function onSubmit() {
     <ul class="mp-repoteval__list">
       <li v-for="sign in signs" :key="sign.id" class="mp-repoteval__item">
         <label class="mp-repoteval__check">
-          <input v-model="checked" type="checkbox" :value="sign.id" :disabled="exclusive !== 'none'" />
+          <input v-model="checked" type="checkbox" :value="sign.id" :disabled="frozen || exclusive !== 'none'" />
           <!-- Catalogue text is DATA, resolved server-side in the request locale. Never an i18n key. -->
           <span>{{ sign.label }}</span>
         </label>
@@ -73,16 +85,21 @@ function onSubmit() {
 
     <div class="mp-repoteval__exclusive">
       <label class="mp-repoteval__check">
-        <input v-model="exclusive" type="radio" value="no-signs" />
+        <input v-model="exclusive" type="radio" value="no-signs" :disabled="frozen" />
         <span>{{ t('repotEval.noSigns') }}</span>
       </label>
       <label class="mp-repoteval__check">
-        <input v-model="exclusive" type="radio" value="could-not-check" />
+        <input v-model="exclusive" type="radio" value="could-not-check" :disabled="frozen" />
         <span>{{ t('repotEval.couldNotCheck') }}</span>
       </label>
     </div>
 
     <template #footer>
+      <!-- Only offered once there is something to recover FROM: a frozen form with no error yet is simply
+           an in-flight submit, where the right action is to wait, not to abandon it. -->
+      <Button v-if="frozen && error" variant="soft" color="neutral" @click="emit('start-over')">
+        {{ t('repotEval.startOver') }}
+      </Button>
       <Button color="primary" icon="check" :disabled="!canSubmit" @click="onSubmit">
         {{ t('repotEval.submit') }}
       </Button>

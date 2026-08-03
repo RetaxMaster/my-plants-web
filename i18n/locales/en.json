@@ -241,7 +241,7 @@
     "substrateChargedYes": "Yes — fresh, charged mix",
     "substrateChargedNo": "No — reused or inert medium",
     "substrateChargedUnknown": "I don't know",
-    "substrateHint": "Leave blank if you're not sure — we'll assume the soil is spent, which is the safe assumption."
+    "substrateHint": "Leave blank if you're not sure — we'll assume the soil still holds some charge and hold off on the first feeding, which is the safe assumption."
   },
   "plantDetail": {
     "backAll": "All plants",
@@ -295,6 +295,9 @@
     "verdictReevaluateBody": "Nothing you saw says it needs repotting yet. We'll bring this back on {date}.",
     "cardAction": "Time to evaluate",
     "errorPending": "This plant already has an answer waiting. Refresh the page.",
+    "loadError": "We couldn't load the checklist. Please try again.",
+    "retry": "Try again",
+    "startOver": "Start over",
     "helpToggle": "What am I looking for?"
   },
   "repotDone": {

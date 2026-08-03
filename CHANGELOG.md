@@ -49,9 +49,10 @@ crowding or the calendar — is the reason for a date.
 
 ### Added
 
-- **Marking "Repot" as done now asks one quick question: was it fresh substrate?** Answer yes, no, or "I
-  don't know" — and "I don't know" is a perfectly fine answer, since the app can work it out from the soil
-  mix you've already recorded instead of guessing.
+- **Marking "Repot" as done now asks about the new pot.** This shipped first as a single fresh-substrate
+  question; it has since grown into the three-question Done form described in the "Repotting now asks what
+  you can see" section above (new pot size, soil mix, and whether the substrate is fresh) — that form, with
+  its plain yes/no substrate toggle, is what ships today.
 - **Registering a new plant lets you say when its substrate was last renewed, and whether it was fresh —
   both optional.** Leave them blank and nothing changes: the app assumes the soil is already spent, which
   is the safe assumption.

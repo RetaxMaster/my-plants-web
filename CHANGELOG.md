@@ -9,6 +9,13 @@ something you could not see.** It now opens a short checklist of things you can 
 whether it is time, and asks again later if it is not. When it *is* time, marking it done asks three quick
 questions about the new pot so the schedule keeps up.
 
+### Added
+
+- **The approval card now names a postponement.** The Plant Doctor and the Gardener can now propose putting
+  a care task off, so the banner that asks for your approval has wording for it in both English and Spanish,
+  and shows both the day the task moves to and — for a repot, which is postponed by reason rather than by
+  date — the reason in the same words the app's own Postpone form offers you.
+
 ### Fixed
 
 - **The repot checklist now tells you how often this species is usually repotted**, right above the

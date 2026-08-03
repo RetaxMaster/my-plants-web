@@ -30,6 +30,7 @@ export const OP_TYPE_KEY: Record<AgentProposalOperationType, string> = {
   'frequency.set': 'frequencySet',
   'frequency.clear': 'frequencyClear',
   'care.done': 'careDone',
+  'care.postpone': 'carePostpone',
   'place.create': 'placeCreate',
   'place.update': 'placeUpdate',
   'city.create': 'cityCreate',

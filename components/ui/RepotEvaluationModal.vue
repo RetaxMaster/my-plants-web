@@ -31,9 +31,9 @@ const props = defineProps<{
   frozenAnswers?: RepotEvaluationSubmit | null;
 }>();
 const open = defineModel<boolean>('open', { default: false });
-const emit = defineEmits<{ submit: [body: RepotEvaluationSubmit]; 'start-over': [] }>();
+const emit = defineEmits<{ submit: [body: RepotEvaluationSubmit]; 'start-over': []; 'reload-signs': [] }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const checked = ref<string[]>([]);
 const exclusive = ref<'none' | 'no-signs' | 'could-not-check'>('none');
@@ -79,6 +79,11 @@ watch(open, (isOpen) => {
   exclusive.value = 'none';
   expandedHelp.value = null;
 });
+
+// The sign catalogue is DATA resolved server-side in the request locale, so a language switch while this
+// modal is open leaves the labels in the previous locale. The parent owns the fetch (it owns the plant id,
+// the race guards and the error banner), so ask it to reload rather than fetching here.
+watch(locale, () => { if (open.value) emit('reload-signs'); });
 
 const canSubmit = computed(() => !props.submitting && (checked.value.length > 0 || exclusive.value !== 'none'));
 

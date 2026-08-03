@@ -66,8 +66,13 @@ describe('REPOT inspection keys (spec F.7)', () => {
     // the label used to have to carry alone now lives in the info modal, so the shorter name is safe again.
     // The protection itself is NOT retracted — it MOVED to the modal-key assertion above, which stays
     // load-bearing. This assertion is rewritten, not deleted, so the decision stays discoverable here.
+    //
+    // QA defect I (2026-08-03): "Replantar" was the ONLY "replant-" spelling of this action in the whole
+    // es.json file — every other REPOT-flow string ("trasplante", "trasplantaste", "trasplantada", …) uses
+    // the "trasplant-" family, so the label alone read as a different action to a Spanish-speaking owner.
+    // Standardized on the dominant family: "Trasplantar", not a new third word.
     expect(en.tasks.labels.REPOT).toBe('Repot');
-    expect(es.tasks.labels.REPOT).toBe('Replantar');
+    expect(es.tasks.labels.REPOT).toBe('Trasplantar');
   });
 });
 

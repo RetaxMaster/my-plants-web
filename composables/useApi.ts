@@ -1,7 +1,7 @@
 import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
 import { IDEMPOTENCY_KEY_HEADER } from '@retaxmaster/my-plants-species-schema';
 import { checkChatSendLimits, sendChatJson, type ChatAttachmentPayload } from '../utils/chatSend.js';
-import { createGetCache, type GetCache } from '~/utils/getCache';
+import { createGetCache, getCacheKey, getCacheKeyPath, type GetCache } from '~/utils/getCache';
 import { withIdempotencyKey } from '~/utils/idempotency';
 import type {
   City, CitySearchResult, CommandCatalog, CreateCity, CreateKnowledgeSessionResponse, CreatePlace, CreatePlant,
@@ -55,7 +55,7 @@ export function useApi() {
   // Capture the session in setup scope so the 401 handler below never calls a
   // composable after an await (which would trigger a composable-scope warning).
   const session = useUserSession();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   // Request-scoped on the server (never a module-global → no cross-user leak), app-scoped on the client.
   // useRequestEvent() can return undefined outside a real incoming request (e.g. some build-time/SSG
@@ -102,8 +102,17 @@ export function useApi() {
     try {
       // GETs are deduped + cached for this scope's lifetime; a REJECTED GET evicts itself immediately
       // (see getCache.ts), so a failed read never poisons the cache for the retry.
+      //
+      // Keyed by locale + path, not path alone: the BFF proxy forwards an `x-locale` header derived from
+      // the active locale on every request, so a locale-sensitive endpoint's response body is only valid
+      // for the locale it was fetched under. This does NOT claim `locale.value` and the `x-locale` cookie
+      // are always in lockstep (they need not be) — all that's required is that the key CHANGES when the
+      // owner switches language, so a stale-locale body is never served back after the switch.
       if (isGet) {
-        return await cache.get<T>(path, () => fetcher<T>(`/api${path}`, finalOpts as any) as Promise<T>);
+        return await cache.get<T>(
+          getCacheKey(locale.value, path),
+          () => fetcher<T>(`/api${path}`, finalOpts as any) as Promise<T>,
+        );
       }
       const res = await fetcher<T>(`/api${path}`, finalOpts as any);
       // Flush on SUCCESS only — a failed mutation changed nothing server-side, so the existing GET cache
@@ -207,7 +216,13 @@ export function useApi() {
     // the new data. Scope is exactly this plant's keys, not a whole-cache flush.
     invalidatePlant: (id: string) => {
       const base = `/plants/${id}`;
-      cache.invalidate((k) => k === base || k.startsWith(`${base}/`) || k.startsWith(`${base}?`));
+      // Cache keys now carry a locale prefix (see the `cache.get` call in api() above), so matching against
+      // the raw key would silently match nothing. Compare against the PATH half of the key instead — this
+      // still invalidates the plant's cached reads under every locale it was fetched in.
+      cache.invalidate((k) => {
+        const p = getCacheKeyPath(k);
+        return p === base || p.startsWith(`${base}/`) || p.startsWith(`${base}?`);
+      });
     },
 
     // Chat-attachment recall (spec 2026-08-01 §3.4). Shared by all three runs adapters

@@ -49,7 +49,7 @@
     "labels": {
       "WATER": "Regar",
       "FERTILIZE": "Fertilizar",
-      "REPOT": "Replantar",
+      "REPOT": "Trasplantar",
       "ROTATE": "Rotar",
       "CLEAN_LEAVES": "Limpiar hojas",
       "MIST": "Rociar hojas",
@@ -125,7 +125,7 @@
       "doseBody": "Las dosis de la etiqueta están pensadas para plantas maduras. Mientras esta planta sea joven, aliméntala a 1/4 o 1/2 de la concentración indicada en el envase: la dosis completa quema las raíces delicadas. Mantén la misma frecuencia; lo único que cambia es la dosis."
     },
     "substrate": {
-      "fertilizeFloor": "El sustrato todavía alimenta — primera fertilización estimada para el {date}.",
+      "fertilizeFloor": "Suponemos que el sustrato todavía tiene algo de alimento — primera fertilización estimada para el {date}.",
       "repotDriverCrowding": "La estimación del motor se basa en qué tan apretada está la planta en su maceta.",
       "repotDriverSubstrate": "La estimación del motor se basa en que el sustrato se está agotando, no en la falta de espacio.",
       "repotOverrideBinding": "Tú pospusiste este recordatorio a la fecha que ves."

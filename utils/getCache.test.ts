@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { createGetCache } from './getCache.js';
+import { createGetCache, getCacheKey, getCacheKeyPath } from './getCache.js';
+
+describe('getCacheKey / getCacheKeyPath', () => {
+  it('round-trips a plain path', () => {
+    const key = getCacheKey('en', '/plants');
+    expect(key).toBe('en /plants');
+    expect(getCacheKeyPath(key)).toBe('/plants');
+  });
+
+  it('round-trips a path containing a query string', () => {
+    const key = getCacheKey('es', '/plants?lifecycle=active');
+    expect(getCacheKeyPath(key)).toBe('/plants?lifecycle=active');
+  });
+
+  it('round-trips a path containing multiple segments', () => {
+    const key = getCacheKey('es', '/plants/p1/photos');
+    expect(getCacheKeyPath(key)).toBe('/plants/p1/photos');
+  });
+
+  it('splits on the FIRST separator only, so a locale like es-MX does not corrupt the split', () => {
+    const key = getCacheKey('es-MX', '/plants/p1');
+    expect(getCacheKeyPath(key)).toBe('/plants/p1');
+  });
+
+  it('returns the input unchanged when there is no separator (defensive fallback)', () => {
+    expect(getCacheKeyPath('/plants/p1')).toBe('/plants/p1');
+  });
+});
 
 describe('createGetCache', () => {
   it('dedupes two concurrent identical GETs into one fetch', async () => {

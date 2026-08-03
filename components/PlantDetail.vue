@@ -412,10 +412,14 @@ const taskInfoDryness = computed(() =>
 // what to look for. `care.value.crowding` carries NO signs any more (Task 16 removed `repotSigns` from the
 // care payload outright) — sourced instead from `GET /plants/:id/repot-signs`, the SAME catalogue endpoint
 // `onEvaluate` below reads for the questionnaire (one resolver, two renderers — never a second copy of the
-// list). Secondary read, deferred to client like `places`/`history`/`photos` above. Already localized
-// server-side — rendered verbatim (the known API-supplied English-leak class).
+// list). Secondary read, deferred to client like `places`/`history`/`photos` above. Localized server-side —
+// rendered verbatim (the known API-supplied English-leak class) — and REFETCHED on a locale change: the BFF
+// proxy forwards the active locale as `x-locale`, so this catalogue's response body is locale-dependent, and
+// `useLazyAsyncData` re-keys only on its first argument and does not track reactive reads made inside the
+// handler, so `watch: [locale]` is what re-runs it — without that option a language switch would leave
+// these labels in the previous locale.
 const { data: repotSignsCatalogue } =
-  useLazyAsyncData(`repot-signs-${id}`, () => api.getRepotSigns(id).then((r) => r.signs), { server: false });
+  useLazyAsyncData(`repot-signs-${id}`, () => api.getRepotSigns(id).then((r) => r.signs), { server: false, watch: [locale] });
 const taskInfoRepotSigns = computed(() =>
   taskInfoTask.value === 'REPOT' ? (repotSignsCatalogue.value ?? []).map((s) => s.label) : null,
 );
@@ -435,7 +439,9 @@ function taskExplanation(task: string): string | undefined {
     // did not.
     const row = care.value?.tasks.find((t) => t.task === 'FERTILIZE');
     if (!row || row.nextDueOn !== s.fertilizeFloorOn) return undefined;
-    return t('taskInfo.substrate.fertilizeFloor', { date: s.fertilizeFloorOn });
+    // Localized the SAME way every other date in this component is (e.g. `dv.lastRepottedOn` below) —
+    // never a raw YYYY-MM-DD string (QA defect H).
+    return t('taskInfo.substrate.fertilizeFloor', { date: d(ymdToLocalDate(s.fertilizeFloorOn), 'short') });
   }
   if (task === 'REPOT' && s.repotDriver) {
     // Two independent facts (substrate:13 final ruling): what the engine's estimate is based on
@@ -1274,6 +1280,7 @@ async function confirmRevive() {
       :frozen-answers="evaluationAttempt?.body ?? null"
       @submit="onEvaluationSubmit"
       @start-over="onEvaluationStartOver"
+      @reload-signs="onEvaluate()"
     />
     <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
     <UiRepotDoneForm

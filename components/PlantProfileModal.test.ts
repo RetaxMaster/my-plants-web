@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, inject } from 'vue';
 import { createI18n } from 'vue-i18n';
 import en from '../i18n/locales/en.json';
 import es from '../i18n/locales/es.json';
 import { useProfileMeta } from '../composables/useProfileMeta';
 import PlantProfileModal from './PlantProfileModal.vue';
+import SelectFieldReal from './ui/SelectField.vue';
 import type { GrowthHabit } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 
 // Nuxt auto-imports (`ref`/`computed`/`watch`/`useI18n`/`useApi`/`useProfileMeta`) don't exist as globals
@@ -20,6 +21,10 @@ const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', mes
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('watch', watch);
+// The REAL SelectField.vue (mounted only by the QA-defect-F test below, via `stubOverrides`) calls
+// `inject('mpFieldId', ...)` in its own setup — same requirement RepotDoneForm.test.ts / pages/index.test.ts
+// already stub for the same reason.
+vi.stubGlobal('inject', inject);
 vi.stubGlobal('useI18n', () => ({ t: i18n.t }));
 vi.stubGlobal('useProfileMeta', useProfileMeta);
 
@@ -91,11 +96,16 @@ function savedPatch() {
 async function mountModal({
   profile = {},
   speciesGrowthHabit = null,
-}: { profile?: Record<string, unknown>; speciesGrowthHabit?: GrowthHabit | null } = {}) {
+  stubOverrides = {},
+}: {
+  profile?: Record<string, unknown>;
+  speciesGrowthHabit?: GrowthHabit | null;
+  stubOverrides?: Record<string, unknown>;
+} = {}) {
   stubApi(profile);
   const w = mount(PlantProfileModal, {
     props: { modelValue: false, plantId: 'p1', speciesGrowthHabit },
-    global: { mocks: { $t: i18n.t }, stubs },
+    global: { mocks: { $t: i18n.t }, stubs: { ...stubs, ...stubOverrides } },
   });
   await w.setProps({ modelValue: true });
   await flushPromises();
@@ -148,5 +158,27 @@ describe('growth habit — inheritance and the trailing warning (Spec 2 §5.4)',
     await wrapper.find('[data-test="profile-save"]').trigger('click');
     await flushPromises();
     expect(savedPatch()?.growthHabit).toBeNull();
+  });
+
+  // QA defect F: the growth-habit field used to pass BOTH `:options="withNotSet(growthHabitOptions)"` and a
+  // `:placeholder`, and the REAL SelectField.vue renders its own `<option value="">` whenever `placeholder`
+  // is truthy — on top of the enabled blank option `withNotSet` already prepends. That produced TWO blank
+  // options where only one is selectable. The passthrough `UiSelectFieldStub` above never rendered a
+  // placeholder option at all, so it could never have caught this — this test mounts the REAL SelectField.vue
+  // instead, which is the only way to see the actual duplicate (or its absence) in the DOM.
+  it('renders exactly one selectable <option value=""> (QA defect F — no duplicate blank option)', async () => {
+    const wrapper = await mountModal({
+      profile: { growthHabit: null },
+      speciesGrowthHabit: 'climber',
+      stubOverrides: { UiSelectField: SelectFieldReal, Icon: true },
+    });
+    const growthHabitSelect = wrapper.find('[data-test="growth-habit-select"]');
+    expect(growthHabitSelect.exists()).toBe(true);
+    const blankOptions = growthHabitSelect.findAll('option[value=""]');
+    expect(blankOptions.length).toBe(1);
+    // And it must be selectable (not the disabled placeholder the old bug left behind), carrying the
+    // inherited habit's own label — never a generic "pick an option" once a species habit exists to show.
+    expect((blankOptions[0]!.element as HTMLOptionElement).disabled).toBe(false);
+    expect(blankOptions[0]!.text()).toContain('inherited from the species');
   });
 });

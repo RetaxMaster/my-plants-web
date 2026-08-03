@@ -8,15 +8,24 @@
 // component inside its own body, above the backdrop. This test proves the alert actually RENDERS in the
 // DOM when `error` is set (not just that the prop is accepted), using the real Alert.vue (only its AppIcon
 // dependency is stubbed) so the assertion covers Alert's own `role="alert"` markup too.
-import { describe, it, expect, vi } from 'vitest';
-import { ref, computed, watch } from 'vue';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ref, computed, watch, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import RepotEvaluationModal from './RepotEvaluationModal.vue';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('watch', watch);
-vi.stubGlobal('useI18n', () => ({ t: (k: string) => k }));
+// A mutable, reassignable `locale` ref the tests below can drive directly (QA defect B fix — the modal
+// watches `locale` to ask its parent to reload the sign catalogue on a language switch). Reassigned fresh
+// in `beforeEach` so a locale change in one test never bleeds into the next; the `useI18n` factory reads
+// the OUTER `mockLocale` binding by closure, so reassigning it here is visible to every subsequent mount.
+let mockLocale = ref('en');
+vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, locale: mockLocale }));
+
+beforeEach(() => {
+  mockLocale = ref('en');
+});
 
 const stubs = {
   // Collapsed to a real-ish v-model/slot contract (same technique PlantProfileModal.test.ts's UiModalStub
@@ -177,5 +186,27 @@ describe('RepotEvaluationModal — W3: frozenAnswers hydrates the REAL component
 
     await findSubmitButton(w).trigger('click');
     expect(w.emitted('submit')!.at(-1)![0]).toEqual({ answer: 'signs', signIds: ['s1'] });
+  });
+});
+
+// QA defect B fix: the sign catalogue is DATA resolved server-side in the request locale (see
+// `composables/useApi.ts`'s locale-keyed GET cache and `PlantDetail.vue`'s `watch: [locale]` on its own
+// fetch). This modal has no fetch of its own — it asks the parent to redo ITS fetch by emitting
+// `reload-signs`, and only while the modal is actually open (a closed modal has nothing on screen to go
+// stale, so it must stay silent and let the parent's normal re-open flow fetch fresh signs instead).
+describe('RepotEvaluationModal — reload-signs on a locale switch (QA defect B)', () => {
+  it('emits reload-signs when the locale changes while the modal is open', async () => {
+    const w = mountModal({ open: true });
+    mockLocale.value = 'es';
+    await nextTick();
+    expect(w.emitted('reload-signs')).toBeTruthy();
+    expect(w.emitted('reload-signs')!.length).toBe(1);
+  });
+
+  it('does NOT emit reload-signs when the locale changes while the modal is closed', async () => {
+    const w = mountModal({ open: false });
+    mockLocale.value = 'es';
+    await nextTick();
+    expect(w.emitted('reload-signs')).toBeFalsy();
   });
 });

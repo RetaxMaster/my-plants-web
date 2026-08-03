@@ -125,7 +125,7 @@
       "doseBody": "Label doses are formulated for mature plants. While this plant is young, feed at 1/4 to 1/2 the strength on the bottle — full strength burns delicate roots. Keep the same schedule; only the dose changes."
     },
     "substrate": {
-      "fertilizeFloor": "The substrate still feeds this plant — first feeding estimated for {date}.",
+      "fertilizeFloor": "We're assuming the substrate still holds some food — first feeding estimated for {date}.",
       "repotDriverCrowding": "The engine's estimate is based on how crowded the plant is in its pot.",
       "repotDriverSubstrate": "The engine's estimate is based on the substrate wearing out, not on crowding.",
       "repotOverrideBinding": "You postponed this reminder to the date shown."

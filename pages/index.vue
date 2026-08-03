@@ -607,6 +607,7 @@ function openProgress(plantId: string) {
       :frozen-answers="evaluationAttempt?.body ?? null"
       @submit="onEvaluationSubmit"
       @start-over="onEvaluationStartOver"
+      @reload-signs="evaluationPlantId && onEvaluate(evaluationPlantId)"
     />
     <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" />
     <UiRepotDoneForm

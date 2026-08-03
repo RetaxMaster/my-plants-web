@@ -38,8 +38,13 @@ const POT_SIZE_MAX = 50;
 const POT_SIZE_STEP = 1;
 
 // Prepend an enabled "Not set" option so a user can CLEAR an enum (a disabled placeholder can't be reselected).
-const withNotSet = (opts: { value: string; label: string }[]) =>
-  [{ value: '', label: t('plantProfile.pickOption') }, ...opts];
+// `notSetLabel`, when given, overrides the blank option's own label — the growth-habit field uses it to
+// show the INHERITED habit there instead of a generic "pick an option" (fix for QA defect F: passing a
+// SelectField `:placeholder` on top of this produced a second, disabled `<option value="">`, since
+// SelectField.vue renders its own placeholder option whenever `placeholder` is truthy — leaving two blank
+// options where only the enabled one here is ever selectable).
+const withNotSet = (opts: { value: string; label: string }[], notSetLabel?: string | null) =>
+  [{ value: '', label: notSetLabel ?? t('plantProfile.pickOption') }, ...opts];
 
 // The provenance line, shown ONLY while the owner has not chosen a habit themselves. This mirrors the
 // API's read-time fallback exactly; the web never copies the inherited value into the patch.
@@ -140,8 +145,7 @@ async function save() {
         <UiSelectField
           v-model="growthHabit"
           data-test="growth-habit-select"
-          :options="withNotSet(growthHabitOptions)"
-          :placeholder="inheritedHabitLabel ?? $t('plantProfile.pickOption')"
+          :options="withNotSet(growthHabitOptions, inheritedHabitLabel)"
         />
         <p v-if="inheritedHabitLabel" class="mp-form__note">{{ inheritedHabitLabel }}</p>
         <p v-if="showsTrailingWarning" class="mp-form__note mp-form__note--warn">

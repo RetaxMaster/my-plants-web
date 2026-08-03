@@ -10,6 +10,31 @@ export interface GetCache {
   invalidate(match: (key: string) => boolean): void;
 }
 
+// The GET cache is keyed by locale + path, not path alone: `server/api/[...].ts` forwards an `x-locale`
+// header derived from the active locale on every proxied request, so the RESPONSE BODY of a locale-sensitive
+// endpoint (e.g. the REPOT sign catalogue) depends on the locale it was fetched under. A key that ignores the
+// locale would keep serving the previous locale's body after an in-app language switch, until a full reload.
+// The separator is a space, and the property that makes splitting unambiguous is about the LOCALE half
+// ONLY: a BCP-47 locale tag (`en`, `es`, `es-MX`, …) is a sequence of alphanumeric subtags joined by
+// hyphens and contains no whitespace, so the FIRST space in a key is always the boundary — whatever the
+// path half happens to contain. (Paths here are additionally space-free BY CONVENTION, because every
+// caller in `useApi.ts` that interpolates a user-supplied value wraps it in `encodeURIComponent`; a future
+// call site that forgot to would put a space in the path, and this split would still be correct.)
+export const GET_CACHE_KEY_SEP = ' ';
+
+export function getCacheKey(locale: string, path: string): string {
+  return `${locale}${GET_CACHE_KEY_SEP}${path}`;
+}
+
+// The path half of a cache key, i.e. the inverse of getCacheKey's second argument. Splits on the FIRST
+// separator only — see GET_CACHE_KEY_SEP above for why that is the correct boundary even if the path half
+// contains a space. Returns the key unchanged when there is no separator at all, which is defensive: every
+// key reaching this function was built by getCacheKey, so that branch is not expected to be taken.
+export function getCacheKeyPath(key: string): string {
+  const idx = key.indexOf(GET_CACHE_KEY_SEP);
+  return idx === -1 ? key : key.slice(idx + GET_CACHE_KEY_SEP.length);
+}
+
 export function createGetCache(): GetCache {
   const inflight = new Map<string, Promise<unknown>>();
   const resolved = new Map<string, unknown>();

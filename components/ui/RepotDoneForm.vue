@@ -111,7 +111,7 @@ function onConfirm() {
     </FormGroup>
     <Button
       size="xs"
-      variant="ghost"
+      variant="soft"
       color="neutral"
       class="mp-repotdone__sameasbefore"
       :disabled="frozen || currentPotSizeCm === null"

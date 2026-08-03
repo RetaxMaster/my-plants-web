@@ -9,9 +9,14 @@
 // The two real call sites, verified directly against the current source (not assumed):
 //   - `pages/index.vue` passes `:pending-verdict="pendingEvaluationFor(plantId)?.verdict ?? null"` — ALWAYS
 //     a defined value (a verdict string or `null`), NEVER omitted. This is the "opted in" shape.
-//   - `components/PlantDetail.vue` never passes `:pending-verdict` at all. This is the "not opted in"
-//     shape, and it is what F1 broke: TaskRow's own `pendingVerdict: null` default used to make this
-//     indistinguishable from the opted-in "no pending evaluation" case.
+//   - `components/PlantDetail.vue` ALSO passes it now — `:pending-verdict="t3.pendingEvaluation?.verdict
+//     ?? null"` — so both call sites are opted in today. (CORRECTED 2026-08-02: this comment used to say
+//     PlantDetail "never passes `:pending-verdict` at all", which was already false against the source when
+//     it was written. The stale half mattered, because it described the exact case F1 was about: TaskRow's
+//     former `pendingVerdict: null` DEFAULT made a non-opted-in caller indistinguishable from an opted-in
+//     "no pending evaluation" one, which is why the prop is deliberately left UNDEFAULTED. The
+//     not-opted-in shape is still real and still pinned below — it is simply no longer PlantDetail that
+//     exercises it in production.)
 import { describe, it, expect, vi } from 'vitest';
 import { computed, ref } from 'vue';
 import { mount } from '@vue/test-utils';

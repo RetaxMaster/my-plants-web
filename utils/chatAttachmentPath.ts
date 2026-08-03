@@ -1,9 +1,15 @@
 /**
  * THE SINGLE DEFINITION of the chat-attachment route shape, for all three chat surfaces.
  *
- * Two consumers need it and they sit on opposite sides of the proxy: `composables/useApi.ts` BUILDS one
- * of these paths, and `server/api/[...].ts` must RECOGNIZE it to take its binary branch instead of the
- * generic JSON passthrough. A second spelling on either side is a silent failure — the BFF falls through,
+ * Two kinds of consumer need it and they sit on opposite sides of the proxy. On the BUILD side, the three
+ * per-surface run composables (`useKnowledgeChatRuns` / `useDoctorChatRuns` / `useGardenerChatRuns`) each
+ * call the builder for their own surface and hand the finished path to `useApi.ts`'s
+ * `fetchChatAttachment`, which is a pure passthrough and never builds one itself. On the RECOGNIZE side,
+ * `server/api/[...].ts` must match it to take its binary branch instead of the generic JSON passthrough.
+ * (This paragraph previously named `useApi.ts` as the builder, which was never true — recorded here
+ * because a reader who believes the builder lives in `useApi.ts` will add the second spelling in a
+ * composable, which is exactly the failure below.)
+ * A second spelling on either side is a silent failure — the BFF falls through,
  * `$fetch` parses the bytes, and the browser receives an index-keyed object rather than an image, with
  * every unit test on both sides still green.
  */

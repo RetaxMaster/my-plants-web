@@ -18,6 +18,25 @@ questions about the new pot so the schedule keeps up.
 
 ### Fixed
 
+- **When the checklist says "not yet", it no longer denies what you told it.** Checking off signs and still
+  getting "wait and check again later" answered you with *"Nothing you saw says it needs repotting yet"* —
+  said to someone who had just told the app exactly what they saw. It now has its own wording for that
+  case: what you noticed was recorded and counts towards the next call, it just isn't conclusive on its
+  own. The verdict itself was always right, and nothing about how the app decides has changed — only what
+  it says back to you.
+- **The repot form now lets you say you don't know the new pot's size.** "Mark as repotted" stayed greyed
+  out until you typed a diameter, with no way out — and on a plant you had never filled in details for,
+  "same as before" was greyed out too, so a repot you had just finished could not be recorded without
+  inventing a measurement. There is now an "I don't know" beside it, exactly like the soil and substrate
+  questions already have.
+- **Checkboxes that can't be ticked now look like it.** Choosing "no signs yet" or "I couldn't check it"
+  switches the list of signs off, but the rows still looked and felt tappable and simply did nothing when
+  you tapped them. They now dim and show a blocked cursor, so it's clear the two answers are alternatives
+  and that you need to clear one before ticking the other.
+- **The close buttons in every dialog now have distinct names for screen readers.** The "×" in the corner
+  and a "Close" button at the bottom both announced as just "Close"; the "×" now says what it closes. The
+  same fix was applied to the repot checklist's per-sign "What am I looking for?" links, which all announced
+  identically, and each now names its own sign. Nothing visible changed.
 - **The repot checklist now tells you how often this species is usually repotted**, right above the
   questions, so you have a reference point while deciding what you can see. It is context only — it does
   not change the verdict — and it simply does not appear for a species we have no figure for.

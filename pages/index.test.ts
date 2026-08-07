@@ -156,14 +156,23 @@ const stubs = {
   UiAppIcon: true,
   UiReasonPicker: true,
   UiRepotVerdictModal: {
-    props: ['open', 'result'],
-    template: '<div class="verdict-modal" :data-open="open" :data-verdict="result && result.verdict" />',
+    // `checkedSignIds` (2026-08-07): the ids the owner ticked, which the real modal subtracts from the
+    // catalogue to name a corroborating sign. Exposed here so this file can pin that THIS renderer wires
+    // it — the same line exists in PlantDetail.vue, and a half-wired renderer is exactly the drift these
+    // two files keep producing.
+    props: ['open', 'result', 'signs', 'checkedSignIds'],
+    template:
+      '<div class="verdict-modal" :data-open="open" :data-verdict="result && result.verdict" ' +
+      ':data-checked="checkedSignIds && checkedSignIds.join(\',\')" :data-signs="signs && signs.length" />',
   },
   UiTaskRow: {
-    props: ['task'],
+    // OBJECT prop declaration for `allowStandaloneDone`, not the array shorthand: only a prop DECLARED
+    // Boolean gets Vue's bare-attribute casting, so the array form would read `''` (falsy) even from a
+    // caller that DID pass it — a stub that could never fail the "Done must not leak onto Today" test.
+    props: { task: null, allowStandaloneDone: { type: Boolean, default: false } },
     emits: ['evaluate', 'done'],
     template:
-      '<div>' +
+      '<div :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
       '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
       '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
       '</div>',
@@ -176,6 +185,9 @@ const stubs = {
       // (or cross-flow) error leak — mirrors the identical `data-error` hook already on UiRepotDoneForm below.
       '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting" :data-error="error">' +
       '<button class="submit-btn" @click="$emit(\'submit\', { answer: \'no-signs\' })">submit</button>' +
+      // 2026-08-07: a CHECKED-SIGNS body, so this file can pin that the ticked ids reach the verdict modal
+      // (they are what it subtracts from the catalogue to name a corroborating sign).
+      '<button class="submit-signs-btn" @click="$emit(\'submit\', { answer: \'signs\', signIds: [\'s1\'] })">submit signs</button>' +
       '</div>',
   },
   UiRepotDoneForm: {
@@ -1055,5 +1067,54 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
     await flushPromises();
     expect(w.find('.done-form').attributes('data-open')).toBe('true');
     expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+  });
+});
+
+// Owner request, 2026-08-07: `/plants/:id` gained a standalone "Done" beside "Time to evaluate", and the
+// owner's requirement was explicit — "The Today page does not change." Today is a triage list: one action
+// per card, and Done appears only once a verdict has decided the repot is needed. This is the guard that
+// goes RED if that ever leaks here.
+describe('pages/index.vue — Today must NOT offer the standalone REPOT Done (owner requirement 2026-08-07)', () => {
+  it('never passes allowStandaloneDone to any task row', async () => {
+    const w = await mountPage();
+    const rows = w.findAll('[data-allow-standalone-done]');
+    expect(rows.length).toBeGreaterThan(0); // a vacuous pass on zero rows would prove nothing
+    expect(rows.map((r) => r.attributes('data-allow-standalone-done'))).toEqual(rows.map(() => 'false'));
+  });
+});
+
+// The other half of the 2026-08-07 change, on THIS renderer: the verdict modal cannot name a corroborating
+// sign unless the ids the owner ticked actually reach it. PlantDetail.vue carries the identical line.
+describe('pages/index.vue — the ticked sign ids reach the verdict modal', () => {
+  it('forwards the submitted signIds and the fetched catalogue after a checked-signs submit', async () => {
+    getRepotSignsMock = vi.fn(async () => ({
+      signs: [
+        { id: 's1', label: 'one', help: null, evidence: 'strong' },
+        { id: 's2', label: 'two', help: null, evidence: 'ambiguous' },
+      ] as unknown as RepotSign[],
+      typicalIntervalMonths: null,
+    }));
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: async () => TASKS,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      completeRepot: completeRepotMock,
+    }));
+
+    const w = await mountPage();
+    await w.findAll('.evaluate-btn')[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.submit-signs-btn').trigger('click');
+    await flushPromises();
+    submitDeferreds.A!.resolve({ evaluationId: 'ev-A', verdict: 'RE-EVALUATE', reevaluateOn: '2026-11-05' });
+    await flushPromises();
+
+    const modal = w.find('.verdict-modal');
+    expect(modal.attributes('data-open')).toBe('true');
+    expect(modal.attributes('data-checked')).toBe('s1');
+    expect(modal.attributes('data-signs')).toBe('2');
   });
 });

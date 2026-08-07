@@ -1147,3 +1147,192 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
     expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');
   });
 });
+
+// Owner request, 2026-08-07: `/plants/:id` keeps a standalone "Done" beside "Time to evaluate", with the
+// card's own back-date input. Two things had to hold on this page's side of that, and neither did:
+//
+//   1. THE OWNER MAY CONTRADICT THE APP. The questionnaire said "not yet, back in N days" and the owner
+//      repotted anyway. That completion must NOT name the pending RE-EVALUATE row: the server resolves an
+//      `evaluationId` only when it points at an unresolved REPOT verdict and 400s otherwise
+//      (`feedback.write-core.ts`), while `completeRepotCore` step 2 SUPERSEDES the RE-EVALUATE row for
+//      free, with no id needed. Before this change both renderers attached the pending id unconditionally
+//      — safe only because a Done button never rendered while a RE-EVALUATE was pending.
+//   2. THE BACK-DATE HAD TO REACH THE REQUEST. Every other task's Done carries `occurredOn` straight
+//      through; REPOT detours through the completion form, and the date was being dropped on the floor.
+describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)', () => {
+  type Pending = { id: string; verdict: string; reevaluateOn: string | null } | null;
+
+  const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
+  const careWith = (pendingEvaluation: Pending) => ({
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation }],
+  });
+
+  // The Done button emits the card's own `{ task, occurredOn }` payload — the SAME shape TaskRow.vue emits
+  // from its `withDoneDate` input, so this stub exercises the real contract between the two.
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      // OBJECT prop declaration, not the array shorthand: `allow-standalone-done` is passed as a bare
+      // attribute, and only a prop DECLARED Boolean gets Vue's empty-string→true casting. The array form
+      // would receive `''` and read falsy — a stub that lies about the real component's own contract.
+      props: { task: null, allowStandaloneDone: { type: Boolean, default: false } },
+      emits: ['done'],
+      template:
+        '<div :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
+        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+        '<button class="done-dated-btn" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-01\' })">done dated</button>' +
+        '</div>',
+    },
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over', 'update:open'],
+      template:
+        '<div class="done-form" :data-open="open">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '</div>',
+    },
+  };
+
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    completeRepotMock = vi.fn(async () => ({ ok: true }));
+  });
+
+  async function mountRepot(pendingEvaluation: Pending) {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => careWith(pendingEvaluation),
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  async function completeVia(w: Awaited<ReturnType<typeof mountRepot>>, selector: string) {
+    await w.find(selector).trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+  }
+
+  it('opts this surface into the standalone Done — the prop the Today page does not pass', async () => {
+    const w = await mountRepot(null);
+    expect(w.find('[data-allow-standalone-done]').attributes('data-allow-standalone-done')).toBe('true');
+  });
+
+  it('completes with NO evaluationId when nothing is pending — the plain standalone case', async () => {
+    const w = await mountRepot(null);
+    await completeVia(w, '.done-btn');
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    expect((completeRepotMock.mock.calls[0]![2] as { evaluationId?: string }).evaluationId).toBeUndefined();
+  });
+
+  it('completes with NO evaluationId while a RE-EVALUATE row is pending — the owner repotted anyway, and ' +
+    'naming that row would be a 400 from a server that only resolves REPOT verdicts', async () => {
+    const w = await mountRepot({ id: 'ev-re', verdict: 'RE-EVALUATE', reevaluateOn: '2026-11-05' });
+    await completeVia(w, '.done-btn');
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const payload = completeRepotMock.mock.calls[0]![2] as { evaluationId?: string };
+    expect(payload.evaluationId).toBeUndefined();
+  });
+
+  it('STILL names a pending REPOT verdict — the resolution path is untouched', async () => {
+    const w = await mountRepot({ id: 'ev-repot', verdict: 'REPOT', reevaluateOn: null });
+    await completeVia(w, '.done-btn');
+    expect((completeRepotMock.mock.calls[0]![2] as { evaluationId?: string }).evaluationId).toBe('ev-repot');
+  });
+
+  it('sends the back-date the owner typed on the card, not today', async () => {
+    const w = await mountRepot(null);
+    await completeVia(w, '.done-dated-btn');
+    expect(completeRepotMock.mock.calls[0]![1]).toBe('2026-08-01');
+  });
+
+  it('falls back to today when the owner typed no date — the same default every other task has', async () => {
+    const w = await mountRepot(null);
+    await completeVia(w, '.done-btn');
+    const sent = completeRepotMock.mock.calls[0]![1] as string;
+    const now = new Date();
+    const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    expect(sent).toBe(todayLocal);
+  });
+});
+
+// The other half of the 2026-08-07 change, on THIS renderer: the verdict modal cannot name a corroborating
+// sign unless the ids the owner ticked actually reach it. pages/index.vue carries the identical line, and a
+// change landing on one of these two files and not the other is this pair's recurring failure.
+describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
+  const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
+  const repotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  };
+  const catalogue = [
+    { id: 's1', label: 'one', help: null, evidence: 'strong' },
+    { id: 's2', label: 'two', help: null, evidence: 'ambiguous' },
+  ];
+
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      props: { task: null },
+      emits: ['evaluate'],
+      template: '<div><button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button></div>',
+    },
+    UiRepotEvaluationModal: {
+      props: ['open', 'signs'],
+      emits: ['submit'],
+      template:
+        '<div class="eval-modal" :data-open="open">' +
+        '<button class="submit-signs-btn" @click="$emit(\'submit\', { answer: \'signs\', signIds: [\'s1\'] })">go</button>' +
+        '</div>',
+    },
+    UiRepotVerdictModal: {
+      props: ['open', 'result', 'signs', 'checkedSignIds'],
+      template:
+        '<div class="verdict-modal" :data-open="open" ' +
+        ':data-checked="checkedSignIds && checkedSignIds.join(\',\')" :data-signs="signs && signs.length" />',
+    },
+  };
+
+  it('forwards the submitted signIds and the fetched catalogue after a checked-signs submit', async () => {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => repotCare,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: catalogue, typicalIntervalMonths: null }),
+      invalidatePlant: vi.fn(),
+      submitRepotEvaluation: async () => ({ evaluationId: 'ev-1', verdict: 'RE-EVALUATE', reevaluateOn: '2026-11-05' }),
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    await w.find('.submit-signs-btn').trigger('click');
+    await flushPromises();
+
+    const modal = w.find('.verdict-modal');
+    expect(modal.attributes('data-open')).toBe('true');
+    expect(modal.attributes('data-checked')).toBe('s1');
+    expect(modal.attributes('data-signs')).toBe('2');
+  });
+});

@@ -297,6 +297,7 @@
     "verdictReevaluateTitle": "Not yet — we'll ask again",
     "verdictReevaluateBody": "Nothing you saw says it needs repotting yet. We'll bring this back on {date}.",
     "verdictSignsReevaluateBody": "Thanks — we've noted what you saw, and it counts towards the next call. On its own it isn't enough to say it needs repotting yet. We'll bring this back on {date}.",
+    "verdictCorroborateLead": "One more thing worth going to look for:",
     "verdictCouldNotCheckTitle": "No problem — we'll ask again",
     "verdictCouldNotCheckBody": "You haven't looked yet, so there's nothing for us to judge. We'll bring this back on {date}.",
     "cardAction": "Time to evaluate",

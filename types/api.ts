@@ -7,8 +7,11 @@ import type {
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
 import type { ProgressTagKey } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
-import type { ProposalOperationType, RepotEvaluationSubmit } from '@retaxmaster/my-plants-species-schema';
-export type { ProgressTagKey, RepotEvaluationSubmit };
+// `RepotEvidenceClass` is the SHARED contract's own union (`REPOT_EVIDENCE_CLASSES`), imported for the same
+// reason `RepotEvaluationSubmit` is: a locally re-typed copy is a fork, and the class list is exactly the
+// kind of thing that would silently drift the day a fifth class is added.
+import type { ProposalOperationType, RepotEvaluationSubmit, RepotEvidenceClass } from '@retaxmaster/my-plants-species-schema';
+export type { ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass };
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -173,6 +176,18 @@ export interface RepotSign {
    *  appear with no code change. Only the modal's FRAME (headings, the two exclusive answers, buttons) is i18n. */
   label: string;
   help: string | null;
+  /**
+   * The KE's ordinal evidence class, READ-ONLY, used for exactly one thing: ranking the signs the owner did
+   * NOT tick so the RE-EVALUATE screen can name one worth going to look for (docs/care-engine.md §7.17
+   * defines `strong` as "reliable, but worth confirming with one more" — reasoning that was invisible).
+   *
+   * The browser can never SEND a class: `repotEvaluationSubmitSchema` is `.strict()` and carries ids and
+   * nothing else, so this can never reach the calibration. Optional at the type level for the same
+   * rolling-deploy reason `DueTaskResponse.pendingEvaluation` is (web and api deploy independently) — the
+   * one consumer treats an absent or unrecognised class as the WEAKEST, so an older API simply produces no
+   * suggestion rather than a wrong one.
+   */
+  evidence?: RepotEvidenceClass;
 }
 
 /**

@@ -3,8 +3,9 @@
 // repoteval:25). A 'REPOT' verdict is what unlocks the classic Done | Postpone on the Today card (Task
 // 27's state machine); a 'RE-EVALUATE' verdict tells the owner nothing needs doing yet and names the date
 // we'll ask again. Display-only — it never posts anything, so it carries no submitting/idempotency state.
-import type { RepotEvaluationResult, RepotEvaluationSubmit } from '~/types/api';
+import type { RepotEvaluationResult, RepotEvaluationSubmit, RepotSign } from '~/types/api';
 import { ymdToLocalDate } from '~/utils/localDate';
+import { corroboratingSign } from '~/utils/repotEvaluation';
 import Modal from './Modal.vue';
 import Button from './Button.vue';
 
@@ -16,6 +17,13 @@ const props = defineProps<{
    * so a caller that has not been updated is no worse off than it was.
    */
   answer?: RepotEvaluationSubmit['answer'] | null;
+  /**
+   * The catalogue the questionnaire was answered against, and the ids the owner ticked — both already held
+   * by the caller (the fetched signs, and the completion record's frozen request body). Used for ONE thing:
+   * naming a corroborating sign to go and look for. Optional; absent means no suggestion, never a wrong one.
+   */
+  signs?: RepotSign[] | null;
+  checkedSignIds?: string[] | null;
 }>();
 const open = defineModel<boolean>('open', { default: false });
 
@@ -64,11 +72,44 @@ const body = computed(() => {
   if (isCheckedSigns.value) return t('repotEval.verdictSignsReevaluateBody', { date });
   return t('repotEval.verdictReevaluateBody', { date });
 });
+
+// ── What would settle it (owner request, 2026-08-07) ──────────────────────────────────────────────────
+// The copy above tells an owner who DID tick signs that what they saw counts but is not enough on its own.
+// What it never said is what WOULD move the answer — even though the model knows: docs/care-engine.md
+// §7.17 defines `strong` as "reliable, but worth confirming with one more" and `definitive` as "this alone
+// means root-bound". That reasoning being invisible is what made a flat "not yet" read as the app ignoring
+// the owner.
+//
+// So: name the strongest sign in THIS plant's own catalogue that the owner did not tick
+// (`corroboratingSign`, utils/repotEvaluation.ts — deterministic, ties broken by catalogue order).
+//
+// ⚠️ PRESENTATION ONLY, and it must stay that way. It changes no engine input, no score, no verdict, no
+// stored value and no request body; it reads two things the caller already had. Nothing is posted.
+//
+// Scoped to the CHECKED-SIGNS branch on purpose:
+//   - a REPOT verdict has nothing left to corroborate — the answer is already "yes";
+//   - "no signs at all" is the strongest negative the flow produces (§7.17), and answering it with "go and
+//     look for this one" would argue with an owner who just told us they looked and saw nothing;
+//   - "I couldn't check it" has not looked yet, so the thing to do is the whole questionnaire, not one sign.
+// The edge cases fall out of the helper rather than being special-cased: every sign ticked, or a
+// single-sign catalogue, both yield `null` and the ordinary copy stands alone — a complete answer.
+const suggestedSign = computed(() =>
+  isCheckedSigns.value ? corroboratingSign(props.signs, props.checkedSignIds) : null,
+);
 </script>
 
 <template>
   <Modal v-model="open" :title="title">
     <p class="mp-repotverdict__body">{{ body }}</p>
+    <!-- The lead-in is i18n (it is the app talking); the sign itself is DATA, already resolved to the
+         request locale by the API, so it renders verbatim and on its own line — the catalogue labels are
+         full sentences and would read wrong spliced into the middle of one. The wording asks the owner to
+         go and CHECK something; it never predicts what they will find, and never implies the repot is
+         coming, because the whole point of this branch is that the evidence is not conclusive. -->
+    <p v-if="suggestedSign" class="mp-repotverdict__suggest">
+      <span class="mp-repotverdict__suggest-lead">{{ t('repotEval.verdictCorroborateLead') }}</span>
+      <span class="mp-repotverdict__suggest-sign">{{ suggestedSign.label }}</span>
+    </p>
     <template #footer>
       <Button color="neutral" variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
     </template>
@@ -81,5 +122,25 @@ const body = computed(() => {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--text-body);
+}
+
+.mp-repotverdict__suggest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.mp-repotverdict__suggest-lead {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.mp-repotverdict__suggest-sign {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
 }
 </style>

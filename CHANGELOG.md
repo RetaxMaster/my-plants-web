@@ -11,6 +11,18 @@ questions about the new pot so the schedule keeps up.
 
 ### Added
 
+- **The plant's own page keeps a "Done" button beside "Time to evaluate".** If you already repotted a plant
+  — because you were repotting anyway, or because you looked and decided for yourself — you can now say so
+  straight from that plant's page without first answering a checklist about a pot the plant is no longer in.
+  The date box beside it lets you record it on the day it actually happened, and the substrate clock starts
+  from that day too. It works even when the app had just told you "not yet, we'll ask again on…": your
+  answer wins, and the pending question is closed out with it. The Today page is unchanged — there a repot
+  still asks you to look first, and Done only appears once the checklist has decided it is time.
+- **When the checklist says "not yet", it now tells you what would settle it.** Ticking a sign that counts
+  but isn't conclusive on its own used to end there. The app now names one more specific thing worth going
+  to look for on that plant — the most telling sign it knows about that you haven't already reported. It is
+  a suggestion of what to check, not a prediction of what you'll find, and it changes nothing about how the
+  app decides.
 - **The approval card now names a postponement.** The Plant Doctor and the Gardener can now propose putting
   a care task off, so the banner that asks for your approval has wording for it in both English and Spanish,
   and shows both the day the task moves to and — for a repot, which is postponed by reason rather than by

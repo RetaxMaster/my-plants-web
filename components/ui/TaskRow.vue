@@ -42,8 +42,23 @@ const props = withDefaults(
      * `reevaluateArrived` below — so missing data never blocks the owner.
      */
     pendingReevaluateOn?: string | null;
+    /**
+     * REPOT only, opt-in per SURFACE, and the reason this is a PROP rather than a second component: the
+     * plant-detail page keeps a standalone "Done" beside "Time to evaluate", and the Today page must not.
+     *
+     * The owner's case (2026-08-07): they repotted the plant, for whatever reason, without running the
+     * questionnaire — or having run it and been told "not yet". On the plant's own page that must simply
+     * work: "Time to evaluate" opens the questionnaire, "Done" records the repot, and (with
+     * `withDoneDate`) the date input beside it back-dates it. Today stays a strict triage list: one action
+     * per card, and Done appears there only once a verdict has decided the repot IS needed.
+     *
+     * Deliberately does NOT unlock Postpone. A REPOT Postpone means "yes, it needs it, but I can't right
+     * now" — a conclusion, which is exactly what D38 stopped asking the owner for. There is no such thing
+     * as postponing a repot nobody has established is needed; the answer to that is the questionnaire.
+     */
+    allowStandaloneDone?: boolean;
   }>(),
-  { withDoneDate: false, showInfo: false },
+  { withDoneDate: false, showInfo: false, allowStandaloneDone: false },
 );
 
 const emit = defineEmits<{
@@ -117,6 +132,19 @@ const reevaluateNoticeDate = computed(() =>
   props.pendingReevaluateOn ? d(ymdToLocalDate(props.pendingReevaluateOn), 'short') : '',
 );
 
+// The two states in which the REPOT state machine is WITHHOLDING Done/Postpone because no verdict has said
+// the plant needs repotting: the questionnaire is on offer, or a RE-EVALUATE date has not arrived yet.
+// Named once so the three computeds below cannot disagree about which states those are.
+const verdictWithholdsDone = computed(() => showEvaluate.value || reevaluatePending.value);
+
+// Done renders whenever the state machine is not withholding it — i.e. every non-REPOT task, and a REPOT
+// whose verdict already said so — PLUS the surface that has explicitly opted into a standalone Done.
+const showDone = computed(() => !verdictWithholdsDone.value || props.allowStandaloneDone);
+
+// Postpone is NEVER unlocked by `allowStandaloneDone` — see the prop's own doc. It keeps exactly the rule
+// it had: offered alongside a non-withheld Done, and never on a task that is not due yet.
+const showPostpone = computed(() => !verdictWithholdsDone.value && effectiveStatus.value !== 'upcoming');
+
 const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
 const onPostpone = () => emit('postpone', { task: props.task });
 const onLogProgress = () => emit('logProgress', { task: props.task });
@@ -145,35 +173,40 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
       <template v-if="task === 'PROGRESS'">
         <Button size="xs" color="primary" icon="camera" @click="onLogProgress">{{ taskLabel(task) }}</Button>
       </template>
-      <template v-else-if="showEvaluate">
-        <Button size="xs" color="primary" icon="magnifying-glass" @click="onEvaluate">
+      <template v-else>
+        <!-- The verdict-driven affordance, when the state machine is withholding Done: the questionnaire,
+             or the "we'll ask again on <date>" note. `allowStandaloneDone` does not replace either of
+             these — it renders Done BESIDE them, so the plant page offers both actions at once. -->
+        <Button v-if="showEvaluate" size="xs" color="primary" icon="magnifying-glass" @click="onEvaluate">
           {{ t('repotEval.cardAction') }}
         </Button>
-      </template>
-      <template v-else-if="reevaluatePending">
-        <span class="mp-taskrow__pending-note">
+        <span v-else-if="reevaluatePending" class="mp-taskrow__pending-note">
           {{ t('repotEval.pendingReevaluateNote', { date: reevaluateNoticeDate }) }}
         </span>
-      </template>
-      <template v-else>
-        <input
-          v-if="withDoneDate"
-          v-model="doneDate"
-          type="date"
-          class="mp-taskrow__date"
-          :aria-label="t('progress.doneDateAria')"
-        />
-        <Button size="xs" color="primary" icon="check" @click="onDone">{{ t('common.done') }}</Button>
-        <Button
-          v-if="effectiveStatus !== 'upcoming'"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          icon="clock"
-          @click="onPostpone"
-        >
-          {{ t('common.postpone') }}
-        </Button>
+        <template v-if="showDone">
+          <input
+            v-if="withDoneDate"
+            v-model="doneDate"
+            type="date"
+            class="mp-taskrow__date"
+            :aria-label="t('progress.doneDateAria')"
+          />
+          <!-- A standalone Done is the SECONDARY action beside "Time to evaluate" — the questionnaire is
+               still what the card is asking for. It becomes primary again once nothing is withholding it,
+               which is every case that existed before. -->
+          <Button
+            size="xs"
+            :color="verdictWithholdsDone ? 'neutral' : 'primary'"
+            :variant="verdictWithholdsDone ? 'soft' : 'solid'"
+            icon="check"
+            @click="onDone"
+          >
+            {{ t('common.done') }}
+          </Button>
+          <Button v-if="showPostpone" size="xs" color="neutral" variant="ghost" icon="clock" @click="onPostpone">
+            {{ t('common.postpone') }}
+          </Button>
+        </template>
       </template>
     </div>
   </div>

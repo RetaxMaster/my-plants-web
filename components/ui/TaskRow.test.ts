@@ -204,3 +204,94 @@ describe('UiTaskRow — QA D3: an unresolved REPOT verdict outranks an upcoming 
     expect(w.text()).not.toContain('repotEval.verdictNowBadge');
   });
 });
+
+// Owner request, 2026-08-07. `/plants/:id` keeps a standalone "Done" beside "Time to evaluate": the owner
+// may have repotted the plant already — for whatever reason, and possibly on a day that is not today — and
+// must be able to record it without first answering a questionnaire about a plant that is now in its new
+// pot. Today does NOT change: one action per card there, and Done appears only once a verdict has said the
+// repot is needed.
+//
+// Expressed as a PROP on this one shared component rather than a second component, because both surfaces
+// render the same row and a fork is how the next change silently misses one of them.
+describe('UiTaskRow — allowStandaloneDone: Done beside "time to evaluate", on the plant page only', () => {
+  it('offers BOTH actions when the surface opts in and no verdict is pending — the questionnaire AND a Done', () => {
+    const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass');
+    expect(icons).toContain('check');
+  });
+
+  // THE TEST THAT MUST GO RED IF DONE EVER LEAKS ONTO TODAY. Today's exact prop shape is "pendingVerdict
+  // passed, allowStandaloneDone absent" — asserted here for BOTH states in which the state machine
+  // withholds Done, since either one leaking would put a second action on a triage card.
+  it('does NOT offer Done on a surface that did not opt in — Today, unchanged, in both withholding states', () => {
+    const noVerdict = mountRow({ pendingVerdict: null });
+    expect(noVerdict.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).toEqual(['magnifying-glass']);
+
+    const pendingReevaluate = mountRow({ pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: daysFromToday(5) });
+    expect(pendingReevaluate.findAll('.stub-btn')).toHaveLength(0);
+    expect(pendingReevaluate.find('.mp-taskrow__pending-note').exists()).toBe(true);
+  });
+
+  // The owner may contradict the app: the questionnaire said "not yet, back in N days" and they repotted
+  // anyway. The card must still let them say so — the note explains the app's position, the Done records
+  // theirs. (The server side of the same case: `completeRepotCore` SUPERSEDES that RE-EVALUATE row rather
+  // than resolving it, and the client must not name it — see utils/repotEvaluation.test.ts.)
+  it('offers Done alongside the "we\'ll ask again on <date>" note, when the owner repotted anyway', () => {
+    const w = mountRow({
+      pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: daysFromToday(90), allowStandaloneDone: true,
+    });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(w.find('.mp-taskrow__pending-note').exists()).toBe(true);
+    expect(icons).toContain('check');
+    expect(icons).not.toContain('magnifying-glass'); // the date has not arrived; the server would 409
+  });
+
+  // A REPOT Postpone means "yes, it needs it, but I can't right now" — a CONCLUSION, which is exactly what
+  // the questionnaire replaced. There is no postponing a repot nobody has established is needed.
+  it('never unlocks Postpone, in either withholding state', () => {
+    for (const props of [
+      { pendingVerdict: null, allowStandaloneDone: true },
+      { pendingVerdict: 'RE-EVALUATE', pendingReevaluateOn: daysFromToday(5), allowStandaloneDone: true },
+    ]) {
+      const icons = mountRow(props).findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+      expect(icons).not.toContain('clock');
+    }
+  });
+
+  it('changes NOTHING once a REPOT verdict is in — the classic Done | Postpone pair, opted in or not', () => {
+    for (const extra of [{}, { allowStandaloneDone: true }]) {
+      const icons = mountRow({ pendingVerdict: 'REPOT', ...extra })
+        .findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+      expect(icons).toContain('check');
+      expect(icons).toContain('clock');
+      expect(icons).not.toContain('magnifying-glass');
+    }
+  });
+
+  it('is inert on every non-REPOT task — a WATER row is byte-identical opted in or not', () => {
+    for (const extra of [{}, { allowStandaloneDone: true }]) {
+      const icons = mountRow({ task: 'WATER', status: 'today', ...extra })
+        .findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+      expect(icons).toEqual(['check', 'clock']);
+    }
+  });
+
+  // "…and ideally I can set the date too." The back-date input is the one that already exists
+  // (`withDoneDate`), reaching the standalone branch and emitting through the same `done` payload — never a
+  // second date mechanism.
+  it('carries the back-date through the standalone branch, on the SAME withDoneDate input every other task uses', async () => {
+    const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true, withDoneDate: true });
+    const input = w.find('input[type="date"]');
+    expect(input.exists()).toBe(true);
+    await input.setValue('2026-08-01');
+    await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
+    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: '2026-08-01' }]);
+  });
+
+  it('leaves occurredOn undefined when the owner types no date — "today", decided by the caller', async () => {
+    const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true, withDoneDate: true });
+    await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
+    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: undefined }]);
+  });
+});

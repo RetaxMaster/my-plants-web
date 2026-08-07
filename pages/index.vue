@@ -2,6 +2,9 @@
 import { groupByPlant, dueState, type DueTask } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
+// One implementation of "which pending evaluation may an action name" and of "which sign is worth
+// suggesting next", shared with PlantDetail.vue — never a second copy in each renderer.
+import { resolvableEvaluationId } from '../utils/repotEvaluation.js';
 // Explicit import (like PlantDetail.vue's `onUnmounted`, and for the same reason): the composable's own
 // `shallowRef` import from 'vue' makes it test-environment-agnostic, and this ONE implementation is now
 // shared with PlantDetail.vue (round-5 finding V1) — never a second copy of the attempt-tracking logic.
@@ -65,6 +68,11 @@ const verdict = ref<RepotEvaluationResult | null>(null);
 // one case looked and saw nothing and in the other never looked at all. The modal needs the distinction to
 // say something true; nothing else does, which is why it stays a display concern and not a contract change.
 const verdictAnswer = ref<RepotEvaluationSubmit['answer'] | null>(null);
+// ...and the sign IDS that answer carried, from the same frozen request body. Feeds ONLY the verdict
+// modal's "one more thing worth going to look for" line (owner request, 2026-08-07) — the modal subtracts
+// them from `evaluationSigns` to find the strongest sign the owner has NOT reported. Kept as its own ref
+// rather than widening `verdictAnswer` into the whole body, so the existing prop's meaning is untouched.
+const verdictCheckedSignIds = ref<string[]>([]);
 const verdictOpen = ref(false);
 // Set when a REPOT loader fails (network/5xx) — either the evaluation signs fetch below, OR (B3) the Done
 // form's `api.getPlant` profile fetch — never for a genuinely empty signs catalogue, which is a valid
@@ -337,6 +345,7 @@ async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvalu
     evaluationOpen.value = false;
     verdict.value = completion.result;
     verdictAnswer.value = completion.body.answer;
+    verdictCheckedSignIds.value = completion.body.answer === 'signs' ? [...completion.body.signIds] : [];
     verdictOpen.value = true;
   }
   await refresh();
@@ -418,12 +427,19 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   // NEW `occurredOn` (a midnight rollover between confirms) or a NEW `evaluationId` (an intervening
   // `refresh()` that resolved a different pending evaluation), either of which would 422 forever against the
   // server's idempotency interceptor.
-  const pendingEval = pendingEvaluationFor(plantId); // read off the today list the page already holds
+  //
+  // `resolvableEvaluationId` (utils/repotEvaluation.ts) rather than a bare `pendingEval.id`: the server
+  // resolves an `evaluationId` only when it names an unresolved `REPOT` verdict, and refuses anything else
+  // with a 400. Today's card only ever offers Done once such a verdict is pending, so this is
+  // behaviour-preserving HERE — it is the sibling renderer (PlantDetail.vue, which now offers a standalone
+  // Done while a RE-EVALUATE row may be the pending one) that needs the rule, and stating it once is what
+  // stops these two files drifting on it for the fifth time.
+  const evaluationId = resolvableEvaluationId(pendingEvaluationFor(plantId)); // off the today list the page already holds
   // W2: no page-level `repotError.value = false` here any more — same reasoning as onEvaluationSubmit above
   // — `beginDoneAttempt` resets THIS attempt's own `error` field the moment a confirm (fresh or retry) begins.
   const attempt = beginDoneAttempt(plantId, {
     occurredOn: today,
-    payload: { ...payload, ...(pendingEval ? { evaluationId: pendingEval.id } : {}) },
+    payload: { ...payload, ...(evaluationId ? { evaluationId } : {}) },
   });
   try {
     await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
@@ -481,13 +497,16 @@ async function onRepotPostpone(plantId: string) {
   repotPostponeSubmitting.value = true;
   repotError.value = false;
   try {
-    const pendingEval = pendingEvaluationFor(plantId);
+    // Same helper as the Done path above, for the same reason — one rule about which pending row an action
+    // may name, stated once (utils/repotEvaluation.ts). Behaviour-preserving here: a REPOT Postpone is only
+    // ever offered once a `REPOT` verdict is pending.
+    const evaluationId = resolvableEvaluationId(pendingEvaluationFor(plantId));
     await api.sendFeedback(plantId, {
       task: 'REPOT',
       type: 'POSTPONED',
       occurredOn: today,
       reason: 'needed-cannot-now',
-      ...(pendingEval ? { payload: { evaluationId: pendingEval.id } } : {}),
+      ...(evaluationId ? { payload: { evaluationId } } : {}),
     });
     await refresh();
   } catch (e) {
@@ -642,7 +661,16 @@ function openProgress(plantId: string) {
       @start-over="onEvaluationStartOver"
       @reload-signs="evaluationPlantId && onEvaluate(evaluationPlantId)"
     />
-    <UiRepotVerdictModal v-model:open="verdictOpen" :result="verdict" :answer="verdictAnswer" />
+    <!-- `signs` is the SAME catalogue the questionnaire was answered against (fetched once by
+         `onEvaluate`), never a second fetch — the modal only subtracts the ticked ids from it to name one
+         sign worth going to check. -->
+    <UiRepotVerdictModal
+      v-model:open="verdictOpen"
+      :result="verdict"
+      :answer="verdictAnswer"
+      :signs="evaluationSigns"
+      :checked-sign-ids="verdictCheckedSignIds"
+    />
     <UiRepotDoneForm
       v-model:open="doneFormOpen"
       :current-pot-size-cm="doneFormProfile.potSizeCm"

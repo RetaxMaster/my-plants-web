@@ -93,3 +93,86 @@ describe('RepotVerdictModal — the RE-EVALUATE wording depends on WHICH answer 
     expect(w.text()).not.toContain('repotEval.verdictCouldNotCheck');
   });
 });
+
+// Owner request, 2026-08-07. When the verdict is RE-EVALUATE and the owner DID tick signs, the copy above
+// (correctly, since QA round 4) says what they saw counts but is not enough on its own. What it never said
+// is what WOULD move the answer — even though the model knows: docs/care-engine.md §7.17 defines `strong`
+// as "reliable, but worth confirming with one more". That reasoning being invisible is what made a flat
+// "not yet" read as the app ignoring the owner.
+//
+// PRESENTATION ONLY: no engine input, no score, no verdict, no stored value, no request body. The modal
+// posts nothing — it subtracts the ticked ids from the catalogue the questionnaire already fetched.
+const catalogue = [
+  { id: 'universal--water-runs-through', label: 'Water runs straight through', help: null, evidence: 'strong' as const },
+  { id: 'universal--single-root', label: 'A single root is peeking out', help: null, evidence: 'suggestive' as const },
+  { id: 'universal--pot-split', label: 'The pot is cracked or split', help: null, evidence: 'definitive' as const },
+  { id: 'universal--growth-stalled', label: 'Growth has clearly slowed', help: null, evidence: 'ambiguous' as const },
+];
+
+describe('RepotVerdictModal — naming a corroborating sign to go and look for', () => {
+  it('names the STRONGEST sign the owner did not tick, on a checked-signs RE-EVALUATE', () => {
+    const w = mountModal({
+      result: reevaluate, answer: 'signs',
+      signs: catalogue, checkedSignIds: ['universal--water-runs-through'],
+    });
+    expect(w.text()).toContain('repotEval.verdictCorroborateLead');
+    expect(w.text()).toContain('The pot is cracked or split'); // definitive outranks the rest
+    // The verdict copy is not replaced — the suggestion is an addition to it, never a substitute.
+    expect(w.text()).toContain('repotEval.verdictSignsReevaluateBody|2026-08-04');
+  });
+
+  it('never suggests a sign the owner already checked', () => {
+    const w = mountModal({
+      result: reevaluate, answer: 'signs',
+      signs: catalogue, checkedSignIds: ['universal--pot-split', 'universal--water-runs-through'],
+    });
+    expect(w.text()).toContain('A single root is peeking out'); // suggestive, the strongest left
+    expect(w.text()).not.toContain('The pot is cracked or split');
+  });
+
+  it('says nothing when the owner has ticked EVERY sign there is — the ordinary copy alone is a complete answer', () => {
+    const w = mountModal({
+      result: reevaluate, answer: 'signs', signs: catalogue, checkedSignIds: catalogue.map((s) => s.id),
+    });
+    expect(w.text()).not.toContain('repotEval.verdictCorroborateLead');
+    expect(w.text()).toContain('repotEval.verdictSignsReevaluateBody|2026-08-04');
+  });
+
+  it('still names one when only AMBIGUOUS signs remain unchecked — not a consolation prize: `strong` ' +
+    '(0.60) + `ambiguous` (0.15) lands exactly on SIGN_NEEDED_THRESHOLD (0.75) per §7.17, so it is a real ' +
+    'thing to go and check', () => {
+    const w = mountModal({
+      result: reevaluate, answer: 'signs', signs: catalogue,
+      checkedSignIds: ['universal--pot-split', 'universal--water-runs-through', 'universal--single-root'],
+    });
+    expect(w.text()).toContain('Growth has clearly slowed');
+  });
+
+  it('handles a single-sign catalogue: the one sign when it is unchecked, silence when it is the one ticked', () => {
+    const one = [catalogue[0]];
+    expect(mountModal({ result: reevaluate, answer: 'signs', signs: one, checkedSignIds: [] }).text())
+      .toContain('Water runs straight through');
+    expect(mountModal({ result: reevaluate, answer: 'signs', signs: one, checkedSignIds: [one[0].id] }).text())
+      .not.toContain('repotEval.verdictCorroborateLead');
+  });
+
+  // Scoped to the checked-signs branch on purpose, and each exclusion has its own reason — see the
+  // component's `suggestedSign` comment. Asserted as a set so a future branch cannot quietly acquire it.
+  it('appears on NO other branch — not on a REPOT verdict, not on "no signs", not on "could not check"', () => {
+    for (const props of [
+      { result: { verdict: 'REPOT' as const, reevaluateOn: undefined }, answer: 'signs' as const },
+      { result: reevaluate, answer: 'no-signs' as const },
+      { result: reevaluate, answer: 'could-not-check' as const },
+      { result: reevaluate }, // no answer supplied at all — the un-updated-caller fallback
+    ]) {
+      const w = mountModal({ ...props, signs: catalogue, checkedSignIds: [] });
+      expect(w.text(), JSON.stringify(props)).not.toContain('repotEval.verdictCorroborateLead');
+    }
+  });
+
+  it('is silent, never broken, for a caller that passes no catalogue at all', () => {
+    const w = mountModal({ result: reevaluate, answer: 'signs' });
+    expect(w.text()).toContain('repotEval.verdictSignsReevaluateBody|2026-08-04');
+    expect(w.text()).not.toContain('repotEval.verdictCorroborateLead');
+  });
+});

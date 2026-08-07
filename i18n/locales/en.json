@@ -3,6 +3,7 @@
     "cancel": "Cancel",
     "save": "Save",
     "close": "Close",
+    "closeDialog": "Close dialog",
     "done": "Done",
     "postpone": "Postpone",
     "edit": "Edit",
@@ -295,6 +296,7 @@
     "verdictRepotBody": "What you saw adds up: this plant needs a bigger pot. Mark it done when you have, or postpone if you can't today.",
     "verdictReevaluateTitle": "Not yet — we'll ask again",
     "verdictReevaluateBody": "Nothing you saw says it needs repotting yet. We'll bring this back on {date}.",
+    "verdictSignsReevaluateBody": "Thanks — we've noted what you saw, and it counts towards the next call. On its own it isn't enough to say it needs repotting yet. We'll bring this back on {date}.",
     "verdictCouldNotCheckTitle": "No problem — we'll ask again",
     "verdictCouldNotCheckBody": "You haven't looked yet, so there's nothing for us to judge. We'll bring this back on {date}.",
     "cardAction": "Time to evaluate",
@@ -306,7 +308,8 @@
     "loadError": "We couldn't load the checklist. Please try again.",
     "retry": "Try again",
     "startOver": "Start over",
-    "helpToggle": "What am I looking for?"
+    "helpToggle": "What am I looking for?",
+    "helpToggleFor": "What am I looking for? — {sign}"
   },
   "repotDone": {
     "title": "What did you repot it into?",
@@ -314,6 +317,8 @@
     "potSize": "New pot diameter (at the rim, in cm)",
     "potSizeHint": "The width across the top — not the radius, not the height.",
     "potSizeInvalid": "Enter a whole number of centimeters, from 1 to {max}.",
+    "potSizeUnknown": "I don't know",
+    "potSizeUnknownAria": "I don't know the pot diameter",
     "soilMix": "New soil mix",
     "soilMixUnknown": "I don't know",
     "substrate": "Fresh substrate?",

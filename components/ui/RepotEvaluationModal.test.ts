@@ -21,7 +21,15 @@ vi.stubGlobal('watch', watch);
 // in `beforeEach` so a locale change in one test never bleeds into the next; the `useI18n` factory reads
 // the OUTER `mockLocale` binding by closure, so reassigning it here is visible to every subsequent mount.
 let mockLocale = ref('en');
-vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, locale: mockLocale }));
+// Returns the KEY, and — when the call passes params — the key plus its interpolated values. That second
+// half matters for the help-toggle suite at the bottom: its whole claim is that eleven toggles resolve to
+// DIFFERENT names, which a stub that discarded the interpolation would flatten into one identical key and
+// make the assertion vacuously false. Same passthrough shape as RepotVerdictModal.test.ts's.
+vi.stubGlobal('useI18n', () => ({
+  t: (k: string, params?: Record<string, unknown>) =>
+    (params ? `${k}|${Object.values(params).join('|')}` : k),
+  locale: mockLocale,
+}));
 
 beforeEach(() => {
   mockLocale = ref('en');
@@ -375,5 +383,100 @@ describe('RepotEvaluationModal — FIX E + QA D1: the exclusive answers RENDER a
     expect(submit().attributes('disabled')).toBeUndefined();
     await clickRadio(noSigns);
     expect(submit().attributes('disabled')).toBeDefined();
+  });
+});
+
+// QA round-4 finding 3. Choosing an exclusive answer sets every sign checkbox to `disabled=true`, which is
+// correct and stays — the two answers are alternatives, the server rejects the contradiction with a 400,
+// and the FROZEN state has to disable them regardless (the answers must not change under an outstanding
+// idempotency key). What was wrong was that the disabled state was INVISIBLE: the wrapping label kept
+// `opacity: 1`, `pointer-events: auto` and `cursor: pointer`, so the rows looked and felt clickable and
+// silently did nothing.
+//
+// WHY THE DISABLE WAS KEPT rather than making the boxes enabled and having a tick clear the radio (the
+// direction that already works, via `watch(checked, ...)`): the frozen state must stay disabled whatever is
+// decided about the exclusive one, so the visible treatment is needed either way — one mechanism now covers
+// both. And a dimmed row states "these are alternatives to what you picked", where a row that silently
+// erased the answer given two lines below would be a second, less legible way of saying the same thing.
+describe('RepotEvaluationModal — QA round-4 finding 3: a disabled sign row LOOKS disabled', () => {
+  const signs = [
+    { id: 's1', label: 'Roots circling the drainage holes' },
+    { id: 's2', label: 'Water runs straight through' },
+  ];
+  const signRows = (w: ReturnType<typeof mountModal>) =>
+    w.findAll('.mp-repoteval__list .mp-repoteval__check');
+  const exclusiveRows = (w: ReturnType<typeof mountModal>) =>
+    w.findAll('.mp-repoteval__exclusive .mp-repoteval__check');
+
+  it('marks nothing disabled while both answers are still open', () => {
+    const w = mountModal({ signs, frozen: false });
+    for (const row of [...signRows(w), ...exclusiveRows(w)]) {
+      expect(row.classes()).not.toContain('mp-repoteval__check--disabled');
+    }
+  });
+
+  it('THE DEFECT: choosing an exclusive answer disables every sign row AND says so visibly', async () => {
+    const w = mountModal({ signs, frozen: false });
+    await w.findAll('.mp-repoteval__exclusive input[type="radio"]')[0]!.setValue(true);
+
+    for (const row of signRows(w)) {
+      // Both halves, together: inert (the input really is disabled) AND legible (the row says so). The
+      // defect was exactly the first without the second.
+      expect(row.find('input[type="checkbox"]').attributes('disabled')).toBeDefined();
+      expect(row.classes()).toContain('mp-repoteval__check--disabled');
+    }
+    // The exclusive answers themselves stay live — the owner must be able to change or clear their choice.
+    for (const row of exclusiveRows(w)) {
+      expect(row.classes()).not.toContain('mp-repoteval__check--disabled');
+    }
+  });
+
+  it('marks EVERY row — signs and exclusive answers alike — while frozen, since all of them really are ' +
+    'disabled under an outstanding idempotency key', () => {
+    const w = mountModal({ signs, frozen: true });
+    for (const row of [...signRows(w), ...exclusiveRows(w)]) {
+      expect(row.classes()).toContain('mp-repoteval__check--disabled');
+    }
+  });
+
+  it('clears the treatment again when the exclusive answer is deselected — the state is derived, never a ' +
+    'one-way flag', async () => {
+    const w = mountModal({ signs, frozen: false });
+    const radio = w.findAll('.mp-repoteval__exclusive input[type="radio"]')[0]!;
+    await radio.setValue(true);
+    expect(signRows(w)[0]!.classes()).toContain('mp-repoteval__check--disabled');
+
+    await radio.trigger('click'); // `onExclusiveClick` deselects the already-selected answer
+    expect(signRows(w)[0]!.classes()).not.toContain('mp-repoteval__check--disabled');
+    expect(signRows(w)[0]!.find('input[type="checkbox"]').attributes('disabled')).toBeUndefined();
+  });
+});
+
+// Found in a REAL browser while verifying finding 4: every sign renders a help toggle with the SAME visible
+// text, so eleven buttons in one dialog shared one accessible name — finding 4's defect at eleven-fold
+// scale. The visible text stays as it is (it is the same affordance on every row); the accessible name
+// names WHICH sign it expands, and contains the visible text so WCAG 2.5.3 "Label in Name" still holds.
+describe('RepotEvaluationModal — the per-sign help toggles have DISTINCT accessible names', () => {
+  const signs = [
+    { id: 's1', label: 'Roots circling the drainage holes', help: 'Look underneath the pot.' },
+    { id: 's2', label: 'Water runs straight through', help: 'Water it and watch the drainage.' },
+    { id: 's3', label: 'The pot is cracked', help: 'Check the sides of the pot.' },
+  ];
+
+  it('names each toggle after its own sign, so a role+name query can never match two', () => {
+    const w = mountModal({ signs });
+    const toggles = w.findAll('.mp-repoteval__helptoggle');
+    const names = toggles.map((b) => b.attributes('aria-label')!);
+
+    expect(names).toHaveLength(3);
+    expect(new Set(names).size).toBe(3);
+    for (const [i, n] of names.entries()) expect(n).toBe(`repotEval.helpToggleFor|${signs[i]!.label}`);
+  });
+
+  it('keeps the shared VISIBLE text — the accessible name disambiguates, it does not replace the label', () => {
+    const w = mountModal({ signs });
+    for (const b of w.findAll('.mp-repoteval__helptoggle')) {
+      expect(b.text()).toBe('repotEval.helpToggle');
+    }
   });
 });

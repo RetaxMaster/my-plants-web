@@ -54,18 +54,35 @@ describe('RepotVerdictModal — the RE-EVALUATE wording depends on WHICH answer 
     expect(w.text()).toContain('repotEval.verdictReevaluateBody|2026-08-04');
     expect(w.text()).toContain('repotEval.verdictReevaluateTitle');
     expect(w.text()).not.toContain('repotEval.verdictCouldNotCheck');
+    // …and not the round-4 checked-signs sentence either: "nothing you saw" is TRUE here, and replacing it
+    // with "we've noted what you saw" would be the mirror-image lie.
+    expect(w.text()).not.toContain('repotEval.verdictSignsReevaluateBody');
   });
 
-  it('a "signs" answer that still came back RE-EVALUATE keeps the original wording too — the owner ticked ' +
-    'signs and the engine judged them insufficient, which is exactly what that sentence describes', () => {
+  // QA round 4 REWROTE this case. It used to assert the OPPOSITE — that a "signs" answer keeps the
+  // original wording, "which is exactly what that sentence describes". It is not: the sentence opens with
+  // "Nothing you saw", and this owner saw something and said so. The engine's verdict is right (ticked
+  // signs below the needed threshold really are inconclusive) and the engine is NOT touched here; only the
+  // sentence was wrong, and it was wrong in the direction that makes the app look like it discarded the
+  // answer the owner just gave it.
+  it('a "signs" answer that still came back RE-EVALUATE gets its OWN sentence — never the "nothing you ' +
+    'saw" one, which denies an observation the owner explicitly made', () => {
     const w = mountModal({ result: reevaluate, answer: 'signs' });
-    expect(w.text()).toContain('repotEval.verdictReevaluateBody|2026-08-04');
+    expect(w.text()).toContain('repotEval.verdictSignsReevaluateBody|2026-08-04');
+    // The exact regression: the "nothing you saw" sentence must not survive on this branch. Asserted as a
+    // NEGATIVE on the old key because that is the string QA actually read on screen.
+    expect(w.text()).not.toContain('repotEval.verdictReevaluateBody');
+    expect(w.text()).not.toContain('repotEval.verdictCouldNotCheckBody');
+    // The TITLE is deliberately shared with the "no signs" branch — "Not yet, we'll ask again" is true of
+    // both — so this pins that the fix did not fork it into a second identical string.
+    expect(w.text()).toContain('repotEval.verdictReevaluateTitle');
   });
 
   it('falls back to the original wording when no answer is supplied at all — an un-updated caller is no ' +
     'worse off than before the fix', () => {
     const w = mountModal({ result: reevaluate });
     expect(w.text()).toContain('repotEval.verdictReevaluateBody|2026-08-04');
+    expect(w.text()).not.toContain('repotEval.verdictSignsReevaluateBody');
   });
 
   it('never applies the could-not-check wording to a REPOT verdict — that branch has one sentence, and a ' +

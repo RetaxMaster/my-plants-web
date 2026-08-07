@@ -44,10 +44,19 @@ const { onKeydown, onBackdrop, restoreFocus } = useOverlay(open, panelRef, { onC
             <slot name="header">
               <h2 :id="titleId" class="mp-modal__title">{{ props.title }}</h2>
             </slot>
+            <!-- QA round-4 finding 4. This used to carry `common.close` — "Close" — which is ALSO the text
+                 of the footer button several modals render (the repot verdict, the plant cover, the agent
+                 chat). Two elements sharing one accessible name is harmless to a human and fatal to a
+                 role+name query: `getByRole('button', { name: 'Close' })` resolves to two nodes and
+                 Playwright's strict mode fails the locator. Fixed HERE rather than at the call sites,
+                 because this button is the one shared by EVERY modal — renaming the footers instead would
+                 have been N fixes for one cause, and the next modal to add a "Close" footer would
+                 reintroduce it. `common.closeDialog` names what this control actually closes, which is
+                 also the more useful announcement for a screen reader. -->
             <button
               type="button"
               class="mp-modal__close"
-              :aria-label="$t('common.close')"
+              :aria-label="$t('common.closeDialog')"
               @click="close"
             >
               <AppIcon name="x-mark" :size="20" />

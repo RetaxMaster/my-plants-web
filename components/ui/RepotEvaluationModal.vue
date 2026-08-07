@@ -150,15 +150,28 @@ function onSubmit() {
     <h3 class="mp-repoteval__heading">{{ t('repotEval.signsHeading') }}</h3>
     <ul class="mp-repoteval__list">
       <li v-for="sign in signs" :key="sign.id" class="mp-repoteval__item">
-        <label class="mp-repoteval__check">
+        <!-- QA round-4 finding 3. These inputs go `disabled` the moment an exclusive answer is chosen (and
+             while the form is frozen), but the LABEL that wraps them kept `opacity: 1` and
+             `cursor: pointer`, so they looked and felt clickable and simply did nothing, silently. The
+             disabled state is kept — see the script's `onExclusiveClick` note — and given the design
+             system's own disabled treatment instead, bound as an explicit class rather than left to a
+             `:has(input:disabled)` selector so the affordance is something a test can assert. -->
+        <label class="mp-repoteval__check" :class="{ 'mp-repoteval__check--disabled': frozen || exclusive !== 'none' }">
           <input v-model="checked" type="checkbox" :value="sign.id" :disabled="frozen || exclusive !== 'none'" />
           <!-- Catalogue text is DATA, resolved server-side in the request locale. Never an i18n key. -->
           <span>{{ sign.label }}</span>
         </label>
+        <!-- Every sign renders this toggle with the SAME visible text, so eleven buttons in one dialog
+             shared one accessible name — finding 4's defect at eleven-fold scale, found in a real browser
+             while verifying that finding. `aria-label` names which sign each one expands; it CONTAINS the
+             visible text, as WCAG 2.5.3 "Label in Name" requires, so voice control still activates it by
+             what is written on it. The sign label is DATA (server-resolved in the request locale), which is
+             why it is interpolated rather than keyed. -->
         <button
           v-if="sign.help"
           type="button"
           class="mp-repoteval__helptoggle"
+          :aria-label="t('repotEval.helpToggleFor', { sign: sign.label })"
           :aria-expanded="expandedHelp === sign.id"
           @click="expandedHelp = expandedHelp === sign.id ? null : sign.id"
         >
@@ -172,7 +185,7 @@ function onSubmit() {
          alternative to the sign checkboxes above, and without a group name assistive tech announces them
          with no indication of what they are alternatives TO. -->
     <div class="mp-repoteval__exclusive" role="radiogroup" :aria-label="t('repotEval.exclusiveGroupLabel')">
-      <label class="mp-repoteval__check">
+      <label class="mp-repoteval__check" :class="{ 'mp-repoteval__check--disabled': frozen }">
         <input
           v-model="exclusive"
           type="radio"
@@ -183,7 +196,7 @@ function onSubmit() {
         />
         <span>{{ t('repotEval.noSigns') }}</span>
       </label>
-      <label class="mp-repoteval__check">
+      <label class="mp-repoteval__check" :class="{ 'mp-repoteval__check--disabled': frozen }">
         <input
           v-model="exclusive"
           type="radio"
@@ -256,6 +269,16 @@ function onSubmit() {
   font-size: var(--text-sm);
   color: var(--text-body);
   cursor: pointer;
+}
+
+/* QA round-4 finding 3. The design system has no shared "disabled" class or opacity token — every control
+   in `components/ui/` states this same pair in its own scoped block (Button, Input, SelectField,
+   SegmentedControl, Slider, Switch), so these are the house values verbatim, not a magic pair invented
+   here. `cursor` must be overridden on the LABEL: the label's own `pointer` above wins over the disabled
+   input underneath it, which is precisely why the row still felt clickable. */
+.mp-repoteval__check--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .mp-repoteval__helptoggle {

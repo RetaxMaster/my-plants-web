@@ -208,11 +208,14 @@ export interface RepotEvaluationResult {
 /**
  * The fields a REPOT completion carries — mirrors the API's repotDonePayloadSchema.
  *
- * `potSizeCm` is required: without the NEW pot's diameter the crowding ratio would be computed against a
- * pot that no longer exists.
- *
- * The other two are the SAME question asked twice, and both of them admit "I don't know" — but they spell
- * it differently, and the difference is load-bearing rather than stylistic:
+ * All three admit "I don't know" — but they spell it differently, and the difference is load-bearing
+ * rather than stylistic:
+ *   - `potSizeCm` is required-but-NULLABLE (QA round-4 finding 2). `null` is the owner's explicit "I don't
+ *     know how wide the new pot is". It used to be required outright, on the reasoning that without the NEW
+ *     diameter the crowding ratio would be computed against a pot that no longer exists — which is exactly
+ *     why the answer is an explicit `null` and not an omitted key: the null CLEARS the old diameter, so the
+ *     ratio stops being computed rather than being computed from a pot that is gone. Requiring a number did
+ *     not obtain the truth, it obtained an invented one.
  *   - `soilMix` is required-but-NULLABLE (QA D2). `null` is the owner's explicit "I don't know what I
  *     potted into", and it is sent EXPLICITLY because a repot replaces the medium — omitting the key would
  *     leave the plant's previously recorded mix standing, which is a claim about this pot that is no
@@ -221,12 +224,13 @@ export interface RepotEvaluationResult {
  *     charge state from the recorded mix. Absence is the right spelling here because `charged` has no
  *     stale prior value to displace — `refreshSubstrateCore` writes the column on every completion.
  *
- * Never round-trip either absence into a positive answer: an absent `charged` read back as `false`
- * ("reused"), or a null `soilMix` read back as some concrete mix, both convert a non-answer into a claim
- * the owner never made. See `RepotDoneForm.vue`'s frozenSnapshot hydration for both.
+ * Never round-trip any of those absences into a positive answer: an absent `charged` read back as `false`
+ * ("reused"), a null `soilMix` read back as some concrete mix, or a null `potSizeCm` read back as a number
+ * all convert a non-answer into a claim the owner never made. See `RepotDoneForm.vue`'s frozenSnapshot
+ * hydration for all three.
  */
 export interface RepotDonePayload {
-  potSizeCm: number;
+  potSizeCm: number | null;
   soilMix: string | null;
   charged?: boolean;
   refreshedOn?: string;

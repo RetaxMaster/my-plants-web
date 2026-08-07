@@ -3,6 +3,7 @@
     "cancel": "Cancelar",
     "save": "Guardar",
     "close": "Cerrar",
+    "closeDialog": "Cerrar ventana",
     "done": "Hecho",
     "postpone": "Posponer",
     "edit": "Editar",
@@ -295,6 +296,7 @@
     "verdictRepotBody": "Lo que viste cuadra: esta planta necesita una maceta más grande. Márcala como hecha cuando lo hagas, o posponla si hoy no puedes.",
     "verdictReevaluateTitle": "Todavía no — te volvemos a preguntar",
     "verdictReevaluateBody": "Nada de lo que viste dice que ya necesite trasplante. Volvemos a preguntarte el {date}.",
+    "verdictSignsReevaluateBody": "Gracias — ya anotamos lo que viste y sí cuenta para la próxima. Por sí solo todavía no alcanza para decir que necesita trasplante. Volvemos a preguntarte el {date}.",
     "verdictCouldNotCheckTitle": "Sin problema — te preguntamos de nuevo",
     "verdictCouldNotCheckBody": "Todavía no la revisaste, así que no hay nada que podamos juzgar. Te lo volvemos a mostrar el {date}.",
     "cardAction": "Toca evaluar",
@@ -306,7 +308,8 @@
     "loadError": "No pudimos cargar la lista de señales. Intenta de nuevo.",
     "retry": "Intentar de nuevo",
     "startOver": "Empezar de nuevo",
-    "helpToggle": "¿Qué debo buscar?"
+    "helpToggle": "¿Qué debo buscar?",
+    "helpToggleFor": "¿Qué debo buscar? — {sign}"
   },
   "repotDone": {
     "title": "¿En qué la trasplantaste?",
@@ -314,6 +317,8 @@
     "potSize": "Diámetro de la maceta nueva (en el borde, en cm)",
     "potSizeHint": "El ancho de arriba — no el radio ni la altura.",
     "potSizeInvalid": "Ingresa un número entero de centímetros, de 1 a {max}.",
+    "potSizeUnknown": "No sé",
+    "potSizeUnknownAria": "No sé el diámetro de la maceta",
     "soilMix": "Sustrato nuevo",
     "soilMixUnknown": "No sé",
     "substrate": "¿Sustrato fresco?",

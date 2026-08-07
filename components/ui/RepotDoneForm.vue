@@ -68,6 +68,21 @@ const soilMixSelectOptions = computed(() => withNotSet(soilMixOptions.value, t('
 // PlantProfileModal.vue's ageMonths field). For `soilMix`, '' is ALSO the "I don't know" ANSWER, and
 // `onConfirm` sends it as an explicit `null` — see there.
 const potSizeCm = ref<number | string>('');
+// QA round-4 finding 2. The diameter was the ONE field on this form with no "I don't know" path, and
+// "Mark as repotted" stayed disabled until it held a number. On a plant whose profile records no pot size
+// (the fixture's `Gus`) the "Same as before" escape is disabled too — nothing to copy — so an owner who had
+// genuinely repotted the plant could not record it at all without inventing a diameter.
+//
+// The fix is the same shape `soilMix` already uses: an explicit "I don't know" that sends `null`, NOT an
+// omitted key. The reasoning that made the field required is precisely what makes `null` the right answer
+// rather than a missing one — a repot replaces the pot, so the old diameter is a claim about a pot that no
+// longer exists, and clearing it makes the crowding ratio uncomputable (`crowdingIndex` returns null,
+// already a first-class state on every plant whose profile never recorded a size) instead of plausible and
+// wrong. An invented diameter would have been worse than an absent one: the engine cannot tell it is a
+// guess and would feed it into the ratio for the rest of the plant's life. Verified on the API side before
+// shipping this, not assumed — see repot-complete.write-core.test.ts's "a null diameter is TOLERATED by
+// the in-transaction recompute".
+const potSizeUnknown = ref(false);
 const soilMix = ref<string>('');
 // FIX D1 — genuinely TRI-STATE now, in BOTH the UI and on the wire (was two-way: 'fresh' | 'reused', always
 // pre-pressed to 'fresh'). 'unknown' is the default and means exactly what it says — the owner has not
@@ -92,7 +107,11 @@ watch(open, (isOpen) => {
   // about what will actually be submitted. Hydrating from the snapshot keeps the two in lockstep.
   if (props.frozen) {
     if (props.frozenSnapshot) {
-      potSizeCm.value = props.frozenSnapshot.potSizeCm;
+      // `potSizeCm` is tri-state by NULLABILITY on the wire exactly like `soilMix` below: `null` is the
+      // owner's explicit "I don't know" and must round-trip back to the "I don't know" chip with an EMPTY
+      // input, never to a concrete number and never to a blank field that silently re-blocks confirm.
+      potSizeUnknown.value = props.frozenSnapshot.potSizeCm === null;
+      potSizeCm.value = props.frozenSnapshot.potSizeCm ?? '';
       // `soilMix` is tri-state by NULLABILITY on the wire (`SoilMix | null`, see types/api.ts): `null` is
       // the owner's explicit "I don't know" and must round-trip back to the EMPTY option, never to some
       // concrete mix. Same class of defect as FIX D3 below, which turned an omitted `charged` into a
@@ -110,6 +129,9 @@ watch(open, (isOpen) => {
     return;
   }
   potSizeCm.value = props.currentPotSizeCm ?? '';
+  // Never pre-pressed, in either direction — same rule as the substrate toggle's `'unknown'` default: an
+  // empty field is "not answered yet", which is not the same statement as "I don't know".
+  potSizeUnknown.value = false;
   // FIX D4 — dropped the `soilMixOptions.value[0]?.value` fallback (used to silently pre-select the FIRST
   // catalogue entry, e.g. "Aroid mix", whenever the plant's profile had no recorded mix). An unset mix now
   // opens on the explicit "I don't know" option, so the owner never unknowingly confirms whatever slug
@@ -135,26 +157,41 @@ const potSizeValid = computed(
     && potSizeCm.value > 0 && potSizeCm.value <= POT_SIZE_CM_MAX,
 );
 // Shown only once the owner has typed SOMETHING — an empty field is simply "not filled in yet" (canConfirm
-// already gates on that), never an inline error of its own.
+// already gates on that), never an inline error of its own. Suppressed entirely once "I don't know" is
+// pressed: there is no value left to be invalid, and the input is disabled and cleared.
 const potSizeErrorMessage = computed(() => {
-  if (potSizeCm.value === '' || potSizeValid.value) return undefined;
+  if (potSizeUnknown.value || potSizeCm.value === '' || potSizeValid.value) return undefined;
   return t('repotDone.potSizeInvalid', { max: POT_SIZE_CM_MAX });
 });
+
+// Pressing "I don't know" CLEARS whatever was typed, so the answer and the field can never disagree — the
+// same lockstep rule the frozen-snapshot hydration follows. Pressing it again returns to an empty,
+// unanswered field rather than restoring the old number: a number the owner has just disowned is not a
+// value to bring back.
+function togglePotSizeUnknown() {
+  potSizeUnknown.value = !potSizeUnknown.value;
+  potSizeCm.value = '';
+}
 
 // FIX QA-D2 — `soilMix` is NO LONGER part of this gate. "I don't know" is a legitimate answer to it (the
 // engine has a first-class no-evidence path for a null mix — `CHARGE_UNKNOWN_MIX_DAYS`, a named constant
 // distinct from the declared-charge one precisely so the two derivations can never collapse), so requiring
 // a concrete mix made the feature's main path un-completable for an owner who genuinely did not know.
-// `potSizeCm` stays required: without the NEW pot's diameter the crowding ratio is computed against a pot
-// that no longer exists, silently and plausibly, for the rest of the plant's life.
+//
+// QA round-4 finding 2 — and `potSizeCm` now answers to the SAME rule, for the same reason. It stays
+// required in the sense that the form still refuses a BAD number; what it no longer does is refuse an
+// honest "I don't know". A repot the owner really performed must always be recordable.
 const canConfirm = computed(
-  () => !props.submitting && potSizeValid.value,
+  () => !props.submitting && (potSizeUnknown.value || potSizeValid.value),
 );
 
 function onConfirm() {
   if (!canConfirm.value) return;
   const payload: Omit<RepotDonePayload, 'evaluationId'> = {
-    potSizeCm: potSizeCm.value as number,
+    // Explicit `null`, never an omitted key — identical reasoning to `soilMix` just below: a repot replaces
+    // the pot, so an omitted key would leave the plant's OLD diameter standing as a claim about a pot it is
+    // no longer in, and the crowding ratio would keep being computed from it.
+    potSizeCm: potSizeUnknown.value ? null : (potSizeCm.value as number),
     // Explicit `null`, never an omitted key: a repot REPLACES the medium, so leaving the previously
     // recorded mix in place would keep asserting something that is no longer true about this pot. The
     // owner not knowing what the new medium is does not make the OLD answer correct again.
@@ -189,20 +226,43 @@ function onConfirm() {
         min="1"
         :max="POT_SIZE_CM_MAX"
         step="1"
-        :disabled="frozen"
+        :disabled="frozen || potSizeUnknown"
         :error="potSizeErrorMessage"
       />
     </FormGroup>
-    <Button
-      size="xs"
-      variant="soft"
-      color="neutral"
-      class="mp-repotdone__sameasbefore"
-      :disabled="frozen || currentPotSizeCm === null"
-      @click="potSizeCm = currentPotSizeCm ?? ''"
-    >
-      {{ t('repotDone.sameAsBefore') }}
-    </Button>
+    <!-- The two escapes from typing a diameter, side by side. "Same as before" is a SHORTCUT (it fills the
+         field with a real number the owner is asserting) and is unavailable when there is no prior size to
+         copy; "I don't know" is an ANSWER in its own right, always available, and is a TOGGLE — hence
+         `aria-pressed` and the solid/soft variant swap, so its state is announced and visible rather than
+         inferred from the input having gone blank. -->
+    <div class="mp-repotdone__potsizeactions">
+      <Button
+        size="xs"
+        variant="soft"
+        color="neutral"
+        :disabled="frozen || potSizeUnknown || currentPotSizeCm === null"
+        @click="potSizeCm = currentPotSizeCm ?? ''"
+      >
+        {{ t('repotDone.sameAsBefore') }}
+      </Button>
+      <!-- The VISIBLE label stays the bare "I don't know" that the mix and substrate answers already use —
+           and that is exactly why it needs an `aria-label`: the substrate segmented control renders its own
+           "I don't know" in this same dialog, so without one, two buttons here share an accessible name and
+           a role+name query matches both (finding 4's defect, reintroduced). The aria-label CONTAINS the
+           visible text, which is what WCAG 2.5.3 "Label in Name" requires, so voice control still activates
+           it by what is written on it. Caught in a real browser, not by a test. -->
+      <Button
+        size="xs"
+        :variant="potSizeUnknown ? 'solid' : 'soft'"
+        color="neutral"
+        :aria-label="t('repotDone.potSizeUnknownAria')"
+        :aria-pressed="potSizeUnknown"
+        :disabled="frozen"
+        @click="togglePotSizeUnknown"
+      >
+        {{ t('repotDone.potSizeUnknown') }}
+      </Button>
+    </div>
 
     <!-- No `:placeholder` here, deliberately: `soilMixSelectOptions` already prepends an ENABLED empty
          option, and SelectField renders its own DISABLED one whenever `placeholder` is truthy — passing
@@ -253,7 +313,10 @@ function onConfirm() {
   color: var(--text-muted);
 }
 
-.mp-repotdone__sameasbefore {
+.mp-repotdone__potsizeactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin: var(--space-1) 0 var(--space-4);
 }
 </style>

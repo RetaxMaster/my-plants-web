@@ -469,8 +469,14 @@ describe('RepotDoneForm — QA D2: "I don\'t know" is a selectable answer for th
     expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: null });
   });
 
-  it('still REQUIRES a valid pot size — "I don\'t know" applies to the mix, never to the diameter the ' +
-    'crowding ratio is computed from', async () => {
+  // QA round 4 REWROTE this case. It used to assert that "I don't know" applies to the mix but NEVER to
+  // the diameter — which is exactly the rule QA hit: on a plant with no recorded pot size the "Same as
+  // before" chip is disabled too, so a required diameter left the owner unable to record a repot they had
+  // really performed without inventing a number. What survives of the old claim is the half that was
+  // always right: an empty, unanswered field still blocks confirm. Saying "I don't know" is now an ANSWER,
+  // and it is the only thing that unblocks it besides a real number.
+  it('an empty, UNANSWERED diameter still blocks confirm — the escape is an explicit "I don\'t know", not ' +
+    'a blank field', async () => {
     const w = await mountReal({ currentSoilMix: null, currentPotSizeCm: null });
     expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
 
@@ -493,5 +499,139 @@ describe('RepotDoneForm — QA D2: "I don\'t know" is a selectable answer for th
     expect((w.find('select').element as HTMLSelectElement).value).toBe('');
     await findConfirmButton(w).trigger('click');
     expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: null });
+  });
+});
+
+// QA round-4 finding 2. The diameter was the one field on this form with no "I don't know" path, and
+// "Mark as repotted" stayed disabled until it held a number. On a plant whose profile records no pot size,
+// "Same as before" is disabled too — there is nothing to copy — so the owner could not complete a repot
+// they had genuinely performed without inventing a diameter. An invented number is worse than an absent
+// one: the engine cannot tell it is a guess, and it feeds the crowding ratio for the rest of the plant's
+// life.
+describe('RepotDoneForm — QA round-4 finding 2: "I don\'t know" is an answer for the pot diameter too, and ' +
+  'it writes null', () => {
+  function findConfirmButton(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.confirm'))!;
+  }
+  function findUnknownChip(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.potSizeUnknown'))!;
+  }
+  function findSameAsBeforeChip(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.sameAsBefore'))!;
+  }
+
+  async function mountReal(props: Record<string, unknown> = {}) {
+    const w = mount(RepotDoneForm, {
+      props: { open: false, currentPotSizeCm: null, currentSoilMix: null, frozen: false, ...props },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+    return w;
+  }
+
+  // The exact repro QA ran, as a test: the fixture's `Gus` — empty profile, no recorded pot size. Both
+  // escapes were closed at once, which is what made the flow un-completable rather than merely awkward.
+  it('THE DEFECT: on a plant with no recorded pot size, "Same as before" is unavailable — so without an ' +
+    '"I don\'t know" the repot could not be recorded at all', async () => {
+    const w = await mountReal({ currentPotSizeCm: null });
+    expect(findSameAsBeforeChip(w).attributes('disabled')).toBeDefined();
+    expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
+
+    await findUnknownChip(w).trigger('click');
+    expect(findConfirmButton(w).attributes('disabled')).toBeUndefined();
+  });
+
+  it('emits `potSizeCm: null` EXPLICITLY — never an omitted key, because a repot replaces the pot and an ' +
+    'omitted key would leave the OLD diameter standing as a claim about a pot the plant is no longer in',
+  async () => {
+    const w = await mountReal({ currentPotSizeCm: null });
+    await findUnknownChip(w).trigger('click');
+    await findConfirmButton(w).trigger('click');
+
+    const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
+    expect(payload).toEqual({ potSizeCm: null, soilMix: null });
+    expect(Object.prototype.hasOwnProperty.call(payload, 'potSizeCm')).toBe(true);
+  });
+
+  it('is reachable from a FILLED form too, and pressing it CLEARS the number so the answer and the field ' +
+    'can never disagree', async () => {
+    const w = await mountReal({ currentPotSizeCm: 18 });
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('18');
+
+    await findUnknownChip(w).trigger('click');
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
+    expect(w.find('input[type="number"]').attributes('disabled')).toBeDefined();
+
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: null, soilMix: null });
+  });
+
+  // A toggle whose state is only inferable from "the input went blank" is not an affordance. `aria-pressed`
+  // is what makes the answer announced as well as visible — the same reasoning as finding 3's disabled
+  // checkboxes in RepotEvaluationModal.vue.
+  it('announces its pressed state, and un-pressing returns to an EMPTY unanswered field rather than ' +
+    'restoring the number the owner just disowned', async () => {
+    const w = await mountReal({ currentPotSizeCm: 18 });
+    expect(findUnknownChip(w).attributes('aria-pressed')).toBe('false');
+
+    await findUnknownChip(w).trigger('click');
+    expect(findUnknownChip(w).attributes('aria-pressed')).toBe('true');
+
+    await findUnknownChip(w).trigger('click');
+    expect(findUnknownChip(w).attributes('aria-pressed')).toBe('false');
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
+    expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
+  });
+
+  it('round-trips a frozen snapshot whose `potSizeCm` is null back to "I don\'t know" — never to a number, ' +
+    'and never to a blank field that silently re-blocks confirm', async () => {
+    const w = mount(RepotDoneForm, {
+      props: {
+        open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix',
+        frozen: true, frozenSnapshot: { potSizeCm: null, soilMix: 'cactus-mix' },
+      },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+
+    expect(findUnknownChip(w).attributes('aria-pressed')).toBe('true');
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
+    await findConfirmButton(w).trigger('click');
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: null, soilMix: 'cactus-mix' });
+  });
+
+  it('a genuinely fresh re-open never opens PRE-PRESSED — an empty field is "not answered yet", which is ' +
+    'not the same statement as "I don\'t know"', async () => {
+    const w = await mountReal({ currentPotSizeCm: null });
+    await findUnknownChip(w).trigger('click');
+    expect(findUnknownChip(w).attributes('aria-pressed')).toBe('true');
+
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+    expect(findUnknownChip(w).attributes('aria-pressed')).toBe('false');
+    expect(findConfirmButton(w).attributes('disabled')).toBeDefined();
+  });
+
+  // Found in a REAL browser while verifying finding 4, and introduced by this very fix: the substrate
+  // segmented control already renders an "I don't know" in this same dialog, so a second bare one made two
+  // buttons share an accessible name — the exact defect finding 4 exists to remove. The visible label stays
+  // bare (it must match its siblings); the accessible name disambiguates and CONTAINS the visible text, as
+  // WCAG 2.5.3 "Label in Name" requires.
+  it('does not collide with the substrate control\'s own "I don\'t know" — the two buttons resolve to ' +
+    'DIFFERENT accessible names', async () => {
+    const w = await mountReal({ currentPotSizeCm: null });
+    const names = w.findAll('button').map((b) => b.attributes('aria-label') ?? b.text().trim());
+    const bare = names.filter((n) => n === 'repotDone.potSizeUnknown' || n === 'repotDone.substrateUnknown');
+
+    expect(findUnknownChip(w).attributes('aria-label')).toBe('repotDone.potSizeUnknownAria');
+    // The substrate one is the only button left carrying a bare "I don't know" name.
+    expect(bare).toEqual(['repotDone.substrateUnknown']);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('stays frozen with the rest of the form while an idempotency key is outstanding', async () => {
+    const w = await mountReal({ currentPotSizeCm: 18, frozen: true, frozenSnapshot: { potSizeCm: 18, soilMix: null } });
+    expect(findUnknownChip(w).attributes('disabled')).toBeDefined();
+    expect(findSameAsBeforeChip(w).attributes('disabled')).toBeDefined();
   });
 });

@@ -29,6 +29,27 @@ const isRepot = computed(() => props.result?.verdict === 'REPOT');
 // wrong, and it was wrong in the one direction that matters: it credits the owner with an observation they
 // told us they did not make.
 const isCouldNotCheck = computed(() => !isRepot.value && props.answer === 'could-not-check');
+// QA round-4 finding 1, the same class of defect as the round-3 one above and the last instance of it. The
+// ONE remaining RE-EVALUATE sentence — "Nothing you saw says it needs repotting yet" — was also being told
+// to an owner who had just TICKED signs. It is true of a "no signs" answer and false of this one: the owner
+// did see something, and reporting it back as "nothing you saw" reads as the app having ignored the answer.
+//
+// ⚠️ WHY THE ENGINE IS NOT THE BUG HERE, stated so nobody "fixes" it. Ticked signs that fall short of the
+// needed threshold DO reach the engine and DO differentiate: `scoreRepotSigns` returns an elevated
+// `noiseMult` (1.5) for an inconclusive answer, which damps the adjustment step quadratically, so an
+// inconclusive answer lengthens the repot interval LESS than a clean "no signs" one — the correct
+// direction. What flattens the DISPLAYED answer is `computeRepotVerdict`'s cap: N is derived from the
+// recomputed due date and clamped to `REEVALUATE_MAX_DAYS` (90), so on a plant whose repot is ~a year out
+// every answer lands on the same date. That cap is correct behaviour and stays. Measured: multiplier
+// 1.01613 after "no signs" vs 1.00714 after one `strong` sign.
+//
+// Which is also why the sentence must NOT claim a direction ("this brings the repot forward"): it does not.
+// It says only what is unconditionally true — the observation was recorded, it counts, and on its own it is
+// not conclusive.
+const isCheckedSigns = computed(() => !isRepot.value && props.answer === 'signs');
+// No separate TITLE for the checked-signs case, deliberately: "Not yet — we'll ask again" is equally true
+// of both non-could-not-check answers, and duplicating one string into two identical ones is the fork this
+// project forbids. Only the BODY differs, because only the body made a claim about what the owner saw.
 const title = computed(() => {
   if (isRepot.value) return t('repotEval.verdictRepotTitle');
   return isCouldNotCheck.value
@@ -39,9 +60,9 @@ const body = computed(() => {
   if (!props.result) return '';
   if (isRepot.value) return t('repotEval.verdictRepotBody');
   const date = props.result.reevaluateOn ? d(ymdToLocalDate(props.result.reevaluateOn), 'short') : '';
-  return isCouldNotCheck.value
-    ? t('repotEval.verdictCouldNotCheckBody', { date })
-    : t('repotEval.verdictReevaluateBody', { date });
+  if (isCouldNotCheck.value) return t('repotEval.verdictCouldNotCheckBody', { date });
+  if (isCheckedSigns.value) return t('repotEval.verdictSignsReevaluateBody', { date });
+  return t('repotEval.verdictReevaluateBody', { date });
 });
 </script>
 

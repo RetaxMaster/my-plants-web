@@ -1375,6 +1375,7 @@
     "measuredOn": "Measured on",
     "save": "Save reading",
     "saveFailed": "We couldn't save that reading. Please try again.",
+    "alreadyRecorded": "This reading was already recorded.",
     "valueOutOfRange": "Enter a value between {min} and {max}.",
     "noInstruments": "You haven't told us what you measure with yet. Add an instrument in Settings first.",
     "protocol": "Insert to about {depth} cm deep, roughly {distance} cm from the centre — and do it the same way every time. Deeper soil is wetter, so a changing depth invents a trend that isn't there.",

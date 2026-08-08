@@ -143,8 +143,24 @@ async function submit() {
     }, idempotencyKey.value);
     open.value = false;
     emit('saved');
-  } catch {
-    error.value = t('reading.saveFailed');
+  } catch (e: any) {
+    // FIX (fix wave 1, item 4) — the idempotency key is pinned per open and reused across retries (correct:
+    // a lost-response retry must never write a second reading), but that same discipline means a 409/422 on
+    // THIS route can only mean the ORIGINAL request already committed: the global interceptor stores a key
+    // on success, answers an in-flight duplicate 409, and answers a same-key/different-body retry 422
+    // FOREVER under that key (docs' idempotent-creates contract). So the honest handling is not "try again"
+    // — it is "this already happened": tell the owner, refresh through the SAME seam a successful save uses
+    // (`emit('saved')`, which drives PlantDetail.vue's `onReadingSaved`), and close. Deliberately NOT
+    // porting RepotDoneForm.vue's whole `frozen` machinery here (owner ruling) — reopening mints a fresh
+    // key, and there is nothing left to retry once the server already has the reading.
+    const status = e?.statusCode ?? e?.response?.status;
+    if (status === 409 || status === 422) {
+      error.value = t('reading.alreadyRecorded');
+      open.value = false;
+      emit('saved');
+    } else {
+      error.value = t('reading.saveFailed');
+    }
   } finally {
     submitting.value = false;
   }

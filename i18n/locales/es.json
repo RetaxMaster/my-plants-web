@@ -1375,6 +1375,7 @@
     "measuredOn": "Medido el",
     "save": "Guardar lectura",
     "saveFailed": "No pudimos guardar esa lectura. Inténtalo de nuevo.",
+    "alreadyRecorded": "Esa lectura ya había quedado registrada.",
     "valueOutOfRange": "Ingresa un valor entre {min} y {max}.",
     "noInstruments": "Todavía no nos dices con qué mides. Agrega un instrumento en Ajustes primero.",
     "protocol": "Introdúcelo unos {depth} cm de profundidad, a unos {distance} cm del centro — y hazlo igual cada vez. La tierra profunda está más húmeda, así que cambiar la profundidad inventa una tendencia que no existe.",

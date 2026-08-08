@@ -7,9 +7,9 @@
 // InstrumentCalibrationFields are left REAL so their actual rendered markup — disabled state, option
 // count, alert text — can be asserted, the same choice `stubsWithRealInputs()` makes in RepotDoneForm's
 // own test file.
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ref, reactive, computed, watch, inject } from 'vue';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
 import type { PlantSoilReadings } from '~/types/api';
 import { todayYmd } from '../../utils/localDate.js';
@@ -266,5 +266,66 @@ describe('SoilReadingModal', () => {
     await input.setValue(999999);
     expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
     expect(input.attributes('aria-invalid')).toBeUndefined();
+  });
+});
+
+// Fix wave 1, item 4: the idempotency key is pinned per open and reused across retries — correct, since a
+// lost-response retry must never write a second reading. But that same discipline means a 409 (in-flight
+// duplicate) or 422 (same-key/different-body, permanent under the SAME pinned key) on THIS route can only
+// mean the ORIGINAL request already committed. The honest handling is "this already happened", not "try
+// again": a distinct message, the same refresh a successful save triggers (`emit('saved')`), and a close —
+// never RepotDoneForm.vue's whole `frozen` machinery (owner ruling: do the minimum).
+describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
+  const plainT = (k: string, params?: Record<string, unknown>) =>
+    (params ? `${k}|${Object.values(params).join('|')}` : k);
+
+  afterEach(() => {
+    // Restore the module's default (non-spy) useI18n stub for every other describe block in this file.
+    vi.stubGlobal('useI18n', () => ({ t: plainT }));
+    recordSoilReading.mockReset();
+    recordSoilReading.mockImplementation(() => Promise.resolve({ readingId: 'r1' }));
+  });
+
+  function mountReady() {
+    return mountModal(makeData({ instruments: [galvanicProbe] }));
+  }
+
+  async function fillAndSubmit(w: ReturnType<typeof mountReady>) {
+    await w.find('input[type="number"]').setValue(5);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+  }
+
+  it('on a 422 (same-key retry after an edit), shows the "already recorded" message, refreshes, and ' +
+    'closes the modal', async () => {
+    const tSpy = vi.fn(plainT);
+    vi.stubGlobal('useI18n', () => ({ t: tSpy }));
+    recordSoilReading.mockRejectedValueOnce({ statusCode: 422 });
+
+    const w = mountReady();
+    await fillAndSubmit(w);
+
+    expect(tSpy).toHaveBeenCalledWith('reading.alreadyRecorded');
+    expect(w.emitted('saved')).toHaveLength(1);
+    expect(w.find('[data-modal-stub]').exists()).toBe(false);
+  });
+
+  it('a 409 (in-flight duplicate) is classified the same way as a 422', async () => {
+    recordSoilReading.mockRejectedValueOnce({ response: { status: 409 } });
+    const w = mountReady();
+    await fillAndSubmit(w);
+
+    expect(w.emitted('saved')).toHaveLength(1);
+    expect(w.find('[data-modal-stub]').exists()).toBe(false);
+  });
+
+  it('any other error keeps the generic message and leaves the modal open for a genuine retry', async () => {
+    recordSoilReading.mockRejectedValueOnce({ statusCode: 500 });
+    const w = mountReady();
+    await fillAndSubmit(w);
+
+    expect(w.emitted('saved')).toBeUndefined();
+    expect(w.find('[data-modal-stub]').exists()).toBe(true);
+    expect(w.text()).toContain('reading.saveFailed');
   });
 });

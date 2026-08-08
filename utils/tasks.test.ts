@@ -48,3 +48,18 @@ describe('task scheduling helpers (pure)', () => {
     expect(grouped.get('b')?.length).toBe(1);
   });
 });
+
+describe('groupByPlant preserves the API\'s ordering (spec §5.1 / D1)', () => {
+  it('keeps each plant\'s tasks in the order the API returned them — REPOT first stays first', () => {
+    const rows = [
+      { plantId: 'a', task: 'REPOT' }, { plantId: 'a', task: 'WATER' },
+      { plantId: 'b', task: 'REPOT' }, { plantId: 'a', task: 'FERTILIZE' },
+    ] as DueTask[];
+    expect([...groupByPlant(rows).get('a')!].map((t) => t.task)).toEqual(['REPOT', 'WATER', 'FERTILIZE']);
+  });
+
+  it('keeps the PLANTS themselves in first-appearance order — the most urgent plant stays at the top', () => {
+    const rows = [{ plantId: 'b', task: 'REPOT' }, { plantId: 'a', task: 'WATER' }] as DueTask[];
+    expect([...groupByPlant(rows).keys()]).toEqual(['b', 'a']);
+  });
+});

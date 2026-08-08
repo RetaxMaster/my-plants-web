@@ -127,8 +127,17 @@
     },
     "substrate": {
       "fertilizeFloor": "We're assuming the substrate still holds some food — first feeding estimated for {date}.",
-      "repotDriverCrowding": "The engine's estimate is based on how crowded the plant is in its pot.",
       "repotDriverSubstrate": "The engine's estimate is based on the substrate wearing out, not on crowding.",
+      "repotDriverEvidence": "The engine's estimate is based on what we've measured about this plant — its size, its pot and its watering history.",
+      "repotDriverSpeciesDefault": "The engine's estimate is the usual cadence for this species — we don't have enough measurements from this plant yet.",
+      "repotReasonNotApplicable": "For a trailing plant, height doesn't tell us how crowded the roots are, so there's nothing to add here.",
+      "repotReasonMissing": "Add the missing details and we can estimate from this plant instead: {fields}.",
+      "repotReasonStale": "The last height we have is too old to rely on — record a fresh one and we'll estimate from this plant instead.",
+      "repotReasonFieldHeightCm": "its height",
+      "repotReasonFieldPotSizeCm": "the pot diameter",
+      "repotReasonFieldGrowthHabit": "its growth habit",
+      "fertilizeOverrideFloor": "Held back from the day you chose: the mix in this pot still carries food, and feeding on top of it builds up salts.",
+      "fertilizeOverrideSnap": "Moved to the next watering day — fertilizer goes in dissolved in water, onto soil that's already damp.",
       "repotOverrideOwner": "You postponed this reminder to the date shown.",
       "repotOverrideEvaluation": "Your last check said it isn't time yet, so we moved this reminder to the date shown.",
       "repotOverrideMoved": "This reminder has been moved to the date shown."
@@ -330,7 +339,15 @@
     "substrateFresh": "Yes, fresh mix",
     "substrateReused": "Reused / inert",
     "sameAsBefore": "Same as before",
-    "confirm": "Mark as repotted"
+    "confirm": "Mark as repotted",
+    "occurredOn": "When did you repot it?",
+    "occurredOnHint": "Defaults to today. This is the day the substrate clock starts from."
+  },
+  "soilMixChanged": {
+    "title": "We updated the watering model",
+    "body": "The new mix already changes how we estimate watering. To move the feeding clock too, we need the day you actually changed the soil.",
+    "action": "Record a soil change",
+    "dismiss": "Not now"
   },
   "plantPhoto": {
     "alt": "Photo of {name}",

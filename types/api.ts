@@ -320,12 +320,47 @@ export interface PlantCare {
     chargeEndsOn: string | null;       // YYYY-MM-DD
     fertilizeFloorOn: string | null;   // YYYY-MM-DD
     structuralLifeEndsOn: string | null; // YYYY-MM-DD
-    repotDriver: 'CROWDING' | 'SUBSTRATE' | null;
+    /**
+     * A2 (spec §2.2) — a CLASS, never the name of one estimator.
+     *
+     * `CROWDING` is GONE. It was the ELSE branch of "did the substrate win?", so it meant "not
+     * substrate" and never consulted whether a crowding index existed at all — and the channel it named
+     * is a THREE-estimator blend, so naming one of them could never have been honest. Pre-migration rows
+     * carry `null`, which this app already renders as "no sentence"; the routine recompute refills them
+     * within one cycle.
+     */
+    repotDriver: 'SUBSTRATE' | 'EVIDENCE' | 'SPECIES_DEFAULT' | null;
+    /**
+     * Present EXACTLY when `repotDriver === 'SPECIES_DEFAULT'`, and `null` otherwise — a reason attached
+     * to any other driver would explain something that did not happen. Computed at READ TIME.
+     *
+     * `NOT_APPLICABLE` is PERMANENT and carries no action (a trailing habit has no crowding reference).
+     * `MISSING` and `STALE` are ACTIONABLE, and `missing` names the fields.
+     */
+    repotDriverReason:
+      | { kind: 'NOT_APPLICABLE'; missing: [] }
+      | { kind: 'MISSING'; missing: Array<'heightCm' | 'potSizeCm' | 'growthHabit'> }
+      | { kind: 'STALE'; missing: [] }
+      | null;
     repotOverrideBinding: boolean;
     /** Optional at the type level for the same rolling-deploy reason the block itself is: an API that does
      *  not publish it yet must not be read as "the owner postponed it". `repotExplanation` treats an absent
      *  value as UNKNOWN and says only what is true of both authors. */
     repotOverrideOrigin?: 'OWNER' | 'EVALUATION' | null;
+  };
+  /**
+   * A1 + B1 (spec §2.1, ledger D3) — which rule, if any, moved the owner's own FERTILIZE date.
+   *
+   * A LIST, never a boolean and never one shared sentence: "held back because the substrate is still
+   * charged" and "moved so it lands on a watering day" are DIFFERENT facts, and a floored override may
+   * then ALSO be snapped, in which case BOTH apply. Collapsing them is the exact defect
+   * `utils/repotExplanation.ts`'s own comment records this app shipping once and fixing.
+   *
+   * `overrideMovedBy` is `[]` whenever there is no override, or the override was not moved.
+   */
+  fertilize: {
+    overrideOn: string | null;
+    overrideMovedBy: Array<'FLOOR' | 'SNAP'>;
   };
 }
 

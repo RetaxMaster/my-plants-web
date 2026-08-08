@@ -5,6 +5,7 @@ import ScreenHeader from '../components/ui/ScreenHeader.vue';
 import SectionTitle from '../components/ui/SectionTitle.vue';
 import Switch from '../components/ui/Switch.vue';
 import Alert from '../components/ui/Alert.vue';
+import Button from '../components/ui/Button.vue';
 import InstrumentComparisonTable from '../components/ui/InstrumentComparisonTable.vue';
 import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
 
@@ -14,7 +15,15 @@ const api = useApi();
 useHead(() => ({ title: t('meta.settings.title') }));
 useSeoMeta({ description: () => t('meta.settings.description') });
 
-const { data, refresh } = await useAsyncData('owner-instruments', () => api.getOwnerInstruments());
+// FIX (fix wave 1, item 6) — `error` used to be dropped on the floor: a failed `getOwnerInstruments()`
+// rendered the header, the lead copy, zero instrument rows and a headers-only comparison table,
+// indistinguishable from a genuinely empty catalogue. The catalogue is never legitimately empty
+// (`available` is the full shared-contract table), so an empty render always means something failed —
+// surface it with a retry, same component/shape as `PlantDetail.vue`'s `evaluationLoadFailed` banner.
+const { data, error: loadError, refresh } = await useAsyncData('owner-instruments', () => api.getOwnerInstruments());
+function retryLoad() {
+  void refresh();
+}
 const saving = ref(false);
 const error = ref<string | null>(null);
 
@@ -46,6 +55,17 @@ async function toggle(id: InstrumentId, on: boolean) {
       <Card>
         <SectionTitle>{{ t('settings.instruments.title') }}</SectionTitle>
         <p class="mp-settings__lead">{{ t('settings.instruments.lead') }}</p>
+
+        <Alert
+          v-if="loadError"
+          color="red"
+          :description="t('settings.instruments.loadError')"
+          announce
+        >
+          <Button size="sm" variant="soft" color="neutral" @click="retryLoad">
+            {{ t('settings.instruments.retry') }}
+          </Button>
+        </Alert>
 
         <Alert v-if="error" color="red" :description="error" announce />
 
@@ -79,6 +99,6 @@ async function toggle(id: InstrumentId, on: boolean) {
   padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle);
 }
 .mp-settings__text { flex: 1; min-width: 0; }
-.mp-settings__label { font-weight: 700; color: var(--text-strong); }
+.mp-settings__label { font-weight: var(--weight-bold); color: var(--text-strong); }
 .mp-settings__sub { color: var(--text-muted); font-size: var(--text-sm); }
 </style>

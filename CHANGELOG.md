@@ -2,6 +2,29 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
+## Unreleased — Measure your soil moisture, and your plant's care explains itself
+
+**You can now measure how fast your soil dries out and let that estimate guide your watering — and the app now tells you exactly why each plant's next feeding and repotting dates are what they are.**
+
+### Added
+
+- **Measure button on the watering task.** The WATER card on your plant's page and in Today now has a Measure button beside the watering advice. Tap it to open the measuring modal and record a soil moisture reading — the app then estimates your soil's drying rate and uses that to suggest the watering interval's center.
+- **The measuring modal: a per-pot protocol.** When you tap Measure, you choose which instrument you measure with (or add a new one if this is your first time), then the modal guides you through a simple three-step protocol to get a consistent reading: where to measure in the pot, how long to wait, and what number you see. The app normalizes your raw reading for that instrument's scale, builds a drying-rate curve over recent readings, and feeds that estimate into the watering calculation.
+- **Instrument settings: picker and comparison table.** A new Settings page lets you see and adjust which instruments you own and measure with. A side-by-side comparison table shows you each instrument's range, unit, whether it needs calibration, and what it measures best — so you can decide whether a reading is trustworthy for this particular plant.
+- **Your plant's detail page now shows what slowed down its next fertilize date — and what to add if you want to speed it up.** If your plant's feeding date moved further out than usual, the Fertilize card now tells you why: the substrate is still feeding it (with the date that charge runs out), and you can read the estimate. If the app's species average for "first repot" is the only source for a repotting date and you have not recorded an actual repot yet, the Repot card now tells you what specific information you could add to the app — pot size, soil mix, whether the substrate was fresh — and suggests you log an existing repot if you know when that happened.
+- **Changing the soil mix in a plant's profile now asks if you recorded the change.** When you edit a plant's soil mix and the new choice is different from what was recorded, the app asks whether you just changed it or if that was your best guess when you first added the plant. Recording it as a change starts the fertilizer clock over, which is the right call if you really just added fresh substrate.
+- **Date fields in repotting forms now refuse a future day.** The repot Done form and the plant profile form both let you set the date a repot happened — they now stop you from entering a day that hasn't occurred yet, and tell you so if you try. This is not a pedantic correction: a future repot date would age your plant backwards in the app's math.
+- **The app points you to the too-slow-drying diagnostic when your soil isn't drying out.** When a series of readings shows your soil is staying wet longer than the app's model expects — which often means light, airflow, or pot size is limiting evaporation — the app flags it as a finding on your plant's page. The diagnostic names what slowed it down (the instrument might be drifting, or you might be measuring a wet pocket instead of representative soil) and suggests checking whether the plant's light, humidity, or pot settings are correct.
+
+### Changed
+
+- **Repot and fertilize explanations now show their calculated basis.** Where those dates used to just appear, they now state what part of the app's model led to each one: crowding (roots at the pot edge), substrate age, or measurement data. An explanation card on your plant's page names that reason and shows the supporting details — not to judge whether the app was right, but so you know what you'd need to change if the timing didn't match your own sense of the plant.
+
+### Fixed
+
+- **Readings from your measuring modal are no longer recorded twice in the case of a network hiccup.** If you tap Record in the measuring modal and the connection glitches before the server confirms, retrying the modal now returns the reading that was already recorded instead of adding a second entry.
+- **Soil mix changes in the profile modal work correctly even after a rejected attempt.** If the app refused a soil mix edit — say because another tab just edited the plant profile — you could correct the form and resubmit, but it would send the *original* mix anyway. Now a rejected attempt is genuinely restarted: whatever mix you pick after rejection is what gets sent.
+
 ## Unreleased — Repotting now asks what you can see
 
 **The repot reminder used to give you two buttons — *Done* or *Postpone* — which both asked you to decide

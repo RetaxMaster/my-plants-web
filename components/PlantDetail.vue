@@ -12,6 +12,7 @@ import { type TaskCode, type DueState } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 import { repotExplanation } from '../utils/repotExplanation.js';
+import { fertilizeExplanation } from '../utils/fertilizeExplanation.js';
 // Explicit, like every other util this file uses: one implementation of "which pending evaluation may an
 // action name" and one of "which sign is worth suggesting next", shared with pages/index.vue.
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
@@ -98,13 +99,14 @@ const evaluationLoadFailed = ref(false);
 // Done path opens a small pre-filled form (RepotDoneForm.vue) instead of posting directly.
 const doneFormOpen = ref(false);
 const doneFormProfile = ref<{ potSizeCm: number | null; soilMix: string | null }>({ potSizeCm: null, soilMix: null });
-// The date the owner typed into the card's own back-date input (`withDoneDate`), captured when the form is
-// OPENED and read again at confirm time — the REPOT Done path detours through a modal, so unlike every
-// other task's Done it cannot carry `occurredOn` straight through to the request. Empty means "today", the
-// same fallback `sendDone` applies for every other task. Owner request, 2026-08-07: a repot he did some
-// days ago and is only recording now must be recordable on the day it happened, not on the day he typed
-// it. It reaches `refreshSubstrateCore` too (`completeRepotCore` anchors `refreshedOn` to `occurredOn`),
-// so a back-dated repot back-dates the substrate clock — which is the point.
+// A3 (spec §2.3) — the date the owner typed into the card's own back-date input (`withDoneDate`), captured
+// when the form is OPENED. It now only SEEDS `UiRepotDoneForm`'s own date field (`seed-occurred-on`); the
+// form owns the one editable date surface for the submission and its `confirm` payload's `occurredOn` is
+// what actually reaches the request — see `onRepotDoneConfirm` below. Empty means "no seed", the same
+// fallback every other Done path already has, and the form itself defaults to today. Owner request,
+// 2026-08-07: a repot he did some days ago and is only recording now must be recordable on the day it
+// happened, not on the day he typed it. It reaches `refreshSubstrateCore` too (`completeRepotCore` anchors
+// `refreshedOn` to `occurredOn`), so a back-dated repot back-dates the substrate clock — which is the point.
 const doneFormOccurredOn = ref('');
 // Same per-plant-map discipline as evaluationAttempt above — its OWN `useRepotAttempt()` instance (never
 // shared with the evaluation flow's, so a Done confirm and an evaluation submit for the same plant never
@@ -429,8 +431,22 @@ const { windowDistanceLabel, potTypeLabel, soilMixLabel, growthHabitLabel } = us
 const place = computed(() => (places.value ?? []).find((pl) => pl.id === plant.value?.placeId) ?? null);
 
 const profileOpen = ref(false);
-async function onProfileSaved() {
-  await refreshPlant(); // profile + derived changed -> the meter and info items move
+// A3 (spec §2.3) — set when PlantProfileModal reports an actual soil-mix change (never a save that left it
+// untouched). Persistent: dismissing the completion form below does NOT clear it, because dismissing the
+// modal does not answer the question the affordance exists to ask — only an explicit "Not now" (the
+// affordance's own dismiss button) or a genuinely recorded repot (handleDoneCompletion below) does.
+const soilChangePending = ref(false);
+async function onProfileSaved(e: { soilMixChanged: boolean }) {
+  // The mix lives on the plant's own profile (refreshPlant), but it also feeds the watering model's
+  // optional channel (see PlantProfileModal.vue's own comment) — the CARE payload (task rows, due dates)
+  // can move too, so both reads refresh, exactly like `onEdited` above refreshes plant+care+history for the
+  // same reason.
+  await Promise.all([refreshPlant(), refresh()]); // profile + derived changed -> the meter and info items move
+  if (!e.soilMixChanged) return;
+  // A3 (spec §2.3): the shortcut opens the flow that ALREADY owns the `substrate_refreshed_on` write —
+  // never a fourth writer. The anti-fork rule is satisfied structurally rather than by discipline.
+  soilChangePending.value = true;
+  onRepotDone(undefined);
 }
 
 // Per-task info modal (C4): ONE reusable TaskInfoModal fed the clicked task code + (WATER only) the
@@ -464,22 +480,18 @@ const taskInfoRepotSigns = computed(() =>
 // its absence reads as "unknown", never as false.
 const isJuvenile = computed(() => care.value?.juvenile?.isJuvenile === true);
 
-// Explains WHY a date is where it is (Spec 1 §8). Returns undefined for every task with nothing to say,
-// so the row renders exactly as it does today.
+// Explains WHY a date is where it is (Spec 1 §8, A1/A2). Returns undefined for every task with nothing to
+// say, so the row renders exactly as it does today.
 function taskExplanation(task: string): string | undefined {
-  const s = care.value?.substrate;
-  if (!s) return undefined;
-  if (task === 'FERTILIZE' && s.fertilizeFloorOn) {
-    // Only show the FERTILIZE line when the floor is actually ACTIVE — i.e. it is the mechanism that
-    // produced this task's next-due date. Otherwise the card would claim the floor produced a date it
-    // did not.
-    const row = care.value?.tasks.find((t) => t.task === 'FERTILIZE');
-    if (!row || row.nextDueOn !== s.fertilizeFloorOn) return undefined;
-    // Localized the SAME way every other date in this component is (e.g. `dv.lastRepottedOn` below) —
-    // never a raw YYYY-MM-DD string (QA defect H).
-    return t('taskInfo.substrate.fertilizeFloor', { date: d(ymdToLocalDate(s.fertilizeFloorOn), 'short') });
+  if (task === 'FERTILIZE') {
+    // A1 + B1 (spec §2.1, ledger D3) — composition extracted to utils/fertilizeExplanation.ts, which
+    // renders ONE SENTENCE PER CAUSE (FLOOR/SNAP) straight off the care payload's own `fertilize` block.
+    // This REPLACES the previous hand-rolled `fertilizeFloorOn` re-derivation, which could only ever
+    // report the floor and silently dropped the snap-to-watering-day cause when both acted.
+    return fertilizeExplanation(care.value?.fertilize, t);
   }
-  if (task === 'REPOT' && s.repotDriver) {
+  const s = care.value?.substrate;
+  if (task === 'REPOT' && s?.repotDriver) {
     // Composition extracted to utils/repotExplanation.ts (its own dedicated unit test covers the
     // append-never-substitute rule) — see that file's comment for the full rationale.
     return repotExplanation(s, t);
@@ -758,30 +770,32 @@ function onRepotDone(occurredOn?: string) {
   doneFormOpen.value = true;
 }
 
-async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'>) {
+async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'> & { occurredOn: string }) {
   // Capture the exact attempt this request belongs to — the SAME race as onEvaluationSubmit above (round-5
   // finding V1): a successful confirm clears the attempt and closes the form BEFORE awaiting the refreshes
   // below, so while that await is still pending the owner can reopen and reconfirm — `isLiveDoneAttempt`
   // stops the FIRST (now-stale) attempt's own bookkeeping from clobbering the SECOND, still-live one once
   // its late refresh finally resolves.
   //
-  // U2: `occurredOn` and `evaluationId` are each read fresh, right here, on EVERY confirm click — including
-  // a retry (this file's own re-invocation of `today()` per click, unlike pages/index.vue's module-level
-  // constant, is exactly the asymmetry U2 closes). That is safe BECAUSE `beginDoneAttempt` freezes the
-  // WHOLE envelope on the attempt the moment the key is minted and returns the STORED envelope (never this
+  // A3 (spec §2.3): `occurredOn` now arrives WITH the payload — `UiRepotDoneForm` is the one editable date
+  // seam for the submission (Task 25), so this reads `payload.occurredOn` rather than re-deriving it from
+  // `doneFormOccurredOn`/`today()` itself. `evaluationId` is still read fresh off the live task list at
+  // confirm time (U2), including on a retry: that is safe BECAUSE `beginDoneAttempt` freezes the WHOLE
+  // envelope on the attempt the moment the key is minted and returns the STORED envelope (never this
   // freshly-built one) on a retry — so a retry still resends the byte-identical body the key was minted
-  // for, even across a midnight rollover or an intervening `refresh()` that resolved a different pending
-  // evaluation, either of which would otherwise 422 forever against the server's idempotency interceptor.
+  // for, even across an intervening `refresh()` that resolved a different pending evaluation, which would
+  // otherwise 422 forever against the server's idempotency interceptor.
   //
   // `resolvableEvaluationId` (utils/repotEvaluation.ts), not a bare `pendingEval.id`: a standalone Done can
   // now be pressed while the pending row is a RE-EVALUATE, and naming THAT row is a 400 from the server —
   // it resolves only an unresolved `REPOT` verdict. A RE-EVALUATE is superseded by the completion instead,
   // which needs no id. See that helper's own comment for the full reasoning.
+  const { occurredOn, ...repotDonePayload } = payload;
   const evaluationId = resolvableEvaluationId(pendingRepotEvaluation.value);
   // W2: no page-level `repotError.value = false` here any more — same reasoning as onEvaluationSubmit above.
   const attempt = beginDoneAttempt(id, {
-    occurredOn: doneFormOccurredOn.value || today(),
-    payload: { ...payload, ...(evaluationId ? { evaluationId } : {}) },
+    occurredOn,
+    payload: { ...repotDonePayload, ...(evaluationId ? { evaluationId } : {}) },
   });
   try {
     await api.completeRepot(id, attempt.body.occurredOn, attempt.body.payload, attempt.key);
@@ -817,6 +831,9 @@ async function handleDoneCompletion(completion: RepotCompletion<void>) {
   const isOwnPlant = completion.plantId === id;
   if (isOwnPlant) {
     doneFormOpen.value = false;
+    // A3 (spec §2.3): a genuinely recorded repot answers the affordance's own question — the substrate
+    // clock now has the date it needed — so the affordance disappears here, same as the explicit dismiss.
+    soilChangePending.value = false;
     await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
   }
 }
@@ -1257,6 +1274,27 @@ async function confirmRevive() {
         <!-- The care plan is based on -->
         <div>
           <UiSectionTitle>{{ $t('careBasis.title') }}</UiSectionTitle>
+
+          <!-- A3 (spec §2.3) — persistent affordance: saving a soil-mix change already updated the WATERING
+               model, but the fertilize clock still needs the day the substrate was actually changed. Stays
+               visible after a dismissed/closed repot form (dismissing the modal does not answer the
+               question); disappears only on an explicit "Not now" or once a repot is genuinely recorded
+               (handleDoneCompletion above). -->
+          <UiAlert
+            v-if="soilChangePending"
+            color="amber"
+            class="mp-detail__alert"
+            :title="$t('soilMixChanged.title')"
+            :description="$t('soilMixChanged.body')"
+          >
+            <UiButton size="xs" color="primary" @click="onRepotDone(undefined)">
+              {{ $t('soilMixChanged.action') }}
+            </UiButton>
+            <UiButton size="xs" variant="ghost" color="neutral" @click="soilChangePending = false">
+              {{ $t('soilMixChanged.dismiss') }}
+            </UiButton>
+          </UiAlert>
+
           <UiCard padded class="mp-detail__basis">
             <div class="mp-detail__basis-inner">
               <div class="mp-detail__basis-head">
@@ -1368,6 +1406,7 @@ async function confirmRevive() {
       :error="doneAttempt?.error ? $t(repotFailureMessageKey(doneAttempt.error)) : null"
       :frozen="isAttemptFrozen(doneAttempt)"
       :frozen-snapshot="doneAttempt?.body ?? null"
+      :seed-occurred-on="doneFormOccurredOn || undefined"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"
     />

@@ -7,6 +7,7 @@ import type {
 import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-constants';
 import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
 import type { ProgressTagKey } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
+import type { InstrumentId, InstrumentRow } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
 // `RepotEvidenceClass` is the SHARED contract's own union (`REPOT_EVIDENCE_CLASSES`), imported for the same
 // reason `RepotEvaluationSubmit` is: a locally re-typed copy is a fork, and the class list is exactly the
 // kind of thing that would silently drift the day a fifth class is added.
@@ -362,6 +363,13 @@ export interface PlantCare {
     overrideOn: string | null;
     overrideMovedBy: Array<'FLOOR' | 'SNAP'>;
   };
+  /**
+   * The care payload's read-time measurement block (spec Part C) — computed on every `GET .../care`, never
+   * persisted, the same posture `substrate` already takes. `null` for a frozen plant (no live schedule to
+   * compare a rate against) — consumers must treat `null` as "no measurement finding", never as "the pot
+   * dries fine".
+   */
+  measurement: PlantMeasurement | null;
 }
 
 // --- Care History ---
@@ -800,6 +808,85 @@ export interface CreateBlogpost {
   ctaLink?: string | null;
   ctaLabelEs?: string | null;
   ctaLabelEn?: string | null;
+}
+
+// ---- Measured soil (spec Part C) --------------------------------------------------------------------
+// `InstrumentId` and `InstrumentRow` come from the shared contract's Zod-FREE subpath
+// (`@retaxmaster/my-plants-species-schema/soil-instrument-constants`), imported above alongside the
+// package's other Zod-free constant modules — never re-typed here, so the property table can't fork.
+//
+// `InstrumentCalibration` and `ReadingVerdict` are declared in that same package's Zod module
+// (`soil-reading.ts`), which has no Zod-free subpath of its own — importing them pulls Zod into the web
+// bundle. They are re-declared STRUCTURALLY below (never re-derived, never widened) rather than imported,
+// exactly as the plan calls for; `InstrumentId` / `InstrumentRow` are NOT re-declared here for the same
+// reason.
+
+/** Structurally mirrors `InstrumentCalibration` from `@retaxmaster/my-plants-species-schema`'s
+ *  `soil-reading.ts` Zod module (no Zod-free subpath exports it). */
+export interface InstrumentCalibration {
+  saturatedValue: number;
+  dryValue: number;
+}
+
+/** Structurally mirrors `ReadingVerdict` from `@retaxmaster/my-plants-species-schema`'s `soil-reading.ts`
+ *  Zod module (no Zod-free subpath exports it). What the owner decided AFTER taking a reading — a verdict
+ *  routes onto a WATER path that already exists (a postpone or an early-water DONE), never a new rule. */
+export type ReadingVerdict = 'NONE' | 'POSTPONE' | 'WATER_NOW';
+
+export interface OwnerInstruments {
+  /** The full catalogue, from the shared contract. */
+  available: InstrumentRow[];
+  selected: InstrumentId[];
+}
+
+export interface PlantInstrument extends InstrumentRow {
+  /** The per-pot anchors, or null when this pot has none yet. */
+  calibration: InstrumentCalibration | null;
+}
+
+/** The measuring protocol for THIS pot. Null when the pot size is unknown — the app states no protocol
+ *  rather than inventing a depth. */
+export interface ReadingProtocol {
+  potSizeCm: number;
+  insertionDepthCm: number;
+  distanceFromCentreCm: number;
+}
+
+export interface SoilReadingItem {
+  id: string;
+  instrumentId: InstrumentId;
+  rawValue: number;
+  wetness: number | null;
+  measuredOn: string; // YYYY-MM-DD
+  verdict: ReadingVerdict;
+}
+
+export interface PlantSoilReadings {
+  instruments: PlantInstrument[];
+  protocol: ReadingProtocol | null;
+  readings: SoilReadingItem[];
+}
+
+export interface CreateSoilReading {
+  instrumentId: InstrumentId;
+  rawValue: number;
+  measuredOn: string;
+  verdict: ReadingVerdict;
+  postponeToOn?: string;
+}
+
+/** The care payload's read-time measurement block. Null for a frozen plant. */
+export interface PlantMeasurement {
+  dryingRate: {
+    measuredDaysToTarget: number;
+    confidence: number;
+    readingsUsed: number;
+    spanDays: number;
+  } | null;
+  reason: 'TOO_FEW_READINGS' | 'SPAN_TOO_SHORT' | 'FLAT_SERIES' | 'NOT_DRYING' | null;
+  tooSlowDrying: boolean;
+  flatSeries: boolean;
+  suggestMeasuring: boolean;
 }
 
 export type UpdateBlogpost = Partial<CreateBlogpost>;

@@ -1368,6 +1368,36 @@
     "emptyTitle": "No gifted plants yet",
     "emptyBody": "When you mark a plant as gifted, it will keep its place here."
   },
+  "reading": {
+    "title": "Measure the soil",
+    "instrument": "Instrument",
+    "value": "Reading ({unit})",
+    "measuredOn": "Measured on",
+    "save": "Save reading",
+    "saveFailed": "We couldn't save that reading. Please try again.",
+    "noInstruments": "You haven't told us what you measure with yet. Add an instrument in Settings first.",
+    "protocol": "Insert to about {depth} cm deep, roughly {distance} cm from the centre — and do it the same way every time. Deeper soil is wetter, so a changing depth invents a trend that isn't there.",
+    "protocolUnknownPot": "Add this plant's pot diameter and we'll tell you exactly how deep to measure. Until then, pick a depth and repeat it identically.",
+    "honesty": {
+      "galvanic-probe": "This probe reads conductivity, not water — so compare this pot against itself, never against another.",
+      "kitchen-scale": "Weigh the whole pot the same way every time: same saucer on or off, no standing water in the tray."
+    },
+    "verdictLabel": "What are you doing about it?",
+    "verdictHint": "Just recording a reading changes nothing on the schedule.",
+    "verdict": {
+      "none": "Just recording",
+      "postpone": "Not watering yet",
+      "waterNow": "Watering now"
+    },
+    "postponeTo": "Check again on",
+    "calibration": {
+      "saturated": "Weight when freshly watered ({unit})",
+      "saturatedHint": "Water it, let it drain, then weigh the whole pot.",
+      "dry": "Weight when dry ({unit})",
+      "dryHint": "Weigh it again right before you'd normally water.",
+      "spanInvalid": "The watered weight has to be higher than the dry weight."
+    }
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Preferences for your garden",

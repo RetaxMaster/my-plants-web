@@ -460,7 +460,7 @@ async function onRepotDone(plantId: string) {
   }
 }
 
-async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'>) {
+async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'> & { occurredOn: string }) {
   const plantId = doneFormPlantId.value;
   if (!plantId) return;
   // Capture the exact attempt this request belongs to — the SAME class of race as onEvaluationSubmit above
@@ -470,13 +470,16 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   // answers "is this still the live attempt?" unconditionally — whether that got superseded before this
   // request even settled or only during its own awaited `refresh()` below (round-4 finding V1).
   //
-  // U2: `occurredOn` and `evaluationId` are each read fresh, right here, on EVERY confirm click — including
-  // a retry. That is deliberate: `beginDoneAttempt` freezes the WHOLE envelope on the attempt the moment the
-  // key is minted and returns the STORED envelope (never this freshly-built one) on a retry, so recomputing
-  // here costs nothing and a retry still resends the byte-identical body the key was minted for — never a
-  // NEW `occurredOn` (a midnight rollover between confirms) or a NEW `evaluationId` (an intervening
-  // `refresh()` that resolved a different pending evaluation), either of which would 422 forever against the
-  // server's idempotency interceptor.
+  // U2: `evaluationId` is read fresh, right here, on EVERY confirm click — including a retry. That is
+  // deliberate: `beginDoneAttempt` freezes the WHOLE envelope on the attempt the moment the key is minted
+  // and returns the STORED envelope (never this freshly-built one) on a retry, so recomputing here costs
+  // nothing and a retry still resends the byte-identical body the key was minted for — never a NEW
+  // `evaluationId` (an intervening `refresh()` that resolved a different pending evaluation), which would
+  // 422 forever against the server's idempotency interceptor. `occurredOn` no longer needs that same
+  // argument (Task 29): it no longer comes from reading the clock fresh here — it now arrives WITH the
+  // confirm payload, straight off `RepotDoneForm.vue`'s own date field (the single date seam, A3), so a
+  // retry resends exactly the value the owner saw and the key was minted for, never a value recomputed at
+  // confirm time that could disagree with what was displayed.
   //
   // `resolvableEvaluationId` (utils/repotEvaluation.ts) rather than a bare `pendingEval.id`: the server
   // resolves an `evaluationId` only when it names an unresolved `REPOT` verdict, and refuses anything else
@@ -487,9 +490,10 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   const evaluationId = resolvableEvaluationId(pendingEvaluationFor(plantId)); // off the today list the page already holds
   // W2: no page-level `repotError.value = false` here any more — same reasoning as onEvaluationSubmit above
   // — `beginDoneAttempt` resets THIS attempt's own `error` field the moment a confirm (fresh or retry) begins.
+  const { occurredOn, ...repotPayload } = payload;
   const attempt = beginDoneAttempt(plantId, {
-    occurredOn: today,
-    payload: { ...payload, ...(evaluationId ? { evaluationId } : {}) },
+    occurredOn,
+    payload: { ...repotPayload, ...(evaluationId ? { evaluationId } : {}) },
   });
   try {
     await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
@@ -580,6 +584,10 @@ function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'tod
     return;
   }
   if (task === 'REPOT') {
+    // Task 29: TaskRow's REPOT row still emits the date it shows (now read-only, Task 26) — captured here
+    // in the same `pending` carrier the WATER branch above already uses, so `<UiRepotDoneForm>`'s
+    // `seed-occurred-on` prop can read it below without a second "what date was this click for" ref.
+    pending.value = { plantId, task, type: 'DONE', occurredOn };
     return onRepotDone(plantId);
   }
   return sendDone(plantId, task, occurredOn);
@@ -726,6 +734,7 @@ function openProgress(plantId: string) {
       v-model:open="doneFormOpen"
       :current-pot-size-cm="doneFormProfile.potSizeCm"
       :current-soil-mix="doneFormProfile.soilMix"
+      :seed-occurred-on="pending?.occurredOn || undefined"
       :submitting="!!doneAttempt?.submitting"
       :error="doneAttempt?.error ? $t(repotFailureMessageKey(doneAttempt.error)) : null"
       :frozen="isAttemptFrozen(doneAttempt)"

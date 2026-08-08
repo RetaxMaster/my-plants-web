@@ -1397,6 +1397,12 @@
       "dry": "Peso en seco ({unit})",
       "dryHint": "Vuelve a pesarla justo antes de cuando normalmente la regarías.",
       "spanInvalid": "El peso recién regada tiene que ser mayor que el peso en seco."
+    },
+    "measureAction": "Medir",
+    "finding": {
+      "tooSlow": "Esta maceta se está secando mucho más lento de lo que debería. Casi siempre es una maceta muy grande, poca aireación o sustrato agotado — no un problema de riego.",
+      "tooSlowLink": "Ver trasplante",
+      "flatSeries": "Tus lecturas no se mueven. La tierra de verdad se seca de forma constante, así que esto apunta al medidor — sales acumuladas, mal contacto o profundidad cambiante — y no a la maceta."
     }
   },
   "settings": {

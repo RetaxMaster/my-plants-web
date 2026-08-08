@@ -151,6 +151,19 @@ const repotPostponeFailure = ref<RepotAttemptFailure>('unknown');
 const { data: plant, refresh: refreshPlant } = await useAsyncData(`plant-${id}`, () => api.getPlant(id));
 const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPlantCare(id));
 
+// The measure affordance (measured:22, spec §4.8): readings load alongside the care payload, through the
+// same `useApi` seam every other read in this file uses. `PlantSoilReadings` is a REQUIRED prop on
+// `SoilReadingModal` (never optional-shaped like the care payload), so the template falls back to an empty
+// shape before the fetch resolves — same convention as `:places="places ?? []"` a few lines down.
+const { data: readings, refresh: refreshReadings } = await useAsyncData(`soil-readings-${id}`, () => api.getSoilReadings(id));
+const readingModalOpen = ref(false);
+// A saved reading can change BOTH the readings list (SoilReadingModal's own data) and the care payload's
+// `measurement` block (a new reading can flip `suggestMeasuring`/`tooSlowDrying`/`flatSeries`) — refresh
+// both, never just one, or one of the two surfaces silently shows stale data right after a save.
+async function onReadingSaved() {
+  await Promise.all([refresh(), refreshReadings()]);
+}
+
 // The browser tab shows the plant's own name (nickname, else localized species name); a plant that
 // failed to load falls back to the generic "Plant" title rather than an empty tab.
 useHead(() => ({ title: plant.value ? plantTitle(plant.value, locale.value) : t('meta.plantDetail.title') }));
@@ -1252,12 +1265,14 @@ async function confirmRevive() {
               <UiTaskRow
                 v-for="t3 in care.tasks"
                 :key="t3.task"
+                :id="t3.task === 'REPOT' ? 'repot' : undefined"
                 :task="t3.task"
                 :status="t3.status"
                 :due-label="dueLabelLong(careDueState(t3))"
                 :explanation="taskExplanation(t3.task)"
                 :pending-verdict="t3.pendingEvaluation?.verdict ?? null"
                 :pending-reevaluate-on="t3.pendingEvaluation?.reevaluateOn ?? null"
+                :suggest-measuring="t3.task === 'WATER' ? (care.measurement?.suggestMeasuring ?? false) : undefined"
                 with-done-date
                 show-info
                 allow-standalone-done
@@ -1266,10 +1281,38 @@ async function confirmRevive() {
                 @info="openTaskInfo"
                 @log-progress="openProgress"
                 @evaluate="onEvaluate"
+                @measure="readingModalOpen = true"
               />
             </div>
           </UiCard>
+
+          <!-- The two measurement findings (measured:22, spec §4.8). The too-slow finding is a
+               SUBSTRATE/POT finding, not a watering one — it links to the repot card (`#repot`, the REPOT
+               row's own id, above), never to the watering cadence. The flat-series finding names the
+               INSTRUMENT, never the soil. Mutually exclusive: a flat series makes drying-rate confidence
+               meaningless, so it takes priority when both would otherwise apply. -->
+          <UiAlert
+            v-if="care?.measurement?.tooSlowDrying"
+            color="amber"
+            :description="$t('reading.finding.tooSlow')"
+            class="mp-detail__alert"
+          >
+            <NuxtLink :to="`/plants/${id}#repot`">{{ $t('reading.finding.tooSlowLink') }}</NuxtLink>
+          </UiAlert>
+          <UiAlert
+            v-else-if="care?.measurement?.flatSeries"
+            color="amber"
+            :description="$t('reading.finding.flatSeries')"
+            class="mp-detail__alert"
+          />
         </div>
+
+        <UiSoilReadingModal
+          v-model:open="readingModalOpen"
+          :plant-id="id"
+          :data="readings ?? { instruments: [], protocol: null, readings: [] }"
+          @saved="onReadingSaved"
+        />
 
         <!-- The care plan is based on -->
         <div>

@@ -100,6 +100,7 @@ function stubApi(plant: ReturnType<typeof basePlant>) {
     // fired on every mount regardless of whether this test ever opens that modal — so every useApi stub in
     // this file needs it, even though none of these tests exercise the REPOT flow itself.
     getRepotSigns: async () => ({ signs: [] }),
+    getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
     invalidatePlant: vi.fn(),
     memorializePlant: memorializePlantMock,
     giftPlant: giftPlantMock,
@@ -182,6 +183,8 @@ const stubs = {
   UiRepotEvaluationModal: true,
   UiRepotVerdictModal: true,
   UiRepotDoneForm: true,
+  UiSoilReadingModal: true,
+  NuxtLink: { template: '<a><slot /></a>' },
   UiButton: UiButtonStub,
   UiModal: UiModalStub,
   UiConfirmModal: UiConfirmModalStub,
@@ -361,6 +364,7 @@ describe('PlantDetail — async photo reconcile', () => {
       getPlantHistory,
       getPlantPhotos,
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant,
     }));
 
@@ -402,6 +406,7 @@ describe('PlantDetail — async photo reconcile', () => {
       getPlantHistory: async () => progressHistory(0), // all photos already READY
       getPlantPhotos,
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
     }));
 
@@ -544,6 +549,7 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       submitRepotEvaluation: submitRepotEvaluationMock,
       completeRepot: completeRepotMock,
@@ -701,6 +707,7 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -848,6 +855,7 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -977,6 +985,7 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -1095,6 +1104,7 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       submitRepotEvaluation: submitRepotEvaluationMock,
       completeRepot: completeRepotMock,
@@ -1229,6 +1239,7 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -1357,6 +1368,7 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -1463,6 +1475,7 @@ describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: catalogue, typicalIntervalMonths: null }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       submitRepotEvaluation: async () => ({ evaluationId: 'ev-1', verdict: 'RE-EVALUATE', reevaluateOn: '2026-11-05' }),
     }));
@@ -1571,6 +1584,7 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));

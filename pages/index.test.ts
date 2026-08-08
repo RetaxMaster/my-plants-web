@@ -178,7 +178,7 @@ const stubs = {
       '</div>',
   },
   UiRepotEvaluationModal: {
-    props: ['open', 'signs', 'submitting', 'error', 'frozen'],
+    props: ['open', 'signs', 'submitting', 'error', 'frozen', 'typicalIntervalMonths'],
     emits: ['submit', 'start-over'],
     template:
       // `data-error` (W2): exposes the modal's OWN `error` prop, the surface that would show a cross-plant
@@ -186,7 +186,10 @@ const stubs = {
       // `data-sign-ids` (FIX D3): the catalogue the questionnaire is rendering, by ID — the ONE surface on
       // which a catalogue belonging to a DIFFERENT plant would be visible.
       '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting" :data-error="error" ' +
-      ':data-sign-ids="(signs || []).map(s => s.id).join(\',\')">' +
+      ':data-sign-ids="(signs || []).map(s => s.id).join(\',\')" '+
+      // `data-typical` (B1 of the 2026-08-07 review): the OTHER value that travels in the same
+      // plant-keyed catalogue record, and the one whose plant check used to be restated inline.
+      ':data-typical="typicalIntervalMonths == null ? \'none\' : String(typicalIntervalMonths)">' +
       '<button class="submit-btn" @click="$emit(\'submit\', { answer: \'no-signs\' })">submit</button>' +
       // 2026-08-07: a CHECKED-SIGNS body, so this file can pin that the ticked ids reach the verdict modal
       // (they are what it subtracts from the catalogue to name a corroborating sign).
@@ -1183,7 +1186,8 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
   async function mountWithFailingSecondFetch() {
     let call = 0;
     getRepotSignsMock = vi.fn(async () => {
-      if (call++ === 0) return { signs: catalogueA, typicalIntervalMonths: null };
+      // A non-null interval, so a leak of A's record into B's modal is DISTINGUISHABLE from an empty one.
+      if (call++ === 0) return { signs: catalogueA, typicalIntervalMonths: 18 };
       throw new Error('signs fetch failed');
     });
     vi.stubGlobal('useApi', () => ({
@@ -1210,6 +1214,18 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
     'previous plant\'s rows', async () => {
     const w = await mountWithFailingSecondFetch();
     expect(w.find('.eval-modal').attributes('data-sign-ids')).toBe('');
+  });
+
+  // B1 of the 2026-08-07 review. The claim above ("every reader looks it up BY PLANT") was true of the SIGNS
+  // and enforced separately for the interval, which restated the plant comparison inline against the
+  // catalogue ref. Behaviourally equivalent — and that is the point: the guard existed at TWO sites rather
+  // than being unrepresentable, so a third reader reintroduced the window simply by forgetting it.
+  // `catalogueFor(plantId)` returns the WHOLE record, so there is nothing left to dereference unguarded.
+  it('the informative typical-interval is looked up BY PLANT too, not only the signs', async () => {
+    const w = await mountWithFailingSecondFetch();
+    // A's fetch returned 18 months; B's failed. The questionnaire, now showing B, must state no interval —
+    // never A's, which belongs to a different species.
+    expect(w.find('.eval-modal').attributes('data-typical')).toBe('none');
   });
 
   it('the verdict modal is handed the catalogue of the COMPLETION\'s own plant — a completion for a plant ' +

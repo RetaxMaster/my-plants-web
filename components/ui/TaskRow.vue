@@ -71,6 +71,31 @@ const emit = defineEmits<{
 
 const doneDate = ref('');
 
+// The back-date must not become this row's sticky default. `PlantDetail.vue` keys its rows by TASK, so the
+// instance survives the post-completion refresh: a date typed once to back-date a watering silently stayed
+// in the box and rode along on the NEXT Done. Pre-existing for every task; newly consequential for REPOT,
+// where that date is what anchors the substrate clock (`substrate_refreshed_on`).
+//
+// CLEARED ON A CHANGED `dueLabel`, deliberately NOT on the `done` emit. The emit looks like the obvious
+// place and is the wrong one, because for REPOT the emit does not perform the completion — it OPENS the
+// standalone Done form, and `PlantDetail.vue`'s `onRepotDone` captures the emitted `occurredOn` into
+// `doneFormOccurredOn`. Clearing there breaks this sequence: type 2026-08-01 -> Done (form opens, box
+// clears) -> dismiss the form with X (no key was ever minted, so nothing is outstanding) -> Done again ->
+// `occurredOn` is now `undefined`, `doneFormOccurredOn` resets to '', and `onRepotDoneConfirm`'s
+// `doneFormOccurredOn.value || today()` writes the repot on TODAY. That is a silent wrong-day write — the
+// exact class of defect the previous round fixed — traded for the stale one.
+//
+// `dueLabel` changing means the schedule this row describes actually MOVED, which is what a recorded
+// completion does and what a dismissed form does not. Its only false positive is a locale switch, which
+// clears an input the owner can see is empty and retype; its only false negative leaves today's behaviour.
+// Neither can write a date the owner did not choose.
+watch(
+  () => props.dueLabel,
+  () => {
+    doneDate.value = '';
+  },
+);
+
 // QA round-3 defect D3, presentation half. A REPOT row now reaches the Today list on the strength of an
 // unresolved 'REPOT' verdict alone, whatever its computed date says (`care-plan.service.ts`'s `todaysTasks`
 // owns that rule). Its `nextDueOn` is reported UNCHANGED — deliberately, because nothing rewrote the

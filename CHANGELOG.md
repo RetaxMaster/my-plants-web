@@ -52,6 +52,19 @@ questions about the new pot so the schedule keeps up.
   switches the list of signs off, but the rows still looked and felt tappable and simply did nothing when
   you tapped them. They now dim and show a blocked cursor, so it's clear the two answers are alternatives
   and that you need to clear one before ticking the other.
+- **The "Was it fresh substrate?" question is a labelled field again.** When that question moved from a
+  dropdown to a row of buttons, its heading quietly stopped being attached to anything: tapping the words
+  did nothing, and a screen reader read out three unexplained buttons with no idea what they were answering.
+  Tapping the heading now moves to the answer you already have selected — it never changes your answer — and
+  the group is announced with the question it belongs to. The same repair applies to the identical question
+  in the "mark as repotted" form.
+- **The "mark as repotted" form now tells you which day it will record.** While a submission was still
+  outstanding the form froze — correctly — but it never showed the date it was going to send, while the
+  date box on the card behind it stayed editable. The two could disagree without either one saying so, on
+  the one field that decides what day the repot is recorded on. The frozen form now states it outright.
+- **The date box beside "Done" no longer keeps yesterday's answer.** Once you back-dated a task, that date
+  stayed in the box and quietly rode along on the next thing you marked done from that plant's page. It now
+  clears itself as soon as the task has been recorded and the schedule has moved on.
 - **The close buttons in every dialog now have distinct names for screen readers.** The "×" in the corner
   and a "Close" button at the bottom both announced as just "Close"; the "×" now says what it closes. The
   same fix was applied to the repot checklist's per-sign "What am I looking for?" links, which all announced

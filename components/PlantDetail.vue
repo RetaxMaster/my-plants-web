@@ -1367,7 +1367,7 @@ async function confirmRevive() {
       :submitting="!!doneAttempt?.submitting"
       :error="doneAttempt?.error ? $t(repotFailureMessageKey(doneAttempt.error)) : null"
       :frozen="isAttemptFrozen(doneAttempt)"
-      :frozen-snapshot="doneAttempt?.body.payload ?? null"
+      :frozen-snapshot="doneAttempt?.body ?? null"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"
     />

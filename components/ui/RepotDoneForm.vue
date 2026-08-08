@@ -36,8 +36,8 @@ const props = defineProps<{
    * edited a field would resend the SAME idempotency key with a DIFFERENT body, which the server's global
    * idempotency interceptor answers 422 forever. */
   frozen?: boolean;
-  /** W3: the OUTSTANDING attempt's own stored envelope (the `payload` half of `useRepotAttempt.ts`'s frozen
-   * `{ occurredOn, payload }` body), present iff `frozen` is true. Once the store that tracks attempts moved
+  /** W3: the OUTSTANDING attempt's own stored envelope — the WHOLE `{ occurredOn, payload }` body from
+   * `useRepotAttempt.ts`, present iff `frozen` is true. Once the store that tracks attempts moved
    * to module scope (W1), a plant's frozen attempt can survive a detour through a DIFFERENT plant's card —
    * e.g. plant A fails and freezes, the owner opens plant B's form instead (leaving this component's local
    * `potSizeCm`/`soilMix`/`substrate` refs holding B's values), then returns to A. Without this prop the
@@ -45,8 +45,15 @@ const props = defineProps<{
    * "not reset them", which silently displays B's pot size and soil mix under A's frozen (and about-to-be
    * retried) form. Hydrating FROM this snapshot instead of merely refusing to reset means the displayed
    * values and the request a retry actually sends are read from the exact SAME source, so they can never
-   * disagree — never a second "remember the draft per plant" mechanism; the envelope already IS the draft. */
-  frozenSnapshot?: Omit<RepotDonePayload, 'evaluationId' | 'refreshedOn'> | null;
+   * disagree — never a second "remember the draft per plant" mechanism; the envelope already IS the draft.
+   *
+   * It carries the WHOLE body, not just the `payload` half it used to. `occurredOn` — the day the repot
+   * will be recorded on, and the day `substrate_refreshed_on` will be set to — lives one level up in that
+   * envelope and was surfaced NOWHERE, while the card's own back-date input behind this modal stays
+   * editable: so the card could read date X while the retry would send date Y, on a feature whose entire
+   * point is recording the repot on the day it actually happened. Taking the whole envelope keeps the ONE
+   * source W3 argues for instead of adding a second prop beside it. */
+  frozenSnapshot?: { occurredOn: string; payload: Omit<RepotDonePayload, 'evaluationId' | 'refreshedOn'> } | null;
 }>();
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ confirm: [payload: Omit<RepotDonePayload, 'evaluationId'>]; 'start-over': [] }>();
@@ -110,21 +117,21 @@ watch(open, (isOpen) => {
       // `potSizeCm` is tri-state by NULLABILITY on the wire exactly like `soilMix` below: `null` is the
       // owner's explicit "I don't know" and must round-trip back to the "I don't know" chip with an EMPTY
       // input, never to a concrete number and never to a blank field that silently re-blocks confirm.
-      potSizeUnknown.value = props.frozenSnapshot.potSizeCm === null;
-      potSizeCm.value = props.frozenSnapshot.potSizeCm ?? '';
+      potSizeUnknown.value = props.frozenSnapshot.payload.potSizeCm === null;
+      potSizeCm.value = props.frozenSnapshot.payload.potSizeCm ?? '';
       // `soilMix` is tri-state by NULLABILITY on the wire (`SoilMix | null`, see types/api.ts): `null` is
       // the owner's explicit "I don't know" and must round-trip back to the EMPTY option, never to some
       // concrete mix. Same class of defect as FIX D3 below, which turned an omitted `charged` into a
       // positive "reused" claim the owner never made.
-      soilMix.value = props.frozenSnapshot.soilMix ?? '';
+      soilMix.value = props.frozenSnapshot.payload.soilMix ?? '';
       // FIX D3 — `charged` is tri-state by PRESENCE on the wire (see types/api.ts's own comment): `undefined`
       // means "I don't know" and must round-trip back to 'unknown', never silently become 'reused'. The
       // PREVIOUS version of this line (`... ? 'fresh' : 'reused'`) turned an omitted `charged` into 'reused'
       // — the OPPOSITE of what the owner actually said (nothing) — because `undefined` is falsy in a ternary
       // exactly like `false` is.
-      substrate.value = props.frozenSnapshot.charged === undefined
+      substrate.value = props.frozenSnapshot.payload.charged === undefined
         ? 'unknown'
-        : (props.frozenSnapshot.charged ? 'fresh' : 'reused');
+        : (props.frozenSnapshot.payload.charged ? 'fresh' : 'reused');
     }
     return;
   }
@@ -219,6 +226,16 @@ function onConfirm() {
 
     <p class="mp-repotdone__intro">{{ t('repotDone.intro') }}</p>
 
+    <!-- The date the retry will actually send. Only rendered while FROZEN, and read from the outstanding
+         attempt's own envelope, because that is the only state in which the owner cannot otherwise see it:
+         the card's back-date input behind this modal stays editable, so it can read one day while the
+         frozen retry carries another. Unfrozen, that input IS the live value and needs no echo here. It is
+         also the field that matters most on this form — `occurredOn` is what dates the repot and with it
+         `substrate_refreshed_on`, the anchor of the substrate clock. -->
+    <p v-if="frozen && frozenSnapshot" class="mp-repotdone__occurredon">
+      {{ t('repotDone.recordingOn', { date: frozenSnapshot.occurredOn }) }}
+    </p>
+
     <FormGroup :label="t('repotDone.potSize')" :hint="t('repotDone.potSizeHint')" :error="potSizeErrorMessage">
       <Input
         v-model.number="potSizeCm"
@@ -311,6 +328,15 @@ function onConfirm() {
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
   color: var(--text-muted);
+}
+
+/* Reads as a stated FACT about the pending submission, not as muted supporting prose like the intro above
+   it — so it takes the strong text token, which is also the pair Input/SelectField use for a real value. */
+.mp-repotdone__occurredon {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
 }
 
 .mp-repotdone__potsizeactions {

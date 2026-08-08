@@ -18,12 +18,13 @@
 //     not-opted-in shape is still real and still pinned below — it is simply no longer PlantDetail that
 //     exercises it in production.)
 import { describe, it, expect, vi } from 'vitest';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { mount } from '@vue/test-utils';
 import TaskRow from './TaskRow.vue';
 
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('ref', ref);
+vi.stubGlobal('watch', watch);
 // `d` (vue-i18n's date formatter) is exercised by the V13 `reevaluateNoticeDate` computed — stub it as a
 // plain passthrough so the pending-note branch renders without needing a real i18n date formatter.
 vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, d: (date: Date) => date.toISOString() }));
@@ -293,5 +294,38 @@ describe('UiTaskRow — allowStandaloneDone: Done beside "time to evaluate", on 
     const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true, withDoneDate: true });
     await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
     expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: undefined }]);
+  });
+});
+
+// The back-date is not a sticky default. `PlantDetail.vue` keys its rows by TASK, so the instance survives
+// the post-completion refresh and a date typed once rode along on the next Done — silently, on the one
+// input whose whole purpose is "record it on the day it actually happened".
+describe('UiTaskRow — the back-date does not survive a recorded completion', () => {
+  const clickDone = (w: ReturnType<typeof mountRow>) =>
+    w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
+
+  it('clears the typed date once the schedule moves, so the NEXT Done starts empty', async () => {
+    const w = mountRow({ withDoneDate: true, task: 'WATER', status: 'overdue', dueLabel: '2 days overdue' });
+    await w.find('input[type="date"]').setValue('2026-08-01');
+    await clickDone(w);
+    expect(w.emitted('done')![0]).toEqual([{ task: 'WATER', occurredOn: '2026-08-01' }]);
+
+    // The completion landed and the parent re-rendered the row with its new due date.
+    await w.setProps({ status: 'upcoming', dueLabel: 'in 7 days' });
+    expect((w.find('input[type="date"]').element as HTMLInputElement).value).toBe('');
+    await clickDone(w);
+    expect(w.emitted('done')![1]).toEqual([{ task: 'WATER', occurredOn: undefined }]);
+  });
+
+  it('does NOT clear on the emit itself — the REPOT emit only OPENS the Done form, it does not complete it', async () => {
+    // Load-bearing negative. `PlantDetail.vue`'s `onRepotDone` captures the emitted `occurredOn` into
+    // `doneFormOccurredOn`; clearing on the emit would mean that dismissing the form and pressing Done
+    // again re-emits `undefined`, and `onRepotDoneConfirm`'s `|| today()` would then write the repot on
+    // TODAY instead of the day the owner typed — a silent wrong-day write traded for a stale one.
+    const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true, withDoneDate: true });
+    await w.find('input[type="date"]').setValue('2026-08-01');
+    await clickDone(w);
+    await clickDone(w); // the owner dismissed the form and pressed Done again; nothing has completed yet
+    expect(w.emitted('done')![1]).toEqual([{ task: 'REPOT', occurredOn: '2026-08-01' }]);
   });
 });

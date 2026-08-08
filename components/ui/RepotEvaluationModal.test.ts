@@ -450,6 +450,33 @@ describe('RepotEvaluationModal — QA round-4 finding 3: a disabled sign row LOO
     expect(signRows(w)[0]!.classes()).not.toContain('mp-repoteval__check--disabled');
     expect(signRows(w)[0]!.find('input[type="checkbox"]').attributes('disabled')).toBeUndefined();
   });
+
+  // THE VISIBLE HALF, pinned. Every assertion above reads the CLASS BINDING; none of them reads the class's
+  // DECLARATION — so deleting the `.mp-repoteval__check--disabled` rule, which IS the fix, left the whole
+  // suite green. The ledger was honest that "the suite cannot evaluate CSS" and fell back to a live check,
+  // but a live check is a reviewer noticing, and this project's own bar is that parity a test can fail on
+  // beats parity a reviewer has to notice.
+  //
+  // Asserted against the component's own SOURCE (the `server/api/locale-forwarding.test.ts` pattern) rather
+  // than against build output: `<style scoped>` is compiled away by @vitejs/plugin-vue before any mounted
+  // DOM exists, and a build-output assertion would make a unit test depend on `.output/` having been built.
+  // The source is where the declaration lives, and deleting it is exactly the regression being guarded.
+  it('the disabled class actually DECLARES a visible treatment — the half no DOM assertion can see', async () => {
+    // Resolved from the vitest root rather than `import.meta.url`: this file runs under happy-dom, where
+    // `import.meta.url` is not a `file:` URL and `fileURLToPath` throws. `process.cwd()` is the repo root
+    // for every vitest run (see vitest.config.ts).
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(process.cwd(), 'components/ui/RepotEvaluationModal.vue'), 'utf8');
+
+    const rule = /\.mp-repoteval__check--disabled\s*\{([^}]*)\}/.exec(src);
+    expect(rule, 'the .mp-repoteval__check--disabled rule is gone — the disabled row is invisible again').not.toBeNull();
+    // Both declarations, for two different reasons. `opacity` is the only thing that makes a disabled row
+    // LOOK disabled; `cursor` must be restated here because the label's own `cursor: pointer` otherwise
+    // wins over the disabled input beneath it, which is what made the dead row still feel clickable.
+    expect(rule![1]).toMatch(/opacity:\s*0?\.\d+/);
+    expect(rule![1]).toMatch(/cursor:\s*not-allowed/);
+  });
 });
 
 // Found in a REAL browser while verifying finding 4: every sign renders a help toggle with the SAME visible

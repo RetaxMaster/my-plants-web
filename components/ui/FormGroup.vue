@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ inheritAttrs: false });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     label?: string;
     hint?: string;
@@ -19,11 +19,22 @@ withDefaults(
 // clicking the label focuses/toggles it and screen readers announce them together.
 const fieldId = useId();
 provide('mpFieldId', fieldId);
+
+// The label's OWN id, provided as a second, separate contract — needed by a slotted control that is a
+// GROUP rather than a single form control (SegmentedControl). `<label for>` only associates with a
+// LABELABLE element (button/input/select/textarea/meter/progress/output), so a `role="group"` wrapper can
+// never take the `for` and can never be named by it; the ARIA way to name a group is `aria-labelledby`
+// pointing back at this label. Provided as a COMPUTED, not a bare string, because the label element is
+// `v-if="label"` — with no label there is no element to reference, and handing a group a dangling
+// `aria-labelledby` is the same defect class (a reference whose target does not exist) this whole change
+// exists to close.
+const fieldLabelId = computed(() => (props.label ? `${fieldId}-label` : undefined));
+provide('mpFieldLabelId', fieldLabelId);
 </script>
 
 <template>
   <div class="mp-form-group" v-bind="$attrs">
-    <label v-if="label" :for="fieldId" class="mp-form-group__label">
+    <label v-if="label" :id="fieldLabelId" :for="fieldId" class="mp-form-group__label">
       {{ label }}
       <span v-if="required" class="mp-form-group__required">*</span>
     </label>

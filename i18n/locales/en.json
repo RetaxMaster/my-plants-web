@@ -315,6 +315,7 @@
   "repotDone": {
     "title": "What did you repot it into?",
     "intro": "Three quick things, pre-filled with what we already know. Without them we would keep computing against the old pot.",
+    "recordingOn": "Recording this repot on {date}.",
     "potSize": "New pot diameter (at the rim, in cm)",
     "potSizeHint": "The width across the top — not the radius, not the height.",
     "potSizeInvalid": "Enter a whole number of centimeters, from 1 to {max}.",

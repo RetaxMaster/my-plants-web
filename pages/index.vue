@@ -43,23 +43,30 @@ const evaluationOpen = ref(false);
 // are species-namespaced, so the already-ticked subtraction would remove nothing and the suggestion could
 // name a sign from the WRONG SPECIES. No click sequence reaching it was found (the modal blocks the cards
 // while a submit is in flight), so this is hardening, not a caught defect — but the guard-free shape costs
-// nothing: `signsFor(plantId)` cannot return another plant's catalogue, because it compares before it
+// nothing: `catalogueFor(plantId)` cannot return another plant's catalogue, because it compares before it
 // returns. `typicalIntervalMonths` travels in the same record for the same reason — it came from the same
 // one fetch and is just as plant-specific.
+//
+// `catalogueFor`, not the narrower `signsFor` this started as. The first version returned only the SIGNS,
+// which left `evaluationTypicalIntervalMonths` restating the plant comparison inline against
+// `evaluationCatalogue` directly — so the claim above ("every reader looks it up BY PLANT") was true of one
+// reader and enforced at TWO sites, and a third reader could reintroduce the window simply by forgetting.
+// Returning the whole record makes the claim true by construction: nothing below dereferences
+// `evaluationCatalogue` itself, so there is no second place for the comparison to be got wrong.
 const evaluationCatalogue = ref<{ plantId: string; signs: RepotSign[]; typicalIntervalMonths: number | null } | null>(null);
-function signsFor(plantId: string | null): RepotSign[] {
-  return plantId && evaluationCatalogue.value?.plantId === plantId ? evaluationCatalogue.value.signs : [];
+type RepotCatalogue = { signs: RepotSign[]; typicalIntervalMonths: number | null };
+const EMPTY_CATALOGUE: RepotCatalogue = { signs: [], typicalIntervalMonths: null };
+function catalogueFor(plantId: string | null): RepotCatalogue {
+  return plantId && evaluationCatalogue.value?.plantId === plantId ? evaluationCatalogue.value : EMPTY_CATALOGUE;
 }
 const evaluationPlantId = ref<string | null>(null);
 // What the QUESTIONNAIRE renders: the catalogue of whichever plant the shared modal is currently showing,
 // or nothing at all if the only catalogue on hand belongs to a different plant.
-const evaluationSigns = computed(() => signsFor(evaluationPlantId.value));
+const evaluationSigns = computed(() => catalogueFor(evaluationPlantId.value).signs);
 // Informative-only context for the questionnaire (how often this species is typically repotted) — sourced
 // from the SAME `GET /plants/:id/repot-signs` call as the signs above, never a second fetch, and gated on
-// the same plant match for the same reason.
-const evaluationTypicalIntervalMonths = computed(() =>
-  evaluationCatalogue.value?.plantId === evaluationPlantId.value ? evaluationCatalogue.value.typicalIntervalMonths : null,
-);
+// the same plant match by reading it out of the same one lookup.
+const evaluationTypicalIntervalMonths = computed(() => catalogueFor(evaluationPlantId.value).typicalIntervalMonths);
 // What the VERDICT modal renders — snapshotted from the completion's OWN plant when the completion is
 // handled (see `handleEvaluationCompletion`), never re-read from the live page state afterwards. The
 // verdict's other three inputs (`verdict`, `verdictAnswer`, `verdictCheckedSignIds`) all come from that one
@@ -378,7 +385,7 @@ async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvalu
     // FIX D3: the catalogue is looked up by the COMPLETION's own plant, not read off whatever the page-level
     // ref happens to hold — so the four things the verdict modal renders all describe one plant by
     // construction. An empty list simply produces no corroborating suggestion, which is a complete answer.
-    verdictSigns.value = signsFor(completion.plantId);
+    verdictSigns.value = catalogueFor(completion.plantId).signs;
     verdictOpen.value = true;
   }
   await refresh();
@@ -722,7 +729,7 @@ function openProgress(plantId: string) {
       :submitting="!!doneAttempt?.submitting"
       :error="doneAttempt?.error ? $t(repotFailureMessageKey(doneAttempt.error)) : null"
       :frozen="isAttemptFrozen(doneAttempt)"
-      :frozen-snapshot="doneAttempt?.body.payload ?? null"
+      :frozen-snapshot="doneAttempt?.body ?? null"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"
     />

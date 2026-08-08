@@ -15,7 +15,13 @@ vi.stubGlobal('watch', watch);
 // Needed by the new frozen-state tests below, which mount the REAL Input/SelectField (not stubbed) to
 // assert their actual `disabled` attribute — both call Vue's `inject()` for FormGroup's field-id wiring.
 vi.stubGlobal('inject', inject);
-vi.stubGlobal('useI18n', () => ({ t: (k: string) => k }));
+// `t` echoes the key AND appends any interpolated values. Keeping the key visible preserves every existing
+// assertion that matches on the key; appending the params is what lets a test assert that a value actually
+// REACHED the rendered string (the frozen `occurredOn` below), rather than only that some label rendered.
+vi.stubGlobal('useI18n', () => ({
+  t: (k: string, params?: Record<string, unknown>) =>
+    params ? `${k} ${Object.values(params).join(' ')}` : k,
+}));
 // Auto-imported in RepotDoneForm.vue (no explicit import, same convention TaskRow.test.ts documents for
 // useTaskMeta) — stubbed here with two fixed options (the error-rendering assertions only ever need
 // 'potting-mix', still first so `soilMixOptions.value[0]` stays unchanged for them; 'cactus-mix' is needed by
@@ -211,7 +217,7 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
     const w = mount(RepotDoneForm, {
       props: {
         open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
-        frozenSnapshot: { potSizeCm: 30, soilMix: 'cactus-mix', charged: false },
+        frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 30, soilMix: 'cactus-mix', charged: false } },
       },
       global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
     });
@@ -232,6 +238,34 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
     expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: 'cactus-mix', charged: false });
   });
 
+  // The DATE the retry will send. It lives one level up in the frozen envelope from the three fields above,
+  // and it was surfaced nowhere — while the card's own back-date input behind this modal stays editable, so
+  // the card could read one day and the frozen retry carry another. On a feature whose whole point is
+  // recording the repot on the day it actually happened, and whose `occurredOn` is what dates
+  // `substrate_refreshed_on`, that is the one field a frozen form must state.
+  it('states the date the frozen retry will actually send — the field the card behind it can contradict', async () => {
+    const w = mount(RepotDoneForm, {
+      props: {
+        open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
+        frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 30, soilMix: 'cactus-mix' } },
+      },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+    // The date is read from the ENVELOPE, not from any live page state — the same one source the hydrated
+    // fields above come from, so the display and the request cannot disagree.
+    expect(w.find('.mp-repotdone__occurredon').text()).toContain('2026-08-01');
+  });
+
+  it('says nothing about a date while UNFROZEN — the card\'s own input is the live value there', async () => {
+    const w = mount(RepotDoneForm, {
+      props: { open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: false, frozenSnapshot: null },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+    expect(w.find('.mp-repotdone__occurredon').exists()).toBe(false);
+  });
+
   // FIX D3 — the ONE snapshot shape the two tests around this one never exercise: `charged` OMITTED.
   // `undefined` is falsy exactly like `false`, so the pre-fix ternary (`snapshot.charged ? 'fresh' :
   // 'reused'`) silently rendered "reused" for an owner who had said "I don't know" — and then RESUBMITTED
@@ -244,7 +278,7 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
       props: {
         open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
         // No `charged` key at all — the wire shape a "I don't know" answer produces.
-        frozenSnapshot: { potSizeCm: 30, soilMix: 'cactus-mix' },
+        frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 30, soilMix: 'cactus-mix' } },
       },
       global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
     });
@@ -268,7 +302,7 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
     const w = mount(RepotDoneForm, {
       props: {
         open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
-        frozenSnapshot: { potSizeCm: 20, soilMix: 'potting-mix', charged: true },
+        frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 20, soilMix: 'potting-mix', charged: true } },
       },
       global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
     });
@@ -288,7 +322,7 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
     // again, never leaving B's leftover edited value (99) visible under A's frozen, about-to-be-retried form.
     await w.setProps({ open: false });
     await w.setProps({
-      frozen: true, frozenSnapshot: { potSizeCm: 20, soilMix: 'potting-mix', charged: true },
+      frozen: true, frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 20, soilMix: 'potting-mix', charged: true } },
       currentPotSizeCm: 20, currentSoilMix: 'potting-mix', open: true,
     });
 
@@ -490,7 +524,7 @@ describe('RepotDoneForm — QA D2: "I don\'t know" is a selectable answer for th
     const w = mount(RepotDoneForm, {
       props: {
         open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix',
-        frozen: true, frozenSnapshot: { potSizeCm: 30, soilMix: null },
+        frozen: true, frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 30, soilMix: null } },
       },
       global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
     });
@@ -588,7 +622,7 @@ describe('RepotDoneForm — QA round-4 finding 2: "I don\'t know" is an answer f
     const w = mount(RepotDoneForm, {
       props: {
         open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix',
-        frozen: true, frozenSnapshot: { potSizeCm: null, soilMix: 'cactus-mix' },
+        frozen: true, frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: null, soilMix: 'cactus-mix' } },
       },
       global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
     });
@@ -630,7 +664,7 @@ describe('RepotDoneForm — QA round-4 finding 2: "I don\'t know" is an answer f
   });
 
   it('stays frozen with the rest of the form while an idempotency key is outstanding', async () => {
-    const w = await mountReal({ currentPotSizeCm: 18, frozen: true, frozenSnapshot: { potSizeCm: 18, soilMix: null } });
+    const w = await mountReal({ currentPotSizeCm: 18, frozen: true, frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 18, soilMix: null } } });
     expect(findUnknownChip(w).attributes('disabled')).toBeDefined();
     expect(findSameAsBeforeChip(w).attributes('disabled')).toBeDefined();
   });

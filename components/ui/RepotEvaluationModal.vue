@@ -271,11 +271,15 @@ function onSubmit() {
   cursor: pointer;
 }
 
-/* QA round-4 finding 3. The design system has no shared "disabled" class or opacity token — every control
-   in `components/ui/` states this same pair in its own scoped block (Button, Input, SelectField,
-   SegmentedControl, Slider, Switch), so these are the house values verbatim, not a magic pair invented
-   here. `cursor` must be overridden on the LABEL: the label's own `pointer` above wins over the disabled
-   input underneath it, which is precisely why the row still felt clickable. */
+/* QA round-4 finding 3. The design system has no shared "disabled" class or opacity token — each control in
+   `components/ui/` states its disabled look in its own scoped block, and they do NOT agree: Button, Slider
+   and Switch use exactly this pair (`opacity: 0.5` + `cursor: not-allowed`), SegmentedControl uses
+   `opacity: 0.6`, and Input/SelectField swap the BACKGROUND (`var(--stone-100)`) with no opacity at all.
+   So the values below are the most common house pair, copied from Button/Slider/Switch — an earlier version
+   of this comment claimed all six state it verbatim, which was false for three of them. The CONCLUSION it
+   was supporting still holds and was re-verified: there is no shared disabled token to reach for.
+   `cursor` must be overridden on the LABEL: the label's own `pointer` above wins over the disabled input
+   underneath it, which is precisely why the row still felt clickable. */
 .mp-repoteval__check--disabled {
   opacity: 0.5;
   cursor: not-allowed;

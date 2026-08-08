@@ -11,8 +11,20 @@ import type { InstrumentId, InstrumentRow } from '@retaxmaster/my-plants-species
 // `RepotEvidenceClass` is the SHARED contract's own union (`REPOT_EVIDENCE_CLASSES`), imported for the same
 // reason `RepotEvaluationSubmit` is: a locally re-typed copy is a fork, and the class list is exactly the
 // kind of thing that would silently drift the day a fifth class is added.
-import type { ProposalOperationType, RepotEvaluationSubmit, RepotEvidenceClass } from '@retaxmaster/my-plants-species-schema';
-export type { ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass };
+//
+// `InstrumentCalibration` and `ReadingVerdict` are the same shared contract's `soil-reading.ts` types,
+// imported here for the identical reason — see that file's own root export (`index.ts` re-exports
+// `soil-reading.js` alongside `proposal-operations.js`, the very module `RepotEvaluationSubmit`/
+// `RepotEvidenceClass` above already come from). A prior version of this file re-declared them
+// structurally, reasoning that "no Zod-free subpath exports them, so importing them pulls Zod into the web
+// bundle" — that reasoning does not hold for a `import type`, which TypeScript erases entirely (zero
+// runtime JS, so zero bytes of Zod), exactly like the import one line up. The empirical build check
+// (`npm run build`, confirming `zod`'s presence in the client bundle is unaffected) is what actually backs
+// this, not the reasoning alone — see that check's own note for what it found.
+import type {
+  ProposalOperationType, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
+} from '@retaxmaster/my-plants-species-schema';
+export type { ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict };
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -813,25 +825,9 @@ export interface CreateBlogpost {
 // ---- Measured soil (spec Part C) --------------------------------------------------------------------
 // `InstrumentId` and `InstrumentRow` come from the shared contract's Zod-FREE subpath
 // (`@retaxmaster/my-plants-species-schema/soil-instrument-constants`), imported above alongside the
-// package's other Zod-free constant modules — never re-typed here, so the property table can't fork.
-//
-// `InstrumentCalibration` and `ReadingVerdict` are declared in that same package's Zod module
-// (`soil-reading.ts`), which has no Zod-free subpath of its own — importing them pulls Zod into the web
-// bundle. They are re-declared STRUCTURALLY below (never re-derived, never widened) rather than imported,
-// exactly as the plan calls for; `InstrumentId` / `InstrumentRow` are NOT re-declared here for the same
-// reason.
-
-/** Structurally mirrors `InstrumentCalibration` from `@retaxmaster/my-plants-species-schema`'s
- *  `soil-reading.ts` Zod module (no Zod-free subpath exports it). */
-export interface InstrumentCalibration {
-  saturatedValue: number;
-  dryValue: number;
-}
-
-/** Structurally mirrors `ReadingVerdict` from `@retaxmaster/my-plants-species-schema`'s `soil-reading.ts`
- *  Zod module (no Zod-free subpath exports it). What the owner decided AFTER taking a reading — a verdict
- *  routes onto a WATER path that already exists (a postpone or an early-water DONE), never a new rule. */
-export type ReadingVerdict = 'NONE' | 'POSTPONE' | 'WATER_NOW';
+// package's other Zod-free constant modules. `InstrumentCalibration` and `ReadingVerdict` come from the
+// same package's root type-only import at the top of this file — see that import's own comment for why a
+// prior structural re-declaration here was a fork, not a bundle-size necessity.
 
 export interface OwnerInstruments {
   /** The full catalogue, from the shared contract. */

@@ -220,11 +220,11 @@ async function submit() {
       </UiFormGroup>
 
       <UiFormGroup :label="$t('plantsNew.acquiredOn')" required>
-        <UiInput v-model="form.acquiredOn" type="date" />
+        <UiInput v-model="form.acquiredOn" type="date" :max="todayYmd()" />
       </UiFormGroup>
 
       <UiFormGroup :label="$t('plantsNew.substrateRefreshedOn')" :hint="$t('plantsNew.substrateHint')">
-        <UiInput v-model="substrateRefreshedOn" type="date" />
+        <UiInput v-model="substrateRefreshedOn" type="date" :max="todayYmd()" />
       </UiFormGroup>
       <UiFormGroup :label="$t('plantsNew.substrateCharged')">
         <UiSegmentedControl

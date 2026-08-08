@@ -4,7 +4,7 @@ import Badge from './Badge.vue';
 import Button from './Button.vue';
 import type { TaskCode } from '~/utils/tasks';
 import { dueState } from '~/utils/tasks';
-import { ymdToLocalDate } from '~/utils/localDate';
+import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
 import { useTaskMeta } from '~/composables/useTaskMeta';
 
 defineOptions({ inheritAttrs: false });
@@ -209,11 +209,19 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
           {{ t('repotEval.pendingReevaluateNote', { date: reevaluateNoticeDate }) }}
         </span>
         <template v-if="showDone">
+          <!-- A4 (spec §2.4): a PAST-EVENT date, so the browser refuses a future day with no round trip.
+               `pages/moving.vue`'s moveOn deliberately carries NO max — it is future-by-design. -->
+          <!-- Spec §2.3: on REPOT this input SEEDS the completion form's own date field and then stops
+               being editable, so exactly one editable date surface exists for one submission. Two live
+               inputs for one date is a disagreement, not a redundancy. -->
           <input
             v-if="withDoneDate"
             v-model="doneDate"
             type="date"
+            :max="todayYmd()"
+            :readonly="task === 'REPOT'"
             class="mp-taskrow__date"
+            :class="{ 'mp-taskrow__date--readonly': task === 'REPOT' }"
             :aria-label="t('progress.doneDateAria')"
           />
           <!-- A standalone Done is the SECONDARY action beside "Time to evaluate" — the questionnaire is
@@ -300,6 +308,19 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
 .mp-taskrow__date:focus {
   border-color: var(--border-brand);
   box-shadow: var(--shadow-focus);
+}
+
+/* REPOT's back-date is display-only (Task 26): it seeds the completion form and stops being editable
+   here, so it reads as inert rather than as an active input the owner might still type into. */
+.mp-taskrow__date--readonly {
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  cursor: default;
+}
+
+.mp-taskrow__date--readonly:focus {
+  border-color: var(--border-default);
+  box-shadow: none;
 }
 
 .mp-taskrow__info {

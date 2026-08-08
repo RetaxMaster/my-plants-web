@@ -1385,7 +1385,7 @@
       "kitchen-scale": "Pesa la maceta completa siempre igual: con o sin plato, y sin agua estancada en la charola."
     },
     "verdictLabel": "¿Qué vas a hacer?",
-    "verdictHint": "Solo registrar una lectura no cambia nada del calendario.",
+    "verdictHint": "Solo registrar una lectura no riega ni pospone nada hoy — pero le enseña a la app qué tan rápido se seca esta maceta.",
     "verdict": {
       "none": "Solo registrar",
       "postpone": "Aún no la riego",

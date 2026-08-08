@@ -95,6 +95,14 @@ function wateringRelationSeg(w: ReturnType<typeof mount>) {
   return w.findAll('.mp-seg').find((seg) =>
     seg.findAll('button').some((b) => b.text() === 'reading.wateringRelation.before'));
 }
+// Located by its own button labels rather than a fixed `.mp-seg` index, same reasoning as
+// `wateringRelationSeg` above: on a watering day the relation control renders BETWEEN the instrument picker
+// and the verdict picker, shifting the verdict picker's index — a trap `verdictSegButtons`'s fixed index 1
+// falls into whenever a test combines a watering day with the verdict control.
+function verdictSegOnWateringDay(w: ReturnType<typeof mount>) {
+  return w.findAll('.mp-seg').find((seg) =>
+    seg.findAll('button').some((b) => b.text() === 'reading.verdict.waterNow'))!;
+}
 
 describe('SoilReadingModal', () => {
   it('offers ONLY the instruments the owner selected in /settings', () => {
@@ -367,6 +375,50 @@ describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-
 
     const buttonsAfter = wateringRelationSeg(w)!.findAll('button');
     expect(buttonsAfter.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
+  });
+
+  // Fix wave 7: a WATER_NOW reading is, by construction, taken BEFORE the watering it causes — the API
+  // always records BEFORE for it and rejects the field. Asking (and sending) the relation for WATER_NOW is
+  // therefore a question the modal would discard, which the owner ruled unacceptable ("the extra tap is the
+  // point" only holds for a question whose answer is actually used).
+  it('never asks or sends the watering-relation question when the verdict is WATER_NOW, even on a ' +
+    'watering day', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(5);
+
+    // WATER_NOW is verdict index 2 — located by label since the relation control shifts the fixed index.
+    await verdictSegOnWateringDay(w).findAll('button')[2]!.trigger('click');
+
+    // The question must not even render, and submit must not be blocked by it.
+    expect(wateringRelationSeg(w)).toBeUndefined();
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    const lastCall = recordSoilReading.mock.calls[recordSoilReading.mock.calls.length - 1]!;
+    expect(lastCall[1]).toMatchObject({ verdict: 'WATER_NOW' });
+    expect(lastCall[1]).not.toHaveProperty('wateringRelation');
+  });
+
+  // A previously-given answer must not survive a mid-session switch TO WATER_NOW: answer the question on a
+  // watering day, THEN change the verdict to WATER_NOW, and confirm the stale answer never reaches the API
+  // even if the owner switches back to a verdict that would show the control again.
+  it('drops a previously-given answer when the verdict switches to WATER_NOW mid-session', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(5);
+    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click'); // AFTER
+
+    await verdictSegOnWateringDay(w).findAll('button')[2]!.trigger('click'); // WATER_NOW
+    expect(wateringRelationSeg(w)).toBeUndefined();
+
+    // Switch back to NONE (verdict index 0): the control reappears, unanswered — never the stale AFTER.
+    // Located by label again — with the relation control hidden (WATER_NOW), the verdict picker is now the
+    // second `.mp-seg` rather than the third, another index shift `verdictSegButtons` would miss.
+    await verdictSegOnWateringDay(w).findAll('button')[0]!.trigger('click');
+    const buttonsAgain = wateringRelationSeg(w)!.findAll('button');
+    expect(buttonsAgain.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
   });
 });
 

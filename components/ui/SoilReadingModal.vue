@@ -120,6 +120,21 @@ watch(measuredOn, () => {
   serverSaysWateringDay.value = false;
 });
 
+// A WATER_NOW reading is, by construction, taken BEFORE the watering it causes — the API now always records
+// BEFORE for it and rejects the field outright, so asking (and sending) the relation here would be a question
+// the modal discards. `showWateringRelation` below is the single source of truth for "ask/show/send it", and
+// this watcher clears a stale answer the instant the owner flips the verdict TO WATER_NOW, so switching AWAY
+// and back never resubmits a leftover AFTER/BEFORE that no longer describes anything.
+watch(verdict, (v) => {
+  if (v === 'WATER_NOW') wateringRelation.value = '';
+});
+
+// Single source of truth for "ask the same-day-watering question at all": a watering day (per the owner's
+// ruling above) AND not a WATER_NOW verdict — a WATER_NOW reading always anchors BEFORE its watering, so the
+// question the modal would otherwise ask has no answer left to give. Drives the FormGroup's `v-if`, `canSubmit`
+// and the payload alike, so the three can never drift out of sync with each other again.
+const showWateringRelation = computed(() => isWateringDay.value && verdict.value !== 'WATER_NOW');
+
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
 // shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
 // record a fully-wet `w = 1.0` reading with no complaint anywhere, corrupting the slope fit this whole
@@ -144,8 +159,9 @@ const rawValueErrorMessage = computed(() => {
 const canSubmit = computed(() =>
   instrumentId.value !== '' && rawValue.value != null && !submitting.value && !rawValueOutOfRange.value &&
   (verdict.value !== 'POSTPONE' || postponeToOn.value !== '') &&
-  // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown.
-  (!isWateringDay.value || wateringRelation.value !== '') &&
+  // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — and it is
+  // never shown for WATER_NOW (see `showWateringRelation`), so a WATER_NOW reading needs no answer here.
+  (!showWateringRelation.value || wateringRelation.value !== '') &&
   (!needsCalibration.value ||
     (calibration.saturatedValue != null && calibration.dryValue != null &&
      calibration.saturatedValue > calibration.dryValue)));
@@ -171,9 +187,10 @@ async function submit() {
       measuredOn: measuredOn.value,
       verdict: verdict.value,
       ...(verdict.value === 'POSTPONE' ? { postponeToOn: postponeToOn.value } : {}),
-      // Sent ONLY when the question was actually asked (`isWateringDay`) — `canSubmit` already guarantees
-      // it was answered whenever that holds, so the cast is safe.
-      ...(isWateringDay.value ? { wateringRelation: wateringRelation.value as WateringRelation } : {}),
+      // Sent ONLY when the question was actually asked (`showWateringRelation`, which already excludes
+      // WATER_NOW — the API always records BEFORE for it and rejects the field) — `canSubmit` already
+      // guarantees it was answered whenever that holds, so the cast is safe.
+      ...(showWateringRelation.value ? { wateringRelation: wateringRelation.value as WateringRelation } : {}),
     }, idempotencyKey.value);
     open.value = false;
     emit('saved');
@@ -275,10 +292,12 @@ const wateringRelationOptions = computed(() => [
         <Input v-model="measuredOn" type="date" :max="todayYmd()" />
       </FormGroup>
 
-      <!-- Owner-ruled (2026-08-08): shown ONLY on a day the plant was also watered — never a default, never
-           pre-selected. Two options → segmented control, same rule the instrument picker above follows. -->
+      <!-- Owner-ruled (2026-08-08): shown ONLY on a day the plant was also watered AND the verdict is not
+           WATER_NOW — never a default, never pre-selected, and never asked when the answer would be
+           discarded (see `showWateringRelation`). Two options → segmented control, same rule the instrument
+           picker above follows. -->
       <FormGroup
-        v-if="isWateringDay"
+        v-if="showWateringRelation"
         :label="t('reading.wateringRelationLabel')"
         :hint="t('reading.wateringRelationHint')"
         required

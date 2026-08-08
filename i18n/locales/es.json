@@ -127,8 +127,17 @@
     },
     "substrate": {
       "fertilizeFloor": "Suponemos que el sustrato todavía tiene algo de alimento — primera fertilización estimada para el {date}.",
-      "repotDriverCrowding": "La estimación del motor se basa en qué tan apretada está la planta en su maceta.",
       "repotDriverSubstrate": "La estimación del motor se basa en que el sustrato se está agotando, no en la falta de espacio.",
+      "repotDriverEvidence": "La estimación del motor se basa en lo que hemos medido de esta planta: su tamaño, su maceta y su historial de riego.",
+      "repotDriverSpeciesDefault": "La estimación del motor es la frecuencia habitual de la especie — todavía no tenemos suficientes mediciones de esta planta.",
+      "repotReasonNotApplicable": "En una planta colgante la altura no dice qué tan apretadas están las raíces, así que aquí no hay nada más que agregar.",
+      "repotReasonMissing": "Agrega los datos que faltan y podremos estimar con esta planta: {fields}.",
+      "repotReasonStale": "La última altura que tenemos ya está muy vieja para confiar en ella — registra una nueva y estimaremos con esta planta.",
+      "repotReasonFieldHeightCm": "su altura",
+      "repotReasonFieldPotSizeCm": "el diámetro de la maceta",
+      "repotReasonFieldGrowthHabit": "su hábito de crecimiento",
+      "fertilizeOverrideFloor": "Lo retrasamos respecto al día que elegiste: la tierra de esta maceta todavía tiene alimento, y fertilizar encima acumula sales.",
+      "fertilizeOverrideSnap": "Lo movimos al siguiente día de riego — el fertilizante se aplica disuelto en agua, sobre tierra que ya está húmeda.",
       "repotOverrideOwner": "Tú pospusiste este recordatorio a la fecha que ves.",
       "repotOverrideEvaluation": "Tu última revisión dijo que todavía no es momento, así que movimos este recordatorio a la fecha que ves.",
       "repotOverrideMoved": "Este recordatorio se movió a la fecha que ves."
@@ -330,7 +339,15 @@
     "substrateFresh": "Sí, mezcla fresca",
     "substrateReused": "Reutilizado / inerte",
     "sameAsBefore": "Igual que antes",
-    "confirm": "Marcar como trasplantada"
+    "confirm": "Marcar como trasplantada",
+    "occurredOn": "¿Cuándo la trasplantaste?",
+    "occurredOnHint": "Por defecto es hoy. Este es el día desde el que empieza a correr el reloj del sustrato."
+  },
+  "soilMixChanged": {
+    "title": "Actualizamos el modelo de riego",
+    "body": "La nueva mezcla ya cambia cómo estimamos el riego. Para mover también el reloj de fertilización necesitamos el día en que realmente cambiaste la tierra.",
+    "action": "Registrar cambio de tierra",
+    "dismiss": "Ahora no"
   },
   "plantPhoto": {
     "alt": "Foto de {name}",

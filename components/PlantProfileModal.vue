@@ -7,7 +7,7 @@ import type { PlantProfile, PlantProfileUpdate } from '../types/api.js';
 import type { GrowthHabit } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
 
 const props = defineProps<{ plantId: string; speciesGrowthHabit?: GrowthHabit | null }>();
-const emit = defineEmits<{ saved: [] }>();
+const emit = defineEmits<{ saved: [{ soilMixChanged: boolean }] }>();
 const open = defineModel<boolean>({ default: false });
 
 const { t } = useI18n();
@@ -24,6 +24,9 @@ const saving = ref(false);
 const windowDistance = ref('');
 const potType = ref('');
 const soilMix = ref('');
+// Snapshot of the LOADED soil mix, so `save()` can report whether the owner actually changed it (A3,
+// spec §2.3) — the modal reports the fact upward; it does not act on it. See `save()`.
+const loadedSoilMix = ref('');
 const growthHabit = ref('');
 const growLight = ref(false);
 const hasDrainage = ref(false);
@@ -66,6 +69,7 @@ watch(open, async (isOpen) => {
     windowDistance.value = p.windowDistance ?? '';
     potType.value = p.potType ?? '';
     soilMix.value = p.soilMix ?? '';
+    loadedSoilMix.value = soilMix.value;
     growthHabit.value = p.growthHabit ?? '';
     growLight.value = p.growLight === true;
     hasDrainage.value = p.hasDrainage === true;
@@ -103,7 +107,14 @@ async function save() {
       ageMonths: num(ageMonths.value),
     };
     await api.updatePlantProfile(props.plantId, patch);
-    emit('saved');
+    // A3 (spec §2.3) — report the fact, do not act on it. The mix says HOW MUCH charge; the refresh date
+    // says FROM WHEN, and with no date there is no fertilize clock to anchor. Saving a new mix therefore
+    // correctly changes the WATERING model (the mix carries W_SOIL weight in the optional channel) and
+    // correctly changes nothing for feeding — which the owner read as "the engine is broken" and answered
+    // with a manual postpone, which is what set up A1. The plant page turns this flag into the existing
+    // repot-completion flow; this modal adds NO fourth writer of `substrate_refreshed_on`.
+    const soilMixChanged = (soilMix.value || null) !== (loadedSoilMix.value || null);
+    emit('saved', { soilMixChanged });
     open.value = false;
   } finally {
     saving.value = false;

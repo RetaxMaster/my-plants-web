@@ -234,4 +234,37 @@ describe('SoilReadingModal', () => {
     await w.setProps({ open: true });
     expect(instrumentSegButtons(w)[1]!.attributes('aria-pressed')).toBe('true');
   });
+
+  // Fix wave 1, item 3: `min`/`max` attributes on a number input do NOT block a click-submit, and the
+  // shared Zod schema requires only a finite number — typing `55` on the 1–10 galvanic probe used to
+  // record a fully-wet `w = 1.0` reading with no complaint anywhere, corrupting the slope fit this whole
+  // feature exists to protect. The gate lives in `canSubmit`, the same shape as RepotDoneForm.vue's own
+  // `potSizeValid`/`potSizeInvalid` pair.
+  it('blocks submit and marks the field invalid when the raw value is outside the instrument\'s declared ' +
+    'range (fix wave 1, item 3)', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] })); // rawMin 1, rawMax 10
+    const input = w.find('input[type="number"]');
+    await input.setValue(55);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    expect(input.attributes('aria-invalid')).toBe('true');
+  });
+
+  it('allows submit again once the raw value is back within range', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+    const input = w.find('input[type="number"]');
+    await input.setValue(55);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    await input.setValue(7);
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+    expect(input.attributes('aria-invalid')).toBeUndefined();
+  });
+
+  // The kitchen scale declares NO `rawMax` (grams are open-ended) — it must stay unrestricted.
+  it('never restricts the kitchen scale — grams are open-ended, no declared rawMax', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+    const input = w.find('input[type="number"]');
+    await input.setValue(999999);
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+    expect(input.attributes('aria-invalid')).toBeUndefined();
+  });
 });

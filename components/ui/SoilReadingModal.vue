@@ -91,8 +91,29 @@ const needsCalibration = computed(() =>
 // helper builds the string from local Date components so it does not.
 const measuredOn = ref(todayYmd());
 
+// FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
+// shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
+// record a fully-wet `w = 1.0` reading with no complaint anywhere, corrupting the slope fit this whole
+// feature exists to protect. The server's own clamp stays untouched (docs/care-engine.md §7.20.2 rules it
+// the honest treatment of an out-of-range reading) — this is a CLIENT-side gate so the owner never reaches
+// it by accident. Gated on `rawMax` being DECLARED: the kitchen scale's `rawMax` is `null` (grams are
+// open-ended) and must stay unrestricted, same convention `RepotDoneForm.vue`'s `potSizeValid`/
+// `potSizeInvalid` pair already uses for its own bounded numeric field.
+const rawValueOutOfRange = computed(() => {
+  const max = instrument.value?.rawMax;
+  if (max == null || rawValue.value == null) return false;
+  return rawValue.value < instrument.value!.rawMin || rawValue.value > max;
+});
+// Shown only once the owner has typed SOMETHING — an empty field is simply "not filled in yet" (canSubmit
+// already gates on that), never an inline error of its own. Same shape as RepotDoneForm.vue's own
+// `potSizeErrorMessage`.
+const rawValueErrorMessage = computed(() => {
+  if (rawValue.value == null || !rawValueOutOfRange.value) return undefined;
+  return t('reading.valueOutOfRange', { min: instrument.value!.rawMin, max: instrument.value!.rawMax });
+});
+
 const canSubmit = computed(() =>
-  instrumentId.value !== '' && rawValue.value != null && !submitting.value &&
+  instrumentId.value !== '' && rawValue.value != null && !submitting.value && !rawValueOutOfRange.value &&
   (verdict.value !== 'POSTPONE' || postponeToOn.value !== '') &&
   (!needsCalibration.value ||
     (calibration.saturatedValue != null && calibration.dryValue != null &&
@@ -169,7 +190,10 @@ const verdictOptions = computed(() => [
         :unit-label="t(`settings.instruments.unit.${instrument.id}`)"
       />
 
-      <FormGroup :label="t('reading.value', { unit: instrument ? t(`settings.instruments.unit.${instrument.id}`) : '' })">
+      <FormGroup
+        :label="t('reading.value', { unit: instrument ? t(`settings.instruments.unit.${instrument.id}`) : '' })"
+        :error="rawValueErrorMessage"
+      >
         <Input
           v-model.number="rawValueField"
           type="number"
@@ -177,6 +201,7 @@ const verdictOptions = computed(() => [
           :min="instrument?.rawMin"
           :max="instrument?.rawMax ?? undefined"
           :step="instrument?.rawStep"
+          :error="rawValueErrorMessage"
         />
       </FormGroup>
 

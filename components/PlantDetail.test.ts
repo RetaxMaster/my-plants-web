@@ -29,6 +29,10 @@ import es from '../i18n/locales/es.json';
 // still sitting in the store when the NEXT describe block (e.g. U2) mounts a fresh PlantDetail and opens
 // the Done form for 'p1' again — read as a resume it never asked for, with a STALE stored envelope.
 import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttempt';
+// Task 28 — several `UiRepotDoneForm` stubs below mimic the REAL component's own default (`seedOccurredOn
+// || todayYmd()`, see components/ui/RepotDoneForm.vue), never a second ad-hoc "today" computation of their
+// own (the project's "no new forks" rule).
+import { todayYmd } from '../utils/localDate.js';
 
 const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en, es } }).global;
 
@@ -501,7 +505,10 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
       emits: ['confirm', 'start-over'],
       template:
         '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        // Task 28: the real form's `confirm` payload always carries `occurredOn` now — this test does not
+        // assert on its value, so a literal keeps the stub faithful to the widened contract without
+        // pulling in the seed/frozen-snapshot machinery the OTHER describe blocks below exercise.
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: \'2026-01-01\' })">confirm</button>' +
         '</div>',
     },
   };
@@ -666,7 +673,9 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
       emits: ['confirm', 'start-over', 'update:open'],
       template:
         '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        // Task 28: literal `occurredOn` — this test does not assert on its value, only that the SAME key
+        // is resent on resume; see the seed/frozen-snapshot-driven stubs below for the tests that do care.
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: \'2026-01-01\' })">confirm</button>' +
         // A close button that drives the REAL v-model:open contract (X/Escape/backdrop in the real
         // component), never an internal function — this is how the resume test simulates the owner
         // dismissing the form without resolving an outstanding confirm.
@@ -765,13 +774,15 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
   });
 });
 
-// U2: PlantDetail.vue recomputes `occurredOn` via `today()` on EVERY confirm click — including a retry —
-// unlike pages/index.vue's module-level constant (that asymmetry is exactly what U2's ruling names). The
-// recompute is safe ONLY because `beginDoneAttempt` freezes the WHOLE envelope on the attempt the moment
-// the key is minted and resends the STORED envelope (never a freshly recomputed one) on every retry. This
-// test proves that by moving the SYSTEM CLOCK itself across a simulated midnight rollover between the
-// failed confirm and the retry — i.e. by controlling what `todayYmd()` (which `today()` calls) actually
-// reads, never by editing the handler.
+// U2, updated for Task 28: `occurredOn` is no longer re-derived by PlantDetail.vue itself — it now arrives
+// WITH the `UiRepotDoneForm` confirm payload (the form is the one editable date seam, Task 25), and
+// `onRepotDoneConfirm` forwards `payload.occurredOn` verbatim. The freeze U2 originally proved still holds,
+// one level up: `beginDoneAttempt` snapshots the WHOLE envelope the moment the key is minted and resends the
+// STORED envelope (never a freshly-passed one) on every retry. This test proves that by moving the SYSTEM
+// CLOCK across a simulated midnight rollover between the failed confirm and the retry — the stub's own
+// `occurredOn` recomputes (mirroring the real form's `seedOccurredOn || todayYmd()` default), yet the
+// SECOND `completeRepot` call must still carry the FIRST value, because `begin()`'s resume path ignores
+// whatever body a retry passes in.
 describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a simulated midnight rollover', () => {
   function deferred<T>() {
     let resolve!: (v: T) => void;
@@ -802,11 +813,16 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
         '</div>',
     },
     UiRepotDoneForm: {
-      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
       emits: ['confirm', 'start-over', 'update:open'],
+      // `todayYmd` exposed as a METHOD (not a bare template reference) — Vue's runtime template compiler
+      // resolves identifiers off the component instance, so a plain import is invisible inside `template:
+      // '…'` unless it is exposed this way. Mirrors the REAL form's own default exactly (`seedOccurredOn ||
+      // todayYmd()`, see components/ui/RepotDoneForm.vue's `watch(open, …)`), never a second ad-hoc "today".
+      methods: { todayYmd },
       template:
         '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: seedOccurredOn || todayYmd() })">confirm</button>' +
         '</div>',
     },
   };
@@ -923,7 +939,7 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
       emits: ['confirm', 'start-over', 'update:open'],
       template:
         '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-submitting="submitting">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: \'2026-01-01\' })">confirm</button>' +
         '</div>',
     },
   };
@@ -1054,7 +1070,7 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
       emits: ['confirm', 'start-over', 'update:open'],
       template:
         '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-error="error">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: \'2026-01-01\' })">confirm</button>' +
         '</div>',
     },
   };
@@ -1184,12 +1200,17 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
         '<button class="done-dated-btn" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-01\' })">done dated</button>' +
         '</div>',
     },
+    // Task 28: `seedOccurredOn` is what carries the card's back-date INTO the form now (`onRepotDone` sets
+    // `doneFormOccurredOn`, passed down as `:seed-occurred-on`); the form's own `confirm` payload is what
+    // reaches `onRepotDoneConfirm`. This stub mirrors the real form's default exactly (`seedOccurredOn ||
+    // todayYmd()`), so it stays faithful to the widened emit contract Task 25 shipped.
     UiRepotDoneForm: {
-      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
       emits: ['confirm', 'start-over', 'update:open'],
+      methods: { todayYmd },
       template:
         '<div class="done-form" :data-open="open">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: seedOccurredOn || todayYmd() })">confirm</button>' +
         '</div>',
     },
   };
@@ -1303,12 +1324,17 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
         '<button class="done-aug5" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-05\' })">done 08-05</button>' +
         '</div>',
     },
+    // Task 28: `seedOccurredOn` is what the card's date now reaches the form THROUGH (`onRepotDone` sets
+    // `doneFormOccurredOn`, passed down as `:seed-occurred-on`), and the form's own `confirm` payload is
+    // what `onRepotDoneConfirm` reads `occurredOn` from — never `doneFormOccurredOn` directly any more.
+    // This stub mirrors the real form's default (`seedOccurredOn || todayYmd()`) to stay faithful to that.
     UiRepotDoneForm: {
-      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
       emits: ['confirm', 'start-over', 'update:open'],
+      methods: { todayYmd },
       template:
         '<div class="done-form" :data-open="open" :data-frozen="frozen">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: 26, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: 26, soilMix: currentSoilMix, charged: true, occurredOn: seedOccurredOn || todayYmd() })">confirm</button>' +
         // The REAL v-model:open contract (X/Escape/backdrop) — the owner dismissing the form to go back to
         // the card and change the date, which is the only way to reach the date input at all.
         '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
@@ -1456,5 +1482,186 @@ describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
     expect(modal.attributes('data-open')).toBe('true');
     expect(modal.attributes('data-checked')).toBe('s1');
     expect(modal.attributes('data-signs')).toBe('2');
+  });
+});
+
+// Task 28 — the integration point for A1 (the FERTILIZE override explanation, `fertilizeExplanation.ts`,
+// Task 24), A3's repot-form date seed (`doneFormOccurredOn` -> `seed-occurred-on`, Task 25/26), and A3's
+// soil-mix-changed affordance (`PlantProfileModal`'s widened `saved` emit, Task 27). Each of those pieces
+// already has its own dedicated unit test; this file's job is proving PlantDetail.vue actually WIRES them
+// together, since it is the only place all three meet.
+describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s date seed, and the soil-mix-changed affordance', () => {
+  const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
+
+  function careWith(fertilize: { overrideOn: string | null; overrideMovedBy: Array<'FLOOR' | 'SNAP'> }) {
+    return {
+      plantId: 'p1',
+      tasks: [
+        { task: 'FERTILIZE', status: 'today', daysUntilDue: 0, pendingEvaluation: null },
+        { task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null },
+      ],
+      fertilize,
+    };
+  }
+
+  // A faithful-enough TaskRow: renders the task code and the explanation prop as inspectable text (like the
+  // "ticked sign ids" describe block above does for its own modal), and re-emits the SAME `{ task,
+  // occurredOn }` shape `withDoneDate` produces on the real component.
+  const UiTaskRowStub = {
+    props: ['task', 'explanation'],
+    emits: ['done'],
+    template:
+      '<div class="task-row" :data-task="task">' +
+      '<span class="task-explanation">{{ explanation }}</span>' +
+      '<button class="done-btn" @click="$emit(\'done\', { task: task, occurredOn: \'2026-08-01\' })">done</button>' +
+      '</div>',
+  };
+  // PlantProfileModal's real `saved` emit (Task 27) — two buttons stand in for the two outcomes `save()`
+  // reports (an actual mix change vs. a save that left it untouched).
+  const PlantProfileModalStub = {
+    props: ['modelValue', 'plantId'],
+    emits: ['update:modelValue', 'saved'],
+    template:
+      '<div v-if="modelValue" class="profile-modal">' +
+      '<button class="save-changed-btn" @click="$emit(\'saved\', { soilMixChanged: true })">save (changed)</button>' +
+      '<button class="save-unchanged-btn" @click="$emit(\'saved\', { soilMixChanged: false })">save (unchanged)</button>' +
+      '</div>',
+  };
+  const UiRepotDoneFormStub = {
+    props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
+    emits: ['confirm', 'start-over', 'update:open'],
+    methods: { todayYmd },
+    template:
+      '<div class="done-form" :data-open="open" :data-seed="seedOccurredOn">' +
+      '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, ' +
+      'charged: true, occurredOn: seedOccurredOn || todayYmd() })">confirm</button>' +
+      '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
+      '</div>',
+  };
+  // The real component (never stubbed to `true`) — this describe block's whole point is that its `title`/
+  // `description`/default-slot buttons actually reach the owner, which an auto-stub would swallow.
+  const UiAlertStub = {
+    props: ['color', 'title', 'description'],
+    template:
+      '<div class="stub-alert" :data-color="color">' +
+      '<span class="alert-title">{{ title }}</span><span class="alert-desc">{{ description }}</span>' +
+      '<slot />' +
+      '</div>',
+  };
+
+  const localStubs = {
+    ...stubs,
+    UiTaskRow: UiTaskRowStub,
+    PlantProfileModal: PlantProfileModalStub,
+    UiRepotDoneForm: UiRepotDoneFormStub,
+    UiAlert: UiAlertStub,
+  };
+
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    completeRepotMock = vi.fn(async () => ({ ok: true }));
+  });
+
+  async function mountWith(fertilize: { overrideOn: string | null; overrideMovedBy: Array<'FLOOR' | 'SNAP'> }) {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => careWith(fertilize),
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: localStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  function taskRow(w: Awaited<ReturnType<typeof mountWith>>, task: string) {
+    const row = w.findAll('.task-row').find((r) => r.attributes('data-task') === task);
+    if (!row) throw new Error(`no task row for "${task}"`);
+    return row;
+  }
+
+  it('renders the FERTILIZE explanation sentence beside the FERTILIZE task', async () => {
+    const w = await mountWith({ overrideOn: '2026-08-10', overrideMovedBy: ['FLOOR'] });
+    expect(taskRow(w, 'FERTILIZE').find('.task-explanation').text())
+      .toBe(i18n.t('taskInfo.substrate.fertilizeOverrideFloor'));
+  });
+
+  it('renders BOTH fertilize sentences when both causes acted', async () => {
+    // Listed SNAP-then-FLOOR in the payload — the util sorts FLOOR (the cause) before SNAP (the
+    // consequence) regardless of wire order, so this also pins that ordering through the real component.
+    const w = await mountWith({ overrideOn: '2026-08-10', overrideMovedBy: ['SNAP', 'FLOOR'] });
+    expect(taskRow(w, 'FERTILIZE').find('.task-explanation').text()).toBe(
+      `${i18n.t('taskInfo.substrate.fertilizeOverrideFloor')} ${i18n.t('taskInfo.substrate.fertilizeOverrideSnap')}`,
+    );
+  });
+
+  it('passes the card\'s shown date into the repot form as its seed', async () => {
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    await taskRow(w, 'REPOT').find('.done-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-seed')).toBe('2026-08-01');
+  });
+
+  it('opens the repot form automatically when the profile save reports a soil-mix change', async () => {
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    await findButtonByText(w, 'Add missing info').trigger('click');
+    await flushPromises();
+    await w.find('.save-changed-btn').trigger('click');
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.stub-alert').exists()).toBe(true);
+  });
+
+  it('does NOT open it when the profile was saved without changing the mix', async () => {
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    await findButtonByText(w, 'Add missing info').trigger('click');
+    await flushPromises();
+    await w.find('.save-unchanged-btn').trigger('click');
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+    expect(w.find('.stub-alert').exists()).toBe(false);
+  });
+
+  it('keeps a persistent affordance after the form is dismissed — the fertilize clock still needs a date', async () => {
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    await findButtonByText(w, 'Add missing info').trigger('click');
+    await flushPromises();
+    await w.find('.save-changed-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.stub-alert').exists()).toBe(true);
+
+    // Dismiss the form via its own v-model:open contract (X/Escape/backdrop) WITHOUT confirming — the
+    // affordance must survive this, because dismissing the modal never answered the question it asks.
+    await w.find('.close-btn').trigger('click');
+    await flushPromises();
+
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+    expect(w.find('.stub-alert').exists()).toBe(true);
+  });
+
+  it('the affordance disappears once a repot is recorded', async () => {
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    await findButtonByText(w, 'Add missing info').trigger('click');
+    await flushPromises();
+    await w.find('.save-changed-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.stub-alert').exists()).toBe(true);
+
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    expect(w.find('.stub-alert').exists()).toBe(false);
   });
 });

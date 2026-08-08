@@ -279,22 +279,30 @@ describe('UiTaskRow — allowStandaloneDone: Done beside "time to evaluate", on 
     }
   });
 
-  // "…and ideally I can set the date too." The back-date input is the one that already exists
-  // (`withDoneDate`), reaching the standalone branch and emitting through the same `done` payload — never a
-  // second date mechanism.
-  it('carries the back-date through the standalone branch, on the SAME withDoneDate input every other task uses', async () => {
+  // Rewritten (fix-taskrow-repot-date). This pair used to read "…and ideally I can set the date too" and
+  // proved it by calling `setValue` on the box — but `allowStandaloneDone` does NOT change what makes this
+  // input readonly: `:readonly="task === 'REPOT'"` (TaskRow.vue) is unconditional on the task alone, so the
+  // standalone branch's back-date is JUST as readonly as the classic one. A real owner cannot type a custom
+  // historical date here either way — `PlantDetail.vue`'s `onDone` always routes a REPOT Done through
+  // `onRepotDone`, which opens `RepotDoneForm` (Task 25's own, genuinely editable, `occurredOn` field) —
+  // that form is where "I repotted it a few days ago" actually gets recorded, never this card.
+  it('the standalone-Done branch back-date is readonly too — the box shows (and Done emits) the seeded default, not a value typed here', async () => {
     const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true, withDoneDate: true });
     const input = w.find('input[type="date"]');
-    expect(input.exists()).toBe(true);
-    await input.setValue('2026-08-01');
+    expect(input.attributes('readonly')).toBeDefined();
+    expect((input.element as HTMLInputElement).value).toBe(todayYmd());
+
     await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
-    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: '2026-08-01' }]);
+    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: todayYmd() }]);
   });
 
-  it('leaves occurredOn undefined when the owner types no date — "today", decided by the caller', async () => {
+  // A REPOT `occurredOn: undefined` is no longer reachable at all: the field that used to go blank when
+  // "the owner typed no date" is READONLY now (Task 26), so there is no owner action that leaves it empty —
+  // it always carries the seeded default. `allowStandaloneDone` makes no difference to that.
+  it('never emits occurredOn: undefined for REPOT any more — the readonly field cannot be left blank', async () => {
     const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true, withDoneDate: true });
     await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
-    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: undefined }]);
+    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: todayYmd() }]);
   });
 });
 
@@ -341,11 +349,33 @@ describe('UiTaskRow — the REPOT back-date is display-only, seeding the complet
     expect(input.attributes('readonly')).toBeDefined();
   });
 
-  it('REPOT: it still EMITS the shown date, so the form is seeded with it', async () => {
+  // Rewritten (fix-taskrow-repot-date). The previous version of this test called `setValue('2026-08-01')`
+  // on the readonly input before asserting the emit — a REAL owner cannot type into a `readonly` field at
+  // all (no keyboard entry, no picker), so that call proved the wiring FROM the input to the emit works,
+  // never that the input actually HAS a shown value to emit. It was a false green: `doneDate` shipped
+  // initialized to `''` and never seeded for REPOT, so in a real browser the field rendered BLANK and Done
+  // emitted `occurredOn: undefined` — this exact test still passed throughout, because `setValue` supplied
+  // the missing value the component itself was failing to produce. The fix asserts the REAL rendered value
+  // directly — no `setValue` — then confirms that same value is what gets emitted.
+  it('REPOT: the input is seeded with a real shown date (today) — not blank — and that is what gets emitted', async () => {
     const w = mountRow({ withDoneDate: true, pendingVerdict: 'REPOT' });
-    await w.find('input[type="date"]').setValue('2026-08-01');
+    const input = w.find('input[type="date"]').element as HTMLInputElement;
+    expect(input.value).toBe(todayYmd());
+
     await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
-    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: '2026-08-01' }]);
+    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: todayYmd() }]);
+  });
+
+  // The seam substrate:29 depends on (`pages/index.vue`'s `seed-occurred-on`) does not render this input at
+  // all — the Today page never passes `withDoneDate` — so the seed must survive independently of the input
+  // being on screen: a real value must flow through the `done` emit even when there is nothing to read it
+  // off of in the DOM.
+  it('REPOT: emits a real occurredOn even when the back-date input never renders (withDoneDate omitted, pages/index.vue\'s shape)', async () => {
+    const w = mountRow({ pendingVerdict: 'REPOT' });
+    expect(w.find('input[type="date"]').exists()).toBe(false);
+
+    await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
+    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: todayYmd() }]);
   });
 
   it('every OTHER task keeps an editable back-date, unchanged', () => {

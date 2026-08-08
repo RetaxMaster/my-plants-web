@@ -1733,15 +1733,33 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
     emits: ['saved'],
     template: '<button class="reading-saved-btn" @click="$emit(\'saved\')" />',
   };
+  // The base map stubs UiTaskRow inert; this block needs to fire its real `done` event for the WATER row,
+  // which is what reaches `sendDone`.
+  const taskRowStub = {
+    props: ['task', 'status', 'nextDueOn', 'daysUntilDue', 'pendingVerdict', 'suggestMeasuring'],
+    emits: ['done'],
+    template: '<button :class="`done-btn-${task}`" @click="$emit(\'done\', { task })" />',
+  };
 
-  async function mountDetailForReading(plant: ReturnType<typeof basePlant>) {
+  async function mountDetailForReading(plant: ReturnType<typeof basePlant>, care: unknown = null) {
     stubApi(plant);
+    if (care !== null) {
+      // The shared `stubApi` returns a null care payload (no task rows). The WATER-done case below needs a
+      // real WATER row to click, so layer that one field over the shared stub rather than forking it.
+      const base = (globalThis as unknown as { useApi: () => Record<string, unknown> }).useApi();
+      // `sendFeedback` is absent from the shared stub (no test in it marks a task done), and without it
+      // `sendDone` would throw before ever reaching its refresh batch — which would make this test pass
+      // for the wrong reason if it asserted the negative.
+      vi.stubGlobal('useApi', () => ({
+        ...base, getPlantCare: async () => care, sendFeedback: vi.fn(async () => ({})),
+      }));
+    }
     const PlantDetail = (await import('./PlantDetail.vue')).default;
     const w = mount(
       { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
       {
         global: {
-          stubs: { ...stubs, UiSoilReadingModal: soilReadingModalStub },
+          stubs: { ...stubs, UiSoilReadingModal: soilReadingModalStub, UiTaskRow: taskRowStub },
           mocks: { $t: i18n.t, $d: (v: unknown) => String(v) },
         },
       },
@@ -1762,6 +1780,30 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
 
     expect(careRefresh).toHaveBeenCalled();
     expect(readingsRefresh).toHaveBeenCalled();
+    expect(historyRefresh).toHaveBeenCalled();
+  });
+
+  // Round-5 finding F1, the PRIMARY half. `readings.wateringDays` is what tells the measuring modal whether
+  // a day carries the same-day question at all, and it is a SNAPSHOT taken at page load. Watering here and
+  // then measuring is the owner's own flow for the saturated anchor (spec §4.6 names it: ask when a WATER
+  // DONE exists on that date "OR THE OWNER RECORDS A WATERING IN THE SAME SESSION"), so a `sendDone` that
+  // does not refresh readings leaves that list stale: the question is never rendered, no answer is sent,
+  // and the API's honest 400 reaches the owner as a generic "save failed" they cannot clear without
+  // reloading. The short-cycle plant the whole ruling was made for is exactly the one that hits it.
+  it('marking WATER done ALSO refreshes readings — otherwise the same-day question never appears', async () => {
+    const w = await mountDetailForReading(basePlant(), {
+      tasks: [{ task: 'WATER', nextDueOn: '2026-08-08', daysUntilDue: 0, status: 'due', pendingEvaluation: null }],
+      viability: null, soilDrynessBeforeWatering: 'half-dry', crowding: null, juvenile: null,
+      substrate: null, measurement: null, fertilize: { overrideOn: null, overrideMovedBy: [] },
+    });
+    expect(readingsRefresh).not.toHaveBeenCalled();
+
+    await w.find('.done-btn-WATER').trigger('click');
+    await flushPromises();
+
+    expect(readingsRefresh).toHaveBeenCalled();
+    // The pre-existing refreshes must survive the addition.
+    expect(careRefresh).toHaveBeenCalled();
     expect(historyRefresh).toHaveBeenCalled();
   });
 });

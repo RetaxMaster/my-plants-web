@@ -61,6 +61,10 @@ const idempotencyKey = ref(crypto.randomUUID());
 // `postponeToOn` are the two date fields: a stale `measuredOn` is the worse of the two, since two readings
 // landing on the same date is a zero-span pair that corrupts the drying-rate slope fit — the exact data
 // quality this whole feature exists to protect.
+// The server told us this day carries a watering even though our cached `wateringDays` did not name it —
+// see the 400 branch in `submit()`. Reset with everything else on reopen and whenever the date changes.
+const serverSaysWateringDay = ref(false);
+
 watch(open, (isOpen) => {
   if (!isOpen) return;
   idempotencyKey.value = crypto.randomUUID();
@@ -70,6 +74,7 @@ watch(open, (isOpen) => {
   measuredOn.value = todayYmd();
   postponeToOn.value = '';
   wateringRelation.value = '';
+  serverSaysWateringDay.value = false;
   calibration.saturatedValue = null;
   calibration.dryValue = null;
   // `instrumentId`'s setup-time initializer (`props.data.instruments[0]?.id ?? ''`) can miss the "default
@@ -100,7 +105,8 @@ const measuredOn = ref(todayYmd());
 // Owner-ruled (2026-08-08): the same-day-watering question is asked ONLY when the chosen `measuredOn` is
 // itself a day the plant was watered — asking on every reading would be noise on the overwhelming majority
 // of them, and noise is how a question stops being read.
-const isWateringDay = computed(() => props.data.wateringDays.includes(measuredOn.value));
+const isWateringDay = computed(() =>
+  serverSaysWateringDay.value || props.data.wateringDays.includes(measuredOn.value));
 
 // The answer describes ONE specific day. If the owner changes `measuredOn` — to a non-watering day, where
 // the control disappears entirely, or to a DIFFERENT watering day — a previously-given answer no longer
@@ -108,7 +114,11 @@ const isWateringDay = computed(() => props.data.wateringDays.includes(measuredOn
 // not as a stale pre-selection if the control reappears for a later watering day (that would silently
 // reintroduce the very default/pre-selection the owner ruled against). Cleared unconditionally on every
 // change; harmless when there was nothing to clear.
-watch(measuredOn, () => { wateringRelation.value = ''; });
+watch(measuredOn, () => {
+  wateringRelation.value = '';
+  // The server's reveal was about the PREVIOUS day; a new date must be judged on its own evidence.
+  serverSaysWateringDay.value = false;
+});
 
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
 // shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
@@ -182,6 +192,16 @@ async function submit() {
       error.value = t('reading.alreadyRecorded');
       open.value = false;
       emit('saved');
+    } else if (status === 400 && String(e?.data?.message ?? e?.message ?? '').includes('wateringRelation')) {
+      // DEFENCE IN DEPTH for the same-day question. `wateringDays` is a SNAPSHOT, so it can be behind the
+      // server in two real ways: the owner watered from this same page after it loaded (PlantDetail.vue's
+      // `sendDone` now refreshes it, which is the primary fix), or the reading is back-dated to a watering
+      // day older than the window that list covers. In both cases the server knows the day carries a
+      // watering and refuses honestly — so REVEAL THE QUESTION rather than showing a generic "save failed"
+      // the owner can only clear by reloading. The question is still ASKED, never inferred: we surface it,
+      // the owner answers it, and the retry carries a real answer.
+      serverSaysWateringDay.value = true;
+      error.value = t('reading.wateringRelationRequired');
     } else {
       error.value = t('reading.saveFailed');
     }

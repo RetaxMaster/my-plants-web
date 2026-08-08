@@ -608,7 +608,15 @@ async function sendDone(task: TaskCode, occurredOn?: string, reason?: string) {
   await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
   // A completed action becomes a history item (kind:'action', e.g. "Watered today"), so refresh the
   // timeline in place too — not just the care rows — consistent with the progress-log path.
-  await Promise.all([refresh(), refreshHistory()]);
+  //
+  // ⚠️ AND `readings` — because `readings.wateringDays` is what tells the measuring modal whether a given
+  // day carries the same-day question at all. Watering here and then measuring is the OWNER'S OWN FLOW for
+  // the saturated anchor (spec §4.6: ask "when a WATER DONE exists for that plant on that date, OR THE
+  // OWNER RECORDS A WATERING IN THE SAME SESSION"), and without this refresh that list is stale: the modal
+  // never renders the question, sends no answer, and the API's honest 400 surfaces as a generic "save
+  // failed" the owner cannot clear without reloading the page. The short-cycle plant this ruling was made
+  // for is exactly the one that hits it.
+  await Promise.all([refresh(), refreshHistory(), refreshReadings()]);
 }
 
 async function sendPostpone(task: TaskCode, reason?: string) {

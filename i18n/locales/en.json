@@ -1386,6 +1386,7 @@
     },
     "wateringRelationLabel": "Before or after that day's watering?",
     "wateringRelationHint": "This plant was also watered on that date, so we need to know which side of the watering the reading falls on — it decides which drying cycle it belongs to.",
+    "wateringRelationRequired": "This reading needs to say whether it was taken before or after that day’s watering.",
     "wateringRelation": {
       "before": "Before",
       "after": "After"

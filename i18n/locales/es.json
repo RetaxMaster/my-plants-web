@@ -1386,6 +1386,7 @@
     },
     "wateringRelationLabel": "¿Antes o después del riego de ese día?",
     "wateringRelationHint": "Esta planta también se regó ese día, así que necesitamos saber de qué lado del riego cae la lectura — eso decide a qué ciclo de secado pertenece.",
+    "wateringRelationRequired": "Esta lectura necesita decir si se tomó antes o después del riego de ese día.",
     "wateringRelation": {
       "before": "Antes",
       "after": "Después"

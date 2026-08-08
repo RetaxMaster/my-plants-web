@@ -420,6 +420,39 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
     expect(w.find('[data-modal-stub]').exists()).toBe(false);
   });
 
+  // Round-5 finding F1, defence in depth. `wateringDays` is a SNAPSHOT and can legitimately be behind the
+  // server: the owner waters from the plant page after it loaded (PlantDetail.vue's `sendDone` now refreshes
+  // it — that is the primary fix), or back-dates a reading to a watering day older than the window that list
+  // covers. The server then refuses honestly with a 400 naming the field, and the modal must REVEAL the
+  // question rather than show a generic "save failed" the owner can only clear by reloading. The question is
+  // still ASKED, never inferred — we surface it, the owner answers, the retry carries a real answer.
+  it('a 400 naming wateringRelation REVEALS the question instead of dead-ending on the generic error', async () => {
+    recordSoilReading.mockRejectedValueOnce({
+      statusCode: 400,
+      data: { message: 'wateringRelation is required: this plant was already watered on measuredOn' },
+    });
+    // The cached list does NOT name today — that is precisely the stale-snapshot case.
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    expect(wateringRelationSeg(w)).toBeUndefined();
+
+    await fillAndSubmit(w);
+
+    expect(wateringRelationSeg(w)).toBeDefined();          // the question is now on screen
+    expect(w.text()).toContain('reading.wateringRelationRequired');
+    expect(w.text()).not.toContain('reading.saveFailed');
+    expect(w.find('[data-modal-stub]').exists()).toBe(true); // stays open so the owner can answer
+    expect(w.emitted('saved')).toBeUndefined();              // nothing was recorded
+  });
+
+  it('a 400 about anything ELSE keeps the generic message and does NOT reveal the question', async () => {
+    recordSoilReading.mockRejectedValueOnce({ statusCode: 400, data: { message: 'rawValue must be finite' } });
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    await fillAndSubmit(w);
+
+    expect(w.text()).toContain('reading.saveFailed');
+    expect(wateringRelationSeg(w)).toBeUndefined();
+  });
+
   it('any other error keeps the generic message and leaves the modal open for a genuine retry', async () => {
     recordSoilReading.mockRejectedValueOnce({ statusCode: 500 });
     const w = mountReady();

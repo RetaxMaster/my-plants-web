@@ -129,7 +129,9 @@
       "fertilizeFloor": "Suponemos que el sustrato todavía tiene algo de alimento — primera fertilización estimada para el {date}.",
       "repotDriverCrowding": "La estimación del motor se basa en qué tan apretada está la planta en su maceta.",
       "repotDriverSubstrate": "La estimación del motor se basa en que el sustrato se está agotando, no en la falta de espacio.",
-      "repotOverrideBinding": "Tú pospusiste este recordatorio a la fecha que ves."
+      "repotOverrideOwner": "Tú pospusiste este recordatorio a la fecha que ves.",
+      "repotOverrideEvaluation": "Tu última revisión dijo que todavía no es momento, así que movimos este recordatorio a la fecha que ves.",
+      "repotOverrideMoved": "Este recordatorio se movió a la fecha que ves."
     }
   },
   "health": {

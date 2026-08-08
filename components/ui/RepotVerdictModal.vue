@@ -80,8 +80,16 @@ const body = computed(() => {
 // means root-bound". That reasoning being invisible is what made a flat "not yet" read as the app ignoring
 // the owner.
 //
-// So: name the strongest sign in THIS plant's own catalogue that the owner did not tick
-// (`corroboratingSign`, utils/repotEvaluation.ts — deterministic, ties broken by catalogue order).
+// So: name a sign from THIS plant's own catalogue that the owner did not tick and that would genuinely
+// CORROBORATE what they saw (`corroboratingSign`, utils/repotEvaluation.ts — deterministic, full ties
+// broken by catalogue order).
+//
+// ⚠️ "Corroborate" is the whole rule, and it is narrower than "strongest" (QA round 5, finding 2). The
+// first version asked for the strongest unticked sign, which is a CONSTANT on this branch: `definitive`
+// is the top class, one sign holds it, every species inherits it, and ticking it alone would have ended
+// the questionnaire — so it was always unticked and always won. Every owner, on every species, was told
+// to go and check whether their pot had split. `definitive` is now excluded (it decides, it does not
+// corroborate) and, at equal rank, this species' own sign beats a universal one.
 //
 // ⚠️ PRESENTATION ONLY, and it must stay that way. It changes no engine input, no score, no verdict, no
 // stored value and no request body; it reads two things the caller already had. Nothing is posted.

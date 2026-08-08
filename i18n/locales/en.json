@@ -129,7 +129,9 @@
       "fertilizeFloor": "We're assuming the substrate still holds some food — first feeding estimated for {date}.",
       "repotDriverCrowding": "The engine's estimate is based on how crowded the plant is in its pot.",
       "repotDriverSubstrate": "The engine's estimate is based on the substrate wearing out, not on crowding.",
-      "repotOverrideBinding": "You postponed this reminder to the date shown."
+      "repotOverrideOwner": "You postponed this reminder to the date shown.",
+      "repotOverrideEvaluation": "Your last check said it isn't time yet, so we moved this reminder to the date shown.",
+      "repotOverrideMoved": "This reminder has been moved to the date shown."
     }
   },
   "health": {

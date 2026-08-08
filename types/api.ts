@@ -293,10 +293,18 @@ export interface PlantCare {
    * - `repotDriver` says what the engine's OWN ESTIMATE is based on (substrate wearing out vs. crowding).
    *   This is always knowable and always true regardless of any owner override, so it is null ONLY for a
    *   frozen plant, which has no active REPOT task at all.
-   * - `repotOverrideBinding` separately says whether the owner POSTPONED this reminder to the date
-   *   currently shown — i.e. an active REPOT override's date matches the displayed due date. This can be
-   *   true at the same time `repotDriver` names a driver: the engine's estimate and the owner's
-   *   postponement are independent facts, not competing explanations for a single cause.
+   * - `repotOverrideBinding` separately says whether an active REPOT override's date matches the displayed
+   *   due date — i.e. whether a postponement, from EITHER author, is what is being shown. This can be
+   *   true at the same time `repotDriver` names a driver: the engine's estimate and the postponement
+   *   are independent facts, not competing explanations for a single cause.
+   * - `repotOverrideOrigin` is the THIRD fact, and it exists because reading the second one as "the owner
+   *   postponed this" was wrong (QA round 5, finding 1). A REPOT override is written by two different
+   *   actors: the owner pressing Postpone (`OWNER`), and the questionnaire answering "not yet"
+   *   (`EVALUATION`, which writes no care event and involves no owner decision at all). It is `null`
+   *   EXACTLY when `repotOverrideBinding` is false — with nothing binding there is no author to name.
+   *   Never re-derive it from `pendingEvaluation`: an evaluation returning a `REPOT` verdict deliberately
+   *   leaves an older evaluation-authored override standing, so the latest evaluation names the wrong
+   *   author. The API reads it off the override row itself.
    *
    * Null-tolerant but NOT uniformly nullable: every field may be null EXCEPT `chargeDays` (always a
    * resolved number, 0 when unknown) and `repotOverrideBinding` (always a resolved boolean).
@@ -314,6 +322,10 @@ export interface PlantCare {
     structuralLifeEndsOn: string | null; // YYYY-MM-DD
     repotDriver: 'CROWDING' | 'SUBSTRATE' | null;
     repotOverrideBinding: boolean;
+    /** Optional at the type level for the same rolling-deploy reason the block itself is: an API that does
+     *  not publish it yet must not be read as "the owner postponed it". `repotExplanation` treats an absent
+     *  value as UNKNOWN and says only what is true of both authors. */
+    repotOverrideOrigin?: 'OWNER' | 'EVALUATION' | null;
   };
 }
 

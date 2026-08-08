@@ -102,32 +102,62 @@ describe('RepotVerdictModal — the RE-EVALUATE wording depends on WHICH answer 
 //
 // PRESENTATION ONLY: no engine input, no score, no verdict, no stored value, no request body. The modal
 // posts nothing — it subtracts the ticked ids from the catalogue the questionnaire already fetched.
+//
+// QA round 5, finding 2 rewrote WHICH sign is named. The catalogue below now mirrors a real one: the
+// universal (app-seeded) rows every species inherits, plus one of THIS species' own curated rows. The
+// species row is placed AFTER the universal `strong` deliberately, so only the species preference — never
+// catalogue order — can be what puts it first.
 const catalogue = [
   { id: 'universal--water-runs-through', label: 'Water runs straight through', help: null, evidence: 'strong' as const },
+  { id: 'nephrolepis-exaltata--crowded-clump', label: 'Several crowns pressed together', help: null, evidence: 'strong' as const },
   { id: 'universal--single-root', label: 'A single root is peeking out', help: null, evidence: 'suggestive' as const },
   { id: 'universal--pot-split', label: 'The pot is cracked or split', help: null, evidence: 'definitive' as const },
   { id: 'universal--growth-stalled', label: 'Growth has clearly slowed', help: null, evidence: 'ambiguous' as const },
 ];
 
 describe('RepotVerdictModal — naming a corroborating sign to go and look for', () => {
-  it('names the STRONGEST sign the owner did not tick, on a checked-signs RE-EVALUATE', () => {
+  // REWRITTEN by QA round 5, finding 2. It used to assert the DEFINITIVE sign was named ("The pot is
+  // cracked or split"), which was the defect: `definitive` decides rather than corroborates, it is always
+  // unticked on this branch, and it therefore won every time — 5 of 5 measured verdicts across 4 species
+  // returned that same sentence.
+  it('names the strongest CORROBORATING sign — this species\' own first, and never the definitive one', () => {
     const w = mountModal({
       result: reevaluate, answer: 'signs',
-      signs: catalogue, checkedSignIds: ['universal--water-runs-through'],
+      signs: catalogue, checkedSignIds: ['universal--single-root'],
     });
     expect(w.text()).toContain('repotEval.verdictCorroborateLead');
-    expect(w.text()).toContain('The pot is cracked or split'); // definitive outranks the rest
+    expect(w.text()).toContain('Several crowns pressed together'); // strong, and this species' own
+    expect(w.text()).not.toContain('The pot is cracked or split'); // definitive: decides, never corroborates
     // The verdict copy is not replaced — the suggestion is an addition to it, never a substitute.
     expect(w.text()).toContain('repotEval.verdictSignsReevaluateBody|2026-08-04');
+  });
+
+  it('falls back to a UNIVERSAL sign of the same rank once this species\' own is ticked', () => {
+    const w = mountModal({
+      result: reevaluate, answer: 'signs',
+      signs: catalogue, checkedSignIds: ['nephrolepis-exaltata--crowded-clump'],
+    });
+    expect(w.text()).toContain('Water runs straight through');
   });
 
   it('never suggests a sign the owner already checked', () => {
     const w = mountModal({
       result: reevaluate, answer: 'signs',
-      signs: catalogue, checkedSignIds: ['universal--pot-split', 'universal--water-runs-through'],
+      signs: catalogue,
+      checkedSignIds: ['nephrolepis-exaltata--crowded-clump', 'universal--water-runs-through'],
     });
     expect(w.text()).toContain('A single root is peeking out'); // suggestive, the strongest left
+    expect(w.text()).not.toContain('Water runs straight through');
+  });
+
+  it('says nothing when the only unticked sign left is the DEFINITIVE one — silence beats useless advice', () => {
+    const w = mountModal({
+      result: reevaluate, answer: 'signs', signs: catalogue,
+      checkedSignIds: catalogue.filter((s) => s.evidence !== 'definitive').map((s) => s.id),
+    });
+    expect(w.text()).not.toContain('repotEval.verdictCorroborateLead');
     expect(w.text()).not.toContain('The pot is cracked or split');
+    expect(w.text()).toContain('repotEval.verdictSignsReevaluateBody|2026-08-04');
   });
 
   it('says nothing when the owner has ticked EVERY sign there is — the ordinary copy alone is a complete answer', () => {
@@ -143,7 +173,11 @@ describe('RepotVerdictModal — naming a corroborating sign to go and look for',
     'thing to go and check', () => {
     const w = mountModal({
       result: reevaluate, answer: 'signs', signs: catalogue,
-      checkedSignIds: ['universal--pot-split', 'universal--water-runs-through', 'universal--single-root'],
+      checkedSignIds: [
+        'universal--water-runs-through',
+        'nephrolepis-exaltata--crowded-clump',
+        'universal--single-root',
+      ],
     });
     expect(w.text()).toContain('Growth has clearly slowed');
   });

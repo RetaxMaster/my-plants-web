@@ -645,6 +645,8 @@
     "citiesSub": "Your home & saved cities",
     "movingLabel": "Moving",
     "movingSub": "Simulate a move",
+    "settingsLabel": "Settings",
+    "settingsSub": "Measuring instruments and preferences",
     "signOut": "Sign out",
     "languageSub": "Choose English or Spanish"
   },
@@ -1366,6 +1368,35 @@
     "emptyTitle": "No gifted plants yet",
     "emptyBody": "When you mark a plant as gifted, it will keep its place here."
   },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Preferences for your garden",
+    "instruments": {
+      "title": "What do you measure with?",
+      "lead": "Pick the instruments you own. The app will offer them when you measure a pot's soil.",
+      "compareTitle": "How the instruments compare",
+      "saveFailed": "We couldn't save that. Please try again.",
+      "name": {
+        "galvanic-probe": "Moisture probe",
+        "kitchen-scale": "Kitchen scale"
+      },
+      "unit": {
+        "galvanic-probe": "1–10 index",
+        "kitchen-scale": "grams"
+      },
+      "help": {
+        "galvanic-probe": "A cheap two-prong meter. It reads conductivity, not water, so compare a pot only against itself.",
+        "kitchen-scale": "Weigh the whole pot. Every gram lost is a gram of water, once you record this pot's watered and dry weights."
+      },
+      "table": {
+        "instrument": "Instrument",
+        "unit": "Unit",
+        "comparable": "Compares between pots",
+        "calibration": "Needs a per-pot setup",
+        "note": "Readings are compared against the same pot over time, never between pots — which is why a cheap probe still gives a useful drying rate."
+      }
+    }
+  },
   "theme": {
     "toLight": "Switch to light theme",
     "toDark": "Switch to dark theme"
@@ -1406,6 +1437,10 @@
     "more": {
       "title": "More",
       "description": "Your account, saved cities, moving simulations, and other settings."
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "Preferences for your garden, including the instruments you measure with."
     },
     "admin": {
       "title": "Admin",

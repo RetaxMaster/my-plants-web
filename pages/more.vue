@@ -18,6 +18,7 @@ useSeoMeta({ description: () => t('meta.more.description') });
 const rows = computed(() => [
   { to: '/cities', icon: 'map-pin', label: t('more.citiesLabel'), sub: t('more.citiesSub') },
   { to: '/moving', icon: 'truck', label: t('more.movingLabel'), sub: t('more.movingSub') },
+  { to: '/settings', icon: 'cog-6-tooth', label: t('more.settingsLabel'), sub: t('more.settingsSub') },
 ]);
 
 // Mirror AccountMenu / AppNav logout exactly.

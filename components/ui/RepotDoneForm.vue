@@ -14,6 +14,10 @@ import type { RepotDonePayload } from '~/types/api';
 // imports plant-profile constants from this same module (the project's "no new forks" rule), so this
 // follows the same convention rather than hardcoding `500` here.
 import { POT_SIZE_CM_MAX } from '@retaxmaster/my-plants-species-schema/plant-profile-constants';
+// A3 (spec §2.3) — the SAME local-calendar-day helper every other date-valued form in the app already uses
+// (ProgressForm.vue, pages/plants/new.vue), never a second `new Date().toLocaleDateString('en-CA')` of its
+// own (the project's "no new forks" rule).
+import { todayYmd } from '../../utils/localDate.js';
 import Modal from './Modal.vue';
 import Button from './Button.vue';
 import Alert from './Alert.vue';
@@ -54,9 +58,20 @@ const props = defineProps<{
    * point is recording the repot on the day it actually happened. Taking the whole envelope keeps the ONE
    * source W3 argues for instead of adding a second prop beside it. */
   frozenSnapshot?: { occurredOn: string; payload: Omit<RepotDonePayload, 'evaluationId' | 'refreshedOn'> } | null;
+  /** A3 (spec §2.3) — the ONE date seam. Today the back-date lives on the Today card's own input and is
+   * captured by the caller; this prop is that same value, threaded IN so the form can seed its own field
+   * with it when opened fresh. Absent (or opened from a surface with no back-date input of its own, e.g.
+   * PlantDetail.vue's standalone Done) means "today" — same fallback every other Done path already uses. A
+   * frozen resume ignores this entirely and hydrates from `frozenSnapshot.occurredOn` instead (see
+   * `watch(open, …)` below): the outstanding attempt's own envelope is what a retry will actually send,
+   * and it must never disagree with what is displayed. */
+  seedOccurredOn?: string;
 }>();
 const open = defineModel<boolean>('open', { default: false });
-const emit = defineEmits<{ confirm: [payload: Omit<RepotDonePayload, 'evaluationId'>]; 'start-over': [] }>();
+const emit = defineEmits<{
+  confirm: [payload: Omit<RepotDonePayload, 'evaluationId'> & { occurredOn: string }];
+  'start-over': [];
+}>();
 
 const { t } = useI18n();
 // Same vocabulary AND the same enabled-empty-option construction as PlantProfileModal.vue's soil-mix
@@ -99,6 +114,9 @@ const soilMix = ref<string>('');
 // carryover assumed — the engine may feed sooner). Registration (PlantEditModal's create flow) already
 // offers this same three-way choice; this form offering only two was the defect FIX D closes.
 const substrate = ref<'unknown' | 'fresh' | 'reused'>('unknown');
+// A3 — the ONE editable date surface for one submission (spec §2.3). `YYYY-MM-DD`, same convention as
+// every other calendar-date ref in the app (`todayYmd()`'s own shape).
+const occurredOn = ref('');
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -124,6 +142,11 @@ watch(open, (isOpen) => {
       // concrete mix. Same class of defect as FIX D3 below, which turned an omitted `charged` into a
       // positive "reused" claim the owner never made.
       soilMix.value = props.frozenSnapshot.payload.soilMix ?? '';
+      // A3 — the date a retry will actually send lives in the envelope, one level up from `payload`, exactly
+      // like the three fields above it. Never `props.seedOccurredOn`/`todayYmd()` here: a frozen resume must
+      // display precisely what the outstanding key was minted for, not a fresh read of "today" or of
+      // whatever the caller's own back-date input currently holds.
+      occurredOn.value = props.frozenSnapshot.occurredOn;
       // FIX D3 — `charged` is tri-state by PRESENCE on the wire (see types/api.ts's own comment): `undefined`
       // means "I don't know" and must round-trip back to 'unknown', never silently become 'reused'. The
       // PREVIOUS version of this line (`... ? 'fresh' : 'reused'`) turned an omitted `charged` into 'reused'
@@ -153,6 +176,9 @@ watch(open, (isOpen) => {
   // An owner who cannot make the first claim was left with no way to finish the form at all.
   soilMix.value = props.currentSoilMix ?? '';
   substrate.value = 'unknown';
+  // A3 — a fresh open seeds from the caller's own back-date value (the Today card's input), falling back to
+  // today exactly like every other Done path's own `occurredOn` fallback.
+  occurredOn.value = props.seedOccurredOn || todayYmd();
 });
 
 // FIX C4 — client-side validation so a realistic bad pot-size input (a decimal like `22.5`, or an
@@ -194,7 +220,7 @@ const canConfirm = computed(
 
 function onConfirm() {
   if (!canConfirm.value) return;
-  const payload: Omit<RepotDonePayload, 'evaluationId'> = {
+  const payload: Omit<RepotDonePayload, 'evaluationId'> & { occurredOn: string } = {
     // Explicit `null`, never an omitted key — identical reasoning to `soilMix` just below: a repot replaces
     // the pot, so an omitted key would leave the plant's OLD diameter standing as a claim about a pot it is
     // no longer in, and the crowding ratio would keep being computed from it.
@@ -203,6 +229,9 @@ function onConfirm() {
     // recorded mix in place would keep asserting something that is no longer true about this pot. The
     // owner not knowing what the new medium is does not make the OLD answer correct again.
     soilMix: soilMix.value === '' ? null : soilMix.value,
+    // A3 — the form owns the date now, not the caller (spec §2.3): whatever is currently displayed in the
+    // date field above is exactly what gets sent, whether that came from a fresh seed or a frozen resume.
+    occurredOn: occurredOn.value,
   };
   // FIX D1 — `charged` is included ONLY when the owner gave an actual fresh/reused answer. Building the
   // object WITHOUT the key at all (rather than setting it to `charged: undefined`) is deliberate: either
@@ -226,15 +255,17 @@ function onConfirm() {
 
     <p class="mp-repotdone__intro">{{ t('repotDone.intro') }}</p>
 
-    <!-- The date the retry will actually send. Only rendered while FROZEN, and read from the outstanding
-         attempt's own envelope, because that is the only state in which the owner cannot otherwise see it:
-         the card's back-date input behind this modal stays editable, so it can read one day while the
-         frozen retry carries another. Unfrozen, that input IS the live value and needs no echo here. It is
-         also the field that matters most on this form — `occurredOn` is what dates the repot and with it
-         `substrate_refreshed_on`, the anchor of the substrate clock. -->
-    <p v-if="frozen && frozenSnapshot" class="mp-repotdone__occurredon">
-      {{ t('repotDone.recordingOn', { date: frozenSnapshot.occurredOn }) }}
-    </p>
+    <!-- A3 (spec §2.3) — the ONE editable date surface for one submission, first because it is the question
+         this form is really asking: what day did the repot happen. Seeded from the caller (or today) on a
+         fresh open, hydrated from the outstanding attempt's own envelope on a frozen resume (see
+         `watch(open, …)` above) — so the displayed value and what a retry actually sends can never disagree,
+         the same lockstep every other frozen field on this form already follows. `occurredOn` is also what
+         dates `substrate_refreshed_on`, the anchor of the substrate clock, which is why `max` caps it at
+         today (A4, spec §2.4): a one-digit year typo here silences feeding for over a year with nothing
+         failing. -->
+    <FormGroup :label="t('repotDone.occurredOn')" :hint="t('repotDone.occurredOnHint')">
+      <Input v-model="occurredOn" type="date" :max="todayYmd()" :disabled="frozen" />
+    </FormGroup>
 
     <FormGroup :label="t('repotDone.potSize')" :hint="t('repotDone.potSizeHint')" :error="potSizeErrorMessage">
       <Input
@@ -328,15 +359,6 @@ function onConfirm() {
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
   color: var(--text-muted);
-}
-
-/* Reads as a stated FACT about the pending submission, not as muted supporting prose like the intro above
-   it — so it takes the strong text token, which is also the pair Input/SelectField use for a real value. */
-.mp-repotdone__occurredon {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--text-strong);
 }
 
 .mp-repotdone__potsizeactions {

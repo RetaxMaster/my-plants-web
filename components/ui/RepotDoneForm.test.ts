@@ -8,6 +8,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { ref, computed, watch, inject } from 'vue';
 import { mount } from '@vue/test-utils';
 import RepotDoneForm from './RepotDoneForm.vue';
+// The SAME canonical helper the component itself imports (Task 25/A3) — computing an expected "today" via a
+// second implementation here would be exactly the fork this project's "no new forks" rule forbids, and would
+// silently disagree with the component around a midnight rollover.
+import { todayYmd } from '../../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -200,6 +204,78 @@ describe('RepotDoneForm — frozen while an idempotency key is outstanding (code
   });
 });
 
+// Task 25 (spec §2.3/§2.4, A3/A4). The date the repot is recorded on moves INTO this form: previously it
+// lived on the Today card's own back-date input (or PlantDetail.vue's `today()`), with `frozenSnapshot.
+// occurredOn` surfaced only via a read-only echo paragraph shown while frozen — two live "sources" for one
+// date. Now the form owns a single, always-live date field: seeded from the caller (or today) on a fresh
+// open, hydrated from the outstanding attempt's own envelope on a frozen resume, and EMITTED as part of the
+// confirm payload, so exactly one editable date surface exists for one submission.
+describe('RepotDoneForm — Task 25 (A3/A4): the form owns its own date field', () => {
+  function findConfirmButton(w: ReturnType<typeof mount>) {
+    return w.findAll('button').find((b) => b.text().includes('repotDone.confirm'))!;
+  }
+
+  async function mountReal(props: Record<string, unknown> = {}) {
+    const w = mount(RepotDoneForm, {
+      props: { open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: false, ...props },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    // `watch(open, ...)` only fires on a false→true TRANSITION — same convention as every other describe
+    // block in this file.
+    await w.setProps({ open: true });
+    return w;
+  }
+
+  it('opens with the seeded date, and defaults to today when nothing is seeded', async () => {
+    const seeded = await mountReal({ seedOccurredOn: '2026-07-01' });
+    expect((seeded.find('input[type="date"]').element as HTMLInputElement).value).toBe('2026-07-01');
+
+    const unseeded = await mountReal();
+    expect((unseeded.find('input[type="date"]').element as HTMLInputElement).value).toBe(todayYmd());
+  });
+
+  it('EMITS the date as part of the payload — the form owns the date now, not the caller', async () => {
+    const w = await mountReal({ seedOccurredOn: '2026-07-01' });
+
+    await findConfirmButton(w).trigger('click');
+    const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
+    expect(payload.occurredOn).toBe('2026-07-01');
+  });
+
+  it('carries a `max` of today, so the browser stops the year typo with no round trip', async () => {
+    // A4 (spec §2.4). This matters MORE on this form than anywhere else: it is opened AUTOMATICALLY by the
+    // app with the date pre-filled, and a form that opens by itself invites confirming without reading.
+    // `occurredOn` here is what dates the repot AND what `substrate_refreshed_on` is set to, so a one-digit
+    // year typo silences the plant's feeding for over a year with nothing failing.
+    const w = await mountReal();
+    expect(w.find('input[type="date"]').attributes('max')).toBe(todayYmd());
+  });
+
+  it('a FROZEN resume hydrates the date from the outstanding attempt\'s own envelope, not from the clock',
+  async () => {
+    // `seedOccurredOn` is deliberately DIFFERENT from `frozenSnapshot.occurredOn`, and neither is today —
+    // proving the resume reads the envelope, never the seed and never `todayYmd()`.
+    const w = mount(RepotDoneForm, {
+      props: {
+        open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: true,
+        seedOccurredOn: '2026-06-15',
+        frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 20, soilMix: 'potting-mix' } },
+      },
+      global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
+    });
+    await w.setProps({ open: true });
+    expect((w.find('input[type="date"]').element as HTMLInputElement).value).toBe('2026-08-01');
+  });
+
+  it('the date input is DISABLED while frozen, like every other field', async () => {
+    const w = await mountReal({
+      frozen: true,
+      frozenSnapshot: { occurredOn: '2026-08-01', payload: { potSizeCm: 20, soilMix: 'potting-mix' } },
+    });
+    expect(w.find('input[type="date"]').attributes('disabled')).toBeDefined();
+  });
+});
+
 // X2: the suite above only ever proves that whatever the fields happened to hold LOCALLY (typed in by the
 // test itself) survives a close/reopen — it never once passes the `frozenSnapshot` PROP, so it can never
 // catch a regression in the hydrate-FROM-the-prop branch of `watch(open, ...)` (W3's own fix). These tests
@@ -235,7 +311,9 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
     expect(segButtons[2]!.attributes('aria-pressed')).toBe('true');
 
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: 'cactus-mix', charged: false });
+    expect(w.emitted('confirm')![0]![0]).toEqual({
+      potSizeCm: 30, soilMix: 'cactus-mix', charged: false, occurredOn: '2026-08-01',
+    });
   });
 
   // The DATE the retry will send. It lives one level up in the frozen envelope from the three fields above,
@@ -243,6 +321,10 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
   // the card could read one day and the frozen retry carry another. On a feature whose whole point is
   // recording the repot on the day it actually happened, and whose `occurredOn` is what dates
   // `substrate_refreshed_on`, that is the one field a frozen form must state.
+  //
+  // REWRITTEN by Task 25 (A3): the field used to be a read-only echo PARAGRAPH (`.mp-repotdone__occurredon`,
+  // shown only while frozen); it is now the SAME always-live date INPUT the rest of this file exercises —
+  // this test now asserts the input's rendered VALUE instead of the paragraph's text.
   it('states the date the frozen retry will actually send — the field the card behind it can contradict', async () => {
     const w = mount(RepotDoneForm, {
       props: {
@@ -254,16 +336,22 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
     await w.setProps({ open: true });
     // The date is read from the ENVELOPE, not from any live page state — the same one source the hydrated
     // fields above come from, so the display and the request cannot disagree.
-    expect(w.find('.mp-repotdone__occurredon').text()).toContain('2026-08-01');
+    expect((w.find('input[type="date"]').element as HTMLInputElement).value).toBe('2026-08-01');
   });
 
-  it('says nothing about a date while UNFROZEN — the card\'s own input is the live value there', async () => {
+  // RETRACTED by Task 25 (A3): the paragraph this test asserted the absence of no longer exists at all — the
+  // date field is now ALWAYS rendered, live and editable, whether frozen or not (there is no separate echo
+  // to say nothing while unfrozen). Its replacement, covering the unfrozen case, lives in the "Task 25
+  // (A3/A4)" describe block above ("opens with the seeded date, and defaults to today when nothing is
+  // seeded"); this test now asserts the one thing that genuinely still distinguishes "unfrozen" here — the
+  // field is editable, not disabled.
+  it('the date field stays a live, editable input while UNFROZEN — no separate echo is needed', async () => {
     const w = mount(RepotDoneForm, {
       props: { open: false, currentPotSizeCm: 20, currentSoilMix: 'potting-mix', frozen: false, frozenSnapshot: null },
       global: { mocks: { $t: (k: string) => k }, stubs: stubsWithRealInputs() },
     });
     await w.setProps({ open: true });
-    expect(w.find('.mp-repotdone__occurredon').exists()).toBe(false);
+    expect(w.find('input[type="date"]').attributes('disabled')).toBeUndefined();
   });
 
   // FIX D3 — the ONE snapshot shape the two tests around this one never exercise: `charged` OMITTED.
@@ -291,7 +379,7 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
 
     await findConfirmButton(w).trigger('click');
     const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
-    expect(payload).toEqual({ potSizeCm: 30, soilMix: 'cactus-mix' });
+    expect(payload).toEqual({ potSizeCm: 30, soilMix: 'cactus-mix', occurredOn: '2026-08-01' });
     expect('charged' in payload).toBe(false);
   });
 
@@ -330,7 +418,9 @@ describe('RepotDoneForm — W3: frozenSnapshot hydrates the REAL component (neve
     expect((w.find('select').element as HTMLSelectElement).value).toBe('potting-mix');
 
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')!.at(-1)![0]).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', charged: true });
+    expect(w.emitted('confirm')!.at(-1)![0]).toEqual({
+      potSizeCm: 20, soilMix: 'potting-mix', charged: true, occurredOn: '2026-08-01',
+    });
   });
 });
 
@@ -408,7 +498,7 @@ describe('RepotDoneForm — FIX D: the substrate answer defaults to "I don\'t kn
 
     await findConfirmButton(w).trigger('click');
     const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
-    expect(payload).toEqual({ potSizeCm: 20, soilMix: 'potting-mix' });
+    expect(payload).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', occurredOn: todayYmd() });
     expect(Object.prototype.hasOwnProperty.call(payload, 'charged')).toBe(false);
   });
 
@@ -418,7 +508,9 @@ describe('RepotDoneForm — FIX D: the substrate answer defaults to "I don\'t kn
     await segButtons[2]!.trigger('click'); // 'reused'
 
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', charged: false });
+    expect(w.emitted('confirm')![0]![0]).toEqual({
+      potSizeCm: 20, soilMix: 'potting-mix', charged: false, occurredOn: todayYmd(),
+    });
   });
 
   it('choosing "fresh" (index 1) emits `charged: true`', async () => {
@@ -427,7 +519,9 @@ describe('RepotDoneForm — FIX D: the substrate answer defaults to "I don\'t kn
     await segButtons[1]!.trigger('click'); // 'fresh'
 
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: 'potting-mix', charged: true });
+    expect(w.emitted('confirm')![0]![0]).toEqual({
+      potSizeCm: 20, soilMix: 'potting-mix', charged: true, occurredOn: todayYmd(),
+    });
   });
 
   it('an empty-profile open (no recorded soil mix) leaves the select genuinely EMPTY — never silently ' +
@@ -489,7 +583,7 @@ describe('RepotDoneForm — QA D2: "I don\'t know" is a selectable answer for th
     await findConfirmButton(w).trigger('click');
 
     const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
-    expect(payload).toEqual({ potSizeCm: 20, soilMix: null });
+    expect(payload).toEqual({ potSizeCm: 20, soilMix: null, occurredOn: todayYmd() });
     expect(Object.prototype.hasOwnProperty.call(payload, 'soilMix')).toBe(true);
   });
 
@@ -500,7 +594,7 @@ describe('RepotDoneForm — QA D2: "I don\'t know" is a selectable answer for th
 
     await w.find('select').setValue('');
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: null });
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 20, soilMix: null, occurredOn: todayYmd() });
   });
 
   // QA round 4 REWROTE this case. It used to assert that "I don't know" applies to the mix but NEVER to
@@ -532,7 +626,7 @@ describe('RepotDoneForm — QA D2: "I don\'t know" is a selectable answer for th
 
     expect((w.find('select').element as HTMLSelectElement).value).toBe('');
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: null });
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: 30, soilMix: null, occurredOn: '2026-08-01' });
   });
 });
 
@@ -583,7 +677,7 @@ describe('RepotDoneForm — QA round-4 finding 2: "I don\'t know" is an answer f
     await findConfirmButton(w).trigger('click');
 
     const payload = w.emitted('confirm')![0]![0] as Record<string, unknown>;
-    expect(payload).toEqual({ potSizeCm: null, soilMix: null });
+    expect(payload).toEqual({ potSizeCm: null, soilMix: null, occurredOn: todayYmd() });
     expect(Object.prototype.hasOwnProperty.call(payload, 'potSizeCm')).toBe(true);
   });
 
@@ -597,7 +691,7 @@ describe('RepotDoneForm — QA round-4 finding 2: "I don\'t know" is an answer f
     expect(w.find('input[type="number"]').attributes('disabled')).toBeDefined();
 
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: null, soilMix: null });
+    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: null, soilMix: null, occurredOn: todayYmd() });
   });
 
   // A toggle whose state is only inferable from "the input went blank" is not an affordance. `aria-pressed`
@@ -631,7 +725,9 @@ describe('RepotDoneForm — QA round-4 finding 2: "I don\'t know" is an answer f
     expect(findUnknownChip(w).attributes('aria-pressed')).toBe('true');
     expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
     await findConfirmButton(w).trigger('click');
-    expect(w.emitted('confirm')![0]![0]).toEqual({ potSizeCm: null, soilMix: 'cactus-mix' });
+    expect(w.emitted('confirm')![0]![0]).toEqual({
+      potSizeCm: null, soilMix: 'cactus-mix', occurredOn: '2026-08-01',
+    });
   });
 
   it('a genuinely fresh re-open never opens PRE-PRESSED — an empty field is "not answered yet", which is ' +

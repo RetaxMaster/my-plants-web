@@ -326,7 +326,6 @@
   "repotDone": {
     "title": "¿En qué la trasplantaste?",
     "intro": "Tres datos rápidos, ya rellenados con lo que sabemos. Sin ellos seguiríamos calculando con la maceta vieja.",
-    "recordingOn": "Se registrará este trasplante el {date}.",
     "potSize": "Diámetro de la maceta nueva (en el borde, en cm)",
     "potSizeHint": "El ancho de arriba — no el radio ni la altura.",
     "potSizeInvalid": "Ingresa un número entero de centímetros, de 1 a {max}.",

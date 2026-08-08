@@ -31,7 +31,7 @@ describe('useRepotAttempt — W1: one module-scope store PER FLOW KEY, shared ac
     expect(seenFromB).not.toBeNull();
     expect(seenFromB!.key).toBe(attempt.key);
     expect(seenFromB!.body).toEqual({ answer: 'no-signs' });
-    expect(rendererB.hasKeyFor('plant-1')).toBe(true);
+    expect(rendererB.hasResumableKeyFor('plant-1')).toBe(true);
 
     // A failure recorded through B is visible through A too — genuinely the SAME store, not a copy.
     rendererB.resolveFailure(seenFromB!, 'pending');
@@ -49,7 +49,7 @@ describe('useRepotAttempt — W1: one module-scope store PER FLOW KEY, shared ac
 
     // The 'done' flow's own store for the SAME plantId is untouched — an evaluation attempt must never be
     // mistaken for an outstanding Done attempt, or vice versa.
-    expect(doneHandle.hasKeyFor('plant-1')).toBe(false);
+    expect(doneHandle.hasResumableKeyFor('plant-1')).toBe(false);
     expect(doneHandle.attemptFor('plant-1')).toBeNull();
   });
 
@@ -63,7 +63,7 @@ describe('useRepotAttempt — W1: one module-scope store PER FLOW KEY, shared ac
     // "Today's component unmounts" is simulated by simply never touching `todayPageInstance` again and
     // obtaining a BRAND NEW handle, exactly as PlantDetail.vue's own <script setup> would on navigation.
     const plantDetailInstance = useRepotAttempt<{ answer: string }>('evaluation');
-    expect(plantDetailInstance.hasKeyFor('plant-1')).toBe(true);
+    expect(plantDetailInstance.hasResumableKeyFor('plant-1')).toBe(true);
     const resumed = plantDetailInstance.attemptFor('plant-1');
     expect(resumed!.key).toBe(attempt.key);
     expect(resumed!.error).toBe('pending');
@@ -211,6 +211,62 @@ describe('begin() — FIX C2: an \'invalid\' failure mints a FRESH key on the ne
     const retried = handle.begin('plant-1', { potSizeCm: 999 });
     expect(retried.key).toBe(first.key);
     expect(retried.body).toEqual({ potSizeCm: 22 });
+  });
+});
+
+// FIX D1 — `hasResumableKeyFor` is the predicate a RENDERER asks before it decides whether reopening a form
+// is a resume ("re-read nothing") or a fresh attempt ("re-read what the owner has since typed"). It must
+// agree with `begin()` on EVERY failure kind: the renderers used to ask the weaker "is a key outstanding?",
+// which disagrees after a 400 and silently sent stale values under a fresh key. These tests pin the
+// agreement itself, at the composable, so a future edit cannot reintroduce a second notion of "resuming".
+describe('hasResumableKeyFor — the renderer\'s resume question answers exactly what begin() will do', () => {
+  it('no attempt at all -> false', () => {
+    const handle = useRepotAttempt<{ v: number }>('done');
+    expect(handle.hasResumableKeyFor('plant-1')).toBe(false);
+  });
+
+  it('an in-flight attempt -> true, and begin() indeed resumes it', () => {
+    const handle = useRepotAttempt<{ v: number }>('done');
+    const first = handle.begin('plant-1', { v: 1 });
+    expect(handle.hasResumableKeyFor('plant-1')).toBe(true);
+    expect(handle.begin('plant-1', { v: 2 }).key).toBe(first.key);
+  });
+
+  it('after \'pending\' and after \'unknown\' -> true, and begin() resumes the SAME key', () => {
+    for (const failure of ['pending', 'unknown'] as const) {
+      __resetRepotAttemptStoresForTests();
+      const handle = useRepotAttempt<{ v: number }>('done');
+      const first = handle.begin('plant-1', { v: 1 });
+      handle.resolveFailure(first, failure);
+      expect(handle.hasResumableKeyFor('plant-1')).toBe(true);
+      expect(handle.begin('plant-1', { v: 2 }).key).toBe(first.key);
+    }
+  });
+
+  it('after \'invalid\' (400) -> FALSE even though the key is still stored, and begin() proves it by ' +
+    'minting a fresh key over the freshly-passed body — this is the disagreement the weaker ' +
+    '"is a key outstanding?" question got wrong', () => {
+    const handle = useRepotAttempt<{ v: number }>('done');
+    const first = handle.begin('plant-1', { v: 1 });
+    handle.resolveFailure(first, 'invalid');
+
+    // The key IS still in the store — that is precisely why the weak question answered "resume".
+    expect(handle.attemptFor('plant-1')!.key).toBe(first.key);
+    expect(handle.hasResumableKeyFor('plant-1')).toBe(false);
+
+    const retried = handle.begin('plant-1', { v: 2 });
+    expect(retried.key).not.toBe(first.key);
+    expect(retried.body).toEqual({ v: 2 });
+  });
+
+  it('is the SAME rule `isAttemptFrozen` states — one predicate, two names, never two definitions', () => {
+    const handle = useRepotAttempt<{ v: number }>('done');
+    for (const failure of [null, 'pending', 'unknown', 'invalid'] as const) {
+      const attempt = handle.begin('plant-1', { v: 1 });
+      if (failure) handle.resolveFailure(attempt, failure);
+      expect(handle.hasResumableKeyFor('plant-1')).toBe(isAttemptFrozen(handle.attemptFor('plant-1')));
+      handle.invalidate('plant-1');
+    }
   });
 });
 

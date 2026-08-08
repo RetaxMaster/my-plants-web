@@ -33,14 +33,38 @@ export function repotFailureMessageKey(failure: RepotAttemptFailure): string {
   return 'repotEval.errorPending';
 }
 
-// FIX C1/C3 — the ONE "should this attempt's fields stay disabled" predicate. True iff there is an attempt
-// AND its failure is not 'invalid'. A 400 means the server rejected the request before doing ANYTHING —
-// nothing was committed under that key — so the owner has been told what to fix and must be allowed to
-// fix it: keeping the fields frozen after a 400 is exactly the QA-reported defect (a decimal/over-max pot
-// size froze every field with no way out short of a full reload). Every OTHER failure kind (or none at all,
-// including "still submitting") keeps the existing frozen behavior unchanged.
-export function isAttemptFrozen(attempt: RepotAttempt<unknown> | null | undefined): boolean {
+// FIX D1 — THE ONE PREDICATE. "Is this outstanding attempt still authoritative?" — i.e. does its key still
+// stand for a submission the server might have committed, so that the next submit must resend it verbatim
+// rather than start a new one? True iff there IS an attempt and its failure is not 'invalid'.
+//
+// Everything downstream is a restatement of this single fact, and that is why it is written once:
+//   - `begin()` resumes the stored key + stored envelope exactly when this is true (FIX C2 below);
+//   - `isAttemptFrozen` disables the fields exactly when this is true — an authoritative attempt is one the
+//     owner must not edit under, and a 400 (nothing committed, the owner was told what to fix) is precisely
+//     when they must be allowed to;
+//   - a renderer deciding "reopen the form as a RESUME, or as a fresh attempt?" asks the SAME question,
+//     through `hasResumableKeyFor` below.
+//
+// The third bullet is what this function was extracted for. Both renderers used to gate their reopen on the
+// WEAKER question "is a key outstanding?" (`hasKeyFor`), which after a 400 answers YES while `begin()`
+// answers NO — two notions of "resuming" in one flow, disagreeing on exactly the case the owner is being
+// invited to correct. On PlantDetail.vue that mismatch silently discarded a corrected back-date and wrote
+// the repot on the wrong day (and with it `substrate_refreshed_on`). There is now one definition; nobody
+// re-derives `error !== 'invalid'` at a call site.
+export function isAttemptResumable(attempt: RepotAttempt<unknown> | null | undefined): boolean {
   return !!attempt && attempt.error !== 'invalid';
+}
+
+// FIX C1/C3 — the "should this attempt's fields stay disabled" question, which is the SAME question as
+// above seen from the UI side: the fields are frozen for exactly as long as the outstanding attempt is
+// still authoritative. Kept as its own named export because that is what the call sites mean when they read
+// it (and what `RepotEvaluationModal`/`RepotDoneForm`'s `frozen` prop is named after), but it DELEGATES —
+// it does not restate the rule, so the two can never drift apart. A 400 means the server rejected the
+// request before doing ANYTHING, so the owner must be allowed to fix it: keeping the fields frozen after a
+// 400 was the QA-reported defect (a decimal/over-max pot size froze every field with no way out short of a
+// full reload).
+export function isAttemptFrozen(attempt: RepotAttempt<unknown> | null | undefined): boolean {
+  return isAttemptResumable(attempt);
 }
 
 // An in-flight (or just-resolved-and-frozen) REPOT mutation attempt: the evaluation submit and the
@@ -171,7 +195,7 @@ const COMPLETION_LOG_LIMIT = 50;
 // separate maps for what is supposed to be ONE outstanding attempt per plant. The reachable defect: a Done
 // request commits on the server but its response is lost; the owner closes the modal (still frozen, key
 // outstanding) and navigates from Today to that plant's detail page. Today's component unmounts — taking
-// its OWN copy of the key and body down with it — so PlantDetail's `hasKeyFor()` reads false, confirming
+// its OWN copy of the key and body down with it — so PlantDetail's `hasResumableKeyFor()` reads false, confirming
 // mints a FRESH key, and the server records a SECOND, non-deduplicated REPOT completion, without the owner
 // ever choosing "start over".
 //
@@ -187,7 +211,7 @@ const COMPLETION_LOG_LIMIT = 50;
 // callback fired in the browser), never from a component's `setup()` body or any other code path the server
 // executes while rendering a request. That is already structurally true today: every call site is inside an
 // `onClick`/`@submit`/`@confirm` handler in `pages/index.vue`/`PlantDetail.vue`, never invoked at setup-time
-// — keep it that way. The READ functions (`attemptFor`, `hasKeyFor`, `isLive`) are safe to read from
+// — keep it that way. The READ functions (`attemptFor`, `hasResumableKeyFor`, `isLive`) are safe to read from
 // anywhere (including during SSR), since a store nothing ever writes to on the server simply reads back
 // empty.
 type FlowKey = 'evaluation' | 'done';
@@ -298,7 +322,9 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
   // a fresh key, and the body the caller just passed in (the corrected one), never the stale rejected one.
   function begin(plantId: string, body: TBody): RepotAttempt<TBody> {
     const existing = attempts.value.get(plantId);
-    const resumable = existing && existing.error !== 'invalid';
+    // FIX D1 — the shared predicate, never a local `existing.error !== 'invalid'`. A renderer asking the
+    // same question before it reopens a form (`hasResumableKeyFor`) now provably gets the same answer.
+    const resumable = isAttemptResumable(existing);
     const next: RepotAttempt<TBody> = resumable
       ? { plantId, key: existing!.key, body: existing!.body, submitting: true, error: null }
       : { plantId, key: crypto.randomUUID(), body, submitting: true, error: null };
@@ -382,10 +408,20 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     attempts.value = nextMap;
   }
 
-  // Resume check for a flow's "open" step: is there an outstanding key for THIS plantId already? True means
-  // "resume — keep the key, the stored body, and any prior error", false means "fresh attempt".
-  function hasKeyFor(plantId: string): boolean {
-    return attempts.value.has(plantId);
+  // Resume check for a flow's "open" step: would the NEXT `begin()` for this plant resume the outstanding
+  // attempt (same key, same frozen envelope), or mint a fresh one? True means "reopen as a resume — keep the
+  // key, the stored body, and any prior error, and re-read NOTHING"; false means "fresh attempt — re-read
+  // the prefill and whatever the owner has since typed".
+  //
+  // FIX D1 — this REPLACES the older `hasKeyFor`, which asked only whether a key existed. That is a strictly
+  // weaker question and it disagrees with `begin()` after a 400: the key is still in the map, but `begin()`
+  // will NOT resume it (FIX C2). A renderer gating its "reopen as a resume" early return on the weak
+  // question therefore skipped re-reading the owner's corrected input for a submission that then went out
+  // under a FRESH key carrying the STALE values. The weak predicate is deleted rather than kept beside this
+  // one: nothing needs "is a key outstanding?" on its own, and leaving it exported is what let the two
+  // questions be confused in the first place.
+  function hasResumableKeyFor(plantId: string): boolean {
+    return isAttemptResumable(attempts.value.get(plantId));
   }
 
   // The attempt currently outstanding for `plantId`, or null when there is none (including when `plantId`
@@ -488,5 +524,5 @@ export function useRepotAttempt<TBody, TResult = void>(flowKey: FlowKey) {
     drain();
   }
 
-  return { attempts, begin, isLive, resolveSuccess, resolveFailure, invalidate, hasKeyFor, attemptFor, subscribeCompletions };
+  return { attempts, begin, isLive, resolveSuccess, resolveFailure, invalidate, hasResumableKeyFor, attemptFor, subscribeCompletions };
 }

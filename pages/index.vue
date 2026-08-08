@@ -4,7 +4,7 @@ import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
 // One implementation of "which pending evaluation may an action name" and of "which sign is worth
 // suggesting next", shared with PlantDetail.vue — never a second copy in each renderer.
-import { resolvableEvaluationId } from '../utils/repotEvaluation.js';
+import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
 // Explicit import (like PlantDetail.vue's `onUnmounted`, and for the same reason): the composable's own
 // `shallowRef` import from 'vue' makes it test-environment-agnostic, and this ONE implementation is now
 // shared with PlantDetail.vue (round-5 finding V1) — never a second copy of the attempt-tracking logic.
@@ -35,11 +35,37 @@ const postponePickerOpen = ref(false);
 // evaluation resolves it (RepotEvaluationModal.vue, Task 25), and only a 'REPOT' verdict unlocks the
 // classic Done | Postpone — see TaskRow.vue's `showEvaluate`.
 const evaluationOpen = ref(false);
-const evaluationSigns = ref<RepotSign[]>([]);
-// Informative-only context for the questionnaire (how often this species is typically repotted) — sourced
-// from the SAME `GET /plants/:id/repot-signs` call as `evaluationSigns` above, never a second fetch.
-const evaluationTypicalIntervalMonths = ref<number | null>(null);
+// FIX D3 — the signs catalogue carries the PLANT IT BELONGS TO, and every reader looks it up BY PLANT.
+// This ONE modal instance serves every card on the page, so a bare page-level `evaluationSigns` ref was a
+// value whose owner was implicit: `onEvaluate` moves `evaluationPlantId` to the new plant BEFORE fetching,
+// and a FAILED fetch returns without touching the catalogue — leaving the id naming plant B while the list
+// still held plant A's rows. The verdict modal ranks a corroborating sign out of that list, and sign ids
+// are species-namespaced, so the already-ticked subtraction would remove nothing and the suggestion could
+// name a sign from the WRONG SPECIES. No click sequence reaching it was found (the modal blocks the cards
+// while a submit is in flight), so this is hardening, not a caught defect — but the guard-free shape costs
+// nothing: `signsFor(plantId)` cannot return another plant's catalogue, because it compares before it
+// returns. `typicalIntervalMonths` travels in the same record for the same reason — it came from the same
+// one fetch and is just as plant-specific.
+const evaluationCatalogue = ref<{ plantId: string; signs: RepotSign[]; typicalIntervalMonths: number | null } | null>(null);
+function signsFor(plantId: string | null): RepotSign[] {
+  return plantId && evaluationCatalogue.value?.plantId === plantId ? evaluationCatalogue.value.signs : [];
+}
 const evaluationPlantId = ref<string | null>(null);
+// What the QUESTIONNAIRE renders: the catalogue of whichever plant the shared modal is currently showing,
+// or nothing at all if the only catalogue on hand belongs to a different plant.
+const evaluationSigns = computed(() => signsFor(evaluationPlantId.value));
+// Informative-only context for the questionnaire (how often this species is typically repotted) — sourced
+// from the SAME `GET /plants/:id/repot-signs` call as the signs above, never a second fetch, and gated on
+// the same plant match for the same reason.
+const evaluationTypicalIntervalMonths = computed(() =>
+  evaluationCatalogue.value?.plantId === evaluationPlantId.value ? evaluationCatalogue.value.typicalIntervalMonths : null,
+);
+// What the VERDICT modal renders — snapshotted from the completion's OWN plant when the completion is
+// handled (see `handleEvaluationCompletion`), never re-read from the live page state afterwards. The
+// verdict's other three inputs (`verdict`, `verdictAnswer`, `verdictCheckedSignIds`) all come from that one
+// completion record; this makes the fourth come from there too, so all four describe one plant by
+// construction rather than by timing.
+const verdictSigns = ref<RepotSign[]>([]);
 // The active REPOT-evaluation submit attempts — ONE per plant (U1) — `useRepotAttempt.ts` (round-5 finding
 // V1: extracted so PlantDetail.vue, the SECOND renderer of this same flow, can share the identical
 // discipline instead of re-deriving it — see that composable's own doc comment for the full race this
@@ -57,7 +83,7 @@ const {
   resolveSuccess: resolveEvaluationSuccess,
   resolveFailure: resolveEvaluationFailure,
   invalidate: invalidateEvaluationAttempt,
-  hasKeyFor: hasEvaluationKeyFor,
+  hasResumableKeyFor: hasResumableEvaluationKeyFor,
 } = useRepotAttempt<RepotEvaluationSubmit, RepotEvaluationResult>('evaluation');
 const evaluationAttempt = computed(() => evaluationAttemptFor(evaluationPlantId.value));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
@@ -70,7 +96,7 @@ const verdict = ref<RepotEvaluationResult | null>(null);
 const verdictAnswer = ref<RepotEvaluationSubmit['answer'] | null>(null);
 // ...and the sign IDS that answer carried, from the same frozen request body. Feeds ONLY the verdict
 // modal's "one more thing worth going to look for" line (owner request, 2026-08-07) — the modal subtracts
-// them from `evaluationSigns` to find the strongest sign the owner has NOT reported. Kept as its own ref
+// them from `verdictSigns` to find the strongest sign the owner has NOT reported. Kept as its own ref
 // rather than widening `verdictAnswer` into the whole body, so the existing prop's meaning is untouched.
 const verdictCheckedSignIds = ref<string[]>([]);
 const verdictOpen = ref(false);
@@ -111,7 +137,7 @@ const {
   resolveSuccess: resolveDoneSuccess,
   resolveFailure: resolveDoneFailure,
   invalidate: invalidateDoneAttempt,
-  hasKeyFor: hasDoneKeyFor,
+  hasResumableKeyFor: hasResumableDoneKeyFor,
 } = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>('done');
 const doneAttempt = computed(() => doneAttemptFor(doneFormPlantId.value));
 const repotPostponeSubmitting = ref(false);
@@ -222,7 +248,7 @@ async function onEvaluate(plantId: string) {
   // another plant's key silently — without the owner ever choosing "start over" — was itself the reachable
   // defect U1 closes (a lost Done-completion response on plant A, discarded the moment plant B's card
   // opened, let a later retry on A mint a fresh key and record a second, non-deduplicated repot).
-  const resuming = hasEvaluationKeyFor(plantId);
+  const resuming = hasResumableEvaluationKeyFor(plantId);
   evaluationPlantId.value = plantId;
   if (!resuming) {
     repotError.value = false;
@@ -245,11 +271,14 @@ async function onEvaluate(plantId: string) {
     return;
   }
   // Race guard (code review finding F4): if the owner clicked a DIFFERENT card's evaluate action while
-  // this fetch was in flight, `evaluationPlantId` has already moved on — applying this response now would
-  // silently show the wrong plant's signs list under the wrong plant's modal.
+  // this fetch was in flight, `evaluationPlantId` has already moved on — opening THIS plant's modal now
+  // would show its questionnaire under the wrong plant's card. (FIX D3: the catalogue itself is stored with
+  // its own plantId below, so a mismatch can no longer misattribute the LIST even if this guard is passed —
+  // this guard now only governs whether the modal opens, which is the one thing a stored key cannot answer.)
   if (evaluationPlantId.value !== plantId) return;
-  evaluationSigns.value = signs;
-  evaluationTypicalIntervalMonths.value = typicalIntervalMonths;
+  // FIX D3: the catalogue is stored WITH the plant it was fetched for, so nothing downstream has to
+  // remember which plant it belongs to.
+  evaluationCatalogue.value = { plantId, signs, typicalIntervalMonths };
   evaluationOpen.value = true;
 }
 
@@ -345,7 +374,11 @@ async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvalu
     evaluationOpen.value = false;
     verdict.value = completion.result;
     verdictAnswer.value = completion.body.answer;
-    verdictCheckedSignIds.value = completion.body.answer === 'signs' ? [...completion.body.signIds] : [];
+    verdictCheckedSignIds.value = checkedSignIdsFrom(completion.body);
+    // FIX D3: the catalogue is looked up by the COMPLETION's own plant, not read off whatever the page-level
+    // ref happens to hold — so the four things the verdict modal renders all describe one plant by
+    // construction. An empty list simply produces no corroborating suggestion, which is a complete answer.
+    verdictSigns.value = signsFor(completion.plantId);
     verdictOpen.value = true;
   }
   await refresh();
@@ -380,11 +413,21 @@ async function onRepotDone(plantId: string) {
   // plant's card never touches this plant's entry in the first place. This runs BEFORE the fallible
   // `api.getPlant` call below (B3, and load-bearing for the ordering): a resume must never depend on a
   // network fetch.
-  const resuming = hasDoneKeyFor(plantId);
+  //
+  // FIX D1 — the SAME predicate `beginDoneAttempt` uses (`hasResumableKeyFor`), never the weaker "is a key
+  // outstanding?". After a 400 the key is still in the store but `begin()` will NOT resume it (FIX C2), so
+  // the reopen must take the FRESH path and re-read the prefill the next confirm will actually send.
+  // On THIS renderer the symptom PlantDetail.vue suffered is currently unreachable — Today's card has no
+  // back-date input and `occurredOn` is a module-level constant here — so the change is a sweep, not a bug
+  // fix: the twin renderers have drifted on this flow five times already, and leaving one of them reading a
+  // predicate that disagrees with `begin()` is one feature away from mattering. What it does change today:
+  // a reopen after a 400 re-fetches the profile prefill, which is correct — a 400 committed nothing, so
+  // there is no frozen envelope for the prefill to stay byte-identical to.
+  const resuming = hasResumableDoneKeyFor(plantId);
   doneFormPlantId.value = plantId;
   if (resuming) {
-    // The frozen body must stay byte-identical to the one the outstanding key was minted for: no error
-    // clear, and no re-read of the profile prefill — just reopen the form.
+    // A genuine resume: the frozen body must stay byte-identical to the one the outstanding key was minted
+    // for — no error clear, and no re-read of the profile prefill. Just reopen the form.
     doneFormOpen.value = true;
     return;
   }
@@ -663,12 +706,13 @@ function openProgress(plantId: string) {
     />
     <!-- `signs` is the SAME catalogue the questionnaire was answered against (fetched once by
          `onEvaluate`), never a second fetch — the modal only subtracts the ticked ids from it to name one
-         sign worth going to check. -->
+         sign worth going to check. FIX D3: it is `verdictSigns`, snapshotted from the COMPLETION's own
+         plant, not the live page-level catalogue — see its declaration. -->
     <UiRepotVerdictModal
       v-model:open="verdictOpen"
       :result="verdict"
       :answer="verdictAnswer"
-      :signs="evaluationSigns"
+      :signs="verdictSigns"
       :checked-sign-ids="verdictCheckedSignIds"
     />
     <UiRepotDoneForm

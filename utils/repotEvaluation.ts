@@ -28,6 +28,26 @@ export function resolvableEvaluationId(pending: PendingRepotEvaluation | null | 
 }
 
 /**
+ * Which sign ids a submitted evaluation body actually reported — the ids the verdict modal subtracts from
+ * the catalogue to name a corroborating sign.
+ *
+ * The rule is one line and it is entirely about MEANING: only the `signs` answer carries observations. The
+ * other two answers ("no signs at all", "I couldn't check it") may still carry an empty/absent `signIds`,
+ * and reading them as "the owner ticked nothing" would be right by accident; reading them as observations
+ * would be wrong. Returning a COPY matters too — the source is the attempt's frozen request envelope, which
+ * must stay byte-identical to what was sent (U2).
+ *
+ * Extracted from the two renderers, which carried the identical expression. It is a small line, but it is
+ * exactly the kind these two files have drifted on twice before (their own comments say so), and it belongs
+ * beside the other two rules about what an evaluation answer means.
+ */
+export function checkedSignIdsFrom(
+  body: { answer: string; signIds?: readonly string[] } | null | undefined,
+): string[] {
+  return body?.answer === 'signs' ? [...(body.signIds ?? [])] : [];
+}
+
+/**
  * Rank of an evidence class, LOW = strongest. Derived from the shared contract's own ordinal array
  * (`REPOT_EVIDENCE_CLASSES`, which is documented "strongest first"), never a second hand-written table — a
  * fifth class added upstream lands here for free and in the right place.

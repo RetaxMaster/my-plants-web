@@ -30,6 +30,13 @@ questions about the new pot so the schedule keeps up.
 
 ### Fixed
 
+- **A rejected "Done" no longer keeps resending the date you already corrected.** If the app refused a
+  repot you were recording — say the date came out wrong — it told you to fix it, let you fix it, and then
+  sent the *original* date anyway. Correcting the day on the card and pressing Done again changed nothing:
+  the same refusal came back every time, and short of reloading the page there was no way to record the
+  repot at all. Now a refused attempt is genuinely started over: whatever you type after it is what gets
+  sent, and the repot lands on the day you actually did it — which is also the day the substrate clock
+  starts from.
 - **When the checklist says "not yet", it no longer denies what you told it.** Checking off signs and still
   getting "wait and check again later" answered you with *"Nothing you saw says it needs repotting yet"* —
   said to someone who had just told the app exactly what they saw. It now has its own wording for that

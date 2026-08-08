@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolvableEvaluationId, corroboratingSign } from './repotEvaluation';
+import { resolvableEvaluationId, corroboratingSign, checkedSignIdsFrom } from './repotEvaluation';
 import { REPOT_EVIDENCE_CLASSES } from '@retaxmaster/my-plants-species-schema/repot-sign-constants';
 import type { PendingRepotEvaluation, RepotSign, RepotEvidenceClass } from '~/types/api';
 
@@ -89,5 +89,33 @@ describe('corroboratingSign — the strongest sign the owner did NOT tick', () =
       seen.push(next!.id);
     }
     expect(seen).toEqual([...REPOT_EVIDENCE_CLASSES]);
+  });
+});
+
+// The one-line rule both renderers used to carry inline (PlantDetail.vue and pages/index.vue), extracted
+// beside the other two rules about what an evaluation answer means. Only the `signs` answer reports
+// observations; the other two mean "nothing to subtract", whatever they happen to carry.
+describe('checkedSignIdsFrom — only a checked-signs answer reports sign ids', () => {
+  it('returns the submitted ids for a signs answer', () => {
+    expect(checkedSignIdsFrom({ answer: 'signs', signIds: ['s1', 's2'] })).toEqual(['s1', 's2']);
+  });
+
+  it('returns a COPY — the source is the attempt\'s frozen envelope and must stay byte-identical (U2)', () => {
+    const signIds = ['s1'];
+    const out = checkedSignIdsFrom({ answer: 'signs', signIds });
+    out.push('mutated');
+    expect(signIds).toEqual(['s1']);
+  });
+
+  it('returns nothing for the other answers, even if ids somehow ride along', () => {
+    expect(checkedSignIdsFrom({ answer: 'no-signs' })).toEqual([]);
+    expect(checkedSignIdsFrom({ answer: 'cannot-check' })).toEqual([]);
+    expect(checkedSignIdsFrom({ answer: 'no-signs', signIds: ['s1'] })).toEqual([]);
+  });
+
+  it('tolerates a missing body and a signs answer with no ids array', () => {
+    expect(checkedSignIdsFrom(null)).toEqual([]);
+    expect(checkedSignIdsFrom(undefined)).toEqual([]);
+    expect(checkedSignIdsFrom({ answer: 'signs' })).toEqual([]);
   });
 });

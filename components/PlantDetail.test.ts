@@ -1270,6 +1270,128 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
   });
 });
 
+// FIX D1 (independent review of the 2026-08-07 wave, finding 1). `onRepotDone` gated its "this is a resume,
+// re-read nothing" early return on the WEAKER question "is a key outstanding?" (`hasKeyFor`), while
+// `begin()` decides resume-vs-fresh with "is the outstanding attempt still authoritative?"
+// (`error !== 'invalid'`). The two disagree after a 400 — and a 400 is exactly the state the form unfreezes
+// in, inviting the owner to correct the value. So: correct the pot size AND the date, press Done again, and
+// the early return fired, `doneFormOccurredOn` kept the PRE-rejection date, and `begin()` (which does NOT
+// resume an invalid attempt) minted a fresh key over a body built from that stale ref. The repot was written
+// on the wrong day — and `completeRepotCore` anchors `substrate_refreshed_on` to that same day, so the
+// substrate clock stayed wrong.
+//
+// Both directions are pinned here, because the fix must not over-correct: after a 400 the reopen is FRESH
+// (new date honoured, new key), and after ANY other failure kind it is still a RESUME (byte-identical body,
+// same key) — an idempotency key frozen against a body that can still change is a permanent 422.
+describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send the CORRECTED back-date', () => {
+  const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
+  const repotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  };
+
+  // The card emits `{ task, occurredOn }` (TaskRow.vue's `withDoneDate` contract). Two dated buttons stand
+  // in for the owner typing a date, pressing Done, and then typing a DIFFERENT date and pressing Done again.
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: {
+      props: { task: null, allowStandaloneDone: { type: Boolean, default: false } },
+      emits: ['done'],
+      template:
+        '<div>' +
+        '<button class="done-aug1" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-01\' })">done 08-01</button>' +
+        '<button class="done-aug5" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-05\' })">done 08-05</button>' +
+        '</div>',
+    },
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over', 'update:open'],
+      template:
+        '<div class="done-form" :data-open="open" :data-frozen="frozen">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: 26, soilMix: currentSoilMix, charged: true })">confirm</button>' +
+        // The REAL v-model:open contract (X/Escape/backdrop) — the owner dismissing the form to go back to
+        // the card and change the date, which is the only way to reach the date input at all.
+        '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
+        '</div>',
+    },
+  };
+
+  let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  async function mountRepot(firstFailure: unknown) {
+    let call = 0;
+    completeRepotMock = vi.fn(async () => {
+      if (call++ === 0) throw firstFailure;
+      return { ok: true };
+    });
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => repotCare,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      invalidatePlant: vi.fn(),
+      completeRepot: completeRepotMock,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  async function press(w: Awaited<ReturnType<typeof mountRepot>>, selector: string) {
+    await w.find(selector).trigger('click');
+    await flushPromises();
+  }
+
+  it('a 400 unfreezes the form, and reopening it from the card with a NEW date sends that new date under a ' +
+    'FRESH key — never the date the rejected attempt carried', async () => {
+    // A 400 is what an over-max / decimal pot size actually produces (see `classifyRepotFailure`).
+    const w = await mountRepot(Object.assign(new Error('pot size out of range'), { statusCode: 400 }));
+
+    await press(w, '.done-aug1');
+    await press(w, '.confirm-btn');
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    expect(completeRepotMock.mock.calls[0]![1]).toBe('2026-08-01');
+    // The 400 unfreezes: the owner is being invited to correct the value.
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+
+    // The date input lives on the CARD, so correcting it means dismissing the form and pressing Done again.
+    await press(w, '.close-btn');
+    await press(w, '.done-aug5');
+    expect(w.find('.done-form').attributes('data-open')).toBe('true');
+
+    await press(w, '.confirm-btn');
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    expect(completeRepotMock.mock.calls[1]![1]).toBe('2026-08-05');
+    // ...and under a genuinely new key, since the server committed nothing under the rejected one.
+    expect(completeRepotMock.mock.calls[1]![3]).not.toBe(completeRepotMock.mock.calls[0]![3]);
+  });
+
+  it('every OTHER failure kind still RESUMES byte-identically — a lost response reopened with a different ' +
+    'date on the card resends the ORIGINAL date under the ORIGINAL key, or the idempotency layer would ' +
+    '422 that key forever', async () => {
+    const w = await mountRepot(new Error('lost response')); // no status -> 'unknown'
+
+    await press(w, '.done-aug1');
+    await press(w, '.confirm-btn');
+    expect(completeRepotMock.mock.calls[0]![1]).toBe('2026-08-01');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+
+    await press(w, '.close-btn');
+    await press(w, '.done-aug5'); // the owner retypes the date — the resume must ignore it
+    await press(w, '.confirm-btn');
+
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    expect(completeRepotMock.mock.calls[1]![1]).toBe('2026-08-01');
+    expect(completeRepotMock.mock.calls[1]![3]).toBe(completeRepotMock.mock.calls[0]![3]);
+  });
+});
+
 // The other half of the 2026-08-07 change, on THIS renderer: the verdict modal cannot name a corroborating
 // sign unless the ids the owner ticked actually reach it. pages/index.vue carries the identical line, and a
 // change landing on one of these two files and not the other is this pair's recurring failure.

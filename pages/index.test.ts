@@ -30,7 +30,7 @@ import RealRepotDoneForm from '../components/ui/RepotDoneForm.vue';
 // still sitting in the store when a LATER, unrelated test mounts a fresh page and opens plant A's card again
 // — read as a "resume" it never asked for. Every test in this file uses plant ids 'A'/'B', so this collision
 // is not hypothetical; it reproduces on a plain sequential run.
-import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttempt';
+import { __resetRepotAttemptStoresForTests, useRepotAttempt } from '../composables/useRepotAttempt';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -183,7 +183,10 @@ const stubs = {
     template:
       // `data-error` (W2): exposes the modal's OWN `error` prop, the surface that would show a cross-plant
       // (or cross-flow) error leak — mirrors the identical `data-error` hook already on UiRepotDoneForm below.
-      '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting" :data-error="error">' +
+      // `data-sign-ids` (FIX D3): the catalogue the questionnaire is rendering, by ID — the ONE surface on
+      // which a catalogue belonging to a DIFFERENT plant would be visible.
+      '<div class="eval-modal" :data-open="open" :data-frozen="frozen" :data-submitting="submitting" :data-error="error" ' +
+      ':data-sign-ids="(signs || []).map(s => s.id).join(\',\')">' +
       '<button class="submit-btn" @click="$emit(\'submit\', { answer: \'no-signs\' })">submit</button>' +
       // 2026-08-07: a CHECKED-SIGNS body, so this file can pin that the ticked ids reach the verdict modal
       // (they are what it subtracts from the catalogue to name a corroborating sign).
@@ -649,6 +652,46 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
     await flushPromises();
     const keySecond = completeRepotMock.mock.calls[1]![3];
     expect(keySecond).not.toBe(keyFirst);
+  });
+
+  // FIX D1, the TWIN SWEEP. PlantDetail.vue's `onRepotDone` gated its resume early-return on the weaker
+  // "is a key outstanding?" instead of the predicate `begin()` itself uses, and after a 400 that silently
+  // discarded a corrected back-date. Today has no back-date input (its `occurredOn` is a module-level
+  // constant), so THAT symptom is unreachable here — but the same weak predicate was live on this file too,
+  // and these two renderers have drifted on this flow repeatedly. This pins the predicate itself on Today,
+  // through the one difference it can express here: a 400 committed nothing, so reopening is a genuinely
+  // FRESH attempt (re-reads the prefill, mints a new key) rather than a resume of a key the server has
+  // already rejected — which, resumed, would 422 forever the moment the owner corrected the value.
+  it('after a 400, reopening the Done form is a FRESH attempt — the prefill is re-fetched and the next ' +
+    'confirm mints a new key, never a resume of the rejected one', async () => {
+    const w = await mountPage();
+    const doneButtons = w.findAll('.done-btn');
+
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(getPlantMock).toHaveBeenCalledTimes(1);
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    // A 400 is what an over-max / decimal pot size actually produces (see `classifyRepotFailure`).
+    completeRepotDeferreds.A!.reject(Object.assign(new Error('pot size out of range'), { statusCode: 400 }));
+    await flushPromises();
+
+    const keyFirst = completeRepotMock.mock.calls[0]![3];
+    // The 400 unfreezes the fields — the owner is being invited to correct the value (FIX C).
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+
+    await w.find('.close-btn').trigger('click');
+    await flushPromises();
+    getPlantMock.mockClear();
+    await doneButtons[0]!.trigger('click');
+    await flushPromises();
+    expect(getPlantMock).toHaveBeenCalledWith('A'); // re-read: there is nothing to stay byte-identical to
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    expect(completeRepotMock.mock.calls[1]![3]).not.toBe(keyFirst);
   });
 });
 
@@ -1116,5 +1159,73 @@ describe('pages/index.vue — the ticked sign ids reach the verdict modal', () =
     expect(modal.attributes('data-open')).toBe('true');
     expect(modal.attributes('data-checked')).toBe('s1');
     expect(modal.attributes('data-signs')).toBe('2');
+  });
+});
+
+// FIX D3 (independent review of the 2026-08-07 wave, finding 3). `verdict`, `answer` and `checkedSignIds`
+// all come from the plant-keyed completion record; the `signs` catalogue the verdict modal ranks a
+// corroborating sign out of came from a single PAGE-LEVEL ref instead. `onEvaluate` moves
+// `evaluationPlantId` to the new plant BEFORE the signs fetch, and a FAILED fetch returns without touching
+// the catalogue — so the id names plant B while the list still holds plant A's rows. Sign ids are
+// species-namespaced, so the already-ticked subtraction would remove nothing and the suggestion could name a
+// sign from the WRONG SPECIES.
+//
+// HONESTY: no click sequence that reaches the wrong SUGGESTION was found (the modal blocks the cards while a
+// submit is in flight), so this is hardening, not a caught defect. The mismatch WINDOW itself is reachable
+// and is asserted directly below; the completion-side lookup is asserted through the cross-renderer path the
+// completion log exists for (a submit issued on the plant page settling while Today is mounted).
+describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT, never read off the page', () => {
+  const catalogueA = [
+    { id: 'A-s1', label: 'one', help: null, evidence: 'strong' },
+    { id: 'A-s2', label: 'two', help: null, evidence: 'ambiguous' },
+  ] as unknown as RepotSign[];
+
+  async function mountWithFailingSecondFetch() {
+    let call = 0;
+    getRepotSignsMock = vi.fn(async () => {
+      if (call++ === 0) return { signs: catalogueA, typicalIntervalMonths: null };
+      throw new Error('signs fetch failed');
+    });
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: async () => TASKS,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      completeRepot: completeRepotMock,
+    }));
+    const w = await mountPage();
+    // A's fetch succeeds: the catalogue on hand belongs to A.
+    await w.findAll('.evaluate-btn')[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.eval-modal').attributes('data-sign-ids')).toBe('A-s1,A-s2');
+    // B's fetch FAILS: `evaluationPlantId` has already moved to B, and nothing updated the catalogue.
+    await w.findAll('.evaluate-btn')[1]!.trigger('click');
+    await flushPromises();
+    return w;
+  }
+
+  it('after a FAILED signs fetch for another plant, the questionnaire holds NO catalogue — never the ' +
+    'previous plant\'s rows', async () => {
+    const w = await mountWithFailingSecondFetch();
+    expect(w.find('.eval-modal').attributes('data-sign-ids')).toBe('');
+  });
+
+  it('the verdict modal is handed the catalogue of the COMPLETION\'s own plant — a completion for a plant ' +
+    'whose catalogue was never fetched gets none, never the one still sitting on the page', async () => {
+    const w = await mountWithFailingSecondFetch();
+
+    // A completion for B arriving while this page is mounted — the cross-renderer case the shared completion
+    // log exists for (a submit issued on B's detail page whose response settles after navigating here).
+    const handle = useRepotAttempt<{ answer: string; signIds: string[] }, RepotEvaluationResult>('evaluation');
+    const attempt = handle.begin('B', { answer: 'signs', signIds: ['B-s1'] });
+    handle.resolveSuccess(attempt, { evaluationId: 'ev-B', verdict: 'RE-EVALUATE', reevaluateOn: '2026-11-05' });
+    await flushPromises();
+
+    const modal = w.find('.verdict-modal');
+    expect(modal.attributes('data-open')).toBe('true'); // B IS the plant the shared modal is showing
+    expect(modal.attributes('data-checked')).toBe('B-s1');
+    expect(modal.attributes('data-signs')).toBe('0'); // NOT A's two rows
   });
 });

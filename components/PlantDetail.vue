@@ -14,7 +14,7 @@ import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 import { repotExplanation } from '../utils/repotExplanation.js';
 // Explicit, like every other util this file uses: one implementation of "which pending evaluation may an
 // action name" and one of "which sign is worth suggesting next", shared with pages/index.vue.
-import { resolvableEvaluationId } from '../utils/repotEvaluation.js';
+import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
 // Explicit import, same reasoning as `onUnmounted` above: the composable's OWN `shallowRef` import makes
 // it test-environment-agnostic. Round-5 finding V1 — extracted so this file and pages/index.vue (the
 // FIRST renderer of the same REPOT flows) share ONE attempt-tracking implementation instead of two
@@ -72,7 +72,7 @@ const {
   resolveSuccess: resolveEvaluationSuccess,
   resolveFailure: resolveEvaluationFailure,
   invalidate: invalidateEvaluationAttempt,
-  hasKeyFor: hasEvaluationKeyFor,
+  hasResumableKeyFor: hasResumableEvaluationKeyFor,
 } = useRepotAttempt<RepotEvaluationSubmit, RepotEvaluationResult>('evaluation');
 const evaluationAttempt = computed(() => evaluationAttemptFor(id));
 // The verdict the last evaluation submit returned, shown in its own modal (RepotVerdictModal.vue).
@@ -120,7 +120,7 @@ const {
   resolveSuccess: resolveDoneSuccess,
   resolveFailure: resolveDoneFailure,
   invalidate: invalidateDoneAttempt,
-  hasKeyFor: hasDoneKeyFor,
+  hasResumableKeyFor: hasResumableDoneKeyFor,
 } = useRepotAttempt<{ occurredOn: string; payload: RepotDonePayload }>('done');
 const doneAttempt = computed(() => doneAttemptFor(id));
 const repotPostponeSubmitting = ref(false);
@@ -601,9 +601,10 @@ async function onEvaluate() {
   // resume: keep the key AND the prior error untouched (RepotEvaluationModal.vue then keeps its answers
   // frozen across the reopen, and `frozen && error` still surfaces the "start over" escape hatch). This
   // component is pinned to one plant's `id` for its whole lifetime, so there is only ever one entry in the
-  // composable's per-plant map (U1) for it to read — but it goes through the SAME `hasKeyFor`/attemptFor
+  // composable's per-plant map (U1) for it to read — but it goes through the SAME
+  // `hasResumableKeyFor`/attemptFor
   // seam pages/index.vue uses for its many plants, never a second, single-plant-shaped check.
-  const resuming = hasEvaluationKeyFor(id);
+  const resuming = hasResumableEvaluationKeyFor(id);
   if (!resuming) {
     repotError.value = false;
   }
@@ -699,7 +700,7 @@ async function handleEvaluationCompletion(completion: RepotCompletion<RepotEvalu
     evaluationOpen.value = false;
     verdict.value = completion.result;
     verdictAnswer.value = completion.body.answer;
-    verdictCheckedSignIds.value = completion.body.answer === 'signs' ? [...completion.body.signIds] : [];
+    verdictCheckedSignIds.value = checkedSignIdsFrom(completion.body);
     verdictOpen.value = true;
     await Promise.all([refresh(), refreshHistory()]);
   }
@@ -731,13 +732,23 @@ function onRepotDone(occurredOn?: string) {
   // Unlike pages/index.vue's onRepotDone, there is no fallible fetch here (this component already holds
   // `plant.value` loaded for its whole lifetime) and no cross-plant case to guard — this component is
   // pinned to one plant's `id`, so the check is simply whether a key is already outstanding for it.
-  const resuming = hasDoneKeyFor(id);
+  //
+  // FIX D1 — this asks `hasResumableDoneKeyFor`, the SAME predicate `beginDoneAttempt` itself uses to decide
+  // resume-vs-fresh, NOT the weaker "is a key outstanding?" it used to ask. The two disagree on exactly one
+  // case, and it is a live one: after a 400 the key is still in the store, but `begin()` will NOT resume it
+  // (FIX C2 — a rejected key is useless, so the next confirm is a genuinely new submission). Gating on the
+  // weak question took the early return anyway and skipped `doneFormOccurredOn`, so the corrected submission
+  // went out under a FRESH key carrying the date the owner typed BEFORE the rejection — writing the repot,
+  // and with it `substrate_refreshed_on`, on the wrong day, silently, on the one path the standalone Done
+  // exists for.
+  const resuming = hasResumableDoneKeyFor(id);
   if (resuming) {
-    // The frozen body must stay byte-identical to the one the outstanding key was minted for: no error
-    // clear, no re-read of the profile prefill, and — for the same reason — no re-read of the back-date
-    // either, even if the owner has since retyped it on the card. `beginDoneAttempt` would ignore it
-    // anyway (it resends the STORED envelope), so accepting it here would only make the form display a
-    // date the request will not carry.
+    // A genuine resume: the frozen body must stay byte-identical to the one the outstanding key was minted
+    // for, so nothing is re-read — not the error, not the profile prefill, and not the back-date, even if
+    // the owner has since retyped it on the card. `beginDoneAttempt` resends the STORED envelope on a
+    // resume, so accepting a new date here would only make the form display a date the request will not
+    // carry. (The previous comment claimed that held for every failure; it does not hold for the 400, which
+    // is why this branch must no longer be reached in that case at all.)
     doneFormOpen.value = true;
     return;
   }

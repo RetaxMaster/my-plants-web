@@ -11,7 +11,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ref, reactive, computed, watch, inject } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
-import type { PlantSoilReadings } from '~/types/api';
+import type { CreateSoilReading, PlantSoilReadings } from '~/types/api';
 import { todayYmd } from '../../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
@@ -29,7 +29,11 @@ vi.stubGlobal('useI18n', () => ({
     (params ? `${k}|${Object.values(params).join('|')}` : k),
 }));
 
-const recordSoilReading = vi.fn(() => Promise.resolve({ readingId: 'r1' }));
+// Typed on its own parameters (rather than inferred from a zero-arg lambda) so `.mock.calls[n]` carries the
+// real `[plantId, body, idempotencyKey]` tuple type — needed below to read the recorded `body` argument.
+const recordSoilReading = vi.fn(
+  (_plantId: string, _body: CreateSoilReading, _idempotencyKey: string) => Promise.resolve({ readingId: 'r1' }),
+);
 const setInstrumentCalibration = vi.fn(() => Promise.resolve({ saturatedValue: 1850, dryValue: 1200 }));
 vi.stubGlobal('useApi', () => ({ recordSoilReading, setInstrumentCalibration }));
 
@@ -62,7 +66,7 @@ const kitchenScaleCalibrated = {
 const protocol = { potSizeCm: 20, insertionDepthCm: 7, distanceFromCentreCm: 3 };
 
 function makeData(overrides: Partial<PlantSoilReadings> = {}): PlantSoilReadings {
-  return { instruments: [galvanicProbe], protocol, readings: [], ...overrides };
+  return { instruments: [galvanicProbe], protocol, readings: [], wateringDays: [], ...overrides };
 }
 
 function mountModal(data: PlantSoilReadings) {
@@ -83,6 +87,13 @@ function verdictSegButtons(w: ReturnType<typeof mount>) {
 }
 function findSaveButton(w: ReturnType<typeof mount>) {
   return w.findAll('button').find((b) => b.text().includes('reading.save'))!;
+}
+// Located by its own button labels rather than a fixed `.mp-seg` index — the watering-relation control only
+// renders on a watering day, so its position among the other segmented controls is NOT fixed the way
+// `instrumentSegButtons`/`verdictSegButtons` above assume. Returns `undefined` when the control isn't shown.
+function wateringRelationSeg(w: ReturnType<typeof mount>) {
+  return w.findAll('.mp-seg').find((seg) =>
+    seg.findAll('button').some((b) => b.text() === 'reading.wateringRelation.before'));
 }
 
 describe('SoilReadingModal', () => {
@@ -266,6 +277,96 @@ describe('SoilReadingModal', () => {
     await input.setValue(999999);
     expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
     expect(input.attributes('aria-invalid')).toBeUndefined();
+  });
+});
+
+// The same-day-watering question (owner-ruled, 2026-08-08): the drying-rate fence is strict-after the last
+// watering, so a reading taken ON a watering day is ambiguous about which side of that watering it belongs
+// to. The API tells the modal when to ask via `PlantSoilReadings.wateringDays`. NO default, NO
+// pre-selection: `canSubmit` stays false until the owner answers, and the field is reset on reopen and on
+// any `measuredOn` change, exactly like every other field this modal already resets.
+describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-08-08)', () => {
+  it('shows the question ONLY when measuredOn is a watering day', () => {
+    const onWateringDay = mountModal(makeData({ wateringDays: [todayYmd()] }));
+    expect(wateringRelationSeg(onWateringDay)).toBeTruthy();
+
+    const notWateringDay = mountModal(makeData({ wateringDays: [] }));
+    expect(wateringRelationSeg(notWateringDay)).toBeUndefined();
+  });
+
+  it('blocks submit until the question is answered, and never pre-selects either option', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(5); // a valid raw reading, so only the question gates it
+
+    const buttons = wateringRelationSeg(w)!.findAll('button');
+    expect(buttons.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+
+    await buttons[0]!.trigger('click'); // BEFORE
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+  });
+
+  it('sends the chosen answer to the API only when the question was asked', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(5);
+    const buttons = wateringRelationSeg(w)!.findAll('button');
+    await buttons[1]!.trigger('click'); // AFTER
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    const lastCall = recordSoilReading.mock.calls[recordSoilReading.mock.calls.length - 1]!;
+    expect(lastCall[1]).toMatchObject({ wateringRelation: 'AFTER' });
+  });
+
+  it('omits wateringRelation entirely when measuredOn is not a watering day', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    await w.find('input[type="number"]').setValue(5);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    const lastCall = recordSoilReading.mock.calls[recordSoilReading.mock.calls.length - 1]!;
+    expect(lastCall[1]).not.toHaveProperty('wateringRelation');
+  });
+
+  it('changing measuredOn away from a watering day clears the answer and re-enables submit — never ' +
+    'silently submitted for a day it does not describe', async () => {
+    const wateringDay = todayYmd();
+    const otherDay = '2026-08-01';
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }));
+    await w.find('input[type="number"]').setValue(5);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined(); // watering day, unanswered
+
+    await wateringRelationSeg(w)!.findAll('button')[0]!.trigger('click'); // BEFORE
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+
+    const measuredOnInput = w.findAll('input[type="date"]')[0]!;
+    await measuredOnInput.setValue(otherDay);
+
+    // The question disappears entirely for a non-watering day, and submit stays enabled.
+    expect(wateringRelationSeg(w)).toBeUndefined();
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+
+    // The answer was actually CLEARED, not just hidden — switching back to the SAME watering day must show
+    // the control unanswered again, never a stale pre-selection, and submit must gate on it again.
+    await measuredOnInput.setValue(wateringDay);
+    const buttonsAgain = wateringRelationSeg(w)!.findAll('button');
+    expect(buttonsAgain.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+  });
+
+  it('resets the answer on close/reopen', async () => {
+    const wateringDay = todayYmd();
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }));
+    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click'); // AFTER
+    expect(wateringRelationSeg(w)!.findAll('button')[1]!.attributes('aria-pressed')).toBe('true');
+
+    // Close, then reopen — the same modal instance a page reuse never re-mounts. `measuredOn` resets to
+    // today too, which is still `wateringDay` here, so the control stays shown.
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    const buttonsAfter = wateringRelationSeg(w)!.findAll('button');
+    expect(buttonsAfter.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
   });
 });
 

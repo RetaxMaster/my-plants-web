@@ -9,11 +9,11 @@ import FormGroup from './FormGroup.vue';
 import SegmentedControl from './SegmentedControl.vue';
 import Alert from './Alert.vue';
 import InstrumentCalibrationFields from './InstrumentCalibrationFields.vue';
-// `InstrumentId` has a Zod-free subpath in the shared contract; `ReadingVerdict` does not (see
-// `types/api.ts`'s own comment on this) and is re-declared there instead of imported from the Zod module,
-// exactly like `PlantSoilReadings` — so it comes from `~/types/api`, never from `soil-instrument-constants`.
+// `InstrumentId` has a Zod-free subpath in the shared contract; `ReadingVerdict` and `WateringRelation` are
+// the shared contract's Zod-module types, re-exported from `~/types/api` (see that file's own comment) —
+// so they come from there, never from `soil-instrument-constants`.
 import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
-import type { PlantSoilReadings, ReadingVerdict } from '~/types/api';
+import type { PlantSoilReadings, ReadingVerdict, WateringRelation } from '~/types/api';
 import { toNullableNumber } from '~/utils/nullableNumber';
 import { todayYmd } from '~/utils/localDate';
 
@@ -31,6 +31,11 @@ const instrumentId = ref<InstrumentId | ''>(props.data.instruments[0]?.id ?? '')
 const rawValue = ref<number | null>(null);
 const verdict = ref<ReadingVerdict>('NONE');
 const postponeToOn = ref<string>('');
+// SegmentedControl's own model is a plain, non-nullable `string` — '' is the "nothing chosen yet" sentinel
+// (same convention `instrumentId` above already uses). Owner-ruled (2026-08-08): NO default and NO
+// pre-selection — the ambiguity a same-day-as-watering reading carries is resolved by ASKING, never by
+// assuming, so this starts unanswered and stays that way until the owner picks one.
+const wateringRelation = ref<WateringRelation | ''>('');
 const calibration = reactive<{ saturatedValue: number | null; dryValue: number | null }>({
   saturatedValue: null, dryValue: null,
 });
@@ -64,6 +69,7 @@ watch(open, (isOpen) => {
   verdict.value = 'NONE';
   measuredOn.value = todayYmd();
   postponeToOn.value = '';
+  wateringRelation.value = '';
   calibration.saturatedValue = null;
   calibration.dryValue = null;
   // `instrumentId`'s setup-time initializer (`props.data.instruments[0]?.id ?? ''`) can miss the "default
@@ -91,6 +97,19 @@ const needsCalibration = computed(() =>
 // helper builds the string from local Date components so it does not.
 const measuredOn = ref(todayYmd());
 
+// Owner-ruled (2026-08-08): the same-day-watering question is asked ONLY when the chosen `measuredOn` is
+// itself a day the plant was watered — asking on every reading would be noise on the overwhelming majority
+// of them, and noise is how a question stops being read.
+const isWateringDay = computed(() => props.data.wateringDays.includes(measuredOn.value));
+
+// The answer describes ONE specific day. If the owner changes `measuredOn` — to a non-watering day, where
+// the control disappears entirely, or to a DIFFERENT watering day — a previously-given answer no longer
+// describes the new day and must never survive: not into a submission for a day it doesn't describe, and
+// not as a stale pre-selection if the control reappears for a later watering day (that would silently
+// reintroduce the very default/pre-selection the owner ruled against). Cleared unconditionally on every
+// change; harmless when there was nothing to clear.
+watch(measuredOn, () => { wateringRelation.value = ''; });
+
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
 // shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
 // record a fully-wet `w = 1.0` reading with no complaint anywhere, corrupting the slope fit this whole
@@ -115,6 +134,8 @@ const rawValueErrorMessage = computed(() => {
 const canSubmit = computed(() =>
   instrumentId.value !== '' && rawValue.value != null && !submitting.value && !rawValueOutOfRange.value &&
   (verdict.value !== 'POSTPONE' || postponeToOn.value !== '') &&
+  // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown.
+  (!isWateringDay.value || wateringRelation.value !== '') &&
   (!needsCalibration.value ||
     (calibration.saturatedValue != null && calibration.dryValue != null &&
      calibration.saturatedValue > calibration.dryValue)));
@@ -140,6 +161,9 @@ async function submit() {
       measuredOn: measuredOn.value,
       verdict: verdict.value,
       ...(verdict.value === 'POSTPONE' ? { postponeToOn: postponeToOn.value } : {}),
+      // Sent ONLY when the question was actually asked (`isWateringDay`) — `canSubmit` already guarantees
+      // it was answered whenever that holds, so the cast is safe.
+      ...(isWateringDay.value ? { wateringRelation: wateringRelation.value as WateringRelation } : {}),
     }, idempotencyKey.value);
     open.value = false;
     emit('saved');
@@ -170,6 +194,12 @@ const verdictOptions = computed(() => [
   { key: 'NONE', label: t('reading.verdict.none') },
   { key: 'POSTPONE', label: t('reading.verdict.postpone') },
   { key: 'WATER_NOW', label: t('reading.verdict.waterNow') },
+]);
+
+// Two options → segmented control, same design-system rule `instrumentId`'s picker above already follows.
+const wateringRelationOptions = computed(() => [
+  { key: 'BEFORE', label: t('reading.wateringRelation.before') },
+  { key: 'AFTER', label: t('reading.wateringRelation.after') },
 ]);
 </script>
 
@@ -223,6 +253,17 @@ const verdictOptions = computed(() => [
 
       <FormGroup :label="t('reading.measuredOn')">
         <Input v-model="measuredOn" type="date" :max="todayYmd()" />
+      </FormGroup>
+
+      <!-- Owner-ruled (2026-08-08): shown ONLY on a day the plant was also watered — never a default, never
+           pre-selected. Two options → segmented control, same rule the instrument picker above follows. -->
+      <FormGroup
+        v-if="isWateringDay"
+        :label="t('reading.wateringRelationLabel')"
+        :hint="t('reading.wateringRelationHint')"
+        required
+      >
+        <SegmentedControl v-model="wateringRelation" :options="wateringRelationOptions" />
       </FormGroup>
 
       <FormGroup :label="t('reading.verdictLabel')" :hint="t('reading.verdictHint')">

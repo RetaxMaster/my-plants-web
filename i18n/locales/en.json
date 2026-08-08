@@ -1384,6 +1384,12 @@
       "galvanic-probe": "This probe reads conductivity, not water — so compare this pot against itself, never against another.",
       "kitchen-scale": "Weigh the whole pot the same way every time: same saucer on or off, no standing water in the tray."
     },
+    "wateringRelationLabel": "Before or after that day's watering?",
+    "wateringRelationHint": "This plant was also watered on that date, so we need to know which side of the watering the reading falls on — it decides which drying cycle it belongs to.",
+    "wateringRelation": {
+      "before": "Before",
+      "after": "After"
+    },
     "verdictLabel": "What are you doing about it?",
     "verdictHint": "Recording alone won't water or postpone anything today — but it teaches the app how fast this pot dries.",
     "verdict": {

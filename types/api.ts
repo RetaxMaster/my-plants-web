@@ -21,10 +21,17 @@ import type { InstrumentId, InstrumentRow } from '@retaxmaster/my-plants-species
 // runtime JS, so zero bytes of Zod), exactly like the import one line up. The empirical build check
 // (`npm run build`, confirming `zod`'s presence in the client bundle is unaffected) is what actually backs
 // this, not the reasoning alone — see that check's own note for what it found.
+// `WateringRelation` is the same shared contract's newest `soil-reading.ts` type (owner-ruled, 2026-08-08),
+// imported alongside its siblings above for the identical reason — never re-declared, so the two-value
+// union can't silently drift.
 import type {
   ProposalOperationType, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
+  WateringRelation,
 } from '@retaxmaster/my-plants-species-schema';
-export type { ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict };
+export type {
+  ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
+  WateringRelation,
+};
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -861,6 +868,11 @@ export interface PlantSoilReadings {
   instruments: PlantInstrument[];
   protocol: ReadingProtocol | null;
   readings: SoilReadingItem[];
+  /** The `YYYY-MM-DD` days carrying a WATER DONE, inside the same window `readings` uses. Drives the
+   *  measuring modal's same-day-watering question (owner-ruled, 2026-08-08): the drying-rate fence is
+   *  strict-after the last watering, so a reading taken on one of these days is ambiguous about which side
+   *  of the watering it belongs to unless the owner places it. */
+  wateringDays: string[];
 }
 
 export interface CreateSoilReading {
@@ -869,6 +881,10 @@ export interface CreateSoilReading {
   measuredOn: string;
   verdict: ReadingVerdict;
   postponeToOn?: string;
+  /** Answers "before or after that day's watering?" — sent ONLY when `measuredOn` is one of
+   *  `PlantSoilReadings.wateringDays`; absent otherwise. No default: the owner ruled the ambiguity is
+   *  resolved by asking, never by assuming. */
+  wateringRelation?: WateringRelation;
 }
 
 /** The care payload's read-time measurement block. Null for a frozen plant. */

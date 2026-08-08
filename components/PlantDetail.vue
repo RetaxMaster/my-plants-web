@@ -1315,7 +1315,7 @@ async function confirmRevive() {
         <UiSoilReadingModal
           v-model:open="readingModalOpen"
           :plant-id="id"
-          :data="readings ?? { instruments: [], protocol: null, readings: [] }"
+          :data="readings ?? { instruments: [], protocol: null, readings: [], wateringDays: [] }"
           @saved="onReadingSaved"
         />
 

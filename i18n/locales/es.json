@@ -1384,6 +1384,12 @@
       "galvanic-probe": "Este medidor lee conductividad, no agua — así que compara esta maceta consigo misma, nunca con otra.",
       "kitchen-scale": "Pesa la maceta completa siempre igual: con o sin plato, y sin agua estancada en la charola."
     },
+    "wateringRelationLabel": "¿Antes o después del riego de ese día?",
+    "wateringRelationHint": "Esta planta también se regó ese día, así que necesitamos saber de qué lado del riego cae la lectura — eso decide a qué ciclo de secado pertenece.",
+    "wateringRelation": {
+      "before": "Antes",
+      "after": "Después"
+    },
     "verdictLabel": "¿Qué vas a hacer?",
     "verdictHint": "Solo registrar una lectura no riega ni pospone nada hoy — pero le enseña a la app qué tan rápido se seca esta maceta.",
     "verdict": {

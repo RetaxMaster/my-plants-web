@@ -21,6 +21,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { computed, ref, watch } from 'vue';
 import { mount } from '@vue/test-utils';
 import TaskRow from './TaskRow.vue';
+import { todayYmd } from '../../utils/localDate.js';
 
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('ref', ref);
@@ -327,5 +328,37 @@ describe('UiTaskRow — the back-date does not survive a recorded completion', (
     await clickDone(w);
     await clickDone(w); // the owner dismissed the form and pressed Done again; nothing has completed yet
     expect(w.emitted('done')![1]).toEqual([{ task: 'REPOT', occurredOn: '2026-08-01' }]);
+  });
+});
+
+// Task 26 (substrate plan): once RepotDoneForm owns its own editable `occurredOn` (Task 25), this row's
+// back-date becomes the ONE thing it seeds the form with — not a second live input the owner could edit
+// independently. Two editable date surfaces for one submission is a disagreement, not a redundancy.
+describe('UiTaskRow — the REPOT back-date is display-only, seeding the completion form (substrate:26)', () => {
+  it('REPOT: the back-date is DISPLAY-ONLY — it seeds the form and is not editable here', () => {
+    const w = mountRow({ withDoneDate: true, pendingVerdict: 'REPOT' });
+    const input = w.find('input[type="date"]');
+    expect(input.attributes('readonly')).toBeDefined();
+  });
+
+  it('REPOT: it still EMITS the shown date, so the form is seeded with it', async () => {
+    const w = mountRow({ withDoneDate: true, pendingVerdict: 'REPOT' });
+    await w.find('input[type="date"]').setValue('2026-08-01');
+    await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
+    expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: '2026-08-01' }]);
+  });
+
+  it('every OTHER task keeps an editable back-date, unchanged', () => {
+    const w = mountRow({ task: 'WATER', withDoneDate: true });
+    const input = w.find('input[type="date"]');
+    expect(input.attributes('readonly')).toBeUndefined();
+  });
+
+  it('the back-date input carries a `max` of today (A4)', () => {
+    const repot = mountRow({ withDoneDate: true, pendingVerdict: 'REPOT' });
+    expect(repot.find('input[type="date"]').attributes('max')).toBe(todayYmd());
+
+    const water = mountRow({ task: 'WATER', withDoneDate: true });
+    expect(water.find('input[type="date"]').attributes('max')).toBe(todayYmd());
   });
 });

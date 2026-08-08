@@ -15,6 +15,7 @@ import InstrumentCalibrationFields from './InstrumentCalibrationFields.vue';
 import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
 import type { PlantSoilReadings, ReadingVerdict } from '~/types/api';
 import { toNullableNumber } from '~/utils/nullableNumber';
+import { todayYmd } from '~/utils/localDate';
 
 const props = defineProps<{ plantId: string; data: PlantSoilReadings }>();
 const emit = defineEmits<{ saved: [] }>();
@@ -46,12 +47,20 @@ const rawValueField = computed<number | string>({
 // PINNED idempotency key: minted once when the modal opens and reused on every retry, so a create whose
 // response is lost after the server committed never writes a second reading.
 const idempotencyKey = ref(crypto.randomUUID());
+// Reopen must reset EVERY field a previous session could have left stale — not just the ones an earlier
+// pass happened to touch. The modal is mounted once for the page's life (PlantDetail.vue, no `:key`), so a
+// field left un-reset here silently carries a prior reading's value into the next one. `measuredOn` and
+// `postponeToOn` are the two date fields: a stale `measuredOn` is the worse of the two, since two readings
+// landing on the same date is a zero-span pair that corrupts the drying-rate slope fit — the exact data
+// quality this whole feature exists to protect.
 watch(open, (isOpen) => {
   if (!isOpen) return;
   idempotencyKey.value = crypto.randomUUID();
   error.value = null;
   rawValue.value = null;
   verdict.value = 'NONE';
+  measuredOn.value = todayYmd();
+  postponeToOn.value = '';
 });
 
 const options = computed(() =>
@@ -61,9 +70,12 @@ const instrument = computed(() =>
 const needsCalibration = computed(() =>
   instrument.value?.requiresCalibration === true && instrument.value.calibration == null);
 
-// The date the browser must not let the owner exceed: a reading in the future is not a measurement.
-const todayYmd = computed(() => new Date().toLocaleDateString('en-CA'));
-const measuredOn = ref(todayYmd.value);
+// The date the browser must not let the owner exceed: a reading in the future is not a measurement. Uses
+// the app's single local-calendar-day helper (`~/utils/localDate`'s `todayYmd()`) — never a second,
+// independent `new Date().toLocaleDateString('en-CA')` of its own (see `RepotDoneForm.vue`'s own comment on
+// this exact trap): that expression's output depends on the runtime's ICU locale data, while the shared
+// helper builds the string from local Date components so it does not.
+const measuredOn = ref(todayYmd());
 
 const canSubmit = computed(() =>
   instrumentId.value !== '' && rawValue.value != null && !submitting.value &&
@@ -155,7 +167,7 @@ const verdictOptions = computed(() => [
       </FormGroup>
 
       <FormGroup :label="t('reading.measuredOn')">
-        <Input v-model="measuredOn" type="date" :max="todayYmd" />
+        <Input v-model="measuredOn" type="date" :max="todayYmd()" />
       </FormGroup>
 
       <FormGroup :label="t('reading.verdictLabel')" :hint="t('reading.verdictHint')">
@@ -163,7 +175,7 @@ const verdictOptions = computed(() => [
       </FormGroup>
 
       <FormGroup v-if="verdict === 'POSTPONE'" :label="t('reading.postponeTo')">
-        <Input v-model="postponeToOn" type="date" :min="todayYmd" />
+        <Input v-model="postponeToOn" type="date" :min="todayYmd()" />
       </FormGroup>
 
       <Alert v-if="error" color="red" :description="error" announce />

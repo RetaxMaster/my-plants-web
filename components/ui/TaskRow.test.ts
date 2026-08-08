@@ -331,11 +331,23 @@ describe('UiTaskRow — the back-date does not survive a recorded completion', (
     // `doneFormOccurredOn`; clearing on the emit would mean that dismissing the form and pressing Done
     // again re-emits `undefined`, and `onRepotDoneConfirm`'s `|| today()` would then write the repot on
     // TODAY instead of the day the owner typed — a silent wrong-day write traded for a stale one.
+    //
+    // Rewritten (level-1 integration review, finding 4 — the D17 pattern left behind in this one test). The
+    // REPOT back-date input is `readonly` (TaskRow.vue:259) — a real owner cannot type into it at all — so
+    // calling `setValue('2026-08-01')` on it, as this test used to, proved only that jsdom does not enforce
+    // `readonly`: the assertion would pass even if the component's own seeding were completely broken,
+    // because the value it checked was one WE injected around the readonly guard, not one the component
+    // produced. This version reads the real seeded value straight off the DOM (`todayYmd()`, the only value
+    // REPOT ever seeds — see the sibling test below, substrate:26) and proves THAT value survives two
+    // emits in a row, untouched by us.
     const w = mountRow({ pendingVerdict: null, allowStandaloneDone: true, withDoneDate: true });
-    await w.find('input[type="date"]').setValue('2026-08-01');
+    const input = w.find('input[type="date"]').element as HTMLInputElement;
+    expect(input.hasAttribute('readonly')).toBe(true);
+    expect(input.value).toBe(todayYmd());
+
     await clickDone(w);
     await clickDone(w); // the owner dismissed the form and pressed Done again; nothing has completed yet
-    expect(w.emitted('done')![1]).toEqual([{ task: 'REPOT', occurredOn: '2026-08-01' }]);
+    expect(w.emitted('done')![1]).toEqual([{ task: 'REPOT', occurredOn: todayYmd() }]);
   });
 });
 

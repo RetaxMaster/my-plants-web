@@ -126,7 +126,6 @@
       "doseBody": "Las dosis de la etiqueta están pensadas para plantas maduras. Mientras esta planta sea joven, aliméntala a 1/4 o 1/2 de la concentración indicada en el envase: la dosis completa quema las raíces delicadas. Mantén la misma frecuencia; lo único que cambia es la dosis."
     },
     "substrate": {
-      "fertilizeFloor": "Suponemos que el sustrato todavía tiene algo de alimento — primera fertilización estimada para el {date}.",
       "repotDriverSubstrate": "La estimación del motor se basa en que el sustrato se está agotando, no en la falta de espacio.",
       "repotDriverEvidence": "La estimación del motor se basa en lo que hemos medido de esta planta: su tamaño, su maceta y su historial de riego.",
       "repotDriverSpeciesDefault": "La estimación del motor es la frecuencia habitual de la especie — todavía no tenemos suficientes mediciones de esta planta.",

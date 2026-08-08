@@ -12,6 +12,7 @@ import { ref, reactive, computed, watch, inject } from 'vue';
 import { mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
 import type { PlantSoilReadings } from '~/types/api';
+import { todayYmd } from '../../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('reactive', reactive);
@@ -156,8 +157,30 @@ describe('SoilReadingModal', () => {
 
   it('caps the measured date at today — a reading in the future is not a measurement', () => {
     const w = mountModal(makeData());
-    const todayYmd = new Date().toLocaleDateString('en-CA');
+    // Uses the app's own `~/utils/localDate` helper for the expected value — NOT a second, independent
+    // `new Date().toLocaleDateString('en-CA')` of its own — so this test can actually catch the component
+    // reintroducing that exact fork (level-1 integration review finding 3): a duplicated expression here
+    // would agree with a duplicated bug in the component and never go red.
     const measuredOnInput = w.findAll('input[type="date"]')[0]!;
-    expect(measuredOnInput.attributes('max')).toBe(todayYmd);
+    expect(measuredOnInput.attributes('max')).toBe(todayYmd());
+  });
+
+  // Level-1 integration review finding 2: the modal is mounted once for the page's life (PlantDetail.vue,
+  // no `:key`), and its reopen-watch resets idempotencyKey/error/rawValue/verdict but used to leave
+  // `measuredOn` untouched — so logging a back-dated reading, closing the modal, and reopening it to log
+  // TODAY's reading showed the stale date, silently recording the new reading under the wrong day. Two
+  // readings on the same date is a zero-span pair that corrupts the drying-rate slope fit.
+  it('resets measuredOn back to today when the modal is closed and reopened, even after a back-dated reading', async () => {
+    const w = mountModal(makeData());
+    const measuredOnInput = () => w.findAll('input[type="date"]')[0]!;
+
+    await measuredOnInput().setValue('2026-08-01');
+    expect((measuredOnInput().element as HTMLInputElement).value).toBe('2026-08-01');
+
+    // Close, then reopen — the same modal instance a page reuse never re-mounts.
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    expect((measuredOnInput().element as HTMLInputElement).value).toBe(todayYmd());
   });
 });

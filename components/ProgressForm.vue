@@ -9,6 +9,7 @@ import type { ProgressHealth, ProgressEntryDetail, UpdateProgressPayload } from 
 import { readImageSize } from '../composables/useReadImageSize'; // Spec 1 §6.1 — reused, never re-implemented
 import { MAX_IMAGE_PIXELS } from '@retaxmaster/my-plants-species-schema/image-limits'; // Spec 1 single-source
 import type { CompressedUpload } from '../composables/useImageCompression';
+import { todayYmd } from '../utils/localDate.js';
 
 const props = defineProps<{
   mode: 'create' | 'edit';
@@ -156,9 +157,11 @@ defineExpose({
       </UiFormGroup>
 
       <!-- Journal date (backdatable) — shared by create + edit so a wrong date can be corrected (spec §2.4);
-           editing it moves the paired CareEvent server-side. Create: empty → the server defaults to today. -->
+           editing it moves the paired CareEvent server-side. Create: empty → the server defaults to today.
+           A4 (spec §2.4) — a PAST-EVENT date, so the browser stops the typo with no round trip. The
+           server enforces it too, against the plant's own LOCAL today; the two are not redundant. -->
       <UiFormGroup :label="$t('progress.date')" :hint="$t('progress.dateHint')">
-        <UiInput v-model="occurredOn" type="date" />
+        <UiInput v-model="occurredOn" type="date" :max="todayYmd()" />
       </UiFormGroup>
 
       <!-- Photos (optional) -->

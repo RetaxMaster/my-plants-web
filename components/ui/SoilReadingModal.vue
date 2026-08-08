@@ -48,8 +48,11 @@ const rawValueField = computed<number | string>({
 // response is lost after the server committed never writes a second reading.
 const idempotencyKey = ref(crypto.randomUUID());
 // Reopen must reset EVERY field a previous session could have left stale — not just the ones an earlier
-// pass happened to touch. The modal is mounted once for the page's life (PlantDetail.vue, no `:key`), so a
-// field left un-reset here silently carries a prior reading's value into the next one. `measuredOn` and
+// pass happened to touch, and that now explicitly includes the calibration anchors (`saturatedValue`/
+// `dryValue`): the API's own comment records that a REPOT invalidates a calibration, so anchors typed for
+// the OLD pot and abandoned without saving must never sit pre-filled, one tap from being written as the
+// NEW pot's anchors. The modal is mounted once for the page's life (PlantDetail.vue, no `:key`), so a field
+// left un-reset here silently carries a prior reading's value into the next one. `measuredOn` and
 // `postponeToOn` are the two date fields: a stale `measuredOn` is the worse of the two, since two readings
 // landing on the same date is a zero-span pair that corrupts the drying-rate slope fit — the exact data
 // quality this whole feature exists to protect.
@@ -61,6 +64,17 @@ watch(open, (isOpen) => {
   verdict.value = 'NONE';
   measuredOn.value = todayYmd();
   postponeToOn.value = '';
+  calibration.saturatedValue = null;
+  calibration.dryValue = null;
+  // `instrumentId`'s setup-time initializer (`props.data.instruments[0]?.id ?? ''`) can miss the "default
+  // to the first instrument" intent entirely: PlantDetail.vue's template falls back to an empty
+  // `{ instruments: [], … }` shape while its own async readings fetch is still in flight, so the modal can
+  // be constructed before the real instrument list ever reaches it. Re-apply the default here, on every
+  // open, but ONLY when nothing is currently selected — an owner's already-chosen instrument must survive
+  // a close/reopen untouched, the deliberate stickiness this field otherwise has.
+  if (instrumentId.value === '' && props.data.instruments[0]) {
+    instrumentId.value = props.data.instruments[0].id;
+  }
 });
 
 const options = computed(() =>

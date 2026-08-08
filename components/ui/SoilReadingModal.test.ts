@@ -183,4 +183,55 @@ describe('SoilReadingModal', () => {
 
     expect((measuredOnInput().element as HTMLInputElement).value).toBe(todayYmd());
   });
+
+  // Fix wave 1, item 1a/1c: the reopen-reset watcher's own comment claimed it reset "EVERY field a
+  // previous session could have left stale" while silently leaving the calibration anchors
+  // (`saturatedValue`/`dryValue`) untouched. The API's own comment records that a REPOT invalidates a
+  // calibration — anchors typed for the OLD pot and abandoned without saving must never sit pre-filled,
+  // one tap from being written as the NEW pot's anchors.
+  it('resets the calibration anchors too on close/reopen (fix wave 1, item 1a)', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(1850);
+    await dryInput!.setValue(1200);
+    expect((saturatedInput!.element as HTMLInputElement).value).toBe('1850');
+    expect((dryInput!.element as HTMLInputElement).value).toBe('1200');
+
+    // Close, then reopen — the same modal instance a page reuse never re-mounts.
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    const [saturatedAfter, dryAfter] = w.findAll('.mp-calib input');
+    expect((saturatedAfter!.element as HTMLInputElement).value).toBe('');
+    expect((dryAfter!.element as HTMLInputElement).value).toBe('');
+  });
+
+  // Fix wave 1, item 1b: `instrumentId`'s setup-time initializer (`props.data.instruments[0]?.id ?? ''`)
+  // can miss the "default to the first instrument" intent entirely — PlantDetail.vue's template falls
+  // back to an empty `{ instruments: [], … }` shape while its own async readings fetch is still in
+  // flight, so the modal can be constructed before the real instrument list ever reaches it. The fix
+  // re-applies the default on every open, but ONLY when nothing is currently selected, so it must NOT
+  // clobber the owner's own later, deliberate choice.
+  it('defaults the instrument to the first one on a first open, even with a late-arriving data prop, but ' +
+    'never overwrites an explicit LATER choice on reopen (fix wave 1, item 1b)', async () => {
+    const w = mount(SoilReadingModal, {
+      props: { open: false, plantId: 'plant-1', data: makeData({ instruments: [] }) },
+      global: { mocks: { $t: (k: string) => k }, stubs },
+    });
+
+    // Simulate PlantDetail.vue's readings fetch resolving LATE — after the modal already exists — while
+    // the modal is still closed, exactly the gap the setup-time initializer used to miss.
+    await w.setProps({ data: makeData({ instruments: [galvanicProbe, kitchenScaleCalibrated] }) });
+    await w.setProps({ open: true });
+    expect(instrumentSegButtons(w)[0]!.attributes('aria-pressed')).toBe('true');
+
+    // The owner explicitly picks the SECOND instrument.
+    await instrumentSegButtons(w)[1]!.trigger('click');
+    expect(instrumentSegButtons(w)[1]!.attributes('aria-pressed')).toBe('true');
+
+    // Close and reopen: the deliberate stickiness must survive untouched — never reverting to the default.
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+    expect(instrumentSegButtons(w)[1]!.attributes('aria-pressed')).toBe('true');
+  });
 });

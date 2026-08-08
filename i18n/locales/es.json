@@ -169,7 +169,9 @@
     "reason": {
       "intuition": "Solo por intuición",
       "dry-soil": "La tierra estaba seca",
+      "dry-soil-measured": "Medido: la tierra estaba seca",
       "soil-still-moist": "La tierra aún está húmeda",
+      "soil-still-moist-measured": "Medido: la tierra seguía húmeda",
       "no-time": "Ahora no tengo tiempo",
       "other": "Otra razón",
       "not-needed-yet": "Aún no lo necesita — las raíces se ven bien",

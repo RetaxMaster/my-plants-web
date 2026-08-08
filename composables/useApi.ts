@@ -1,5 +1,6 @@
 import type { AgentProviderStatus } from '@retaxmaster/agents-realtime-protocol';
 import { IDEMPOTENCY_KEY_HEADER } from '@retaxmaster/my-plants-species-schema';
+import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
 import { checkChatSendLimits, sendChatJson, type ChatAttachmentPayload } from '../utils/chatSend.js';
 import { createGetCache, getCacheKey, getCacheKeyPath, type GetCache } from '~/utils/getCache';
 import { withIdempotencyKey } from '~/utils/idempotency';
@@ -15,6 +16,7 @@ import type {
   AgentProposal, DoctorSessionSettings,
   ClinicalRecordSummary, ClinicalRecordDetail,
   RepotSign, RepotSignsResponse, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
+  OwnerInstruments, PlantSoilReadings, CreateSoilReading, InstrumentCalibration,
 } from '../types/api.js';
 
 // Bounded wait for the two REPOT mutating submits (round-4 finding V2): a plain JSON POST via ofetch has NO
@@ -303,6 +305,31 @@ export function useApi() {
     getPlantPhotos: (id: string) => api<PlantPhotoItem[]>(`/plants/${id}/photos`),
     getPlantCare: (id: string) => api<PlantCare>(`/plants/${id}/care`),
     getRepotSigns: (plantId: string) => api<RepotSignsResponse>(`/plants/${plantId}/repot-signs`),
+
+    // ---- Measured soil (spec Part C) ----------------------------------------------------------------
+    getOwnerInstruments: () => api<OwnerInstruments>('/settings/instruments'),
+    setOwnerInstruments: (selected: InstrumentId[]) =>
+      api<OwnerInstruments>('/settings/instruments', { method: 'PUT', body: { selected } }),
+
+    getSoilReadings: (plantId: string) =>
+      api<PlantSoilReadings>(`/plants/${plantId}/soil-readings`),
+
+    /** `idempotencyKey` is PINNED, minted once when the measuring modal opens and reused on every retry —
+     *  the same stable-key discipline the repot submit uses. A create whose response is lost after the
+     *  server committed must never write a second reading. */
+    recordSoilReading: (plantId: string, body: CreateSoilReading, idempotencyKey: string) =>
+      api<{ readingId: string }>(`/plants/${plantId}/soil-readings`, {
+        method: 'POST',
+        body,
+        headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+      }),
+
+    setInstrumentCalibration: (
+      plantId: string, instrumentId: InstrumentId, body: InstrumentCalibration,
+    ) =>
+      api<InstrumentCalibration>(
+        `/plants/${plantId}/soil-readings/calibration/${instrumentId}`, { method: 'PUT', body },
+      ),
 
     /**
      * The submit boundary. `idempotencyKey` is a STABLE key minted at the submit boundary and reused across

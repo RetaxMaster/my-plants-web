@@ -169,7 +169,9 @@
     "reason": {
       "intuition": "Just a hunch",
       "dry-soil": "The soil was dry",
+      "dry-soil-measured": "Measured: the soil was dry",
       "soil-still-moist": "The soil is still moist",
+      "soil-still-moist-measured": "Measured: the soil was still moist",
       "no-time": "No time right now",
       "other": "Another reason",
       "not-needed-yet": "It doesn't need it yet — the roots look fine",

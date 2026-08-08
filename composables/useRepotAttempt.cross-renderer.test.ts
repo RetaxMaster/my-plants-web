@@ -96,6 +96,7 @@ beforeEach(() => {
     listPlants: async () => [],
     listPlaces: async () => [],
     getRepotSigns: async () => ({ signs: [] }),
+    getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
     getPlant: getPlantMock,
     getPlantCare: getPlantCareMock,
     getPlantHistory: getPlantHistoryMock,
@@ -218,6 +219,7 @@ const detailStubs = {
   UiConfirmModal: true,
   UiFormGroup: true,
   UiSelectField: true,
+  UiSoilReadingModal: true,
 };
 
 async function mountToday() {

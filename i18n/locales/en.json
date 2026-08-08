@@ -1397,6 +1397,12 @@
       "dry": "Weight when dry ({unit})",
       "dryHint": "Weigh it again right before you'd normally water.",
       "spanInvalid": "The watered weight has to be higher than the dry weight."
+    },
+    "measureAction": "Measure",
+    "finding": {
+      "tooSlow": "This pot is drying much more slowly than it should. That's usually an oversized pot, poor aeration, or tired substrate — not a watering problem.",
+      "tooSlowLink": "Look at repotting",
+      "flatSeries": "Your readings aren't moving at all. Real soil dries steadily, so this points at the meter — salt build-up, poor contact, or a changing depth — rather than at the pot."
     }
   },
   "settings": {

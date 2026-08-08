@@ -57,8 +57,31 @@ const props = withDefaults(
      * as postponing a repot nobody has established is needed; the answer to that is the questionnaire.
      */
     allowStandaloneDone?: boolean;
+    /**
+     * WATER only, opt-in per SURFACE, and DELIBERATELY UNDEFAULTED — the same pattern `pendingVerdict`
+     * already uses. `undefined` (the prop simply omitted) means this caller has not opted into the
+     * measuring affordance and renders exactly as before. Passing `false` shows the button unemphasised;
+     * `true` means the app is ASKING for a reading because its own confidence is low, and the button is
+     * emphasised.
+     *
+     * There is NO separate "measure" task and no mode (spec §4.8): a daily check spends the owner's
+     * attention on the question the model is most confident about. This is an affordance on the WATER task
+     * the app already shows.
+     */
+    suggestMeasuring?: boolean;
   }>(),
-  { withDoneDate: false, showInfo: false, allowStandaloneDone: false },
+  {
+    withDoneDate: false,
+    showInfo: false,
+    allowStandaloneDone: false,
+    // Explicit `undefined` default, not simply omitted from this object — a `boolean`-typed prop with NO
+    // entry here at all falls under Vue's own implicit boolean casting (`resolvePropValue`'s
+    // `isAbsent && !hasDefault` branch): an absent boolean prop with no declared default resolves to
+    // `false`, not `undefined`, which would make `suggestMeasuring !== undefined` true for EVERY WATER row
+    // and leak the button onto every un-opted-in caller. Declaring the default HERE (even as `undefined`)
+    // satisfies Vue's `hasDefault` check and keeps the prop genuinely tri-state.
+    suggestMeasuring: undefined,
+  },
 );
 
 const emit = defineEmits<{
@@ -67,6 +90,7 @@ const emit = defineEmits<{
   logProgress: [{ task: TaskCode }];
   info: [{ task: TaskCode }];
   evaluate: [{ task: TaskCode }];
+  measure: [];
 }>();
 
 // REPOT's own default, factored out so the initializer and the reset below can never disagree about it.
@@ -253,6 +277,19 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
             {{ t('common.postpone') }}
           </Button>
         </template>
+        <!-- The measure affordance (spec §4.8): an affordance on the WATER task, never a separate task or
+             mode. `suggestMeasuring !== undefined` is the opt-in gate — a caller that omits the prop
+             renders exactly as before. `true` means the app's own confidence is low and is ASKING for a
+             reading, so the button is emphasised; `false` still offers it, unemphasised. -->
+        <Button
+          v-if="task === 'WATER' && suggestMeasuring !== undefined"
+          size="xs"
+          :color="suggestMeasuring ? 'primary' : 'neutral'"
+          :variant="suggestMeasuring ? 'solid' : 'ghost'"
+          @click="emit('measure')"
+        >
+          {{ t('reading.measureAction') }}
+        </Button>
       </template>
     </div>
   </div>

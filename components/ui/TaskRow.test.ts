@@ -44,7 +44,7 @@ const stubs = {
   Badge: { template: '<span><slot /></span>' },
   Button: {
     props: ['size', 'color', 'variant', 'icon'],
-    template: '<button class="stub-btn" :data-icon="icon"><slot /></button>',
+    template: '<button class="stub-btn" :data-icon="icon" :data-variant="variant"><slot /></button>',
   },
 };
 
@@ -390,5 +390,39 @@ describe('UiTaskRow — the REPOT back-date is display-only, seeding the complet
 
     const water = mountRow({ task: 'WATER', withDoneDate: true });
     expect(water.find('input[type="date"]').attributes('max')).toBe(todayYmd());
+  });
+});
+
+// The measure affordance (measured:22, spec §4.8): an affordance on the WATER task, never a separate task
+// or mode — `suggestMeasuring` is deliberately undefaulted so an un-opted-in caller renders byte-identical
+// to before this prop existed, the same pattern `pendingVerdict` already established.
+describe('UiTaskRow — the measure affordance on WATER (measured:22)', () => {
+  it('renders NO measure button when suggestMeasuring is omitted — an un-opted caller is unchanged', () => {
+    const w = mountRow({ task: 'WATER' });
+    expect(w.text()).not.toContain('reading.measureAction');
+  });
+
+  it('renders the measure button unemphasised at false and emphasised at true', () => {
+    const unemphasised = mountRow({ task: 'WATER', suggestMeasuring: false });
+    const unemphasisedBtn = unemphasised.findAll('.stub-btn').find((b) => b.text() === 'reading.measureAction');
+    expect(unemphasisedBtn).toBeTruthy();
+    expect(unemphasisedBtn!.attributes('data-variant')).toBe('ghost');
+
+    const emphasised = mountRow({ task: 'WATER', suggestMeasuring: true });
+    const emphasisedBtn = emphasised.findAll('.stub-btn').find((b) => b.text() === 'reading.measureAction');
+    expect(emphasisedBtn).toBeTruthy();
+    expect(emphasisedBtn!.attributes('data-variant')).toBe('solid');
+  });
+
+  it('never renders the measure button on a non-WATER task, even when the prop is passed', () => {
+    const w = mountRow({ task: 'REPOT', pendingVerdict: 'REPOT', suggestMeasuring: true });
+    expect(w.text()).not.toContain('reading.measureAction');
+  });
+
+  it('emits `measure` when clicked', async () => {
+    const w = mountRow({ task: 'WATER', suggestMeasuring: true });
+    const btn = w.findAll('.stub-btn').find((b) => b.text() === 'reading.measureAction')!;
+    await btn.trigger('click');
+    expect(w.emitted('measure')).toHaveLength(1);
   });
 });

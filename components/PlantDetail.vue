@@ -159,9 +159,14 @@ const { data: readings, refresh: refreshReadings } = await useAsyncData(`soil-re
 const readingModalOpen = ref(false);
 // A saved reading can change BOTH the readings list (SoilReadingModal's own data) and the care payload's
 // `measurement` block (a new reading can flip `suggestMeasuring`/`tooSlowDrying`/`flatSeries`) — refresh
-// both, never just one, or one of the two surfaces silently shows stale data right after a save.
+// both, never just one, or one of the two surfaces silently shows stale data right after a save. A
+// WATER_NOW/POSTPONE verdict also writes a real DONE/POSTPONED care event in the SAME transaction as the
+// reading, and a DONE care event renders in the History timeline — the exact same reasoning `sendDone`'s
+// own comment already states ("A completed action becomes a history item … so refresh the timeline in
+// place too"), which this path must honor identically rather than leaving History stale until a manual
+// reload.
 async function onReadingSaved() {
-  await Promise.all([refresh(), refreshReadings()]);
+  await Promise.all([refresh(), refreshReadings(), refreshHistory()]);
 }
 
 // The browser tab shows the plant's own name (nickname, else localized species name); a plant that

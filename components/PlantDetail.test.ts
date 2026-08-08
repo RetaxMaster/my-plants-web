@@ -1679,3 +1679,89 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     expect(w.find('.stub-alert').exists()).toBe(false);
   });
 });
+
+// Fix wave 1, item 2: a WATER_NOW/POSTPONE verdict on a measurement writes a real DONE/POSTPONED care
+// event in the SAME transaction as the reading, and a DONE care event renders in the History timeline —
+// the exact reasoning `sendDone`'s own comment already states for the standalone Done paths ("A completed
+// action becomes a history item … so refresh the timeline in place too"). `onReadingSaved` used to run
+// only `Promise.all([refresh(), refreshReadings()])`, leaving History stale until a manual reload.
+describe('PlantDetail — a saved measurement also refreshes History (fix wave 1, item 2)', () => {
+  const careRefresh = vi.fn(async () => {});
+  const readingsRefresh = vi.fn(async () => {});
+  const historyRefresh = vi.fn(async () => {});
+
+  beforeEach(() => {
+    careRefresh.mockClear();
+    readingsRefresh.mockClear();
+    historyRefresh.mockClear();
+    // A controllable, KEY-DISTINGUISHED `refresh()` per essential read — same technique the round-5 V1
+    // suite above uses for its own `care-` key, extended here to also distinguish `soil-readings-`.
+    vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh:
+        key.startsWith('care-') ? careRefresh
+        : key.startsWith('soil-readings-') ? readingsRefresh
+        : vi.fn(async () => {}),
+    }));
+    // Same technique for the deferred (`{ server: false }`) reads, so `history-${id}`'s own `refresh()`
+    // is individually observable too.
+    vi.stubGlobal('useLazyAsyncData', (key: string, fn: () => Promise<unknown>) => {
+      const data = ref<unknown>(null);
+      void Promise.resolve(fn()).then((v) => { data.value = v; });
+      return { data, refresh: key.startsWith('history-') ? historyRefresh : vi.fn(async () => {}) };
+    });
+  });
+
+  afterEach(() => {
+    // Restore the module's default (non-instrumented) stubs for every other describe block in this file.
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(async () => {}),
+    }));
+    vi.stubGlobal('useLazyAsyncData', (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref<unknown>(null);
+      void Promise.resolve(fn()).then((v) => { data.value = v; });
+      return { data, refresh: vi.fn(async () => {}) };
+    });
+  });
+
+  // The base `stubs` map collapses `UiSoilReadingModal` to `true` (an inert unknown element) — this test
+  // needs to fire its `@saved` event, so it swaps in a minimal interactive stub instead, everything else
+  // unchanged.
+  const soilReadingModalStub = {
+    props: ['open', 'plantId', 'data'],
+    emits: ['saved'],
+    template: '<button class="reading-saved-btn" @click="$emit(\'saved\')" />',
+  };
+
+  async function mountDetailForReading(plant: ReturnType<typeof basePlant>) {
+    stubApi(plant);
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      {
+        global: {
+          stubs: { ...stubs, UiSoilReadingModal: soilReadingModalStub },
+          mocks: { $t: i18n.t, $d: (v: unknown) => String(v) },
+        },
+      },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  it('calls refresh(), refreshReadings(), AND refreshHistory() when the modal emits saved', async () => {
+    const w = await mountDetailForReading(basePlant());
+
+    expect(careRefresh).not.toHaveBeenCalled();
+    expect(readingsRefresh).not.toHaveBeenCalled();
+    expect(historyRefresh).not.toHaveBeenCalled();
+
+    await w.find('.reading-saved-btn').trigger('click');
+    await flushPromises();
+
+    expect(careRefresh).toHaveBeenCalled();
+    expect(readingsRefresh).toHaveBeenCalled();
+    expect(historyRefresh).toHaveBeenCalled();
+  });
+});

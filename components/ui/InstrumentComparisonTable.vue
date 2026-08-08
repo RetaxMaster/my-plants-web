@@ -43,6 +43,6 @@ const { t } = useI18n();
   border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
 }
-.mp-instrtable__table thead th { color: var(--text-faint); font-weight: 500; }
-.mp-instrtable__note { margin-top: var(--space-3); color: var(--text-faint); font-size: var(--text-xs); }
+.mp-instrtable__table thead th { color: var(--text-muted); font-weight: 500; }
+.mp-instrtable__note { margin-top: var(--space-3); color: var(--text-muted); font-size: var(--text-xs); }
 </style>

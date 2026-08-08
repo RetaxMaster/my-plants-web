@@ -2,6 +2,7 @@
 // Owner-scoped settings. The app had no home for these before measured soil; this is the first one.
 import Card from '../components/ui/Card.vue';
 import ScreenHeader from '../components/ui/ScreenHeader.vue';
+import SectionTitle from '../components/ui/SectionTitle.vue';
 import Switch from '../components/ui/Switch.vue';
 import Alert from '../components/ui/Alert.vue';
 import InstrumentComparisonTable from '../components/ui/InstrumentComparisonTable.vue';
@@ -43,10 +44,10 @@ async function toggle(id: InstrumentId, on: boolean) {
          explicit gap, Card itself carries no outer margin. -->
     <div class="mp-settings">
       <Card>
-        <h2 class="mp-settings__h2">{{ t('settings.instruments.title') }}</h2>
+        <SectionTitle>{{ t('settings.instruments.title') }}</SectionTitle>
         <p class="mp-settings__lead">{{ t('settings.instruments.lead') }}</p>
 
-        <Alert v-if="error" color="red">{{ error }}</Alert>
+        <Alert v-if="error" color="red" :description="error" announce />
 
         <div v-for="row in data?.available ?? []" :key="row.id" class="mp-settings__row">
           <div class="mp-settings__text">
@@ -63,7 +64,7 @@ async function toggle(id: InstrumentId, on: boolean) {
       </Card>
 
       <Card>
-        <h2 class="mp-settings__h2">{{ t('settings.instruments.compareTitle') }}</h2>
+        <SectionTitle>{{ t('settings.instruments.compareTitle') }}</SectionTitle>
         <InstrumentComparisonTable :rows="data?.available ?? []" />
       </Card>
     </div>
@@ -72,12 +73,12 @@ async function toggle(id: InstrumentId, on: boolean) {
 
 <style scoped>
 .mp-settings { display: grid; gap: var(--space-4); }
-.mp-settings__h2 { font-size: var(--text-lg); margin: 0 0 var(--space-2); }
-.mp-settings__lead { color: var(--text-faint); margin: 0 0 var(--space-4); }
+.mp-settings__lead { color: var(--text-muted); margin: 0 0 var(--space-4); }
 .mp-settings__row {
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle);
 }
 .mp-settings__text { flex: 1; min-width: 0; }
-.mp-settings__sub { color: var(--text-faint); font-size: var(--text-sm); }
+.mp-settings__label { font-weight: 700; color: var(--text-strong); }
+.mp-settings__sub { color: var(--text-muted); font-size: var(--text-sm); }
 </style>

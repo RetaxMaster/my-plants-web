@@ -645,6 +645,8 @@
     "citiesSub": "Tu hogar y ciudades guardadas",
     "movingLabel": "Mudanza",
     "movingSub": "Simular una mudanza",
+    "settingsLabel": "Ajustes",
+    "settingsSub": "Instrumentos de medición y preferencias",
     "signOut": "Cerrar sesión",
     "languageSub": "Elige inglés o español"
   },
@@ -1366,6 +1368,35 @@
     "emptyTitle": "Todavía no hay plantas regaladas",
     "emptyBody": "Cuando marques una planta como regalada, conservará su lugar aquí."
   },
+  "settings": {
+    "title": "Ajustes",
+    "subtitle": "Preferencias de tu jardín",
+    "instruments": {
+      "title": "¿Con qué mides?",
+      "lead": "Elige los instrumentos que tienes. La app te los ofrecerá cuando midas la tierra de una maceta.",
+      "compareTitle": "Cómo se comparan los instrumentos",
+      "saveFailed": "No pudimos guardar eso. Inténtalo de nuevo.",
+      "name": {
+        "galvanic-probe": "Medidor de humedad",
+        "kitchen-scale": "Báscula de cocina"
+      },
+      "unit": {
+        "galvanic-probe": "índice 1–10",
+        "kitchen-scale": "gramos"
+      },
+      "help": {
+        "galvanic-probe": "Un medidor barato de dos puntas. Mide conductividad, no agua, así que compara cada maceta solo consigo misma.",
+        "kitchen-scale": "Pesa la maceta completa. Cada gramo que pierde es un gramo de agua, una vez que registres su peso recién regada y seca."
+      },
+      "table": {
+        "instrument": "Instrumento",
+        "unit": "Unidad",
+        "comparable": "Compara entre macetas",
+        "calibration": "Requiere ajuste por maceta",
+        "note": "Las lecturas se comparan con la misma maceta a lo largo del tiempo, nunca entre macetas — por eso un medidor barato sigue dando un ritmo de secado útil."
+      }
+    }
+  },
   "theme": {
     "toLight": "Cambiar a tema claro",
     "toDark": "Cambiar a tema oscuro"
@@ -1406,6 +1437,10 @@
     "more": {
       "title": "Más",
       "description": "Tu cuenta, ciudades guardadas, simulaciones de mudanza y otras opciones."
+    },
+    "settings": {
+      "title": "Ajustes",
+      "description": "Preferencias de tu jardín, incluidos los instrumentos con los que mides."
     },
     "admin": {
       "title": "Admin",

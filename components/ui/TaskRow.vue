@@ -69,30 +69,43 @@ const emit = defineEmits<{
   evaluate: [{ task: TaskCode }];
 }>();
 
-const doneDate = ref('');
+// REPOT's own default, factored out so the initializer and the reset below can never disagree about it.
+// The card's back-date is READONLY for REPOT (Task 26) — the owner cannot type into it at all, so it must
+// never sit BLANK: a blank readonly field both LOOKS broken and, worse, emits `occurredOn: undefined` on
+// Done, so the "one date seam" the plan describes (Task 25's `RepotDoneForm` field, seeded from this value)
+// would carry nothing across it. `RepotDoneForm` itself already falls back to `todayYmd()` when it receives
+// no seed (`props.seedOccurredOn || todayYmd()`) — seeding the card with `todayYmd()` here just makes that
+// same default explicit and threaded end-to-end, instead of implicit three layers away. It is a SEED, not a
+// claim about when the repot actually happened: the owner can still correct it in the form the Done click
+// opens (`RepotDoneForm`'s own `occurredOn` field is the one editable date surface for a repot completion,
+// per spec §2.3), which is exactly how "I repotted it a few days ago" (`allowStandaloneDone`) is handled —
+// on the form, never on this read-only card.
+const repotDoneDateDefault = () => (props.task === 'REPOT' ? todayYmd() : '');
+
+const doneDate = ref(repotDoneDateDefault());
 
 // The back-date must not become this row's sticky default. `PlantDetail.vue` keys its rows by TASK, so the
 // instance survives the post-completion refresh: a date typed once to back-date a watering silently stayed
 // in the box and rode along on the NEXT Done. Pre-existing for every task; newly consequential for REPOT,
 // where that date is what anchors the substrate clock (`substrate_refreshed_on`).
 //
-// CLEARED ON A CHANGED `dueLabel`, deliberately NOT on the `done` emit. The emit looks like the obvious
-// place and is the wrong one, because for REPOT the emit does not perform the completion — it OPENS the
-// standalone Done form, and `PlantDetail.vue`'s `onRepotDone` captures the emitted `occurredOn` into
-// `doneFormOccurredOn`. Clearing there breaks this sequence: type 2026-08-01 -> Done (form opens, box
-// clears) -> dismiss the form with X (no key was ever minted, so nothing is outstanding) -> Done again ->
-// `occurredOn` is now `undefined`, `doneFormOccurredOn` resets to '', and `onRepotDoneConfirm`'s
-// `doneFormOccurredOn.value || today()` writes the repot on TODAY. That is a silent wrong-day write — the
-// exact class of defect the previous round fixed — traded for the stale one.
+// RESET (not cleared) ON A CHANGED `dueLabel`, deliberately NOT on the `done` emit. The emit looks like the
+// obvious place and is the wrong one, because for REPOT the emit does not perform the completion — it OPENS
+// the standalone Done form, and `PlantDetail.vue`'s `onRepotDone` captures the emitted `occurredOn` into
+// `doneFormOccurredOn`. Resetting there breaks this sequence: Done (form opens, box resets) -> dismiss the
+// form with X (no key was ever minted, so nothing is outstanding) -> Done again -> `occurredOn` reverts to
+// the reset default, `doneFormOccurredOn` follows it, and `onRepotDoneConfirm`'s
+// `doneFormOccurredOn.value || today()` writes the repot on TODAY regardless. That is a silent wrong-day
+// write — the exact class of defect the previous round fixed — traded for the stale one.
 //
 // `dueLabel` changing means the schedule this row describes actually MOVED, which is what a recorded
 // completion does and what a dismissed form does not. Its only false positive is a locale switch, which
-// clears an input the owner can see is empty and retype; its only false negative leaves today's behaviour.
-// Neither can write a date the owner did not choose.
+// resets a WATER input the owner can see is empty and retype, or a REPOT input back to `todayYmd()`; its
+// only false negative leaves today's behaviour. Neither can write a date the owner did not choose.
 watch(
   () => props.dueLabel,
   () => {
-    doneDate.value = '';
+    doneDate.value = repotDoneDateDefault();
   },
 );
 

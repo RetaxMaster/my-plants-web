@@ -44,7 +44,8 @@
     "writingDesk": "Writing desk",
     "mediaLibrary": "Media library",
     "pantheon": "Visit the pantheon",
-    "gifted": "Gifted plants"
+    "gifted": "Gifted plants",
+    "settings": "Settings"
   },
   "tasks": {
     "labels": {
@@ -1377,12 +1378,15 @@
     "saveFailed": "We couldn't save that reading. Please try again.",
     "alreadyRecorded": "This reading was already recorded.",
     "valueOutOfRange": "Enter a value between {min} and {max}.",
-    "noInstruments": "You haven't told us what you measure with yet. Add an instrument in Settings first.",
+    "valueBelowMin": "Enter a value of {min} or more.",
+    "noInstruments": "You haven't told us what you measure with yet. Add an instrument in {settings} first.",
+    "settingsLink": "Settings",
     "protocol": "Insert to about {depth} cm deep, roughly {distance} cm from the centre — and do it the same way every time. Deeper soil is wetter, so a changing depth invents a trend that isn't there.",
     "protocolUnknownPot": "Add this plant's pot diameter and we'll tell you exactly how deep to measure. Until then, pick a depth and repeat it identically.",
+    "protocolWholePot": "Weigh the WHOLE pot, the same way every time: same saucer on or off, no standing water in the tray, and let it finish draining first. What matters is that the setup never changes — a pot weighed differently invents a trend that isn’t there.",
     "honesty": {
       "galvanic-probe": "This probe reads conductivity, not water — so compare this pot against itself, never against another.",
-      "kitchen-scale": "Weigh the whole pot the same way every time: same saucer on or off, no standing water in the tray."
+      "kitchen-scale": "A pot's weight depends on the pot — so compare this pot against itself, never against another."
     },
     "wateringRelationLabel": "Before or after that day's watering?",
     "wateringRelationHint": "This plant was also watered on that date, so we need to know which side of the watering the reading falls on — it decides which drying cycle it belongs to.",
@@ -1392,7 +1396,11 @@
       "after": "After"
     },
     "verdictLabel": "What are you doing about it?",
-    "verdictHint": "Recording alone won't water or postpone anything today — but it teaches the app how fast this pot dries.",
+    "verdictHint": {
+      "none": "Just recording changes nothing on today's plan — but it teaches the app how fast this pot dries.",
+      "postpone": "We’ll log this as a postponement and move the next watering to the date you pick — and the reading still teaches the app how fast this pot dries.",
+      "waterNow": "We’ll record a watering for that day and reschedule from it — and the reading still teaches the app how fast this pot dries."
+    },
     "verdict": {
       "none": "Just recording",
       "postpone": "Not watering yet",

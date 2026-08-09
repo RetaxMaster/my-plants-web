@@ -21,6 +21,14 @@ All notable, user-facing changes to the MyPlants web app. Newest first.
 
 - **Repot and fertilize explanations now show their calculated basis.** Where those dates used to just appear, they now state what part of the app's model led to each one: the substrate wearing out, what the app has actually measured about this plant (its size, its pot, and its watering history), or — when there isn't enough of that yet — the usual cadence for the species. An explanation card on your plant's page names that reason and shows the supporting details — not to judge whether the app was right, but so you know what you'd need to change if the timing didn't match your own sense of the plant.
 
+### Fixed
+
+- **Settings is reachable on a computer.** The instruments screen — the first stop before you can measure anything — was only linked from the mobile "More" tab, and that whole bar is hidden on a desktop-sized window. So the app told you to go to Settings and gave you no way to get there. It now lives in the account menu, which is on every screen at every size. The word "Settings" in the measuring modal's own message is a link too.
+- **The measuring instructions match the instrument you picked.** Choosing the kitchen scale still showed "insert to about 8 cm deep, roughly 4 cm from the centre" — in the prominent notice, with the actual weighing instructions in small grey text underneath. A scale is not inserted into anything. Each instrument now states its own protocol, in the prominent notice, and the quiet line beside it says only what it is really about: this pot compares to itself, never to another.
+- **The note under "What are you doing about it?" now describes what you actually chose.** It always read "Recording alone won't water or postpone anything today" — including when you had selected "Watering now", which records a watering, or "Not watering yet", which records a postponement and moves the next watering. Each choice now states its own consequence.
+- **A weight below zero is refused before you save.** The kitchen scale had no client-side limit at all, because it has no upper one.
+
+
 ## Unreleased — Repotting now asks what you can see
 
 **The repot reminder used to give you two buttons — *Done* or *Postpone* — which both asked you to decide

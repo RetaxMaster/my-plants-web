@@ -92,6 +92,12 @@ const options = computed(() =>
   props.data.instruments.map((i) => ({ key: i.id, label: t(`settings.instruments.name.${i.id}`) })));
 const instrument = computed(() =>
   props.data.instruments.find((i) => i.id === instrumentId.value) ?? null);
+// Which measuring protocol this instrument's reading actually follows — read STRAIGHT OFF the shared
+// instrument row (QA finding F2), never branched on the id here, so a new row arrives with its own
+// protocol and this file needs no edit. `insertion` is the fallback ONLY for the transient window before
+// the readings fetch resolves (PlantDetail.vue renders an empty `{ instruments: [] }` shape meanwhile),
+// where no instrument is selected and no protocol is shown at all.
+const protocolKind = computed(() => instrument.value?.protocolKind ?? 'insertion');
 const needsCalibration = computed(() =>
   instrument.value?.requiresCalibration === true && instrument.value.calibration == null);
 
@@ -143,17 +149,28 @@ const showWateringRelation = computed(() => isWateringDay.value && verdict.value
 // it by accident. Gated on `rawMax` being DECLARED: the kitchen scale's `rawMax` is `null` (grams are
 // open-ended) and must stay unrestricted, same convention `RepotDoneForm.vue`'s `potSizeValid`/
 // `potSizeInvalid` pair already uses for its own bounded numeric field.
+// FIX (QA finding F5, 2026-08-08) — this used to bail out entirely when `rawMax` was null, which meant the
+// kitchen scale (grams, open-ended ceiling) had NO client bound at all, floor included: a weight of `-50`
+// passed the browser and the server accepted it too. The ceiling is genuinely open-ended and stays so; the
+// FLOOR always binds, because `rawMin: 0` on that row is a real statement (a pot cannot weigh less than
+// nothing). The server now refuses both ends through the SAME shared schema (`soilReadingCreateSchema`),
+// so this is the fast, local half of one rule, never the only copy of it.
 const rawValueOutOfRange = computed(() => {
-  const max = instrument.value?.rawMax;
-  if (max == null || rawValue.value == null) return false;
-  return rawValue.value < instrument.value!.rawMin || rawValue.value > max;
+  const row = instrument.value;
+  if (row == null || rawValue.value == null) return false;
+  return rawValue.value < row.rawMin || (row.rawMax != null && rawValue.value > row.rawMax);
 });
 // Shown only once the owner has typed SOMETHING — an empty field is simply "not filled in yet" (canSubmit
 // already gates on that), never an inline error of its own. Same shape as RepotDoneForm.vue's own
 // `potSizeErrorMessage`.
+// Two messages, because there are two genuinely different bounds (QA F5): a CLOSED scale states both ends,
+// an OPEN-ENDED one has no ceiling to state and the old single message rendered "between 0 and ." for it.
 const rawValueErrorMessage = computed(() => {
   if (rawValue.value == null || !rawValueOutOfRange.value) return undefined;
-  return t('reading.valueOutOfRange', { min: instrument.value!.rawMin, max: instrument.value!.rawMax });
+  const row = instrument.value!;
+  return row.rawMax == null
+    ? t('reading.valueBelowMin', { min: row.rawMin })
+    : t('reading.valueOutOfRange', { min: row.rawMin, max: row.rawMax });
 });
 
 const canSubmit = computed(() =>
@@ -233,6 +250,20 @@ const verdictOptions = computed(() => [
   { key: 'WATER_NOW', label: t('reading.verdict.waterNow') },
 ]);
 
+// ⚠️ THE HELPER LINE FOLLOWS THE SELECTED VERDICT (QA finding F3, 2026-08-08). It used to be ONE static
+// sentence — "Recording alone won't water or postpone anything today" — shown under all three options,
+// and it was false of two of them: `WATER_NOW` writes a real `WATER DONE` care event and `POSTPONE`
+// writes a real POSTPONED one that moves the next watering (measured: 08-14 → 08-20). The modal was
+// denying, in its own hint text, exactly what the button beneath it was about to do. Each verdict now
+// states its own consequence; the "and it still teaches the app how fast this pot dries" half is true of
+// all three and is repeated in each, because a translated sentence is one unit, never two glued together.
+const VERDICT_HINT_KEY: Record<ReadingVerdict, string> = {
+  NONE: 'reading.verdictHint.none',
+  POSTPONE: 'reading.verdictHint.postpone',
+  WATER_NOW: 'reading.verdictHint.waterNow',
+};
+const verdictHint = computed(() => t(VERDICT_HINT_KEY[verdict.value]));
+
 // Two options → segmented control, same design-system rule `instrumentId`'s picker above already follows.
 const wateringRelationOptions = computed(() => [
   { key: 'BEFORE', label: t('reading.wateringRelation.before') },
@@ -242,8 +273,19 @@ const wateringRelationOptions = computed(() => [
 
 <template>
   <Modal v-model="open" :title="t('reading.title')">
+    <!-- ⚠️ THE WORD "Settings" HERE IS A REAL LINK (QA finding F11, 2026-08-08). This alert is the app
+         telling the owner to go somewhere; before this it named the destination and gave them no way to
+         reach it, and on a desktop viewport there was no other route to `/settings` at all (QA F1). A
+         `NuxtLink` closes the loop, and `i18n-t` keeps the sentence a single translatable unit rather
+         than three concatenated fragments — the app's standing i18n rule. -->
     <Alert v-if="data.instruments.length === 0" color="amber">
-      {{ t('reading.noInstruments') }}
+      <i18n-t keypath="reading.noInstruments" tag="span">
+        <template #settings>
+          <NuxtLink to="/settings" class="mp-reading__link" @click="open = false">
+            {{ t('reading.settingsLink') }}
+          </NuxtLink>
+        </template>
+      </i18n-t>
     </Alert>
 
     <template v-else>
@@ -252,17 +294,30 @@ const wateringRelationOptions = computed(() => [
         <SegmentedControl v-model="instrumentId" :options="options" />
       </FormGroup>
 
-      <!-- The PROTOCOL. Fixed depth and position are not decoration: deeper soil is wetter, so a varying
-           depth manufactures a trend that does not exist. -->
-      <Alert v-if="data.protocol" color="amber">
-        {{ t('reading.protocol', {
-          depth: data.protocol.insertionDepthCm,
-          distance: data.protocol.distanceFromCentreCm,
-        }) }}
-      </Alert>
-      <Alert v-else color="amber">{{ t('reading.protocolUnknownPot') }}</Alert>
+      <!-- ⚠️ THE PROTOCOL IS INSTRUMENT-CONDITIONAL (QA finding F2, 2026-08-08). It used to print the
+           INSERTION protocol — "insert to about 8 cm deep, roughly 4 cm from the centre" — for a KITCHEN
+           SCALE, in this prominent amber alert, with the real weighing note demoted to muted grey
+           underneath. A scale is never inserted into anything, so the app was stating a procedure that
+           cannot be followed, in its loudest voice, for the very reason the protocol exists (repeatability).
+           Which protocol applies is a PROPERTY OF THE INSTRUMENT ROW (`protocolKind`, shared contract) —
+           never a branch invented here, and never a second copy of the table, so the capacitive and
+           tensiometer rows land with the right protocol the day they are added. -->
+      <template v-if="protocolKind === 'whole-pot-mass'">
+        <Alert color="amber">{{ t('reading.protocolWholePot') }}</Alert>
+      </template>
+      <template v-else>
+        <Alert v-if="data.protocol" color="amber">
+          {{ t('reading.protocol', {
+            depth: data.protocol.insertionDepthCm,
+            distance: data.protocol.distanceFromCentreCm,
+          }) }}
+        </Alert>
+        <Alert v-else color="amber">{{ t('reading.protocolUnknownPot') }}</Alert>
+      </template>
 
-      <!-- One line, instrument-specific. The comparison table lives in /settings, not here. -->
+      <!-- One line, instrument-specific, and about COMPARABILITY only — the "how do I take the reading"
+           half now lives in the protocol alert above, where it belongs. The comparison table lives in
+           /settings, not here. -->
       <p v-if="instrument" class="mp-reading__note">
         {{ t(`reading.honesty.${instrument.id}`) }}
       </p>
@@ -305,7 +360,7 @@ const wateringRelationOptions = computed(() => [
         <SegmentedControl v-model="wateringRelation" :options="wateringRelationOptions" />
       </FormGroup>
 
-      <FormGroup :label="t('reading.verdictLabel')" :hint="t('reading.verdictHint')">
+      <FormGroup :label="t('reading.verdictLabel')" :hint="verdictHint">
         <SegmentedControl v-model="verdict" :options="verdictOptions" />
       </FormGroup>
 
@@ -327,4 +382,7 @@ const wateringRelationOptions = computed(() => [
 
 <style scoped>
 .mp-reading__note { color: var(--text-faint); font-size: var(--text-sm); margin: var(--space-2) 0 var(--space-3); }
+/* The empty state's link to /settings (QA F11). Inherits the alert's own colour so it reads as part of
+   the sentence rather than as a foreign element; the underline is what makes it recognisably a link. */
+.mp-reading__link { color: inherit; text-decoration: underline; font-weight: var(--weight-semibold); }
 </style>

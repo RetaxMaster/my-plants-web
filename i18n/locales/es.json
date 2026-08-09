@@ -44,7 +44,8 @@
     "writingDesk": "Escritorio",
     "mediaLibrary": "Biblioteca multimedia",
     "pantheon": "Visitar el panteón",
-    "gifted": "Plantas regaladas"
+    "gifted": "Plantas regaladas",
+    "settings": "Ajustes"
   },
   "tasks": {
     "labels": {
@@ -1377,12 +1378,15 @@
     "saveFailed": "No pudimos guardar esa lectura. Inténtalo de nuevo.",
     "alreadyRecorded": "Esa lectura ya había quedado registrada.",
     "valueOutOfRange": "Ingresa un valor entre {min} y {max}.",
-    "noInstruments": "Todavía no nos dices con qué mides. Agrega un instrumento en Ajustes primero.",
+    "valueBelowMin": "Ingresa un valor de {min} o más.",
+    "noInstruments": "Todavía no nos dices con qué mides. Agrega un instrumento en {settings} primero.",
+    "settingsLink": "Ajustes",
     "protocol": "Introdúcelo unos {depth} cm de profundidad, a unos {distance} cm del centro — y hazlo igual cada vez. La tierra profunda está más húmeda, así que cambiar la profundidad inventa una tendencia que no existe.",
     "protocolUnknownPot": "Agrega el diámetro de la maceta y te decimos exactamente a qué profundidad medir. Mientras tanto, elige una profundidad y repítela igual.",
+    "protocolWholePot": "Pesa la maceta COMPLETA, siempre de la misma forma: con o sin plato, sin agua estancada en la charola y déjala escurrir antes. Lo que importa es que nunca cambie el método — pesarla distinto inventa una tendencia que no existe.",
     "honesty": {
       "galvanic-probe": "Este medidor lee conductividad, no agua — así que compara esta maceta consigo misma, nunca con otra.",
-      "kitchen-scale": "Pesa la maceta completa siempre igual: con o sin plato, y sin agua estancada en la charola."
+      "kitchen-scale": "El peso depende de la maceta — así que compara esta maceta consigo misma, nunca con otra."
     },
     "wateringRelationLabel": "¿Antes o después del riego de ese día?",
     "wateringRelationHint": "Esta planta también se regó ese día, así que necesitamos saber de qué lado del riego cae la lectura — eso decide a qué ciclo de secado pertenece.",
@@ -1392,7 +1396,11 @@
       "after": "Después"
     },
     "verdictLabel": "¿Qué vas a hacer?",
-    "verdictHint": "Solo registrar una lectura no riega ni pospone nada hoy — pero le enseña a la app qué tan rápido se seca esta maceta.",
+    "verdictHint": {
+      "none": "Solo registrar no cambia nada del plan de hoy — pero le enseña a la app qué tan rápido se seca esta maceta.",
+      "postpone": "Lo vamos a registrar como pospuesto y moveremos el siguiente riego a la fecha que elijas — y la lectura igual le enseña a la app qué tan rápido se seca esta maceta.",
+      "waterNow": "Vamos a registrar un riego ese día y reprogramaremos a partir de ahí — y la lectura igual le enseña a la app qué tan rápido se seca esta maceta."
+    },
     "verdict": {
       "none": "Solo registrar",
       "postpone": "Aún no la riego",

@@ -1506,6 +1506,12 @@ describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
 describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s date seed, and the soil-mix-changed affordance', () => {
   const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
 
+  // QA finding F10 — A3's affordance is DERIVED FROM SERVER STATE now, so the fixture has to model the
+  // server rather than the component's memory: this stands in for `plants.substrate_mix_change_pending`,
+  // which `updateProfileCore` raises on a real mix change and `refreshSubstrateCore` clears on a real
+  // repot. Every `getPlantCare` call reads it live, exactly as a real `refresh()` would.
+  let serverMixChangePending = false;
+
   function careWith(fertilize: { overrideOn: string | null; overrideMovedBy: Array<'FLOOR' | 'SNAP'> }) {
     return {
       plantId: 'p1',
@@ -1514,6 +1520,7 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
         { task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null },
       ],
       fertilize,
+      substrate: { mixChangePending: serverMixChangePending },
     };
   }
 
@@ -1536,6 +1543,9 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     emits: ['update:modelValue', 'saved'],
     template:
       '<div v-if="modelValue" class="profile-modal">' +
+      // `saveChanged` mirrors the REAL save: it writes the server-side pending flag (which the API's
+      // `updateProfileCore` does inside the same request) and THEN reports the change to the page, so the
+      // page's own `refresh()` reads the flag back rather than inventing it.
       '<button class="save-changed-btn" @click="$emit(\'saved\', { soilMixChanged: true })">save (changed)</button>' +
       '<button class="save-unchanged-btn" @click="$emit(\'saved\', { soilMixChanged: false })">save (unchanged)</button>' +
       '</div>',
@@ -1573,7 +1583,27 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
   let completeRepotMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    completeRepotMock = vi.fn(async () => ({ ok: true }));
+    serverMixChangePending = false;
+    // The real server CLEARS the pending flag inside the repot transaction (`refreshSubstrateCore`), so
+    // the double does too — otherwise the "affordance disappears" assertion below would be proving
+    // nothing about the real system.
+    completeRepotMock = vi.fn(async () => { serverMixChangePending = false; return { ok: true }; });
+    // A REFRESHING `useAsyncData` double (QA F10). The module-level stub's `refresh` is a no-op, which is
+    // fine while every assertion is about the component's own memory — and useless the moment a value is
+    // DERIVED FROM SERVER STATE, because the page would never see the state change. This one re-runs the
+    // fetcher and republishes, exactly as the real composable does. Same technique as the round-5 V1
+    // block above, which swaps in its own stub and restores the default afterwards.
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref(await fn());
+      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+    });
+  });
+
+  afterEach(() => {
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(async () => {}),
+    }));
   });
 
   async function mountWith(fertilize: { overrideOn: string | null; overrideMovedBy: Array<'FLOOR' | 'SNAP'> }) {
@@ -1629,6 +1659,7 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
     await findButtonByText(w, 'Add missing info').trigger('click');
     await flushPromises();
+    serverMixChangePending = true; // the real save wrote it; the page's refresh() reads it back
     await w.find('.save-changed-btn').trigger('click');
     await flushPromises();
 
@@ -1651,6 +1682,7 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
     await findButtonByText(w, 'Add missing info').trigger('click');
     await flushPromises();
+    serverMixChangePending = true; // the real save wrote it; the page's refresh() reads it back
     await w.find('.save-changed-btn').trigger('click');
     await flushPromises();
     expect(w.find('.stub-alert').exists()).toBe(true);
@@ -1664,10 +1696,56 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     expect(w.find('.stub-alert').exists()).toBe(true);
   });
 
+  // ⚠️ THE F10 REGRESSION, and the one case the old implementation could never pass: a fresh mount with no
+  // interaction at all. This IS a reload — the component starts with empty memory and must still speak,
+  // because the CONDITION lives on the server, not in this page's head.
+  it('renders the affordance on a FRESH MOUNT when the server still says the mix change is unanswered', async () => {
+    serverMixChangePending = true;
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    expect(w.find('.stub-alert').exists()).toBe(true);
+    expect(w.find('.alert-title').text()).toBe(i18n.t('soilMixChanged.title'));
+    // …and it does NOT open the repot form on its own: a reload is not a save, and hijacking the page with
+    // a modal nobody asked for would be a different defect.
+    expect(w.find('.done-form').attributes('data-open')).toBe('false');
+  });
+
+  it('stays silent on a fresh mount when the server says there is nothing pending', async () => {
+    serverMixChangePending = false;
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    expect(w.find('.stub-alert').exists()).toBe(false);
+  });
+
+  it('"Not now" silences it for THIS session, and a reload honestly asks again', async () => {
+    serverMixChangePending = true;
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    await findButtonByText(w, 'Not now').trigger('click');
+    await flushPromises();
+    expect(w.find('.stub-alert').exists()).toBe(false);
+
+    // The reload. Nothing was answered, so the question comes back — the state is still true.
+    const reloaded = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    expect(reloaded.find('.stub-alert').exists()).toBe(true);
+  });
+
+  it('a LATER mix change is never born already dismissed', async () => {
+    serverMixChangePending = true;
+    const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
+    await findButtonByText(w, 'Not now').trigger('click');
+    await flushPromises();
+    expect(w.find('.stub-alert').exists()).toBe(false);
+
+    await findButtonByText(w, 'Add missing info').trigger('click');
+    await flushPromises();
+    await w.find('.save-changed-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.stub-alert').exists()).toBe(true);
+  });
+
   it('the affordance disappears once a repot is recorded', async () => {
     const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
     await findButtonByText(w, 'Add missing info').trigger('click');
     await flushPromises();
+    serverMixChangePending = true; // the real save wrote it; the page's refresh() reads it back
     await w.find('.save-changed-btn').trigger('click');
     await flushPromises();
     expect(w.find('.stub-alert').exists()).toBe(true);

@@ -90,6 +90,16 @@ function stopActingAs() {
         <AppIcon name="gift" :size="16" color="currentColor" />
         {{ $t('account.gifted') }}
       </NuxtLink>
+      <!-- ⚠️ THE ONLY WAY TO REACH /settings ON A DESKTOP VIEWPORT (QA finding F1, 2026-08-08). The
+           mobile bottom bar's "More" page has always linked it, but that whole nav is `height: 0` above
+           880px, and neither the desktop top nav nor this menu carried it — so the entire measured-soil
+           half of the app was gated behind a page a desktop owner could not click their way to, while the
+           measuring modal told them to go there. The account menu renders at EVERY viewport, which is
+           what makes this one link close the loop rather than paper over it. -->
+      <NuxtLink to="/settings" class="mp-menu-item" @click="open = false">
+        <AppIcon name="cog-6-tooth" :size="16" color="currentColor" />
+        {{ $t('account.settings') }}
+      </NuxtLink>
       <button v-if="actingAs" type="button" class="mp-menu-item" @click="stopActingAs">
         <AppIcon name="arrow-uturn-left" :size="16" color="currentColor" />
         <i18n-t keypath="actingAs.stopNamed" tag="span">

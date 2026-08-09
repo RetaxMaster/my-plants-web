@@ -45,18 +45,36 @@ const stubs = {
     template: '<div data-modal-stub v-if="modelValue"><slot /><slot name="footer" /></div>',
   },
   Button: { props: ['disabled', 'loading'], template: '<button :disabled="disabled"><slot /></button>' },
-  FormGroup: { props: ['label', 'hint'], template: '<div><slot /></div>' },
+  // NAMED (QA F3/F5) so `findAllComponents({ name: 'FormGroup' })` can locate a specific group and read
+  // its `hint`/`error` PROPS — asserting on props rather than on rendered text keeps every pre-existing
+  // `w.text()` assertion in this file byte-identical.
+  FormGroup: {
+    name: 'FormGroup',
+    props: ['label', 'hint', 'error', 'required'],
+    template: '<div><slot /></div>',
+  },
   AppIcon: true, // Alert.vue's own icon dependency; irrelevant to every assertion here.
+  // The empty state's link to /settings (QA F11). `i18n-t` renders the keypath and its named slots; the
+  // stub keeps both visible so a test can assert the sentence AND that the slot really is a NuxtLink.
+  'i18n-t': {
+    props: ['keypath', 'tag'],
+    template: '<span class="i18n-t">{{ keypath }}<slot name="settings" /></span>',
+  },
+  NuxtLink: { props: ['to'], template: '<a class="nuxt-link" :href="to"><slot /></a>' },
 };
 
 const galvanicProbe = {
   id: 'galvanic-probe' as const, kind: 'moisture' as const, unit: '1–10 index', scale: 'galvanic-1-10',
   direction: 'higher-is-wetter' as const, comparableAcrossPots: false, requiresCalibration: false,
+  // QA finding F2 — the protocol is a PROPERTY OF THE ROW: a probe is pushed INTO the medium.
+  protocolKind: 'insertion' as const,
   rawMin: 1, rawMax: 10, rawStep: 1, calibration: null,
 };
 const kitchenScaleNoCalibration = {
   id: 'kitchen-scale' as const, kind: 'moisture' as const, unit: 'grams', scale: 'kitchen-scale-grams',
   direction: 'higher-is-wetter' as const, comparableAcrossPots: false, requiresCalibration: true,
+  // …and a scale weighs the WHOLE POT. It is never inserted into anything, which is the whole finding.
+  protocolKind: 'whole-pot-mass' as const,
   rawMin: 0, rawMax: null, rawStep: 1, calibration: null,
 };
 const kitchenScaleCalibrated = {
@@ -84,6 +102,13 @@ function instrumentSegButtons(w: ReturnType<typeof mount>) {
 }
 function verdictSegButtons(w: ReturnType<typeof mount>) {
   return w.findAll('.mp-seg')[1]!.findAll('button');
+}
+// The raw-reading FormGroup's own `error` prop (QA F5). Read as a PROP, not as rendered text, so this
+// assertion is about the message the component chose rather than about the stub's markup.
+function rawValueError(w: ReturnType<typeof mount>) {
+  const group = w.findAllComponents({ name: 'FormGroup' })
+    .find((g) => String(g.props('label')).startsWith('reading.value|'));
+  return group?.props('error');
 }
 function findSaveButton(w: ReturnType<typeof mount>) {
   return w.findAll('button').find((b) => b.text().includes('reading.save'))!;
@@ -154,6 +179,141 @@ describe('SoilReadingModal', () => {
     const withoutProtocol = mountModal(makeData({ protocol: null }));
     expect(withoutProtocol.text()).toContain('reading.protocolUnknownPot');
     expect(withoutProtocol.text()).not.toContain('reading.protocol|');
+  });
+
+  // QA finding F2 (2026-08-08): the modal printed "insert to about 8 cm deep, roughly 4 cm from the
+  // centre" for a KITCHEN SCALE, in the prominent amber alert, with the correct weighing note demoted to
+  // muted grey below it. The protocol is now read off the instrument row's own `protocolKind`.
+  describe('the measuring protocol is INSTRUMENT-CONDITIONAL (QA F2)', () => {
+    it('states the WEIGHING protocol for a whole-pot-mass instrument — never an insertion depth', () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated], protocol }));
+      expect(w.text()).toContain('reading.protocolWholePot');
+      // The insertion sentence must be ABSENT — including its interpolated form, which is the one that
+      // shipped the wrong instruction. `reading.protocol|7|3` is what the harness renders it as.
+      expect(w.text()).not.toContain('reading.protocol|');
+      expect(w.text()).not.toContain('reading.protocolUnknownPot');
+    });
+
+    it('still states the INSERTION protocol for a probe, with this pot\'s own depth and distance', () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe], protocol }));
+      expect(w.text()).toContain('reading.protocol|7|3');
+      expect(w.text()).not.toContain('reading.protocolWholePot');
+    });
+
+    it('ignores an unknown pot size for a scale — a pot with no diameter still weighs the same way', () => {
+      // The insertion branch degrades to `protocolUnknownPot` without a diameter; the weighing branch has
+      // no diameter to miss, so it must NOT degrade.
+      const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated], protocol: null }));
+      expect(w.text()).toContain('reading.protocolWholePot');
+      expect(w.text()).not.toContain('reading.protocolUnknownPot');
+    });
+
+    it('follows the SELECTED instrument, switching protocol as the owner switches picker', async () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe, kitchenScaleCalibrated], protocol }));
+      expect(w.text()).toContain('reading.protocol|7|3');
+      await instrumentSegButtons(w)[1]!.trigger('click');
+      expect(w.text()).toContain('reading.protocolWholePot');
+      expect(w.text()).not.toContain('reading.protocol|');
+    });
+
+    it('states the PROMINENT protocol in the alert, not in the muted honesty note', () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated], protocol }));
+      // The alert is the loud surface; the note is the quiet one. The finding was that these two had
+      // swapped contents for the scale.
+      expect(w.find('.mp-alert').text()).toContain('reading.protocolWholePot');
+      expect(w.find('.mp-reading__note').text()).toBe('reading.honesty.kitchen-scale');
+    });
+  });
+
+  // QA finding F3 (2026-08-08): ONE static line — "Recording alone won't water or postpone anything
+  // today" — was shown under all three options, and it was false of two of them: `WATER_NOW` writes a real
+  // WATER DONE and `POSTPONE` writes a POSTPONED that moved a watering 08-14 -> 08-20.
+  describe('the verdict helper line follows the SELECTED verdict (QA F3)', () => {
+    function hintOf(w: ReturnType<typeof mountModal>) {
+      const group = w.findAllComponents({ name: 'FormGroup' })
+        .find((g) => String(g.props('label')) === 'reading.verdictLabel');
+      return group?.props('hint');
+    }
+
+    it('starts on the NONE hint, which is the only one the old static line described', () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+      expect(hintOf(w)).toBe('reading.verdictHint.none');
+    });
+
+    it('switches to the POSTPONE hint — the verdict that really does move the next watering', async () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+      await verdictSegButtons(w)[1]!.trigger('click');
+      expect(hintOf(w)).toBe('reading.verdictHint.postpone');
+    });
+
+    it('switches to the WATER_NOW hint — the verdict that really does write a watering', async () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+      await verdictSegButtons(w)[2]!.trigger('click');
+      expect(hintOf(w)).toBe('reading.verdictHint.waterNow');
+    });
+
+    it('never shows one hint under a different verdict — the three are distinct strings', async () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+      const seen = new Set<unknown>();
+      seen.add(hintOf(w));
+      await verdictSegButtons(w)[1]!.trigger('click');
+      seen.add(hintOf(w));
+      await verdictSegButtons(w)[2]!.trigger('click');
+      seen.add(hintOf(w));
+      expect(seen.size).toBe(3);
+    });
+  });
+
+  // QA finding F11 (2026-08-08): the empty state told the owner to go to Settings and gave them no way to
+  // get there — and on a desktop viewport there was no other route to that page at all (QA F1).
+  describe('the empty state links to /settings (QA F11)', () => {
+    it('renders a real link to /settings inside the sentence', () => {
+      const w = mountModal(makeData({ instruments: [] }));
+      const link = w.find('a.nuxt-link');
+      expect(link.exists()).toBe(true);
+      expect(link.attributes('href')).toBe('/settings');
+      expect(link.text()).toBe('reading.settingsLink');
+    });
+
+    it('keeps the sentence ONE translatable unit, interpolating the link rather than concatenating', () => {
+      const w = mountModal(makeData({ instruments: [] }));
+      expect(w.find('.i18n-t').exists()).toBe(true);
+      expect(w.text()).toContain('reading.noInstruments');
+    });
+
+    it('closes the modal when the link is followed, so the owner lands on the page they were sent to', async () => {
+      const w = mountModal(makeData({ instruments: [] }));
+      await w.find('a.nuxt-link').trigger('click');
+      expect(w.emitted('update:open')?.at(-1)).toEqual([false]);
+    });
+
+    it('shows no link when the owner DOES have an instrument — nothing to be sent anywhere for', () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+      expect(w.find('a.nuxt-link').exists()).toBe(false);
+    });
+  });
+
+  // QA finding F5's client half: the OPEN-ENDED scale had no client bound at all, floor included.
+  describe('an open-ended scale still has a FLOOR (QA F5)', () => {
+    it('rejects a negative weight and blocks Save', async () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+      await w.find('input[type="number"]').setValue(-50);
+      expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+      expect(rawValueError(w)).toBe('reading.valueBelowMin|0');
+    });
+
+    it('accepts an arbitrarily large weight — grams genuinely have no ceiling', async () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+      await w.find('input[type="number"]').setValue(1_000_000);
+      expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+      expect(rawValueError(w)).toBeUndefined();
+    });
+
+    it('still states BOTH bounds for a closed scale, never the open-ended message', async () => {
+      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+      await w.find('input[type="number"]').setValue(99);
+      expect(rawValueError(w)).toBe('reading.valueOutOfRange|1|10');
+    });
   });
 
   it('requires a postpone date only for the POSTPONE verdict', async () => {

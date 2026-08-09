@@ -449,11 +449,27 @@ const { windowDistanceLabel, potTypeLabel, soilMixLabel, growthHabitLabel } = us
 const place = computed(() => (places.value ?? []).find((pl) => pl.id === plant.value?.placeId) ?? null);
 
 const profileOpen = ref(false);
-// A3 (spec §2.3) — set when PlantProfileModal reports an actual soil-mix change (never a save that left it
-// untouched). Persistent: dismissing the completion form below does NOT clear it, because dismissing the
-// modal does not answer the question the affordance exists to ask — only an explicit "Not now" (the
-// affordance's own dismiss button) or a genuinely recorded repot (handleDoneCompletion below) does.
-const soilChangePending = ref(false);
+// ⚠️ A3 (spec §2.3, item 3) — DERIVED FROM STATE, never from this component's memory (QA finding F10,
+// 2026-08-08).
+//
+// This used to be a plain `ref(true/false)` set when `PlantProfileModal` reported a mix change. It
+// satisfied every in-session assertion and still failed the word §2.3 actually uses — "persistent": a
+// reload dropped the flag while the fertilize clock was still unanchored, so the app raised a question and
+// then went silent about it, which is the exact defect item 3 exists to remove.
+//
+// The condition now lives on the server (`plants.substrate_mix_change_pending`, published as
+// `care.substrate.mixChangePending`), written by the ONE profile writer when the mix genuinely changes and
+// cleared by the ONE substrate writer when a repot supplies the missing date. So every renderer of this
+// plant agrees, on every device, across every reload, and this page no longer has an opinion of its own.
+//
+// `soilChangeDismissed` is deliberately SESSION-scoped, and that is not the bug coming back: the state is
+// still true after a dismiss (the clock really is unanchored), so "Not now" means "not now", not "never" —
+// and a reload honestly re-raises a question that is still unanswered. Reset whenever the question is
+// asked afresh, so a dismissal cannot pre-silence a LATER mix change.
+const soilChangeDismissed = ref(false);
+const soilChangePending = computed(
+  () => care.value?.substrate?.mixChangePending === true && !soilChangeDismissed.value,
+);
 async function onProfileSaved(e: { soilMixChanged: boolean }) {
   // The mix lives on the plant's own profile (refreshPlant), but it also feeds the watering model's
   // optional channel (see PlantProfileModal.vue's own comment) — the CARE payload (task rows, due dates)
@@ -463,7 +479,11 @@ async function onProfileSaved(e: { soilMixChanged: boolean }) {
   if (!e.soilMixChanged) return;
   // A3 (spec §2.3): the shortcut opens the flow that ALREADY owns the `substrate_refreshed_on` write —
   // never a fourth writer. The anti-fork rule is satisfied structurally rather than by discipline.
-  soilChangePending.value = true;
+  //
+  // The affordance itself is NOT raised here any more (QA F10): the save already wrote the condition
+  // server-side and the `refresh()` above has just read it back. All that is needed locally is undoing a
+  // PREVIOUS dismissal, so a fresh mix change is never born already silenced.
+  soilChangeDismissed.value = false;
   onRepotDone(undefined);
 }
 
@@ -858,8 +878,10 @@ async function handleDoneCompletion(completion: RepotCompletion<void>) {
   if (isOwnPlant) {
     doneFormOpen.value = false;
     // A3 (spec §2.3): a genuinely recorded repot answers the affordance's own question — the substrate
-    // clock now has the date it needed — so the affordance disappears here, same as the explicit dismiss.
-    soilChangePending.value = false;
+    // clock now has the date it needed. The SERVER clears the condition inside the repot's own
+    // transaction (QA F10), so the `refresh()` below is what makes the affordance disappear; the only
+    // thing left to do here is drop any stale dismissal, so the next real mix change is heard.
+    soilChangeDismissed.value = false;
     await Promise.all([refresh(), refreshHistory(), refreshPlant()]);
   }
 }
@@ -1332,10 +1354,12 @@ async function confirmRevive() {
           <UiSectionTitle>{{ $t('careBasis.title') }}</UiSectionTitle>
 
           <!-- A3 (spec §2.3) — persistent affordance: saving a soil-mix change already updated the WATERING
-               model, but the fertilize clock still needs the day the substrate was actually changed. Stays
-               visible after a dismissed/closed repot form (dismissing the modal does not answer the
-               question); disappears only on an explicit "Not now" or once a repot is genuinely recorded
-               (handleDoneCompletion above). -->
+               model, but the fertilize clock still needs the day the substrate was actually changed. Its
+               condition is SERVER STATE (`care.substrate.mixChangePending`, QA finding F10), so it survives
+               a reload — it stays visible after a dismissed/closed repot form (dismissing the modal does
+               not answer the question), and disappears when the server clears the flag, which only a
+               genuinely recorded repot does. "Not now" silences it for THIS session only, because the
+               question is still unanswered and pretending otherwise is what this whole spec deletes. -->
           <UiAlert
             v-if="soilChangePending"
             color="amber"
@@ -1346,7 +1370,7 @@ async function confirmRevive() {
             <UiButton size="xs" color="primary" @click="onRepotDone(undefined)">
               {{ $t('soilMixChanged.action') }}
             </UiButton>
-            <UiButton size="xs" variant="ghost" color="neutral" @click="soilChangePending = false">
+            <UiButton size="xs" variant="ghost" color="neutral" @click="soilChangeDismissed = true">
               {{ $t('soilMixChanged.dismiss') }}
             </UiButton>
           </UiAlert>

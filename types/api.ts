@@ -367,6 +367,18 @@ export interface PlantCare {
      *  not publish it yet must not be read as "the owner postponed it". `repotExplanation` treats an absent
      *  value as UNKNOWN and says only what is true of both authors. */
     repotOverrideOrigin?: 'OWNER' | 'EVALUATION' | null;
+    /**
+     * A3's consequence affordance, as STATE (spec §2.3 item 3; QA finding F10, 2026-08-08).
+     *
+     * TRUE means: the recorded soil mix was CHANGED and no substrate refresh has supplied the day it
+     * happened — the watering model already moved, the fertilize clock cannot move without a date. §2.3
+     * calls that affordance PERSISTENT; it used to be a `ref` on the plant page, so a reload silently
+     * restored the app's silence about a question it had just raised.
+     *
+     * Optional at the type level for the same rolling-deploy reason the rest of this block is; an absent
+     * value must be read as "no pending mix change", never as unknown-so-show-it.
+     */
+    mixChangePending?: boolean;
   };
   /**
    * A1 + B1 (spec §2.1, ledger D3) — which rule, if any, moved the owner's own FERTILIZE date.

@@ -14,6 +14,7 @@ import {
 } from '../composables/useRepotAttempt';
 import type {
   Plant, RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload, PendingRepotEvaluation,
+  PlantSoilReadings,
 } from '../types/api.js';
 
 const { t, d, locale } = useI18n();
@@ -186,6 +187,14 @@ const { data: tasks, refresh } = await useAsyncData('today', () => api.todaysTas
 // "Hoy" renders from ONE SSR read; the helpers below already fall back gracefully while these are null.
 const { data: plants } = useLazyAsyncData('plants', () => api.listPlants(), { server: false });
 const { data: places } = useLazyAsyncData('places-for-today', () => api.listPlaces(), { server: false });
+// Plan 3 T5: the WATER row's survey affordance is gated on whether the owner has selected ANY instrument —
+// the SAME owner-level selection Settings itself reads/writes (`pages/settings.vue`'s `api.getOwnerInstru-
+// ments()`/`setOwnerInstruments()`), never a second, invented "has an instrument" concept. Same cache key
+// ('owner-instruments') as settings.vue, so Nuxt's payload cache is shared rather than duplicated; deferred
+// to the client like `plants`/`places` above, since it is secondary info that gates one affordance rather
+// than blocking the page's first render.
+const { data: ownerInstruments } = useLazyAsyncData('owner-instruments', () => api.getOwnerInstruments(), { server: false });
+const canSurveyWater = computed(() => (ownerInstruments.value?.selected.length ?? 0) > 0);
 
 const plantById = (id: string): Plant | undefined => (plants.value ?? []).find((x) => x.id === id);
 const plantName = (id: string): string => {
@@ -574,6 +583,45 @@ async function onRepotPostpone(plantId: string) {
   }
 }
 
+// Plan 3 T5: the WATER survey — "¿Necesitas regar?" before "Hecho". The modal itself is plant-scoped
+// (SoilReadingModal.vue's own `data: PlantSoilReadings` prop), so — the same shape as the REPOT evaluation
+// catalogue above — it is fetched fresh per plant the moment the row's survey affordance is opened, never
+// pre-fetched for every card up front. Reuses the ONE `@evaluate` event TaskRow.vue already emits for REPOT
+// (never a parallel event): the task the event names is what routes it here instead of to `onEvaluate`.
+const readingModalOpen = ref(false);
+const readingModalPlantId = ref<string | null>(null);
+const EMPTY_SOIL_READINGS: PlantSoilReadings = { instruments: [], protocol: null, readings: [], wateringDays: [] };
+const readingModalData = ref<PlantSoilReadings>(EMPTY_SOIL_READINGS);
+
+async function onWaterEvaluate(plantId: string) {
+  readingModalPlantId.value = plantId;
+  readingModalData.value = EMPTY_SOIL_READINGS;
+  try {
+    const data = await api.getSoilReadings(plantId);
+    // Race guard (same class as onEvaluate's F4 above): a later click on a different card already moved
+    // readingModalPlantId on — a stale response must never populate the now-current plant's modal.
+    if (readingModalPlantId.value !== plantId) return;
+    readingModalData.value = data;
+  } catch {
+    if (readingModalPlantId.value !== plantId) return;
+    // Falls through with the empty shape already set above: the modal still opens, showing the same "you
+    // have no instruments" alert a genuine zero-instrument owner would see — a network hiccup and a real
+    // empty catalogue read identically to the owner either way, and this affordance is only ever offered
+    // once `canSurveyWater` is already true, so an empty instrument list here means the fetch failed, not
+    // that the owner has none.
+  }
+  readingModalOpen.value = true;
+}
+
+// The survey's HOLD verdict applies itself and writes a postpone (SoilReadingModal.vue's own `submit()`),
+// so Today must reconcile through the SAME seam every other completion on this page already uses — never a
+// second refresh path. `saved` is the modal's ONLY signal that something was actually written (WATER_NOW
+// writes nothing and never emits it; a plain voluntary-mode save isn't reachable from this survey-mode
+// instance at all), so this never fires for a no-op verdict.
+function onReadingSaved() {
+  void refresh();
+}
+
 // Done: a WATER done that is NOT yet due (status 'upcoming') is an EARLY watering → ask why. A REPOT done
 // (only reachable once a 'REPOT' verdict is pending) opens the completion form. Any other done sends
 // immediately.
@@ -685,10 +733,11 @@ function openProgress(plantId: string) {
             :due-label="dueLabel(dueState(t2.nextDueOn))"
             :pending-verdict="pendingEvaluationFor(plantId)?.verdict ?? null"
             :pending-reevaluate-on="pendingEvaluationFor(plantId)?.reevaluateOn ?? null"
+            :can-survey="t2.task === 'WATER' && canSurveyWater"
             @done="e => onDone(plantId, e.task, rowStatus(t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"
-            @evaluate="() => onEvaluate(plantId)"
+            @evaluate="e => e.task === 'WATER' ? onWaterEvaluate(plantId) : onEvaluate(plantId)"
           />
         </div>
       </UiCard>
@@ -741,6 +790,17 @@ function openProgress(plantId: string) {
       :frozen-snapshot="doneAttempt?.body ?? null"
       @confirm="onRepotDoneConfirm"
       @start-over="onRepotDoneStartOver"
+    />
+    <!-- Plan 3 T5: the WATER survey, ONE instance shared by every plant card — same shape as the REPOT
+         modals above. `mode="survey"` per the spec's file-header contract (SoilReadingModal.vue): hides
+         `measuredOn`, makes the watering-relation question impossible by construction, and routes the
+         reading through the read-only preview instead of recording it directly. -->
+    <UiSoilReadingModal
+      v-model:open="readingModalOpen"
+      :plant-id="readingModalPlantId ?? ''"
+      :data="readingModalData"
+      mode="survey"
+      @saved="onReadingSaved"
     />
   </div>
 </template>

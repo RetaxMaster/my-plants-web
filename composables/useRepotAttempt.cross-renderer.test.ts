@@ -97,6 +97,10 @@ beforeEach(() => {
     listPlaces: async () => [],
     getRepotSigns: async () => ({ signs: [] }),
     getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+    // Plan 3 T5: pages/index.vue now fetches the owner's selected instruments unconditionally on every
+    // mount (to gate a WATER row's survey affordance) — this file's Today mount needs the same stub every
+    // other pages/index.test.ts scenario already carries, or the fetch throws synchronously.
+    getOwnerInstruments: async () => ({ available: [], selected: [] }),
     getPlant: getPlantMock,
     getPlantCare: getPlantCareMock,
     getPlantHistory: getPlantHistoryMock,
@@ -142,10 +146,19 @@ const todayStubs = {
   },
   UiTaskRow: {
     props: ['task'],
+    // Plan 3 T5: pages/index.vue now routes `@evaluate` on the emitted `{ task }` payload (REPOT vs a
+    // WATER survey) — mirrors the real TaskRow.vue's own `emit('evaluate', { task: props.task })`, same fix
+    // pages/index.test.ts's own UiTaskRow stub carries. Every task here is REPOT, so this is
+    // behaviour-preserving for this file's own scenarios.
     emits: ['evaluate', 'done'],
     template:
-      '<div><button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+      '<div><button class="evaluate-btn" @click="$emit(\'evaluate\', { task })">evaluate</button>' +
       '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button></div>',
+  },
+  UiSoilReadingModal: {
+    props: ['open', 'plantId', 'data', 'mode'],
+    emits: ['update:open', 'saved'],
+    template: '<div class="soil-modal" :data-open="open" :data-mode="mode" />',
   },
   UiRepotEvaluationModal: {
     props: ['open', 'signs', 'submitting', 'error', 'frozen'],

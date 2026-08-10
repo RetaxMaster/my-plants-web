@@ -19,7 +19,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
-import type { RepotEvaluationResult, RepotSign } from '../types/api.js';
+import type { PlantSoilReadings, RepotEvaluationResult, RepotSign } from '../types/api.js';
 // X2: the parent-level integration test near the end of this file mounts the REAL RepotDoneForm.vue (never a
 // re-implemented stub of its hydration watcher — see that describe block's own header comment for why).
 import RealRepotDoneForm from '../components/ui/RepotDoneForm.vue';
@@ -93,6 +93,11 @@ let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
 let getPlantMock: ReturnType<typeof vi.fn>;
 let completeRepotDeferreds: Record<string, ReturnType<typeof deferred<{ ok: true }>>>;
 let completeRepotMock: ReturnType<typeof vi.fn>;
+// Plan 3 T5: the WATER survey's own two api calls. Defaulted to "the owner selected nothing" / "an empty
+// per-plant reading catalogue" so every PRE-EXISTING (REPOT-focused) test in this file — which never touches
+// either — keeps passing unmodified; the WATER-specific describe block below overrides them per test.
+let getOwnerInstrumentsMock: ReturnType<typeof vi.fn>;
+let getSoilReadingsMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   // Store-isolation (W1): reset BOTH module-scope attempt stores before every test so no test's outstanding
@@ -104,6 +109,10 @@ beforeEach(() => {
   submitRepotEvaluationMock = vi.fn(async (plantId: string) => submitDeferreds[plantId].promise);
   getPlantMock = vi.fn(async (plantId: string) => ({ profile: PLANT_PROFILES[plantId] }));
   completeRepotMock = vi.fn(async (plantId: string) => completeRepotDeferreds[plantId].promise);
+  getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: [] as string[] }));
+  getSoilReadingsMock = vi.fn(async () => (
+    { instruments: [], protocol: null, readings: [], wateringDays: [] } as unknown as PlantSoilReadings
+  ));
 
   vi.stubGlobal('useApi', () => ({
     todaysTasks: async () => TASKS,
@@ -113,6 +122,8 @@ beforeEach(() => {
     submitRepotEvaluation: submitRepotEvaluationMock,
     getPlant: getPlantMock,
     completeRepot: completeRepotMock,
+    getOwnerInstruments: getOwnerInstrumentsMock,
+    getSoilReadings: getSoilReadingsMock,
   }));
   vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
     data: ref(await fn()),
@@ -166,15 +177,43 @@ const stubs = {
       ':data-checked="checkedSignIds && checkedSignIds.join(\',\')" :data-signs="signs && signs.length" />',
   },
   UiTaskRow: {
-    // OBJECT prop declaration for `allowStandaloneDone`, not the array shorthand: only a prop DECLARED
-    // Boolean gets Vue's bare-attribute casting, so the array form would read `''` (falsy) even from a
-    // caller that DID pass it — a stub that could never fail the "Done must not leak onto Today" test.
-    props: { task: null, allowStandaloneDone: { type: Boolean, default: false } },
-    emits: ['evaluate', 'done'],
+    // OBJECT prop declaration for `allowStandaloneDone`/`canSurvey`, not the array shorthand: only a prop
+    // DECLARED Boolean gets Vue's bare-attribute casting, so the array form would read `''` (falsy) even
+    // from a caller that DID pass it — a stub that could never fail the "Done must not leak onto Today"
+    // test, nor Plan 3 T5's WATER canSurvey wiring tests below.
+    props: {
+      task: null,
+      allowStandaloneDone: { type: Boolean, default: false },
+      canSurvey: { type: Boolean, default: false },
+    },
+    // Plan 3 T5: `evaluate` now carries a payload ({ task }), mirroring the REAL TaskRow.vue's own
+    // `emit('evaluate', { task: props.task })` — pages/index.vue routes on it to tell a REPOT evaluate from
+    // a WATER survey, reusing the ONE event rather than adding a parallel one. Every pre-existing REPOT test
+    // below still passes: their stubbed click already resolves to `task: 'REPOT'` off the real `:task`
+    // binding, which routes to the unchanged `onEvaluate` branch.
+    emits: ['evaluate', 'done', 'postpone'],
     template:
-      '<div :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
-      '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
-      '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
+      '<div :data-allow-standalone-done="String(!!allowStandaloneDone)" :data-can-survey="String(!!canSurvey)">' +
+      // Mirrors TaskRow.vue's OWN `showEvaluate` gate for WATER (`canSurvey === true`) — never re-derives
+      // REPOT's gate (that stays ungated here, exactly as before this row existed; REPOT's own state
+      // machine is TaskRow.vue's job and is covered by TaskRow.test.ts, not this wiring-level file).
+      '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">evaluate</button>' +
+      '<template v-if="task !== \'WATER\' || !canSurvey">' +
+      '<button class="done-btn" @click="$emit(\'done\', { task })">done</button>' +
+      '<button class="postpone-btn" @click="$emit(\'postpone\', { task })">postpone</button>' +
+      '</template>' +
+      '</div>',
+  },
+  // Plan 3 T5: stands in for the real SoilReadingModal.vue (covered by its own test file) — this file's only
+  // concern is that pages/index.vue opens it for the right plant, in the right MODE, and reconciles Today
+  // through the SAME `refresh()` seam every other completion already uses (see `onReadingSaved` below and
+  // the mutation-proof tests in the WATER describe block).
+  UiSoilReadingModal: {
+    props: ['open', 'plantId', 'data', 'mode'],
+    emits: ['update:open', 'saved'],
+    template:
+      '<div class="soil-modal" :data-open="open" :data-mode="mode" :data-plant-id="plantId">' +
+      '<button class="soil-save-btn" @click="$emit(\'saved\')">save</button>' +
       '</div>',
   },
   UiRepotEvaluationModal: {
@@ -1024,6 +1063,8 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
       submitRepotEvaluation: submitRepotEvaluationMock,
       getPlant: getPlantMock,
       completeRepot: completeRepotMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
     }));
 
     const w = await mountPage();
@@ -1078,6 +1119,8 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
       submitRepotEvaluation: submitRepotEvaluationMock,
       getPlant: getPlantMock,
       completeRepot: completeRepotMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
     }));
 
     const w = await mountPage();
@@ -1148,6 +1191,8 @@ describe('pages/index.vue — the ticked sign ids reach the verdict modal', () =
       submitRepotEvaluation: submitRepotEvaluationMock,
       getPlant: getPlantMock,
       completeRepot: completeRepotMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
     }));
 
     const w = await mountPage();
@@ -1198,6 +1243,8 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
       submitRepotEvaluation: submitRepotEvaluationMock,
       getPlant: getPlantMock,
       completeRepot: completeRepotMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
     }));
     const w = await mountPage();
     // A's fetch succeeds: the catalogue on hand belongs to A.
@@ -1243,5 +1290,104 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
     expect(modal.attributes('data-open')).toBe('true'); // B IS the plant the shared modal is showing
     expect(modal.attributes('data-checked')).toBe('B-s1');
     expect(modal.attributes('data-signs')).toBe('0'); // NOT A's two rows
+  });
+});
+
+// Plan 3 T5: the WATER row stops being a bare instruction and offers "Do you need to water?" first — but
+// ONLY when the owner actually has an instrument selected in Settings. `canSurvey` is derived from the SAME
+// owner-level selection Settings itself reads/writes (`api.getOwnerInstruments()`), never a second,
+// invented fetch, and an owner with none renders the row EXACTLY as it did before this feature — declining
+// to measure is a supported choice, not a degraded state.
+const WATER_TASK_A = { plantId: 'A', task: 'WATER' as const, nextDueOn: '2026-01-01', pendingEvaluation: null };
+
+function stubApiWithWaterTask() {
+  vi.stubGlobal('useApi', () => ({
+    todaysTasks: async () => [WATER_TASK_A],
+    listPlants: async () => [],
+    listPlaces: async () => [],
+    getRepotSigns: getRepotSignsMock,
+    submitRepotEvaluation: submitRepotEvaluationMock,
+    getPlant: getPlantMock,
+    completeRepot: completeRepotMock,
+    getOwnerInstruments: getOwnerInstrumentsMock,
+    getSoilReadings: getSoilReadingsMock,
+  }));
+}
+
+describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs, gated on canSurvey', () => {
+  it('offers the survey on a WATER row when the owner has an instrument', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    stubApiWithWaterTask();
+
+    const w = await mountPage();
+    const row = w.find('[data-can-survey]');
+    expect(row.attributes('data-can-survey')).toBe('true');
+    // The survey affordance renders; Done/Postpone stay withheld until the survey answers.
+    expect(row.find('.evaluate-btn').exists()).toBe(true);
+    expect(row.find('.done-btn').exists()).toBe(false);
+    expect(row.find('.postpone-btn').exists()).toBe(false);
+  });
+
+  // THE LOAD-BEARING CASE — an owner who selected no instrument has no way to satisfy a survey; the row
+  // must stay byte-identical to today (Done AND Postpone, no survey), or he is locked out of marking a
+  // watering done over a feature he declined.
+  it('leaves the WATER row exactly as it is today when he has none', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: [] as string[] }));
+    stubApiWithWaterTask();
+
+    const w = await mountPage();
+    const row = w.find('[data-can-survey]');
+    expect(row.attributes('data-can-survey')).toBe('false');
+    expect(row.find('.evaluate-btn').exists()).toBe(false);
+    expect(row.find('.done-btn').exists()).toBe(true);
+    expect(row.find('.postpone-btn').exists()).toBe(true);
+  });
+
+  it('opens the modal in SURVEY mode', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    stubApiWithWaterTask();
+
+    const w = await mountPage();
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+
+    const modal = w.find('.soil-modal');
+    expect(modal.attributes('data-open')).toBe('true');
+    expect(modal.attributes('data-mode')).toBe('survey');
+    expect(modal.attributes('data-plant-id')).toBe('A');
+  });
+
+  // Mutation proof 3 (Step 4): a survey's HOLD verdict applies itself and writes a postpone inside
+  // SoilReadingModal.vue's own `submit()` — the ONE signal Today gets that something was written is the
+  // `saved` event (WATER_NOW writes nothing and never emits it). Today must reconcile through the SAME
+  // `refresh()` seam every other completion already uses, never a second refresh path.
+  it('reconciles Today through the existing refresh() seam once the survey reports a save', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    const todaysTasksMock = vi.fn(async () => [WATER_TASK_A]);
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref(await fn());
+      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+    });
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: todaysTasksMock,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      completeRepot: completeRepotMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
+    }));
+
+    const w = await mountPage();
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+
+    const tasksReadsBeforeSave = todaysTasksMock.mock.calls.length;
+    await w.find('.soil-save-btn').trigger('click');
+    await flushPromises();
+
+    expect(todaysTasksMock.mock.calls.length).toBeGreaterThan(tasksReadsBeforeSave);
   });
 });

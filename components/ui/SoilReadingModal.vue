@@ -280,23 +280,66 @@ const rawValueOutOfRange = computed(() => {
   if (row == null || rawValue.value == null) return false;
   return rawValue.value < row.rawMin || (row.rawMax != null && rawValue.value > row.rawMax);
 });
+
+// GRANULARITY, the local half of the shared contract's own `rawValueRangeRefinement` step check (QA
+// 2026-08-10). CLOSED SCALES ONLY: the kitchen scale declares `rawStep: 1` but an open-ended `rawMax`,
+// because grams really are continuous and `1234.5 g` is a reading a real scale gives — the identical
+// condition the server applies, so the button and the API can never disagree about what is submittable.
+const rawValueOffStep = computed(() => {
+  const row = instrument.value;
+  if (row == null || rawValue.value == null || row.rawMax == null || row.rawStep <= 0) return false;
+  const steps = (rawValue.value - row.rawMin) / row.rawStep;
+  return Math.abs(steps - Math.round(steps)) > 1e-9;
+});
 // Shown only once the owner has typed SOMETHING — an empty field is simply "not filled in yet" (canSubmit
 // already gates on that), never an inline error of its own. Same shape as RepotDoneForm.vue's own
 // `potSizeErrorMessage`.
 // Two messages, because there are two genuinely different bounds (QA F5): a CLOSED scale states both ends,
 // an OPEN-ENDED one has no ceiling to state and the old single message rendered "between 0 and ." for it.
 const rawValueErrorMessage = computed(() => {
-  if (rawValue.value == null || !rawValueOutOfRange.value) return undefined;
+  if (rawValue.value == null) return undefined;
   const row = instrument.value!;
-  return row.rawMax == null
-    ? t('reading.valueBelowMin', { min: row.rawMin })
-    : t('reading.valueOutOfRange', { min: row.rawMin, max: row.rawMax });
+  // BOUNDS FIRST when a value breaks both (e.g. `99.5` on a 1..10 probe): one message, and it must be the
+  // one the owner can act on. The shared refinement orders its two issues the same way, deliberately.
+  if (rawValueOutOfRange.value) {
+    return row.rawMax == null
+      ? t('reading.valueBelowMin', { min: row.rawMin })
+      : t('reading.valueOutOfRange', { min: row.rawMin, max: row.rawMax });
+  }
+  if (rawValueOffStep.value) return t('reading.valueOffStep', { min: row.rawMin, step: row.rawStep });
+  return undefined;
+});
+
+/**
+ * WHY THE PRIMARY BUTTON IS DISABLED, or `undefined` when it is not (QA UX-2).
+ *
+ * A dead green button that explains nothing is a dialog the owner cannot get out of without guessing. The
+ * order matters: it reports the FIRST thing standing in the way, walking the form top-to-bottom the way
+ * the owner's eye does, rather than whichever condition happens to be evaluated first.
+ *
+ * Deliberately silent about the value's own bounds/step problems — those already render inline on the
+ * field itself (`rawValueErrorMessage`), and saying it twice in two places reads as two separate faults.
+ */
+const blockedReason = computed(() => {
+  if (submitting.value || instrumentId.value === '') return undefined;
+  if (rawValue.value == null) return t('reading.missingValue');
+  if (rawValueOutOfRange.value || rawValueOffStep.value) return undefined;
+  if (needsCalibration.value &&
+      !(calibration.saturatedValue != null && calibration.dryValue != null &&
+        calibration.saturatedValue > calibration.dryValue)) {
+    return t('reading.missingCalibration');
+  }
+  if (showWateringRelation.value && wateringRelation.value === '') {
+    return t('reading.missingWateringRelation');
+  }
+  return undefined;
 });
 
 const canSubmit = computed(() =>
-  instrumentId.value !== '' && rawValue.value != null && !submitting.value && !rawValueOutOfRange.value &&
-  // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — voluntary
-  // mode + a watering day (see `showWateringRelation`).
+  instrumentId.value !== '' && rawValue.value != null && !submitting.value &&
+  !rawValueOutOfRange.value && !rawValueOffStep.value &&
+  // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — since
+  // 2026-08-10 that means ANY watering day, in either mode (see `showWateringRelation`).
   (!showWateringRelation.value || wateringRelation.value !== '') &&
   (!needsCalibration.value ||
     (calibration.saturatedValue != null && calibration.dryValue != null &&
@@ -576,6 +619,15 @@ const holdDateLabel = computed(() => {
       <template v-if="protocolKind === 'whole-pot-mass'">
         <Alert color="amber">{{ t('reading.protocolWholePot') }}</Alert>
       </template>
+      <!-- QA 2026-08-10: the finger was shown the WOODEN STICK's guidance verbatim — "insert to about 6 cm"
+           — because both rows said `insertion` and the depth is computed from the pot. A finger reaches
+           about 3 cm whatever the pot's diameter says, so that instruction was unfollowable, contradicted
+           our own Settings copy, and contradicted `FINGER_DEPTH_PENALTY`, which exists precisely because
+           the finger samples the top layer. Branching on the ROW's `protocolKind`, never on the id — the
+           same rule that fixed the kitchen scale being shown an insertion depth. -->
+      <template v-else-if="protocolKind === 'shallow-insertion'">
+        <Alert color="amber">{{ t('reading.protocolShallow') }}</Alert>
+      </template>
       <template v-else>
         <Alert v-if="data.protocol" color="amber">
           {{ t('reading.protocol', {
@@ -670,6 +722,10 @@ const holdDateLabel = computed(() => {
 
     <template #footer>
       <template v-if="step === 'measure'">
+        <!-- QA UX-2: the primary button used to go dead with nothing said. Rendered in the footer beside
+             it, and `aria-live` so a screen reader hears the reason appear rather than only sighted users
+             noticing a button that will not press. -->
+        <p v-if="blockedReason" class="mp-reading__blocked" aria-live="polite">{{ blockedReason }}</p>
         <Button variant="ghost" @click="open = false">{{ t('common.cancel') }}</Button>
         <Button :disabled="!canSubmit" :loading="submitting" @click="submit">
           {{ primaryLabel }}
@@ -716,4 +772,7 @@ const holdDateLabel = computed(() => {
    `.mp-repotverdict__body`. */
 .mp-reading__verdict-title { margin: 0 0 var(--space-2); font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--text-strong); }
 .mp-reading__verdict-body { margin: 0; font-size: var(--text-sm); color: var(--text-body); }
+/* The reason the primary action is unavailable (QA UX-2). `margin-right: auto` pushes it to the far side
+   of the footer so the two buttons keep their existing right-aligned position rather than shifting. */
+.mp-reading__blocked { margin: 0 auto 0 0; font-size: var(--text-sm); color: var(--text-faint); }
 </style>

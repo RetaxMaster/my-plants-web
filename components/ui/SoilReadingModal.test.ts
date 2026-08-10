@@ -1084,3 +1084,114 @@ describe('a survey refused for a missing wateringRelation recovers instead of de
     expect(w.emitted('saved')).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// QA defect 6 (granularity) and UX-2 (a button that dies silently), together because they share the
+// footer. The step rule is the LOCAL half of the shared contract's own check — the server enforces the
+// same thing through `rawValueRangeRefinement`, so these cases pin that the two agree rather than that the
+// client is the guarantee.
+// ---------------------------------------------------------------------------------------------------
+describe('the reading field enforces the instrument\'s declared granularity', () => {
+  function blockedText(w: ReturnType<typeof mount>) {
+    return w.find('.mp-reading__blocked').exists() ? w.find('.mp-reading__blocked').text() : undefined;
+  }
+
+  it('refuses a fraction on the CLOSED probe scale', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5.5);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    expect(rawValueError(w)).toBe('reading.valueOffStep|1|1');
+  });
+
+  // ⚠️ THE CASE THE OBVIOUS FIX BREAKS — see the shared refinement's own test of the same name. The scale
+  // declares `rawStep: 1` too, but grams are open-ended (`rawMax: null`) and 1234.5 g is a real reading.
+  it('still accepts a FRACTIONAL weight on the open-ended kitchen scale', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(1234.5);
+    expect(rawValueError(w)).toBeUndefined();
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+  });
+
+  it('reports the BOUNDS problem, not the step one, when a value breaks both', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(99.5);
+    // Two faults, one message, and it must be the one the owner can act on.
+    expect(rawValueError(w)).toBe('reading.valueOutOfRange|1|10');
+  });
+
+  it('says WHY the primary action is unavailable instead of dying silently', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
+    // An uncalibrated scale renders THREE number inputs — its two anchors first, then the reading. Taking
+    // `find()`'s first match sets an anchor and leaves the reading empty, which reports `missingValue` and
+    // makes this case pass for the wrong reason. The reading is the last one.
+    const numbers = w.findAll('input[type="number"]');
+    expect(numbers).toHaveLength(3);
+    await numbers.at(-1)!.setValue(1500);
+    // The scale needs its two anchors; without them the button was dead and mute.
+    expect(blockedText(w)).toBe('reading.missingCalibration');
+  });
+
+  it('names the unanswered same-day question when that is what blocks', async () => {
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(5);
+    expect(blockedText(w)).toBe('reading.missingWateringRelation');
+  });
+
+  it('stays silent about a value fault, which already shows inline on the field', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(99);
+    // Saying it twice, in two places, reads as two separate problems.
+    expect(rawValueError(w)).toBeDefined();
+    expect(blockedText(w)).toBeUndefined();
+  });
+
+  it('says nothing at all once the form is submittable', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5);
+    expect(blockedText(w)).toBeUndefined();
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// QA UX-3, filed as UX and treated as correctness. The finger was shown the wooden stick's guidance
+// verbatim — a pot-derived "insert to about 7 cm" — because both rows declared `protocolKind: 'insertion'`.
+// That instruction cannot be followed with a finger, it contradicts the Settings copy, and it contradicts
+// FINGER_DEPTH_PENALTY, which exists because the finger samples the top ~3 cm.
+// ---------------------------------------------------------------------------------------------------
+describe('the protocol shown matches the instrument, not the pot', () => {
+  const finger = {
+    id: 'finger' as const, kind: 'moisture' as const, unit: 'level', scale: 'finger-dry-to-damp',
+    direction: 'higher-is-wetter' as const, comparableAcrossPots: false, requiresCalibration: false,
+    protocolKind: 'shallow-insertion' as const,
+    captureKind: 'ordinal' as const,
+    rawMin: 1, rawMax: 3, rawStep: 1, calibration: null,
+  };
+
+  it('the finger gets its own shallow protocol, never the pot-derived depth', () => {
+    const w = mountModal(makeData({ instruments: [finger] }), { mode: 'voluntary' });
+    expect(w.text()).toContain('reading.protocolShallow');
+    // `protocol` IS supplied in this fixture (potSizeCm 20, depth 7). The point is that a real, available
+    // pot depth must still not be printed for this instrument — the failure was never a missing number.
+    expect(w.text()).not.toContain('reading.protocol|');
+  });
+
+  it('the wooden stick still gets the pot-derived insertion depth', () => {
+    const w = mountModal(makeData({ instruments: [woodenStick] }), { mode: 'voluntary' });
+    expect(w.text()).toContain('reading.protocol|7|3');
+    expect(w.text()).not.toContain('reading.protocolShallow');
+  });
+
+  it('the kitchen scale still gets the whole-pot protocol', () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
+    expect(w.text()).toContain('reading.protocolWholePot');
+  });
+
+  it('the finger states its protocol even when the pot size is unknown', () => {
+    // An `insertion` row falls back to "add the pot diameter and we'll tell you how deep". The finger never
+    // needs that fallback: its depth was never the pot's to give.
+    const w = mountModal(makeData({ instruments: [finger], protocol: null }), { mode: 'voluntary' });
+    expect(w.text()).toContain('reading.protocolShallow');
+    expect(w.text()).not.toContain('reading.protocolUnknownPot');
+  });
+});

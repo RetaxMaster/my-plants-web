@@ -6,12 +6,22 @@
 // schedule and adherence. The app runs locally on the owner's machine, so the browser's local day
 // is the owner's day; building the string from local Date components keeps the calendar date right.
 
-function ymd(d: Date): string {
+// The exact INVERSE of `ymdToLocalDate` below: it reads back the local Y/M/D components that function
+// built, so `ymdFromLocalDate(ymdToLocalDate(s)) === s` at every UTC offset, by construction.
+//
+// Exported because that round trip is the thing callers keep getting wrong. `toISOString().slice(0, 10)`
+// looks like the same operation and is not — it re-reads a LOCAL-midnight Date through the UTC clock, so
+// at a positive offset it names the previous day and at a negative one the next. The warning at the top of
+// this file is about writing a care date; this export is what makes the read direction equally safe,
+// including for a test that has to render a Date back to the calendar day it stands for.
+export function ymdFromLocalDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+const ymd = ymdFromLocalDate;
 
 // Today's local calendar date as YYYY-MM-DD.
 export function todayYmd(): string {

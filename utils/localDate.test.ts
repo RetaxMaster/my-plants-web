@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { calendarDaysBetween, calendarDaysSince, ymdToLocalDate } from './localDate.js';
+import { calendarDaysBetween, calendarDaysSince, ymdFromLocalDate, ymdToLocalDate } from './localDate.js';
 
 const REAL_TZ = process.env.TZ;
 // Hermetic timezone juggling: every test that needs a specific zone asks for it, and we always put the
@@ -42,6 +42,31 @@ describe('ymdToLocalDate', () => {
     const dt = ymdToLocalDate('2026-03-15T00:00:00.000Z');
     expect(Number.isNaN(dt.getTime())).toBe(false);
     expect([dt.getFullYear(), dt.getMonth(), dt.getDate()]).toEqual([2026, 2, 15]); // local Mar 15
+  });
+});
+
+// FIX W4. `ymdFromLocalDate` exists so nothing has to re-derive "render this Date back as the calendar day
+// it stands for", and the trap it closes is that `toISOString().slice(0, 10)` LOOKS like the same
+// operation: it re-reads a local-midnight Date through the UTC clock, so it names the previous day east of
+// Greenwich and the next day west of it. A test-harness stub in SoilReadingModal.test.ts had exactly that
+// substitution and only failed at a positive offset — invisible to everyone running at UTC or UTC-6.
+describe('ymdFromLocalDate', () => {
+  it('round-trips ymdToLocalDate losslessly at a POSITIVE offset (where toISOString loses a day)', () => {
+    inTimeZone('Pacific/Kiritimati'); // UTC+14, the worst case
+    expect(ymdFromLocalDate(ymdToLocalDate('2026-08-20'))).toBe('2026-08-20');
+    // The substitution it replaces, shown failing, so the reason this helper exists is on the record.
+    expect(ymdToLocalDate('2026-08-20').toISOString().slice(0, 10)).toBe('2026-08-19');
+  });
+
+  it('round-trips losslessly at a NEGATIVE offset and at UTC too', () => {
+    inTimeZone('America/Mexico_City');
+    expect(ymdFromLocalDate(ymdToLocalDate('2026-08-20'))).toBe('2026-08-20');
+    inTimeZone('UTC');
+    expect(ymdFromLocalDate(ymdToLocalDate('2026-08-20'))).toBe('2026-08-20');
+  });
+
+  it('zero-pads the month and the day', () => {
+    expect(ymdFromLocalDate(new Date(2026, 0, 3))).toBe('2026-01-03');
   });
 });
 

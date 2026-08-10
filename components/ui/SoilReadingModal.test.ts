@@ -16,7 +16,7 @@ import { ref, reactive, computed, watch, inject } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
 import type { CreateSoilReading, PlantSoilReadings, SoilReadingPreview } from '~/types/api';
-import { todayYmd } from '../../utils/localDate.js';
+import { todayYmd, ymdFromLocalDate } from '../../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('reactive', reactive);
@@ -31,10 +31,19 @@ vi.stubGlobal('inject', inject);
 // `d` renders the date to a plain `YYYY-MM-DD` (same pattern RepotVerdictModal.test.ts/TaskRow.test.ts use)
 // so a test can tell "the date reached the component" from "the key was merely selected", matching the
 // component's own `d(ymdToLocalDate(...), 'short')` call for the HOLD verdict's date.
+//
+// ⚠️ IT FORMATS FROM THE DATE'S **LOCAL** COMPONENTS, never `toISOString().slice(0, 10)` (finding W4). The
+// component hands `d()` a LOCAL-midnight Date built by `ymdToLocalDate`, and `toISOString()` re-reads that
+// through the UTC clock — so at a positive offset the stub silently returned the PREVIOUS day and this file
+// failed at `TZ=Pacific/Kiritimati` while passing at UTC and America/Mexico_City. Production was never
+// affected (the real `d()` formats local components), which is exactly why it was invisible: a test-harness
+// defect that only exists east of Greenwich. `ymdFromLocalDate` is `ymdToLocalDate`'s own inverse, so the
+// round trip is lossless at every offset by construction rather than by luck — and `utils/localDate.ts`'s
+// own header warns against this precise substitution in writing.
 vi.stubGlobal('useI18n', () => ({
   t: (k: string, params?: Record<string, unknown>) =>
     (params ? `${k}|${Object.values(params).join('|')}` : k),
-  d: (date: Date) => date.toISOString().slice(0, 10),
+  d: (date: Date) => ymdFromLocalDate(date),
 }));
 
 // Typed on its own parameters (rather than inferred from a zero-arg lambda) so `.mock.calls[n]` carries the
@@ -708,7 +717,7 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
 
   afterEach(() => {
     // Restore the module's default (non-spy) useI18n stub for every other describe block in this file.
-    vi.stubGlobal('useI18n', () => ({ t: plainT, d: (date: Date) => date.toISOString().slice(0, 10) }));
+    vi.stubGlobal('useI18n', () => ({ t: plainT, d: (date: Date) => ymdFromLocalDate(date) }));
     recordSoilReading.mockReset();
     recordSoilReading.mockImplementation(() => Promise.resolve({ readingId: 'r1' }));
   });
@@ -726,7 +735,7 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
   it('on a 422 (same-key retry after an edit), shows the "already recorded" message, refreshes, and ' +
     'closes the modal', async () => {
     const tSpy = vi.fn(plainT);
-    vi.stubGlobal('useI18n', () => ({ t: tSpy, d: (date: Date) => date.toISOString().slice(0, 10) }));
+    vi.stubGlobal('useI18n', () => ({ t: tSpy, d: (date: Date) => ymdFromLocalDate(date) }));
     recordSoilReading.mockRejectedValueOnce({ statusCode: 422 });
 
     const w = mountReady();

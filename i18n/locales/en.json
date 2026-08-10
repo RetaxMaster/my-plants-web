@@ -1424,6 +1424,8 @@
     },
     "measureAction": "Measure",
     "surveyQuestion": "Do you need to water?",
+    "surveyLoadError": "We couldn't load your instruments, so we can't check this pot right now. You can still mark the watering done or postpone it.",
+    "surveyRetry": "Try again",
     "addReading": "Add a reading",
     "finding": {
       "tooSlow": "This pot is drying much more slowly than it should. That's usually an oversized pot, poor aeration, or tired substrate — not a watering problem.",

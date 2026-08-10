@@ -16,6 +16,9 @@ import { fertilizeExplanation } from '../utils/fertilizeExplanation.js';
 // Explicit, like every other util this file uses: one implementation of "which pending evaluation may an
 // action name" and one of "which sign is worth suggesting next", shared with pages/index.vue.
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
+// The WATER row's survey rule — "may this row offer the survey at all" — lives once and is shared with
+// pages/index.vue, never restated per renderer.
+import { canOfferWaterSurvey } from '../utils/waterSurvey.js';
 // Explicit import, same reasoning as `onUnmounted` above: the composable's OWN `shallowRef` import makes
 // it test-environment-agnostic. Round-5 finding V1 — extracted so this file and pages/index.vue (the
 // FIRST renderer of the same REPOT flows) share ONE attempt-tracking implementation instead of two
@@ -247,8 +250,19 @@ const { data: ownerInstruments } = useLazyAsyncData('owner-instruments', () => a
 // `submit()`), so offering the survey again would ask the same question forever. `care.value.measurement`
 // is already fetched on this page (the SAME payload `tooSlowDrying`/`flatSeries` read below), so this
 // reads its own `measuredToday` — never a second fetch — rather than the instrument check alone.
-const canSurveyWater = computed(() =>
-  (ownerInstruments.value?.selected.length ?? 0) > 0 && care.value?.measurement?.measuredToday !== true);
+// FIX W1 — a FAILED `getSoilReadings` fetch is its own state, never "the catalogue is empty". `readings` is
+// awaited in setup, so by render time `null` can only mean the read failed; the template already falls back
+// to an empty `{ instruments: [], … }` shape, and opening the modal on that shape tells an owner who DOES
+// own instruments that he owns none — while the row goes on withholding Hecho and Posponer, because its own
+// gate never learned the fetch had failed. Same defect, same fix, as pages/index.vue's own `onWaterEvaluate`
+// (that surface fetches per click, this one at page load — the RULE they share lives in
+// `utils/waterSurvey.ts`, so only the plumbing differs).
+const readingsUnavailable = computed(() => readings.value == null);
+const canSurveyWater = computed(() => canOfferWaterSurvey({
+  hasInstrument: (ownerInstruments.value?.selected.length ?? 0) > 0,
+  measuredToday: care.value?.measurement?.measuredToday === true,
+  catalogueAvailable: !readingsUnavailable.value,
+}));
 
 const { data: history, refresh: refreshHistory } =
   useLazyAsyncData(`history-${id}`, () => api.getPlantHistory(id), { server: false });
@@ -1387,7 +1401,23 @@ async function confirmRevive() {
                the soil. Mutually exclusive: a flat series makes drying-rate confidence meaningless, so it
                takes priority when both would otherwise apply. -->
           <div v-if="!isFrozen" class="mp-detail__measurement">
-            <UiButton size="xs" variant="soft" color="neutral" icon="beaker" class="mp-detail__measurement-add" @click="openVoluntaryReading">
+            <!-- FIX W1: with no catalogue in hand there is nothing honest either affordance can do — the
+                 modal would open on the "you have no instruments" empty state, which for this owner is a
+                 false statement. So "Add a reading" stands down and the retryable failure takes its place;
+                 the WATER row above has already fallen back to Hecho | Posponer through the same
+                 `readingsUnavailable` flag, so nothing is locked. -->
+            <UiAlert
+              v-if="readingsUnavailable"
+              color="red"
+              :description="$t('reading.surveyLoadError')"
+              announce
+              class="mp-detail__alert"
+            >
+              <UiButton size="xs" variant="soft" color="neutral" @click="refreshReadings()">
+                {{ $t('reading.surveyRetry') }}
+              </UiButton>
+            </UiAlert>
+            <UiButton v-else size="xs" variant="soft" color="neutral" icon="beaker" class="mp-detail__measurement-add" @click="openVoluntaryReading">
               {{ $t('reading.addReading') }}
             </UiButton>
             <UiAlert

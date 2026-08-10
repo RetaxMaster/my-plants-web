@@ -148,9 +148,12 @@ const stubs = {
   UiScreenHeader: true,
   // B3: the retry button now lives INSIDE this banner's default slot (mirrors onEvaluate's pre-existing
   // load-failure retry) — a real stub that renders its slot, not `true`, so the tests below can reach it.
+  // W1: `data-description` exposes WHICH banner this is — the page now renders a second one (the WATER
+  // survey's own load failure), and "an alert appeared" is not the assertion; "the alert said the honest
+  // thing" is. The two are mutually exclusive in practice, so no existing `.repot-error-banner` lookup moves.
   UiAlert: {
     props: ['color', 'description', 'announce'],
-    template: '<div class="repot-error-banner"><slot /></div>',
+    template: '<div class="repot-error-banner" :data-description="description"><slot /></div>',
   },
   // B3: the retry button inside the load-failure banner is now reachable (a failed `onRepotDone` getPlant
   // fetch surfaces it too, not just a failed `onEvaluate` signs fetch) — a real clickable stub, not `true`,
@@ -1412,3 +1415,64 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     expect(todaysTasksMock.mock.calls.length).toBeGreaterThan(tasksReadsBeforeSave);
   });
 });
+
+// FIX W1 — a FAILED instrument-catalogue fetch is NOT an empty catalogue. The old code caught the rejection
+// and fell through with the empty shape, so the modal opened on "you haven't told us what you measure with
+// yet, add an instrument in Settings" — a false statement for an owner whose `hasInstrument` gate is what
+// offered the survey in the first place. And because `canSurveyWaterFor` never learned the fetch had
+// failed, the row went on withholding Hecho AND Posponer: the owner went to Settings, saw his instruments,
+// came back, and had no way to complete or postpone a due watering. A persistent fetch failure made the
+// task unusable. The invariant (spec §5.2) is that nothing is withheld from an owner who cannot satisfy it.
+describe('pages/index.vue — W1: a failed catalogue fetch must not lock the watering row', () => {
+  it('does NOT open the modal, falls the row back to Hecho | Posponer, and says what actually happened',
+    async () => {
+      getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+      getSoilReadingsMock = vi.fn(async () => { throw new Error('network'); });
+      stubApiWithWaterTask();
+
+      const w = await mountPage();
+      // Before the click the survey IS on offer — the owner owns an instrument.
+      expect(w.find('[data-can-survey]').attributes('data-can-survey')).toBe('true');
+
+      await w.find('.evaluate-btn').trigger('click');
+      await flushPromises();
+
+      // 1. The modal never opened on the empty state.
+      expect(w.find('.soil-modal').attributes('data-open')).toBe('false');
+      // 2. The row is actionable again: this is the half that made the task unusable.
+      const row = w.find('[data-can-survey]');
+      expect(row.attributes('data-can-survey')).toBe('false');
+      expect(row.find('.done-btn').exists()).toBe(true);
+      expect(row.find('.postpone-btn').exists()).toBe(true);
+      // 3. And the owner is told the truth — the load failed — never "you have no instruments".
+      const banner = w.find('.repot-error-banner');
+      expect(banner.exists()).toBe(true);
+      expect(banner.attributes('data-description')).toBe('reading.surveyLoadError');
+      expect(banner.attributes('data-description')).not.toBe('reading.noInstruments');
+    });
+
+  it('the banner\'s retry re-runs the fetch, and a success restores the survey', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    getSoilReadingsMock = vi.fn(async () => { throw new Error('network'); });
+    stubApiWithWaterTask();
+
+    const w = await mountPage();
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+    expect(w.find('.repot-error-banner').exists()).toBe(true);
+
+    // The infrastructure recovers; the retry is the ONLY way back, since the row's own survey button is
+    // gone by design.
+    getSoilReadingsMock.mockImplementation(async () => (
+      { instruments: [{ id: 'galvanic-probe' }], protocol: null, readings: [], wateringDays: [] }
+    ));
+    await w.find('.retry-btn').trigger('click');
+    await flushPromises();
+
+    expect(w.find('.soil-modal').attributes('data-open')).toBe('true');
+    expect(w.find('.soil-modal').attributes('data-mode')).toBe('survey');
+    expect(w.find('[data-can-survey]').attributes('data-can-survey')).toBe('true');
+    expect(w.find('.repot-error-banner').exists()).toBe(false);
+  });
+});
+

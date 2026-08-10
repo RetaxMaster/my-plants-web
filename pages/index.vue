@@ -5,6 +5,9 @@ import { plantTitle } from '../utils/displayName.js';
 // One implementation of "which pending evaluation may an action name" and of "which sign is worth
 // suggesting next", shared with PlantDetail.vue — never a second copy in each renderer.
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
+// The WATER row's survey rule — "may this row offer the survey at all" — lives once and is shared with
+// PlantDetail.vue, never restated per renderer.
+import { canOfferWaterSurvey } from '../utils/waterSurvey.js';
 // Explicit import (like PlantDetail.vue's `onUnmounted`, and for the same reason): the composable's own
 // `shallowRef` import from 'vue' makes it test-environment-agnostic, and this ONE implementation is now
 // shared with PlantDetail.vue (round-5 finding V1) — never a second copy of the attempt-tracking logic.
@@ -241,13 +244,18 @@ function measuredTodayFor(plantId: string): boolean {
   return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER')?.measuredToday === true;
 }
 
-// Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey: the owner has an instrument
-// AND has not already measured this plant today. Once WATER_NOW writes today's reading (`verdict:
-// 'NONE'` — SoilReadingModal.vue's `submit()`), `measuredTodayFor` flips true on the next refresh and this
-// closes back to false — the row falls back to the classic Done | Postpone pair (TaskRow.vue's own
+// Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey. The RULE (all three conditions,
+// including the catalogue one W1 added) lives in `utils/waterSurvey.ts` and is shared with PlantDetail.vue;
+// this function only supplies the three facts THIS renderer holds. Once WATER_NOW writes today's reading
+// (`verdict: 'NONE'` — SoilReadingModal.vue's `submit()`), `measuredTodayFor` flips true on the next refresh
+// and this closes back to false — the row falls back to the classic Done | Postpone pair (TaskRow.vue's own
 // `showEvaluate`/`canSurvey` contract) instead of asking the same question forever.
 function canSurveyWaterFor(plantId: string): boolean {
-  return hasInstrument.value && !measuredTodayFor(plantId);
+  return canOfferWaterSurvey({
+    hasInstrument: hasInstrument.value,
+    measuredToday: measuredTodayFor(plantId),
+    catalogueAvailable: !surveyUnavailableFor.value.includes(plantId),
+  });
 }
 
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
@@ -611,23 +619,50 @@ const readingModalPlantId = ref<string | null>(null);
 const EMPTY_SOIL_READINGS: PlantSoilReadings = { instruments: [], protocol: null, readings: [], wateringDays: [] };
 const readingModalData = ref<PlantSoilReadings>(EMPTY_SOIL_READINGS);
 
+// FIX W1 — the plants whose instrument catalogue we tried to fetch and FAILED to get. This is a state of
+// its own, deliberately NOT collapsed into "the catalogue is empty": see `canOfferWaterSurvey`'s doc for the
+// full defect. While a plant is in this list its WATER row falls back to the classic Hecho | Posponer,
+// which is the only shape that keeps a due watering completable when the check itself is unavailable.
+// Cleared for a plant the moment a later fetch for it succeeds.
+const surveyUnavailableFor = ref<string[]>([]);
+// The retryable banner for that failure. `surveyRetry` re-runs the survey for the plant whose fetch failed —
+// the row's own survey button is gone by then (that is the point of the fallback), so this is the ONE way
+// back to the check. Mirrors the load-failure banner + retry `onEvaluate`'s own failed signs fetch already
+// uses (finding W16), rather than inventing a second recovery shape.
+const surveyLoadFailed = ref(false);
+const surveyRetry = ref<null | (() => void)>(null);
+
 async function onWaterEvaluate(plantId: string) {
   readingModalPlantId.value = plantId;
   readingModalData.value = EMPTY_SOIL_READINGS;
+  surveyLoadFailed.value = false;
+  surveyRetry.value = () => onWaterEvaluate(plantId);
+  let data: PlantSoilReadings;
   try {
-    const data = await api.getSoilReadings(plantId);
-    // Race guard (same class as onEvaluate's F4 above): a later click on a different card already moved
-    // readingModalPlantId on — a stale response must never populate the now-current plant's modal.
-    if (readingModalPlantId.value !== plantId) return;
-    readingModalData.value = data;
+    data = await api.getSoilReadings(plantId);
   } catch {
+    // Race guard (same class as onEvaluate's F4 above): a later click on a different card already moved
+    // readingModalPlantId on, so this failure is not the current plant's to report.
     if (readingModalPlantId.value !== plantId) return;
-    // Falls through with the empty shape already set above: the modal still opens, showing the same "you
-    // have no instruments" alert a genuine zero-instrument owner would see — a network hiccup and a real
-    // empty catalogue read identically to the owner either way, and this affordance is only ever offered
-    // once `canSurveyWaterFor(plantId)` is already true (so `hasInstrument` already held), meaning an
-    // empty instrument list here means the fetch failed, not that the owner has none.
+    // FIX W1 — the modal does NOT open. It used to fall through with the empty shape and show the "you
+    // haven't told us what you measure with yet" alert, which for THIS owner is simply a false statement:
+    // the affordance is only ever offered once `hasInstrument` already held, so an empty list here means
+    // the fetch failed. Worse, `canSurveyWaterFor` stayed true throughout, so Hecho and Posponer remained
+    // withheld — the owner was sent to Settings, saw his instruments, came back, and had no way to complete
+    // or postpone a due watering. Recording the failure closes the survey for this plant instead, which
+    // hands the classic row back, and the banner below says what actually happened and offers a retry.
+    if (!surveyUnavailableFor.value.includes(plantId)) {
+      surveyUnavailableFor.value = [...surveyUnavailableFor.value, plantId];
+    }
+    surveyLoadFailed.value = true;
+    return;
   }
+  // Race guard (same class as onEvaluate's F4 above): a later click on a different card already moved
+  // readingModalPlantId on — a stale response must never populate the now-current plant's modal.
+  if (readingModalPlantId.value !== plantId) return;
+  // A successful fetch retires this plant's failure: the retry worked, so the survey is offerable again.
+  surveyUnavailableFor.value = surveyUnavailableFor.value.filter((id) => id !== plantId);
+  readingModalData.value = data;
   readingModalOpen.value = true;
 }
 
@@ -712,6 +747,23 @@ function openProgress(plantId: string) {
     >
       <UiButton v-if="evaluationLoadFailed" size="sm" variant="soft" color="neutral" @click="repotRetry?.()">
         {{ $t('repotEval.retry') }}
+      </UiButton>
+    </UiAlert>
+
+    <!-- FIX W1: the WATER survey's own load failure. Deliberately a DIFFERENT sentence from the empty-state
+         alert inside the modal ("you haven't told us what you measure with yet"): this owner HAS
+         instruments, so that copy would be a false statement. It also says out loud that the row is still
+         actionable, because it is — `canSurveyWaterFor` has already fallen back to the classic
+         Hecho | Posponer for this plant. -->
+    <UiAlert
+      v-if="surveyLoadFailed"
+      color="red"
+      :description="$t('reading.surveyLoadError')"
+      announce
+      class="mp-today__repot-error"
+    >
+      <UiButton size="sm" variant="soft" color="neutral" @click="surveyRetry?.()">
+        {{ $t('reading.surveyRetry') }}
       </UiButton>
     </UiAlert>
 

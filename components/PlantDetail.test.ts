@@ -2090,3 +2090,124 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(modal.props('mode')).toBe('survey');
   });
 });
+
+// FIX W1 on the plant page — the SAME rule pages/index.vue carries (see pages/index.test.ts's own W1
+// block). It is stated once in `utils/waterSurvey.ts` and applied twice; this block is what proves the
+// SECOND application exists, which is exactly what "one behaviour, both surfaces" needs a test for. The plumbing legitimately differs (this page holds ONE plant's catalogue from a page-load
+// `useAsyncData`, Today fetches per click), so the two blocks assert the same behaviour through different
+// seams.
+describe('PlantDetail — W1: a failed catalogue must not lock the watering row', () => {
+  const waterCare = (measuredToday = false) => ({
+    plantId: 'p1',
+    tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+    measurement: {
+      dryingRate: null, reason: null, tooSlowDrying: false, flatSeries: false, suggestMeasuring: false,
+      measuredToday,
+    },
+  });
+
+  // Same faithful-enough TaskRow the Task 6 block above uses: it re-derives Done/Postpone/Evaluate from
+  // `canSurvey`/`allowStandaloneDone` exactly as the real TaskRow.vue does for a WATER row.
+  const UiTaskRowStub = {
+    props: {
+      task: null,
+      canSurvey: { type: Boolean, default: false },
+      allowStandaloneDone: { type: Boolean, default: false },
+    },
+    emits: ['evaluate', 'done', 'postpone'],
+    template:
+      '<div :data-task="task" :data-can-survey="String(!!canSurvey)">' +
+      '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">survey</button>' +
+      '<button v-if="task !== \'WATER\' || !canSurvey || allowStandaloneDone" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
+      '<button v-if="task !== \'WATER\' || !canSurvey" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
+      '</div>',
+  };
+  // The base map collapses UiAlert to `true` (its slot never renders), so the retry button inside the
+  // load-failure banner would be unreachable — a real stub that renders its slot AND names which banner
+  // it is, the same `data-description` hook pages/index.test.ts uses.
+  const UiAlertStub = {
+    props: ['color', 'description', 'announce'],
+    template: '<div class="detail-alert" :data-description="description"><slot /></div>',
+  };
+  const localStubs = {
+    ...stubs,
+    UiTaskRow: UiTaskRowStub,
+    UiAlert: UiAlertStub,
+    UiSoilReadingModal: { name: 'UiSoilReadingModal', props: ['open', 'plantId', 'data', 'mode'], template: '<div />' },
+  };
+
+  // `readingsFails` drives the ONE thing under test in the W1 half: whether the page HOLDS this plant's
+  // instrument catalogue. The `useAsyncData` stub below mirrors Nuxt's real behaviour on a rejected
+  // fetcher — the error is captured, `data` stays null — rather than letting the rejection escape and
+  // fail the mount, which is precisely the state the component has to survive.
+  async function mountWater(
+    { measuredToday = false, readingsFails = false }: { measuredToday?: boolean; readingsFails?: boolean } = {},
+  ) {
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      let data: unknown = null;
+      try { data = await fn(); } catch { data = null; }
+      return { data: ref(data), refresh: vi.fn(async () => {}) };
+    });
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => basePlant(),
+      getPlantCare: async () => waterCare(measuredToday),
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => {
+        if (readingsFails) throw new Error('network');
+        return { instruments: [{ id: 'galvanic-probe' }], protocol: null, readings: [], wateringDays: [] };
+      },
+      getOwnerInstruments: async () => ({ available: [], selected: ['galvanic-probe'] }),
+      invalidatePlant: vi.fn(),
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: localStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  afterEach(() => {
+    // Restore the module's default stub for every other describe block in this file.
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(async () => {}),
+    }));
+  });
+
+  it('a failed catalogue fetch hands the classic Hecho | Posponer back instead of withholding them',
+    async () => {
+      const w = await mountWater({ readingsFails: true });
+      const row = w.find('[data-task=WATER]');
+      expect(row.attributes('data-can-survey')).toBe('false');
+      expect(row.find('.evaluate-btn').exists()).toBe(false);
+      expect(row.find('.done-btn').exists()).toBe(true);
+      expect(row.find('.postpone-btn').exists()).toBe(true);
+    });
+
+  it('says the load failed, and never offers a voluntary reading it could only answer with the ' +
+    '"you have no instruments" lie', async () => {
+    const w = await mountWater({ readingsFails: true });
+    const banner = w.findAll('.detail-alert')
+      .find((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'));
+    expect(banner).toBeTruthy();
+    // The retry lives inside it, and it is the only route back to the check.
+    expect(banner!.find('button').exists()).toBe(true);
+    // "Add a reading" stands down — it opens the SAME modal onto the SAME empty state.
+    expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(false);
+  });
+
+  it('a catalogue we DO hold changes neither — the survey is offered and the reading stays addable',
+    async () => {
+      const w = await mountWater();
+      expect(w.find('[data-task=WATER]').attributes('data-can-survey')).toBe('true');
+      expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(true);
+      expect(w.findAll('.detail-alert')
+        .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
+    });
+
+});

@@ -157,6 +157,21 @@ const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPl
 // shape before the fetch resolves — same convention as `:places="places ?? []"` a few lines down.
 const { data: readings, refresh: refreshReadings } = await useAsyncData(`soil-readings-${id}`, () => api.getSoilReadings(id));
 const readingModalOpen = ref(false);
+// Task 6: ONE modal instance now serves TWO entry points on this page — the WATER row's own survey
+// ("¿Necesitas regar?", set by `onEvaluateTask` below) and the measurement-history block's voluntary
+// "Add a reading" (set by `openVoluntaryReading` below). `mode` is now a REQUIRED prop on
+// `SoilReadingModal` (its own file-header comment: the scaffolding default was temporary until every
+// caller passed it explicitly), so this ref is what the template's `:mode` binding actually sends —
+// never a literal, since which flow opened the modal decides it. Defaults to 'voluntary' as an inert
+// value: it is always set before `readingModalOpen` is flipped true, on both paths.
+const readingMode = ref<'survey' | 'voluntary'>('voluntary');
+// The measurement-history block's own entry point (Task 6): recording a back-dated reading is not part of
+// deciding today's watering, so it lives here — never on the WATER task row, which the `@measure`
+// affordance used to occupy (removed; see the TaskRow binding below).
+function openVoluntaryReading() {
+  readingMode.value = 'voluntary';
+  readingModalOpen.value = true;
+}
 // A saved reading can change BOTH the readings list (SoilReadingModal's own data) and the care payload's
 // `measurement` block (a new reading can flip `suggestMeasuring`/`tooSlowDrying`/`flatSeries`) — refresh
 // both, never just one, or one of the two surfaces silently shows stale data right after a save. A
@@ -214,6 +229,16 @@ const backLabel = computed(() => {
 // the Photos and History sections below are wrapped so they appear on hydration, never flashing an empty
 // state while their data is still null.
 const { data: places } = useLazyAsyncData('places-for-edit', () => api.listPlaces(), { server: false });
+
+// Task 6 (watering-survey-web plan): the WATER row's survey affordance is gated on whether the owner has
+// selected ANY instrument — the SAME owner-level selection Settings itself reads/writes
+// (`api.getOwnerInstruments()`/`setOwnerInstruments()`), the SAME seam pages/index.vue's own WATER row
+// already uses (commit ff75f51), never a second, invented "has an instrument" concept. Same cache key
+// ('owner-instruments') as settings.vue/pages/index.vue, so Nuxt's payload cache is shared rather than
+// duplicated; deferred to the client like `places`/`history`/`photos` below, since it is secondary info
+// that gates one affordance rather than blocking the page's first render.
+const { data: ownerInstruments } = useLazyAsyncData('owner-instruments', () => api.getOwnerInstruments(), { server: false });
+const canSurveyWater = computed(() => (ownerInstruments.value?.selected.length ?? 0) > 0);
 
 const { data: history, refresh: refreshHistory } =
   useLazyAsyncData(`history-${id}`, () => api.getPlantHistory(id), { server: false });
@@ -682,6 +707,21 @@ async function onEvaluate() {
 // Retry affordance for the page-level banner when `evaluationLoadFailed` is set.
 function retryEvaluate() {
   void onEvaluate();
+}
+
+// Task 6: the WATER row's own survey click reuses the SAME `@evaluate` event TaskRow.vue already emits for
+// REPOT (never a parallel event) — the task the event names is what routes it here instead of into
+// `onEvaluate`, mirroring pages/index.vue's own `onWaterEvaluate` routing (commit ff75f51). Unlike Today,
+// which fetches a fresh per-plant reading catalogue on every click (it never preloads one for every card up
+// front), this page already holds `readings` for its ONE plant from the top-level `useAsyncData` read above
+// — reused here rather than a second, per-click fetch.
+function onEvaluateTask(e: { task: TaskCode }) {
+  if (e.task === 'WATER') {
+    readingMode.value = 'survey';
+    readingModalOpen.value = true;
+    return;
+  }
+  return onEvaluate();
 }
 
 async function onEvaluationSubmit(body: RepotEvaluationSubmit) {
@@ -1292,11 +1332,17 @@ async function confirmRevive() {
           </UiCard>
           <UiCard v-else :padded="false">
             <div class="mp-detail__rows">
-              <!-- `allow-standalone-done` is REPOT-only (inert on every other task): this page keeps a
-                   standalone "Done" beside "Time to evaluate", so a repot the owner already did can be
-                   recorded — and back-dated, via `with-done-date` — without first answering a
-                   questionnaire about a plant that is already in its new pot. The Today page deliberately
-                   does NOT pass it: there, Done appears only once a verdict has said the repot is needed. -->
+              <!-- `allow-standalone-done` is REPOT-only for status quo's sake, and WATER's own since Task 6
+                   (watering-survey-web plan): this page keeps a standalone "Done" beside "Time to evaluate" /
+                   "¿Necesitas regar?", so a repot — or a watering — the owner already did can be recorded
+                   without first answering the questionnaire/survey. The Today page deliberately does NOT
+                   pass it for either task: there, Done appears only once a verdict says the action is
+                   needed. `can-survey` mirrors pages/index.vue's own WATER wiring (commit ff75f51) exactly:
+                   true only when the owner has selected an instrument — an owner with none renders this row
+                   BYTE-IDENTICAL to its pre-survey shape (TaskRow.vue's own contract for `canSurvey: false`).
+                   The `@measure` affordance that used to sit on this row is GONE (Task 6): recording a
+                   back-dated reading is not part of deciding today's watering, so it moved to the
+                   measurement-history block below (`openVoluntaryReading`). -->
               <UiTaskRow
                 v-for="t3 in care.tasks"
                 :key="t3.task"
@@ -1307,7 +1353,7 @@ async function confirmRevive() {
                 :explanation="taskExplanation(t3.task)"
                 :pending-verdict="t3.pendingEvaluation?.verdict ?? null"
                 :pending-reevaluate-on="t3.pendingEvaluation?.reevaluateOn ?? null"
-                :suggest-measuring="t3.task === 'WATER' ? (care.measurement?.suggestMeasuring ?? false) : undefined"
+                :can-survey="t3.task === 'WATER' && canSurveyWater"
                 with-done-date
                 show-info
                 allow-standalone-done
@@ -1315,37 +1361,50 @@ async function confirmRevive() {
                 @postpone="e => onPostpone(e.task)"
                 @info="openTaskInfo"
                 @log-progress="openProgress"
-                @evaluate="onEvaluate"
-                @measure="readingModalOpen = true"
+                @evaluate="onEvaluateTask"
               />
             </div>
           </UiCard>
 
-          <!-- The two measurement findings (measured:22, spec §4.8). The too-slow finding is a
-               SUBSTRATE/POT finding, not a watering one — it links to the repot card (`#repot`, the REPOT
-               row's own id, above), never to the watering cadence. The flat-series finding names the
-               INSTRUMENT, never the soil. Mutually exclusive: a flat series makes drying-rate confidence
-               meaningless, so it takes priority when both would otherwise apply. -->
-          <UiAlert
-            v-if="care?.measurement?.tooSlowDrying"
-            color="amber"
-            :description="$t('reading.finding.tooSlow')"
-            class="mp-detail__alert"
-          >
-            <NuxtLink :to="`/plants/${id}#repot`">{{ $t('reading.finding.tooSlowLink') }}</NuxtLink>
-          </UiAlert>
-          <UiAlert
-            v-else-if="care?.measurement?.flatSeries"
-            color="amber"
-            :description="$t('reading.finding.flatSeries')"
-            class="mp-detail__alert"
-          />
+          <!-- The measurement history (Task 6, watering-survey-web plan — this is the Task-28 measuring
+               block, rewritten): the voluntary "Add a reading" affordance now lives HERE, never on the
+               WATER task row above — recording a back-dated measurement is not part of deciding today's
+               watering. Hidden entirely when frozen: recording a reading is a mutation, exactly like
+               "Agregar nota" in the History section above. The two measurement findings below are
+               UNCHANGED, just re-homed under this same block. The too-slow finding is a SUBSTRATE/POT
+               finding, not a watering one — it links to the repot card (`#repot`, the REPOT row's own id,
+               above), never to the watering cadence. The flat-series finding names the INSTRUMENT, never
+               the soil. Mutually exclusive: a flat series makes drying-rate confidence meaningless, so it
+               takes priority when both would otherwise apply. -->
+          <div v-if="!isFrozen" class="mp-detail__measurement">
+            <UiButton size="xs" variant="soft" color="neutral" icon="beaker" class="mp-detail__measurement-add" @click="openVoluntaryReading">
+              {{ $t('reading.addReading') }}
+            </UiButton>
+            <UiAlert
+              v-if="care?.measurement?.tooSlowDrying"
+              color="amber"
+              :description="$t('reading.finding.tooSlow')"
+              class="mp-detail__alert"
+            >
+              <NuxtLink :to="`/plants/${id}#repot`">{{ $t('reading.finding.tooSlowLink') }}</NuxtLink>
+            </UiAlert>
+            <UiAlert
+              v-else-if="care?.measurement?.flatSeries"
+              color="amber"
+              :description="$t('reading.finding.flatSeries')"
+              class="mp-detail__alert"
+            />
+          </div>
         </div>
 
+        <!-- Task 6: ONE modal instance, TWO entry points — the WATER row's survey (`onEvaluateTask`) and the
+             measurement-history's voluntary "Add a reading" (`openVoluntaryReading`) — see `readingMode`'s
+             own declaration for why a single dynamic `:mode` binding is correct here and a literal is not. -->
         <UiSoilReadingModal
           v-model:open="readingModalOpen"
           :plant-id="id"
           :data="readings ?? { instruments: [], protocol: null, readings: [], wateringDays: [] }"
+          :mode="readingMode"
           @saved="onReadingSaved"
         />
 
@@ -1711,6 +1770,16 @@ async function confirmRevive() {
 
 .mp-detail__alert {
   margin-bottom: 14px;
+}
+
+/* The measurement-history block (Task 6): sits right under the task-rows card, so it gets its own top
+   spacing before the "Add a reading" button, matching `.mp-detail__history-head`'s own rhythm. */
+.mp-detail__measurement {
+  margin-top: 14px;
+}
+
+.mp-detail__measurement-add {
+  margin-bottom: 12px;
 }
 
 .mp-detail__repot-error {

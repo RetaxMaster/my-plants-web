@@ -43,24 +43,17 @@ import type { PlantSoilReadings, SoilReadingPreview, WateringRelation } from '~/
 import { toNullableNumber } from '~/utils/nullableNumber';
 import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
 
-const props = withDefaults(
-  defineProps<{
-    plantId: string;
-    data: PlantSoilReadings;
-    /** See the file-header comment for the full contract. Defaults to `voluntary` — the closer analog of
-     * the pre-redesign single-step form — until the caller (a DUE water task) is wired to pass `survey`
-     * explicitly; that wiring is a later task.
-     *
-     * ⚠️ THIS DEFAULT IS TEMPORARY SCAFFOLDING, not a real fallback — it exists ONLY so `PlantDetail.vue`
-     * (today's one caller, still unwired to either mode) keeps compiling. A default on a prop like this is
-     * a wiring hazard: a caller that FORGETS to pass `mode` gets a plausible-looking screen instead of a
-     * compile error, so a missing wire never fails loudly. Once every caller (the DUE-task survey entry
-     * point included) passes `mode` explicitly, drop the default and make this prop required — that is the
-     * last web task in this feature's own scope, not a follow-up someone has to remember on their own. */
-    mode?: 'survey' | 'voluntary';
-  }>(),
-  { mode: 'voluntary' },
-);
+// `mode` is now REQUIRED (Task 6, watering-survey-web plan): both callers pass it explicitly —
+// pages/index.vue's WATER survey passes `'survey'` (commit ff75f51), PlantDetail.vue passes a dynamic
+// `readingMode` that is `'survey'` for its own WATER-row evaluate click and `'voluntary'` for its
+// measurement-history "Add a reading" action — so the temporary scaffolding default this prop used to
+// carry (see the file-header comment for the full contract) is gone: a future caller that forgets to pass
+// `mode` now gets a compile error instead of a plausible-looking screen with the wrong behaviour.
+const props = defineProps<{
+  plantId: string;
+  data: PlantSoilReadings;
+  mode: 'survey' | 'voluntary';
+}>();
 const emit = defineEmits<{ saved: [] }>();
 const open = defineModel<boolean>('open', { default: false });
 

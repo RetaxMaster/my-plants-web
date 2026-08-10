@@ -1424,6 +1424,7 @@
     },
     "measureAction": "Medir",
     "surveyQuestion": "¿Necesitas regar?",
+    "addReading": "Agregar lectura",
     "finding": {
       "tooSlow": "Esta maceta se está secando mucho más lento de lo que debería. Casi siempre es una maceta muy grande, poca aireación o sustrato agotado — no un problema de riego.",
       "tooSlowLink": "Ver trasplante",

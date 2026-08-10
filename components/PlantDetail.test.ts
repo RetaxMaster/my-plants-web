@@ -101,6 +101,12 @@ function stubApi(plant: ReturnType<typeof basePlant>) {
     // this file needs it, even though none of these tests exercise the REPOT flow itself.
     getRepotSigns: async () => ({ signs: [] }),
     getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+    // Task 6 (watering-survey-web plan): PlantDetail.vue now reads this unconditionally (mirrors
+    // pages/index.vue's own WATER survey wiring, commit ff75f51) — every stub in this file needs it, even
+    // the ones whose tests never touch the WATER survey. Defaulted to "the owner selected nothing" so every
+    // PRE-EXISTING test here (none of which concerns itself with `canSurvey`) keeps its exact pre-Task-6
+    // behaviour; the dedicated WATER describe block below overrides it per test.
+    getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
     invalidatePlant: vi.fn(),
     memorializePlant: memorializePlantMock,
     giftPlant: giftPlantMock,
@@ -365,6 +371,9 @@ describe('PlantDetail — async photo reconcile', () => {
       getPlantPhotos,
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant,
     }));
 
@@ -407,6 +416,9 @@ describe('PlantDetail — async photo reconcile', () => {
       getPlantPhotos,
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
     }));
 
@@ -493,7 +505,10 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
       emits: ['evaluate', 'done'],
       template:
         '<div>' +
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
+        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
+        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
         '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
         '</div>',
     },
@@ -550,6 +565,9 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       submitRepotEvaluation: submitRepotEvaluationMock,
       completeRepot: completeRepotMock,
@@ -670,7 +688,10 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
       emits: ['evaluate', 'done'],
       template:
         '<div>' +
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
+        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
+        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
         '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
         '</div>',
     },
@@ -708,6 +729,9 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -815,7 +839,10 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
       emits: ['evaluate', 'done'],
       template:
         '<div>' +
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
+        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
+        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
         '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
         '</div>',
     },
@@ -856,6 +883,9 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -938,7 +968,10 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
       emits: ['evaluate', 'done'],
       template:
         '<div>' +
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
+        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
+        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
         '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
         '</div>',
     },
@@ -986,6 +1019,9 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -1062,7 +1098,10 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
       emits: ['evaluate', 'done'],
       template:
         '<div>' +
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
+        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
+        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
+        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
         '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
         '</div>',
     },
@@ -1105,6 +1144,9 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       submitRepotEvaluation: submitRepotEvaluationMock,
       completeRepot: completeRepotMock,
@@ -1240,6 +1282,9 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -1369,6 +1414,9 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -1449,7 +1497,8 @@ describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
     UiTaskRow: {
       props: { task: null },
       emits: ['evaluate'],
-      template: '<div><button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button></div>',
+      // Task 6: see the identical comment on the other five `evaluate-btn` stubs in this file.
+      template: '<div><button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button></div>',
     },
     UiRepotEvaluationModal: {
       props: ['open', 'signs'],
@@ -1476,6 +1525,9 @@ describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: catalogue, typicalIntervalMonths: null }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       submitRepotEvaluation: async () => ({ evaluationId: 'ev-1', verdict: 'RE-EVALUATE', reevaluateOn: '2026-11-05' }),
     }));
@@ -1615,6 +1667,9 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
       getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      // Task 6: see the shared `stubApi` helper's identical comment — every `useApi` stub in this file
+      // needs this now that PlantDetail.vue reads it unconditionally.
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
       invalidatePlant: vi.fn(),
       completeRepot: completeRepotMock,
     }));
@@ -1883,5 +1938,135 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
     // The pre-existing refreshes must survive the addition.
     expect(careRefresh).toHaveBeenCalled();
     expect(historyRefresh).toHaveBeenCalled();
+  });
+});
+
+// Task 6 (watering-survey-web plan): the WATER row joins the survey shape pages/index.vue's own WATER row
+// already has (commit ff75f51) — "Do you need to water?" before "Done" — and ADDITIONALLY keeps
+// `allowStandaloneDone`, REPOT's own precedent on this page (see the `describe` block above), so "I
+// watered it two days ago" stays expressible. The voluntary reading ("Add a reading") moves OUT of the
+// task row — the `@measure` binding is gone — and into the measurement-history block below the task-rows
+// card, which is the SAME block that already hosted the two drying-rate findings (Task 28).
+describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary reading moves to the history', () => {
+  const waterCare = () => ({
+    plantId: 'p1',
+    tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  });
+
+  // A faithful-enough TaskRow: it re-derives Done/Postpone/Evaluate visibility from `canSurvey` and
+  // `allowStandaloneDone` using the SAME gating the real component's own `showEvaluate`/`showDone`/
+  // `showPostpone` apply for a WATER row (TaskRow.vue) — Postpone is deliberately NEVER unlocked by
+  // `allowStandaloneDone` here either, mirroring the real component's own documented rule, so mutation
+  // proof 2 (letting it be) has something real to catch.
+  const UiTaskRowStub = {
+    props: {
+      task: null,
+      canSurvey: { type: Boolean, default: false },
+      allowStandaloneDone: { type: Boolean, default: false },
+    },
+    emits: ['evaluate', 'done', 'postpone'],
+    template:
+      '<div :data-task="task" :data-can-survey="String(!!canSurvey)" :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
+      '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">¿Necesitas regar?</button>' +
+      '<button v-if="task !== \'WATER\' || !canSurvey || allowStandaloneDone" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
+      '<button v-if="task !== \'WATER\' || !canSurvey" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
+      '</div>',
+  };
+
+  // Stands in for the real SoilReadingModal.vue (covered by its own test file) — this describe block's only
+  // concern is that PlantDetail.vue opens it in the right MODE from the right entry point. Named explicitly
+  // so `findComponent({ name: 'UiSoilReadingModal' })` can locate it, the same technique this file already
+  // uses for `UiPlantPhoto` above.
+  const UiSoilReadingModalStub = {
+    name: 'UiSoilReadingModal',
+    props: ['open', 'plantId', 'data', 'mode'],
+    emits: ['update:open', 'saved'],
+    template: '<div class="soil-modal" :data-open="open" :data-mode="mode" />',
+  };
+
+  const localStubs = { ...stubs, UiTaskRow: UiTaskRowStub, UiSoilReadingModal: UiSoilReadingModalStub };
+
+  async function mountWater(selected: string[]) {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => basePlant(),
+      getPlantCare: async () => waterCare(),
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [], wateringDays: [] }),
+      getOwnerInstruments: async () => ({ available: [], selected }),
+      invalidatePlant: vi.fn(),
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: localStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  // Mutation proof 1 target: hardcoding `:can-survey="true"` on the WATER binding makes this go RED
+  // (`data-can-survey` would read 'true' with zero instruments selected).
+  it('a WATER row with no instrument selected keeps today\'s shape', async () => {
+    const w = await mountWater([]);
+    const row = w.find('[data-task=WATER]');
+    expect(row.attributes('data-can-survey')).toBe('false');
+    expect(row.find('.evaluate-btn').exists()).toBe(false);
+    expect(row.find('.done-btn').exists()).toBe(true);
+    expect(row.find('.postpone-btn').exists()).toBe(true);
+  });
+
+  // Mutation proof 2 target: letting the stub's `allowStandaloneDone` ALSO unlock `.postpone-btn` (i.e.
+  // dropping the `!canSurvey` guard on that button) makes this go RED — the real TaskRow.vue never unlocks
+  // Postpone this way either (a REPOT/WATER postpone means "yes, it's needed, but I can't right now", which
+  // makes no sense before the survey has even answered whether it's needed).
+  it('the WATER row offers the survey and keeps standalone Done', async () => {
+    const w = await mountWater(['galvanic-probe']);
+    const row = w.find('[data-task=WATER]');
+    expect(row.attributes('data-can-survey')).toBe('true');
+    expect(row.find('.evaluate-btn').exists()).toBe(true);
+    expect(row.find('.evaluate-btn').text()).toBe('¿Necesitas regar?');
+    expect(row.find('.done-btn').exists()).toBe(true);
+    expect(row.find('.postpone-btn').exists()).toBe(false);
+  });
+
+  it('the Measure button is GONE from the task row', async () => {
+    const w = await mountWater(['galvanic-probe']);
+    // The old affordance's own rendered text (`reading.measureAction`, resolved through the REAL i18n
+    // instance this file uses) is nowhere in the row: PlantDetail.vue no longer binds `:suggest-measuring`
+    // at all, so the (still-supported) real TaskRow.vue never even considers rendering it.
+    expect(w.find('[data-task=WATER]').text()).not.toContain(i18n.t('reading.measureAction'));
+    expect(w.find('.measure-btn').exists()).toBe(false);
+  });
+
+  // Mutation proof 3 target: changing `openVoluntaryReading`'s `readingMode.value` assignment from
+  // `'voluntary'` to `'survey'` makes this go RED.
+  it('a voluntary reading is taken from the measurement history instead', async () => {
+    const w = await mountWater(['galvanic-probe']);
+    const addBtn = w.findAll('button').find((b) => b.text() === i18n.t('reading.addReading'));
+    expect(addBtn).toBeTruthy();
+
+    await addBtn!.trigger('click');
+    await flushPromises();
+
+    const modal = w.findComponent({ name: 'UiSoilReadingModal' });
+    expect(modal.attributes('data-open')).toBe('true');
+    expect(modal.props('mode')).toBe('voluntary');
+  });
+
+  // Not one of the four pinned tests, but the wiring it proves is new production code this task adds
+  // (`onEvaluateTask`, routing a WATER row's own survey click to `readingMode: 'survey'` instead of into
+  // the REPOT-only `onEvaluate`): unverified, it would ship a WATER "¿Necesitas regar?" click that silently
+  // opened the REPOT questionnaire instead of the measuring modal.
+  it('the WATER survey click opens the SAME modal in survey mode, not the REPOT questionnaire', async () => {
+    const w = await mountWater(['galvanic-probe']);
+    await w.find('.evaluate-btn').trigger('click');
+    await flushPromises();
+
+    const modal = w.findComponent({ name: 'UiSoilReadingModal' });
+    expect(modal.attributes('data-open')).toBe('true');
+    expect(modal.props('mode')).toBe('survey');
   });
 });

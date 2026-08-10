@@ -194,8 +194,11 @@ const detailStubs = {
   UiTaskRow: {
     props: ['task'],
     emits: ['evaluate', 'done'],
+    // Task 6 (watering-survey-web plan): PlantDetail.vue's `@evaluate` handler now branches on `e.task`
+    // (WATER routes to the survey, everything else — REPOT here — still routes to `onEvaluate`), same fix
+    // as pages/index.vue's own stub above.
     template:
-      '<div><button class="evaluate-btn" @click="$emit(\'evaluate\')">evaluate</button>' +
+      '<div><button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
       '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button></div>',
   },
   HistoryTimeline: true,

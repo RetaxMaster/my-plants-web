@@ -1424,6 +1424,7 @@
     },
     "measureAction": "Measure",
     "surveyQuestion": "Do you need to water?",
+    "addReading": "Add a reading",
     "finding": {
       "tooSlow": "This pot is drying much more slowly than it should. That's usually an oversized pot, poor aeration, or tired substrate — not a watering problem.",
       "tooSlowLink": "Look at repotting",

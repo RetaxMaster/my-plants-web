@@ -1373,6 +1373,7 @@
     "title": "Measure the soil",
     "instrument": "Instrument",
     "value": "Reading ({unit})",
+    "valueNoUnit": "Reading",
     "measuredOn": "Measured on",
     "save": "Save reading",
     "saveFailed": "We couldn't save that reading. Please try again.",
@@ -1386,7 +1387,9 @@
     "protocolWholePot": "Weigh the WHOLE pot, the same way every time: same saucer on or off, no standing water in the tray, and let it finish draining first. What matters is that the setup never changes — a pot weighed differently invents a trend that isn’t there.",
     "honesty": {
       "galvanic-probe": "This probe reads conductivity, not water — so compare this pot against itself, never against another.",
-      "kitchen-scale": "A pot's weight depends on the pot — so compare this pot against itself, never against another."
+      "kitchen-scale": "A pot's weight depends on the pot — so compare this pot against itself, never against another.",
+      "wooden-stick": "A stick tells you three things apart, not thirty — so judge it the same way every time, and let the days do the rest.",
+      "finger": "Your finger only reaches the top few centimetres, which dry first — so it will read drier than the pot really is, and we allow for that."
     },
     "levels": {
       "wooden-stick": {

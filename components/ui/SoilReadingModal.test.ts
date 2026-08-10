@@ -115,6 +115,19 @@ const kitchenScaleNoCalibration = {
 const kitchenScaleCalibrated = {
   ...kitchenScaleNoCalibration, calibration: { saturatedValue: 1850, dryValue: 1200 },
 };
+// ⚠️ THE FIRST ORDINAL FIXTURE IN THIS FILE, and its absence is why two defects shipped through it.
+// Until QA (2026-08-10) every instrument mounted here was `captureKind: 'numeric'`, so the ordinal branch
+// of this modal — the one the wooden stick and the finger actually take — was never rendered by a single
+// one of these 45 tests. Both of the defects QA found live on exactly that branch: the raw
+// `reading.honesty.wooden-stick` key path, and the `Reading ()` empty parenthetical below. A suite can only
+// fail on a code path it executes.
+const woodenStick = {
+  id: 'wooden-stick' as const, kind: 'moisture' as const, unit: 'level', scale: 'stick-clean-to-damp',
+  direction: 'higher-is-wetter' as const, comparableAcrossPots: false, requiresCalibration: false,
+  protocolKind: 'insertion' as const,
+  captureKind: 'ordinal' as const,
+  rawMin: 1, rawMax: 3, rawStep: 1, calibration: null,
+};
 
 const protocol = { potSizeCm: 20, insertionDepthCm: 7, distanceFromCentreCm: 3 };
 
@@ -838,5 +851,48 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
     expect(w.emitted('saved')).toBeUndefined();
     expect(w.find('[data-modal-stub]').exists()).toBe(true);
     expect(w.text()).toContain('reading.saveFailed');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The ordinal capture branch. See `woodenStick`'s own comment: before QA (2026-08-10) NOTHING in this file
+// mounted an ordinal instrument, so every assertion here covers a path that was previously untested.
+//
+// ⚠️ WHAT THIS BLOCK DELIBERATELY DOES NOT ASSERT: that `reading.honesty.wooden-stick` resolves to real
+// prose. It CANNOT — this file's `useI18n` stub echoes the key back, so a present translation and a missing
+// one are byte-identical here, and an assertion on the rendered sentence would pass whether or not the
+// string exists. That is exactly the shape of vacuous test this feature has already been bitten by twice.
+// The honest home for that guarantee is `i18n/instrument-keys.parity.test.ts`, which reads the locale JSON
+// itself and is driven by the shared contract's instrument list.
+// ---------------------------------------------------------------------------------------------------
+describe('an ordinal instrument', () => {
+  function valueGroupLabel(w: ReturnType<typeof mount>) {
+    // The reading field is the ONLY FormGroup whose label comes from the `reading.value*` family.
+    return w.findAllComponents({ name: 'FormGroup' })
+      .map((g) => String(g.props('label')))
+      .find((label) => label.startsWith('reading.value'));
+  }
+
+  it('labels the reading field with NO unit parenthetical', () => {
+    const w = mountModal(makeData({ instruments: [woodenStick] }), { mode: 'voluntary' });
+    // `reading.value` is `Reading ({unit})`; an ordinal instrument has no unit, so interpolating it
+    // rendered the literal `Reading ()` on screen (QA, 2026-08-10). The fix is a SECOND key rather than an
+    // empty interpolation — asserting the key identity is what makes that distinction observable, since
+    // the stub echoes `key|param` for an interpolated call and the bare key otherwise.
+    expect(valueGroupLabel(w)).toBe('reading.valueNoUnit');
+  });
+
+  it('a numeric instrument still labels the field WITH its unit', () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    // The `|` proves the interpolated form was chosen; the suffix proves the unit came from the shared
+    // instrument catalogue rather than a literal typed into this component.
+    expect(valueGroupLabel(w)).toBe('reading.value|settings.instruments.unit.galvanic-probe');
+  });
+
+  it('renders the named-state picker instead of a number input', () => {
+    const w = mountModal(makeData({ instruments: [woodenStick] }), { mode: 'voluntary' });
+    // A stick has no numeric readout. Being asked to type one would defeat the entire point of the
+    // hardware-free rung.
+    expect(w.find('input[type="number"]').exists()).toBe(false);
   });
 });

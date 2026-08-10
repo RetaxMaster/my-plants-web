@@ -170,20 +170,32 @@ const needsCalibration = computed(() =>
 // computed rather than calling `t('settings.instruments.unit...')` inline a second time, so the guard can
 // never be bypassed by one of the two forgetting it.
 //
-// ⚠️ THE GAP THIS PATCHES OVER IS LIVE IN PRODUCTION TODAY, not merely forward-looking — code review
-// (2026-08-09) found `pages/settings.vue` ALREADY iterating the full instrument catalogue the API returns
-// (`getOwnerInstruments`'s `available`) and resolving `settings.instruments.name.*`/`help.*` for every row,
-// including the wooden stick and the finger — so that page is rendering raw, untranslated key paths to the
-// owner RIGHT NOW, independent of anything in this file. `settings.instruments.unit.*` (and its `name.*`/
-// `help.*` siblings) still define ONLY `galvanic-probe`/`kitchen-scale`, because the Settings-page
-// instrument SELECTOR has never been updated for the two ordinal rows (this task only wires the reading
-// capture, not that catalogue page). This computed is a real, load-bearing patch for THIS modal's own two
-// call sites — it does nothing for `pages/settings.vue`'s pre-existing, already-shipped defect, which is
-// out of this task's scope and is being routed to the Settings-selector task next but one.
+// ⚠️ HISTORY, kept because it is the reason this guard exists rather than a stylistic preference. Code
+// review (2026-08-09) found `pages/settings.vue` iterating the full instrument catalogue the API returns
+// and resolving `settings.instruments.name.*`/`help.*` for EVERY row — so it rendered raw key paths for the
+// two ordinal instruments the catalogue did not yet cover. That page has since been fixed and all three
+// `settings.instruments.{name,unit,help}.*` families now define all four rows, so the sentence that used
+// to stand here ("they still define ONLY galvanic-probe/kitchen-scale") is no longer true and has been
+// removed rather than left to mislead the next reader.
+//
+// The class of defect, however, came back: QA (2026-08-10) found THIS file rendering
+// `reading.honesty.wooden-stick` raw, for exactly the same reason one directory over. The durable answer is
+// no longer a comment — it is `i18n/instrument-keys.parity.test.ts`, which walks the shared contract's
+// `INSTRUMENT_LIST` and fails when any id-derived key is missing from either locale. Read that file before
+// adding another `t(\`...${id}\`)` call site.
 const valueUnitLabel = computed(() =>
   instrument.value && instrument.value.captureKind !== 'ordinal'
     ? t(`settings.instruments.unit.${instrument.value.id}`)
     : '');
+
+// An ordinal instrument has no unit to print (a named state is not a quantity), and the unit-bearing label
+// is `Reading ({unit})` — so interpolating an empty string produced the literal `Reading ()` QA found on
+// screen for both the stick and the finger. Two labels, chosen by whether there is anything to put in the
+// parentheses, rather than one label with an empty parenthetical.
+const valueFieldLabel = computed(() =>
+  valueUnitLabel.value
+    ? t('reading.value', { unit: valueUnitLabel.value })
+    : t('reading.valueNoUnit'));
 
 // The date the browser must not let the owner exceed: a reading in the future is not a measurement. Uses
 // the app's single local-calendar-day helper (`~/utils/localDate`'s `todayYmd()`) — never a second,
@@ -524,7 +536,7 @@ const holdDateLabel = computed(() => {
         :unit-label="valueUnitLabel"
       />
 
-      <FormGroup :label="t('reading.value', { unit: valueUnitLabel })" :error="rawValueErrorMessage">
+      <FormGroup :label="valueFieldLabel" :error="rawValueErrorMessage">
         <!-- An ORDINAL instrument (the wooden stick, the finger) produces one of a few NAMED states, never
              a number — see OrdinalReadingPicker.vue's own header comment. The caller (here) is responsible
              for gating on `captureKind === 'ordinal'`; the picker throws legibly if that guard is skipped. -->

@@ -1373,6 +1373,7 @@
     "title": "Medir la tierra",
     "instrument": "Instrumento",
     "value": "Lectura ({unit})",
+    "valueNoUnit": "Lectura",
     "measuredOn": "Medido el",
     "save": "Guardar lectura",
     "saveFailed": "No pudimos guardar esa lectura. Inténtalo de nuevo.",
@@ -1386,7 +1387,9 @@
     "protocolWholePot": "Pesa la maceta COMPLETA, siempre de la misma forma: con o sin plato, sin agua estancada en la charola y déjala escurrir antes. Lo que importa es que nunca cambie el método — pesarla distinto inventa una tendencia que no existe.",
     "honesty": {
       "galvanic-probe": "Este medidor lee conductividad, no agua — así que compara esta maceta consigo misma, nunca con otra.",
-      "kitchen-scale": "El peso depende de la maceta — así que compara esta maceta consigo misma, nunca con otra."
+      "kitchen-scale": "El peso depende de la maceta — así que compara esta maceta consigo misma, nunca con otra.",
+      "wooden-stick": "Un palito distingue tres cosas, no treinta — así que júzgalo igual cada vez y deja que los días hagan el resto.",
+      "finger": "Tu dedo solo llega a los primeros centímetros, que son los que se secan antes — así que va a leer más seco de lo que está la maceta, y nosotros lo tomamos en cuenta."
     },
     "levels": {
       "wooden-stick": {

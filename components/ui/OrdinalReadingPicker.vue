@@ -14,6 +14,11 @@ import {
 } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
 import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
 
+// `instrumentId` is typed on the full four-member union (there is no narrower "ordinal-only" type in the
+// shared contract, and inventing one here would be a contract change this task does not own) — so the
+// CALLER is responsible for gating on `captureKind === 'ordinal'` before mounting this component at all
+// (`galvanic-probe`/`kitchen-scale` get the numeric `Input` field instead). The guard below turns a
+// misuse into a legible error rather than an opaque crash three files away.
 const props = defineProps<{ instrumentId: InstrumentId }>();
 // `null` is the "unanswered" sentinel — the same convention SoilReadingModal.vue's own fields (`rawValue`,
 // `wateringRelation`) already use for a question nothing has answered yet.
@@ -27,10 +32,24 @@ const row = computed(() => INSTRUMENTS[props.instrumentId]);
 // uses to cap an instrument's confidence (`resolutionStates`) — never a literal `3`. A future four-level
 // ordinal row needs no edit here: this list grows with the row it reads.
 const levels = computed<number[]>(() => {
+  // Guard FIRST, and name the misuse: `resolutionStates` would otherwise throw its own generic "no closed
+  // rawMax" error for `kitchen-scale` (open-ended grams), which says nothing about WHY an open-ended
+  // instrument ended up here. This control serves ordinal instruments ONLY — a numeric one (the probe, the
+  // scale) reaches `resolutionStates`' own throw path or, worse, silently misrenders, neither of which
+  // names the actual contract violation.
+  if (row.value.captureKind !== 'ordinal') {
+    throw new Error(
+      `OrdinalReadingPicker only serves ordinal instruments (captureKind: 'ordinal'); received ` +
+      `"${props.instrumentId}", whose captureKind is "${row.value.captureKind}". The caller must gate on ` +
+      `captureKind === 'ordinal' before mounting this component.`,
+    );
+  }
   const count = resolutionStates(row.value);
   // Every ordinal row declares a CLOSED `rawMax` today (it reports a finite set of named states, never an
   // open-ended one) — `resolutionStates` returns `null` only for an open-ended scale. Throwing here rather
-  // than silently rendering zero options keeps a malformed/mis-tagged row from failing invisibly.
+  // than silently rendering zero options keeps a malformed/mis-tagged row from failing invisibly. Reachable
+  // only if a FUTURE ordinal row is declared with `rawMax: null`, since the captureKind guard above already
+  // excludes every numeric row (including today's one open-ended row, the kitchen scale).
   if (count === null) {
     throw new Error(`ordinal instrument "${props.instrumentId}" has no closed rawMax; cannot derive levels`);
   }

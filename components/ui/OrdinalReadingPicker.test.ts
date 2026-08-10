@@ -57,4 +57,15 @@ describe('OrdinalReadingPicker', () => {
     expect(stickLevel1).toBe('reading.levels.wooden-stick.1');
     expect(fingerLevel1).toBe('reading.levels.finger.1');
   });
+
+  // Code-review finding (round on 25f3a7e): `instrumentId` is typed on the FULL four-member `InstrumentId`
+  // union (there is no narrower "ordinal-only" type in the shared contract), so nothing at the type level
+  // stops a caller from passing a numeric instrument. The next task wires this control into
+  // SoilReadingModal.vue, so an opaque throw reached only via `resolutionStates`' own generic message (or,
+  // worse, a silent misrender) is a trap laid directly in that integration's path. The guard must name BOTH
+  // halves of the contract violation: what this control serves, and what it was actually given.
+  it('fails legibly — naming the contract violation — when given a NUMERIC instrument (fix wave 2)', () => {
+    expect(() => mount(OrdinalReadingPicker, { props: { instrumentId: 'kitchen-scale', modelValue: null } }))
+      .toThrow(/ordinal instruments.*kitchen-scale/s);
+  });
 });

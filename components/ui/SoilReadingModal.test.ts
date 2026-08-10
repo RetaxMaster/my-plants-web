@@ -591,9 +591,46 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(w.findAll('input[type="date"]')).toHaveLength(0);
   });
 
-  it('never renders the watering-relation control, even on a watering day — impossible by construction', () => {
+  // ⚠️ REWRITTEN 2026-08-10 (QA defect 3). This case used to assert the OPPOSITE — "never renders the
+  // watering-relation control, even on a watering day — impossible by construction" — and it was not a
+  // weak test: it faithfully pinned what the code did. The code was wrong. A survey's order is fixed only
+  // relative to the watering it CREATES; a plant watered that morning and measured that evening breaks the
+  // premise, and the API rightly refused the write with a 400 the survey had no control to answer.
+  // Kept as a REWRITE rather than a deletion precisely because the behaviour it names is now inverted:
+  // deleting it would erase the record that this was once believed impossible.
+  it('DOES render the watering-relation control in survey mode on a day the plant was already watered', () => {
     const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    expect(wateringRelationSeg(w)).toBeDefined();
+  });
+
+  it('does not render it on an ordinary day — the question would be noise on almost every reading', () => {
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
     expect(wateringRelationSeg(w)).toBeUndefined();
+  });
+
+  it('the primary button stays disabled until the same-day question is answered', async () => {
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(5);
+    // A value alone is no longer enough: an unanswered, un-defaulted question must block the submit, the
+    // same rule voluntary mode has carried since the owner ruled on it (2026-08-08).
+    expect(findCalculateButton(w).attributes('disabled')).toBeDefined();
+
+    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click');
+    expect(findCalculateButton(w).attributes('disabled')).toBeUndefined();
+  });
+
+  it('sends the answer with a HOLD write', async () => {
+    previewSoilReading.mockResolvedValueOnce({
+      measuredOn: PLANT_TODAY, wetness: 0.9, target: 0.4, recommendation: 'HOLD',
+      suggestedPostponeToOn: '2026-08-21', basis: 'MEASURED_SLOPE', unavailableReason: null,
+    });
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(9);
+    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click');
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+
+    expect(recordSoilReading.mock.calls[0]![1].wateringRelation).toBe('AFTER');
   });
 
   it('has no verdict picker and no postpone-date field', () => {
@@ -983,5 +1020,67 @@ describe('the WATER_NOW verdict is actionable', () => {
 
     expect(verdictButton(w, 'common.done')).toBeUndefined();
     expect(verdictButton(w, 'common.postpone')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// QA defect 3, the recovery half. A survey on a plant watered EARLIER today used to show a generic
+// "please try again" for a request that could never succeed: the 400-recovery branch that reveals the
+// question was itself gated to voluntary mode, so the mode that most needed it was the one walled off
+// from it. Two of four fixture plants were unusable for a whole day.
+// ---------------------------------------------------------------------------------------------------
+describe('a survey refused for a missing wateringRelation recovers instead of dead-ending', () => {
+  afterEach(() => {
+    previewSoilReading.mockClear();
+    recordSoilReading.mockClear();
+  });
+
+  const HOLD_PREVIEW = {
+    measuredOn: PLANT_TODAY, wetness: 0.9, target: 0.4, recommendation: 'HOLD' as const,
+    suggestedPostponeToOn: '2026-08-21', basis: 'MEASURED_SLOPE' as const, unavailableReason: null,
+  };
+
+  async function surveyRefusedOnce() {
+    // TWICE: the retry re-runs the preview, and this file's default preview mock answers WATER_NOW — the
+    // one verdict that legitimately does NOT send `wateringRelation`. Queueing only one HOLD made the
+    // retry assertion fail for a harness reason that looks exactly like the defect under test.
+    previewSoilReading.mockResolvedValueOnce(HOLD_PREVIEW).mockResolvedValueOnce(HOLD_PREVIEW);
+    recordSoilReading.mockRejectedValueOnce({
+      statusCode: 400,
+      data: { message: 'wateringRelation is required: this plant was already watered on measuredOn' },
+    });
+    // `wateringDays` EMPTY on purpose: this is the case the snapshot cannot predict — in survey mode the
+    // plant's local day may not be the browser's, so the day the API judged is not the day this list was
+    // checked against. The server is the only one who knows, and its refusal is the signal.
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    await w.find('input[type="number"]').setValue(9);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+    return w;
+  }
+
+  it('reveals the question rather than showing the generic failure', async () => {
+    const w = await surveyRefusedOnce();
+    expect(w.text()).toContain('reading.wateringRelationRequired');
+    expect(w.text()).not.toContain('reading.saveFailed');
+    expect(wateringRelationSeg(w)).toBeDefined();
+  });
+
+  it('stays on the measure step so the retry is a real retry', async () => {
+    const w = await surveyRefusedOnce();
+    // The verdict step would strand the owner: nothing there can answer the question the server asked.
+    expect(w.find('input[type="number"]').exists()).toBe(true);
+    expect(w.emitted('saved')).toBeUndefined();
+  });
+
+  it('the answered retry carries the relation and succeeds', async () => {
+    const w = await surveyRefusedOnce();
+    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click');
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+
+    const lastBody = recordSoilReading.mock.calls.at(-1)![1];
+    expect(lastBody.wateringRelation).toBe('AFTER');
+    expect(w.emitted('saved')).toHaveLength(1);
   });
 });

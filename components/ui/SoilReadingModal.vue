@@ -100,7 +100,9 @@ const previewResult = ref<SoilReadingPreview | null>(null);
 // changed after the fields it came from stopped being rendered — those refs are frozen in practice once
 // `step` leaves `measure` (nothing re-renders them), but this keeps the save from depending on that being
 // true forever.
-const pendingUnavailableReading = ref<{ instrumentId: InstrumentId; rawValue: number; measuredOn: string } | null>(null);
+const pendingUnavailableReading = ref<{
+  instrumentId: InstrumentId; rawValue: number; measuredOn: string; wateringRelation?: WateringRelation;
+} | null>(null);
 
 // Bridge between Input.vue's `v-model` (`string | number`) and `rawValue`'s `number | null` — same pattern
 // (and same shared util) as PlaceEditModal.vue's temperature fields. Numeric instruments only — an ordinal
@@ -233,13 +235,31 @@ watch(measuredOn, () => {
   serverSaysWateringDay.value = false;
 });
 
-// Single source of truth for "ask the same-day-watering question at all" — and, since the 2026-08-09
-// redesign, for "is this question even POSSIBLE": survey mode's own order is fixed by construction (measure
-// → verdict → water → done), so the reading is always BEFORE that day's watering and there is nothing left
-// to ask (see the file-header comment). Voluntary mode keeps the original owner-ruled gate: a watering day,
-// full stop — there is no verdict-driven exception left to layer on top of it, because voluntary mode never
-// reaches a verdict at all.
-const showWateringRelation = computed(() => props.mode === 'voluntary' && isWateringDay.value);
+// Single source of truth for "ask the same-day-watering question at all".
+//
+// ⚠️ CORRECTED 2026-08-10 (QA defect 3). This used to read `props.mode === 'voluntary' && isWateringDay`,
+// justified by: "survey mode's own order is fixed by construction (measure → verdict → water → done), so
+// the reading is always BEFORE that day's watering and there is nothing left to ask."
+//
+// THAT PREMISE IS TRUE ONLY OF THE WATERING THIS FLOW CREATES. It is false of a watering that already
+// happened earlier the same day — water in the morning, measure in the evening, which is not an edge case
+// but the ordinary rhythm of caring for a plant. On such a plant the preview succeeded and the write was
+// refused `400` ("wateringRelation is required"), the owner saw a generic "please try again", and retrying
+// could never succeed because the question had no control to answer it through. Two of the four QA fixture
+// plants were unusable for the whole day.
+//
+// The question is asked on the MEASURE step, before any verdict exists — deliberately, because it must be
+// answerable before the owner presses the primary button rather than revealed afterwards by a failure. So
+// this gate is `isWateringDay` in both modes and nothing else.
+//
+// The `WATER_NOW` exemption is real but belongs to the API, not here: that verdict creates the watering in
+// its own transaction, so its reading definitionally precedes it, and the server derives `BEFORE` by
+// construction while ignoring whatever a caller sends (docs/care-engine.md §7.20.4). The client honours it
+// by not SENDING the field on that branch — see `submit()`. It is deliberately NOT expressed as a condition
+// here: a `previewResult`-based term would be inert (the control only renders while the verdict is still
+// unknown) and worse than inert, since the one moment it could ever evaluate true is a failed write, where
+// hiding the control is exactly the dead end this fix removes.
+const showWateringRelation = computed(() => isWateringDay.value);
 
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
 // shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
@@ -337,6 +357,12 @@ async function submit() {
           measuredOn: verdictMeasuredOn,
           verdict: 'POSTPONE',
           ...(preview.suggestedPostponeToOn ? { postponeToOn: preview.suggestedPostponeToOn } : {}),
+          // QA defect 3 — a plant watered EARLIER today is refused without this, and survey mode had no
+          // way to supply it. `showWateringRelation` gates the control and `canSubmit` gates the button,
+          // so reaching here with the control shown means the owner answered it.
+          ...(showWateringRelation.value
+            ? { wateringRelation: wateringRelation.value as WateringRelation }
+            : {}),
         }, idempotencyKey.value);
         emit('saved');
       } else if (preview.recommendation === 'UNAVAILABLE') {
@@ -348,6 +374,12 @@ async function submit() {
         // it fires ONLY if the owner presses "Guardar lectura" on the verdict step.
         pendingUnavailableReading.value = {
           instrumentId: chosenInstrumentId, rawValue: chosenRawValue, measuredOn: verdictMeasuredOn,
+          // Captured WITH the rest of the pending reading rather than read off the ref at save time: the
+          // owner may tap "Guardar lectura" much later, and the answer must describe the day this reading
+          // was taken on, not whatever the control happens to hold by then (QA defect 3).
+          ...(showWateringRelation.value
+            ? { wateringRelation: wateringRelation.value as WateringRelation }
+            : {}),
         };
       } else if (preview.recommendation === 'WATER_NOW') {
         // Owner ruling (2026-08-09, measured-verdict-gap redesign): WATER_NOW now WRITES the reading, with
@@ -402,18 +434,25 @@ async function submit() {
       open.value = false;
       emit('saved');
     } else if (
-      props.mode === 'voluntary' && status === 400 &&
+      status === 400 &&
       String(e?.data?.message ?? e?.message ?? '').includes('wateringRelation')
     ) {
-      // DEFENCE IN DEPTH for the same-day question — VOLUNTARY MODE ONLY, since survey mode never sends
-      // `wateringRelation` at all (it is impossible by construction there, not merely unanswered) and has
-      // no control left to reveal. `wateringDays` is a SNAPSHOT, so it can be behind the server in two real
-      // ways: the owner watered from this same page after it loaded (PlantDetail.vue's `sendDone` now
-      // refreshes it, which is the primary fix), or the reading is back-dated to a watering day older than
-      // the window that list covers. In both cases the server knows the day carries a watering and refuses
-      // honestly — so REVEAL THE QUESTION rather than showing a generic "save failed" the owner can only
-      // clear by reloading. The question is still ASKED, never inferred: we surface it, the owner answers
-      // it, and the retry carries a real answer.
+      // DEFENCE IN DEPTH for the same-day question — IN BOTH MODES since 2026-08-10 (QA defect 3). It used
+      // to be voluntary-only, on the reasoning that survey mode "never sends `wateringRelation` at all —
+      // impossible by construction". That reasoning has been corrected where it originates, at
+      // `showWateringRelation`; the short version is that a survey's order is fixed only relative to the
+      // watering IT creates, not to one that already happened that morning. With the gate voluntary-only,
+      // a survey on such a plant showed a generic "please try again" for a request that could NEVER
+      // succeed — the recovery this branch exists to provide was the one thing walled off from the mode
+      // that needed it most.
+      //
+      // `wateringDays` is a SNAPSHOT and can be behind the server in three real ways: the owner watered
+      // from this same page after it loaded (PlantDetail.vue's `sendDone` refreshes it, the primary fix),
+      // the reading is back-dated past the window that list covers, or — survey mode only — the plant's
+      // local day is not the browser's, so the day the API judged is not the day this list was checked
+      // against. In every case the server knows and refuses honestly, so REVEAL THE QUESTION rather than a
+      // dead end. The question is still ASKED, never inferred: we surface it, the owner answers, the retry
+      // carries a real answer.
       serverSaysWateringDay.value = true;
       error.value = t('reading.wateringRelationRequired');
     } else {
@@ -461,6 +500,9 @@ async function saveUnavailableReading() {
       rawValue: pending.rawValue,
       measuredOn: pending.measuredOn,
       verdict: 'NONE',
+      // Carried from the moment the reading was taken, not re-read now (QA defect 3 — see where this
+      // pending record is built). Absent unless the day genuinely carried a watering.
+      ...(pending.wateringRelation ? { wateringRelation: pending.wateringRelation } : {}),
     }, idempotencyKey.value);
     pendingUnavailableReading.value = null;
     open.value = false;

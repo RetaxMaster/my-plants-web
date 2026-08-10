@@ -8,6 +8,7 @@ import type { Airflow } from '@retaxmaster/my-plants-species-schema/place-consta
 import { PHOTO_STATUSES, PHOTO_FAILURE_KINDS, PHOTO_FAILURE_CODES } from '@retaxmaster/my-plants-species-schema/photo-contract-constants';
 import type { ProgressTagKey } from '@retaxmaster/my-plants-species-schema/progress-tag-constants';
 import type { InstrumentId, InstrumentRow } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
+import { RECOMMENDATIONS, HOLD_BASES, UNAVAILABLE_REASONS } from '@retaxmaster/my-plants-species-schema/watering-verdict-constants';
 // `RepotEvidenceClass` is the SHARED contract's own union (`REPOT_EVIDENCE_CLASSES`), imported for the same
 // reason `RepotEvaluationSubmit` is: a locally re-typed copy is a fork, and the class list is exactly the
 // kind of thing that would silently drift the day a fifth class is added.
@@ -899,23 +900,28 @@ export interface CreateSoilReading {
   wateringRelation?: WateringRelation;
 }
 
+// `Recommendation`/`HoldBasis`/`UnavailableReason` are DERIVED from the shared contract's own
+// `watering-verdict-constants.ts` arrays (imported above), never retyped: those are closed literal
+// unions the API's watering-verdict engine COMPUTES and the web only reads — the same shape
+// `photo-contract-constants.ts`'s `PHOTO_STATUSES` already solved for the photo pipeline's
+// server-computed state machine (see `PhotoStatus` below), so a future rename or a fourth `basis` value
+// can no longer silently diverge between the API and the web. Mechanical parity is asserted by
+// `types/watering-verdict-contract.parity.test.ts`, the sibling of `photo-contract.parity.test.ts`.
+export type Recommendation = (typeof RECOMMENDATIONS)[number];
+export type HoldBasis = (typeof HOLD_BASES)[number];
+export type UnavailableReason = (typeof UNAVAILABLE_REASONS)[number];
+
 /** The read-only answer to "water this pot today, or hold?" (`POST /plants/:id/soil-readings/preview`,
- *  §8 of the 2026-08-09 redesign). Nothing is written to produce this. `recommendation`/`basis`/
- *  `unavailableReason` mirror the API's own `Recommendation`/`HoldBasis`/`UnavailableReason` unions
- *  (`repos/my-plants-api/src/engines/watering-verdict.ts` + `soil-readings.service.ts`) — those are NOT
- *  exported from the shared `@retaxmaster/my-plants-species-schema` contract (only `ReadingVerdict`,
- *  `WateringRelation` and `InstrumentCalibration` live there, and they answer a different question: the
- *  owner's post-reading decision, not this engine's verdict), so there is nothing to import and this is
- *  the single place the shape is declared for the web. */
+ *  §8 of the 2026-08-09 redesign). Nothing is written to produce this. */
 export interface SoilReadingPreview {
   /** The normalised fraction (`normaliseReading`), or null when no honest fraction exists. */
   wetness: number | null;
   /** The species' own trigger (`targetWetnessFor`). Always present — it needs no reading to compute. */
   target: number;
-  recommendation: 'WATER_NOW' | 'HOLD' | 'UNAVAILABLE';
+  recommendation: Recommendation;
   suggestedPostponeToOn: string | null;
-  basis: 'MEASURED_SLOPE' | 'SHORT_RECHECK' | null;
-  unavailableReason: 'NEEDS_CALIBRATION' | 'NOT_MEASURABLE' | null;
+  basis: HoldBasis | null;
+  unavailableReason: UnavailableReason | null;
 }
 
 /** The care payload's read-time measurement block. Null for a frozen plant. */

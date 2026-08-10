@@ -14,6 +14,8 @@ import type { PlantSoilReadings } from '~/types/api';
 // rendered through the local clock, so west of Greenwich every date in this list would read one day early.
 // `utils/localDate.ts`'s header documents that exact trap; this is the helper that avoids it.
 import { ymdToLocalDate } from '~/utils/localDate';
+import { INSTRUMENTS } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
+import type { InstrumentRow } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
 
 const props = defineProps<{ data: PlantSoilReadings }>();
 
@@ -22,14 +24,23 @@ const { t, d } = useI18n();
 const rows = computed(() => props.data.readings);
 
 /**
- * The instrument row a reading was taken with — looked up in the OWNER'S CURRENT SELECTION, which can no
- * longer contain it: deselecting an instrument in /settings does not retract the readings already taken
- * with it (the API is explicit that the selection is an ORDERING, never a filter). So this returns
- * `undefined` for a historical reading whose instrument the owner has since dropped, and every consumer
- * below degrades honestly rather than assuming the row is there.
+ * The instrument row a reading was taken with — resolved from the SHARED CONTRACT'S CATALOGUE, keyed by the
+ * id stored on the reading itself.
+ *
+ * ⚠️ IT USED TO READ `props.data.instruments`, THE OWNER'S CURRENT SELECTION, AND THAT WAS A REGRESSION OF
+ * THIS COMPONENT'S OWN RULE (QA, 2026-08-10). Deselecting an instrument in /settings does not retract the
+ * readings taken with it — the selection is an ORDERING, never a filter — so the row simply vanished from
+ * that array, `captureKind` came back `undefined`, and every past stick or finger reading fell through to
+ * the bare-value branch and rendered as `2` or `3`: precisely the raw ordinal number the paragraph below
+ * exists to forbid. One toggle in Settings was enough to reach it.
+ *
+ * The lesson is narrower than "look somewhere else": the CATALOGUE (what instruments exist, and what shape
+ * each one reports) and the SELECTION (which ones this owner measures with) are two different facts, and
+ * only the first can answer "how should this reading be displayed". A reading is a historical statement;
+ * what the owner ticked afterwards cannot change what it was.
  */
 function instrumentFor(id: string) {
-  return props.data.instruments.find((row) => row.id === id);
+  return (INSTRUMENTS as Record<string, InstrumentRow | undefined>)[id];
 }
 
 function instrumentName(id: string): string {
@@ -44,9 +55,13 @@ function instrumentName(id: string): string {
  * the owner never chose a number, and handing one back invites them to reason about a scale we deliberately
  * refused to publish.
  *
- * A numeric instrument shows its value with its unit. An instrument no longer in the selection has no row
- * to tell us which it was, so it falls back to the bare stored value — the honest floor, since inventing a
- * label for an unknown scale would be worse than showing the number as recorded.
+ * A numeric instrument shows its value with its unit.
+ *
+ * The bare-value fallback survives, but it now means what it always claimed to: an id THE CONTRACT DOES NOT
+ * KNOW — a row retired from the catalogue in some future release, leaving readings behind. That is the only
+ * case where no honest label exists, and showing the number as recorded beats inventing one for a scale
+ * nobody can describe. It is emphatically NOT the case of an instrument the owner merely un-ticked, which
+ * is what this fallback used to swallow.
  */
 function readingLabel(instrumentId: string, rawValue: number): string {
   const row = instrumentFor(instrumentId);

@@ -1375,6 +1375,7 @@
     "value": "Reading ({unit})",
     "valueNoUnit": "Reading",
     "measuredOn": "Measured on",
+    "measuredOnFuture": "That day hasn't happened yet — pick today or earlier.",
     "save": "Save reading",
     "saveFailed": "We couldn't save that reading. Please try again.",
     "alreadyRecorded": "This reading was already recorded.",

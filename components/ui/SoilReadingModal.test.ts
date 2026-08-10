@@ -1216,3 +1216,95 @@ describe('the measured-on date is stated unambiguously', () => {
     expect(dateGroupHint(w)).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// The second QA round (2026-08-10). Both of these are "the app silently accepts something the owner never
+// meant", and neither could be caught by anything downstream: every value involved is legal on the scale
+// it lands on, so range, step and the server all pass it.
+// ---------------------------------------------------------------------------------------------------
+describe('switching instruments does not carry the reading across scales', () => {
+  const twoInstruments = () => makeData({ instruments: [woodenStick, galvanicProbe] as never });
+
+  function pickInstrument(w: ReturnType<typeof mount>, index: number) {
+    return instrumentSegButtons(w)[index]!.trigger('click');
+  }
+
+  it('clears an ordinal level when moving to a numeric instrument', async () => {
+    const w = mountModal(twoInstruments(), { mode: 'voluntary' });
+    // The stick's third state stores `3`. On the probe that is a legal 1..10 conductance reading, so
+    // nothing downstream can tell it was carried rather than measured.
+    await w.findAll('.mp-seg')[1]!.findAll('button')[2]!.trigger('click');
+    await pickInstrument(w, 1);
+
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+  });
+
+  it('clears a numeric value when moving to another instrument', async () => {
+    const w = mountModal(twoInstruments(), { mode: 'voluntary' });
+    await pickInstrument(w, 1);
+    await w.find('input[type="number"]').setValue(5);
+    await pickInstrument(w, 0);
+    await pickInstrument(w, 1);
+
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
+  });
+
+  it('clears calibration anchors too — they describe one instrument on one pot', async () => {
+    const w = mountModal(
+      makeData({ instruments: [kitchenScaleNoCalibration, galvanicProbe] as never }),
+      { mode: 'voluntary' },
+    );
+    const anchors = w.findAll('input[type="number"]');
+    await anchors[0]!.setValue(1850);
+    await anchors[1]!.setValue(1200);
+    await pickInstrument(w, 1);
+    await pickInstrument(w, 0);
+
+    const after = w.findAll('input[type="number"]');
+    expect((after[0]!.element as HTMLInputElement).value).toBe('');
+    expect((after[1]!.element as HTMLInputElement).value).toBe('');
+  });
+});
+
+describe('a measurement cannot be dated in the future', () => {
+  function tomorrow() {
+    const t = new Date();
+    t.setDate(t.getDate() + 15);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }
+  function blockedText(w: ReturnType<typeof mount>) {
+    return w.find('.mp-reading__blocked').exists() ? w.find('.mp-reading__blocked').text() : undefined;
+  }
+
+  it('blocks the save and says why — the `max` attribute does not stop a TYPED date', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5);
+    await w.find('input[type="date"]').setValue(tomorrow());
+
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    expect(blockedText(w)).toBe('reading.measuredOnFuture');
+  });
+
+  it('reports the date before the value — a date you must fix anyway makes the rest noise', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="date"]').setValue(tomorrow());
+    expect(blockedText(w)).toBe('reading.measuredOnFuture');
+  });
+
+  it('a SERVER refusal about measuredOn says what it is about, not "try again"', async () => {
+    // Still reachable with the field guarded: the client compares against the BROWSER's today, the server
+    // against the PLANT's, and across the midnight gap those are different days.
+    recordSoilReading.mockRejectedValueOnce({
+      statusCode: 400,
+      data: { message: 'measuredOn must be today or earlier for this plant (its local today is 2026-08-10)' },
+    });
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    expect(w.text()).toContain('reading.measuredOnFuture');
+    expect(w.text()).not.toContain('reading.saveFailed');
+  });
+});

@@ -66,13 +66,35 @@ describe('SoilReadingList', () => {
     expect(w.find('.mp-readinglist__value').text()).toBe('7 settings.instruments.unit.galvanic-probe');
   });
 
-  it('falls back to the bare value for an instrument the owner has since DESELECTED', () => {
-    // Deselecting does not retract past readings — the API treats the selection as an ordering, never a
-    // filter — so this row's instrument is genuinely absent from `instruments`. Inventing a label for an
-    // unknown scale would be worse than showing the number as recorded.
+  // ⚠️ REWRITTEN 2026-08-10 (QA regression). The previous version asserted the bare value `7` here and
+  // PASSED, because it used a NUMERIC instrument — for which "value with no unit" is a defensible floor.
+  // The same fallback applied to an ORDINAL instrument rendered `3`, the raw level, which is exactly what
+  // the case above forbids. The test covered the combination that looked fine and never the one that broke.
+  it('still names the state for an instrument the owner has since DESELECTED', () => {
+    // Deselecting changes what the owner measures with from now on; it does not rewrite what they measured
+    // before. The label comes from the CONTRACT's catalogue, keyed by the reading's own instrument id, so
+    // the owner's current ticks cannot reach it.
+    const w = mountList(makeData({
+      instruments: [] as never,
+      readings: [reading({ instrumentId: 'wooden-stick', rawValue: 3 })] as never,
+    }));
+    expect(w.find('.mp-readinglist__value').text()).toBe('reading.levels.wooden-stick.3');
+  });
+
+  it('still shows the unit for a DESELECTED numeric instrument', () => {
     const w = mountList(makeData({
       instruments: [] as never,
       readings: [reading({ instrumentId: 'galvanic-probe', rawValue: 7 })] as never,
+    }));
+    expect(w.find('.mp-readinglist__value').text()).toBe('7 settings.instruments.unit.galvanic-probe');
+  });
+
+  it('falls back to the bare value ONLY for an id the contract does not know', () => {
+    // The genuine no-honest-label case: a row retired from the catalogue in some future release, leaving
+    // readings behind. This is what the fallback always claimed to be for.
+    const w = mountList(makeData({
+      instruments: [] as never,
+      readings: [reading({ instrumentId: 'tensiometer', rawValue: 7 })] as never,
     }));
     expect(w.find('.mp-readinglist__value').text()).toBe('7');
   });

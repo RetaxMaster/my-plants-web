@@ -1375,6 +1375,7 @@
     "value": "Lectura ({unit})",
     "valueNoUnit": "Lectura",
     "measuredOn": "Medido el",
+    "measuredOnFuture": "Ese día todavía no ocurre — elige hoy o antes.",
     "save": "Guardar lectura",
     "saveFailed": "No pudimos guardar esa lectura. Inténtalo de nuevo.",
     "alreadyRecorded": "Esa lectura ya había quedado registrada.",

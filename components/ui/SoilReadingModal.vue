@@ -155,6 +155,28 @@ watch(open, (isOpen) => {
   }
 });
 
+/**
+ * SWITCHING INSTRUMENTS CLEARS THE READING (QA 2026-08-10, defect 2).
+ *
+ * `rawValue` is a number on whatever scale the CURRENT instrument declares, and those scales share nothing.
+ * Picking "damp soil sticks to it" on the wooden stick stores `3`; switching to the moisture probe left
+ * that `3` sitting in the number field as a 1..10 conductance reading — a measurement the owner never took,
+ * on an instrument they never used, and it saved without a murmur. The reverse was as bad: `5` on the probe
+ * became `5 g` on the kitchen scale.
+ *
+ * Nothing else in the modal can catch this. Every value involved is legal on the scale it lands on, so the
+ * range check passes, the step check passes, and the server has no way to know the number was carried
+ * rather than read. The only moment the mistake is visible is the switch itself.
+ *
+ * The calibration anchors go too: they are per (pot, instrument), so anchors typed for one instrument
+ * describe nothing on another.
+ */
+watch(instrumentId, () => {
+  rawValue.value = null;
+  calibration.saturatedValue = null;
+  calibration.dryValue = null;
+});
+
 const options = computed(() =>
   props.data.instruments.map((i) => ({ key: i.id, label: t(`settings.instruments.name.${i.id}`) })));
 const instrument = computed(() =>
@@ -322,6 +344,8 @@ const rawValueErrorMessage = computed(() => {
  */
 const blockedReason = computed(() => {
   if (submitting.value || instrumentId.value === '') return undefined;
+  // Ahead of the value: a date the owner has to correct anyway makes every other complaint noise.
+  if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
   if (rawValue.value == null) return t('reading.missingValue');
   if (rawValueOutOfRange.value || rawValueOffStep.value) return undefined;
   if (needsCalibration.value &&
@@ -337,7 +361,7 @@ const blockedReason = computed(() => {
 
 const canSubmit = computed(() =>
   instrumentId.value !== '' && rawValue.value != null && !submitting.value &&
-  !rawValueOutOfRange.value && !rawValueOffStep.value &&
+  !rawValueOutOfRange.value && !rawValueOffStep.value && !measuredOnInFuture.value &&
   // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — since
   // 2026-08-10 that means ANY watering day, in either mode (see `showWateringRelation`).
   (!showWateringRelation.value || wateringRelation.value !== '') &&
@@ -357,6 +381,24 @@ const primaryLabel = computed(() => (props.mode === 'survey' ? t('reading.calcul
 // clarification itself the lie.
 const measuredOnHint = computed(() =>
   (measuredOn.value ? d(ymdToLocalDate(measuredOn.value), 'short') : undefined));
+
+/**
+ * A MEASUREMENT CANNOT BE DATED IN THE FUTURE (QA 2026-08-10, defect 3).
+ *
+ * The field already carries `max="<today>"`, and that attribute stops the picker's arrows and nothing else:
+ * a typed `08/25/2026` sails straight through. The server refuses it correctly and precisely — *"measuredOn
+ * must be today or earlier for this plant (its local today is …, you sent …)"* — but the modal rendered its
+ * catch-all "we couldn't save that reading, please try again", which is advice that can never work: the same
+ * request will be refused forever. That is the identical dead end the survey had on a plant watered today,
+ * reached through a different door.
+ *
+ * Guarded here so the owner never gets that far, AND surfaced honestly in the catch below if a request
+ * still manages to be refused for this reason — the two are not redundant. This one compares against the
+ * BROWSER's today, which is all a client can know; the server compares against the PLANT's, and across the
+ * midnight gap those differ, so the server's refusal remains reachable and must stay legible.
+ */
+const measuredOnInFuture = computed(() =>
+  props.mode === 'voluntary' && !!measuredOn.value && measuredOn.value > todayYmd());
 
 async function submit() {
   if (!canSubmit.value || instrumentId.value === '' || rawValue.value == null) return;
@@ -506,6 +548,15 @@ async function submit() {
       // carries a real answer.
       serverSaysWateringDay.value = true;
       error.value = t('reading.wateringRelationRequired');
+    } else if (
+      status === 400 &&
+      String(e?.data?.message ?? e?.message ?? '').includes('measuredOn')
+    ) {
+      // The server judges "future" against the PLANT's local day; the client guard above judges against the
+      // browser's. Across the midnight gap those disagree, so this refusal stays reachable even with the
+      // field guarded — and it must say what it is about. Falling through to the generic branch printed
+      // "please try again" for a request the server will refuse identically forever (QA defect 3).
+      error.value = t('reading.measuredOnFuture');
     } else {
       // Covers every OTHER failure too, including a rejected `previewSoilReading` call and a rejected
       // survey-branch `recordSoilReading` — in every case `step` is still `measure` (it only ever advances
@@ -687,7 +738,12 @@ const holdDateLabel = computed(() => {
            owner reading the interface in Spanish saw `08/10/2026` and could reasonably parse it as
            8 October. The native control cannot be steered, so the resolved date is stated beside it in the
            app's own locale — the unambiguous reading, next to the ambiguous one. -->
-      <FormGroup v-if="mode === 'voluntary'" :label="t('reading.measuredOn')" :hint="measuredOnHint">
+      <FormGroup
+        v-if="mode === 'voluntary'"
+        :label="t('reading.measuredOn')"
+        :hint="measuredOnHint"
+        :error="measuredOnInFuture ? t('reading.measuredOnFuture') : undefined"
+      >
         <Input v-model="measuredOn" type="date" :max="todayYmd()" />
       </FormGroup>
 

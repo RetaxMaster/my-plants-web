@@ -438,3 +438,61 @@ describe('UiTaskRow — the measure affordance on WATER (measured:22)', () => {
     expect(w.emitted('measure')).toHaveLength(1);
   });
 });
+
+// The survey shape itself — `showEvaluate` (the questionnaire button), `verdictWithholdsDone` (Done AND
+// Postpone withheld until a verdict exists) — was gated to REPOT by a CONDITION, not by structure. This
+// generalises the gate via `canSurvey`, so a WATER row can offer the same "question first" shape once the
+// owner has a way to answer it. It does NOT build the watering survey itself — that is a later task.
+//
+// THE LOAD-BEARING CONSTRAINT: REPOT can always be surveyed (its signs are visual, free, answerable by
+// looking at the pot). WATER cannot — its survey needs a soil reading, which needs an instrument the owner
+// may not have selected. Withholding Done from an owner who declined to buy a moisture meter would lock him
+// out of his own app over a feature he chose not to use, so `canSurvey: false` (the default) must leave the
+// row byte-identical to what it has always been.
+describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
+  it('a WATER row that CAN be surveyed offers the survey and withholds Done and Postpone', () => {
+    const w = mountRow({ task: 'WATER', status: 'today', canSurvey: true });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass'); // the survey affordance
+    expect(icons).not.toContain('check'); // Done withheld
+    expect(icons).not.toContain('clock'); // Postpone withheld
+  });
+
+  // THE LOAD-BEARING CASE. An owner with no instrument must not be locked out of his own app.
+  it('a WATER row with NO way to measure behaves exactly as it does today', () => {
+    const explicit = mountRow({ task: 'WATER', status: 'today', canSurvey: false });
+    const omitted = mountRow({ task: 'WATER', status: 'today' }); // canSurvey omitted — default false
+    for (const w of [explicit, omitted]) {
+      const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+      expect(icons).not.toContain('magnifying-glass'); // no survey affordance
+      expect(icons).toContain('check'); // Done, exactly as before
+      expect(icons).toContain('clock'); // Postpone, exactly as before
+    }
+  });
+
+  it('allowStandaloneDone re-opens Done and NEVER Postpone, exactly as it does for REPOT', () => {
+    const w = mountRow({ task: 'WATER', status: 'today', canSurvey: true, allowStandaloneDone: true });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass'); // the survey is still on offer
+    expect(icons).toContain('check'); // Done re-opened
+    expect(icons).not.toContain('clock'); // Postpone stays withheld — never unlocked by allowStandaloneDone
+  });
+
+  it('every REPOT case is unchanged', () => {
+    // `canSurvey` is inert on REPOT — its own state machine is entirely `pendingVerdict`-driven and does not
+    // consult this prop at all, whatever value a caller happens to pass.
+    const noVerdict = mountRow({ pendingVerdict: null, canSurvey: true });
+    expect(noVerdict.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).toEqual(['magnifying-glass']);
+
+    const repotVerdict = mountRow({ pendingVerdict: 'REPOT', canSurvey: false });
+    const repotIcons = repotVerdict.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(repotIcons).toContain('check');
+    expect(repotIcons).toContain('clock');
+    expect(repotIcons).not.toContain('magnifying-glass');
+
+    const omitted = mountRow(); // no canSurvey prop at all — REPOT, no pendingVerdict opt-in
+    const omittedIcons = omitted.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(omittedIcons).toContain('check');
+    expect(omittedIcons).not.toContain('magnifying-glass');
+  });
+});

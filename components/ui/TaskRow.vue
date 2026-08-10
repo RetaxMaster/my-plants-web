@@ -58,6 +58,16 @@ const props = withDefaults(
      */
     allowStandaloneDone?: boolean;
     /**
+     * Whether this task can be SURVEYED before acting. REPOT is surveyed from its own visual signs and is
+     * always surveyable; WATER is surveyable only when the owner selected an instrument — so this prop is
+     * how the caller says "there is a way to check".
+     *
+     * ⚠️ FALSE MUST LEAVE THE ROW BYTE-IDENTICAL TO ITS PRE-SURVEY SHAPE. An owner who selected no
+     * instrument has no way to satisfy a survey, and withholding Done from him would lock him out of his
+     * own app over a feature he declined. Declining to measure is a supported choice, not a degraded state.
+     */
+    canSurvey?: boolean;
+    /**
      * WATER only, opt-in per SURFACE, and DELIBERATELY UNDEFAULTED — the same pattern `pendingVerdict`
      * already uses. `undefined` (the prop simply omitted) means this caller has not opted into the
      * measuring affordance and renders exactly as before. Passing `false` shows the button unemphasised;
@@ -74,6 +84,7 @@ const props = withDefaults(
     withDoneDate: false,
     showInfo: false,
     allowStandaloneDone: false,
+    canSurvey: false,
     // Explicit `undefined` default, not simply omitted from this object — a `boolean`-typed prop with NO
     // entry here at all falls under Vue's own implicit boolean casting (`resolvePropValue`'s
     // `isAbsent && !hasDefault` branch): an absent boolean prop with no declared default resolves to
@@ -179,6 +190,11 @@ const reevaluateArrived = computed(() => {
 });
 
 const showEvaluate = computed(() => {
+  // The survey shape is task-agnostic (spec §5.1): WATER offers it exactly when the caller says there is a
+  // way to check (`canSurvey`) — no `pendingVerdict` state machine exists for WATER yet (a later task builds
+  // it), so "no verdict is pending" is trivially true here. `canSurvey` defaults to `false`, so an un-opted
+  // WATER caller (no instrument selected) renders byte-identical to before this prop existed — see its doc.
+  if (props.task === 'WATER') return props.canSurvey === true;
   if (props.task !== 'REPOT' || props.pendingVerdict === undefined) return false;
   if (props.pendingVerdict === null) return true;
   if (props.pendingVerdict === 'REPOT') return false;

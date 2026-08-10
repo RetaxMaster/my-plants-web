@@ -1443,15 +1443,25 @@
       "retry": "Intentar de nuevo",
       "name": {
         "galvanic-probe": "Medidor de humedad",
-        "kitchen-scale": "Báscula de cocina"
+        "kitchen-scale": "Báscula de cocina",
+        "wooden-stick": "Palito de madera",
+        "finger": "Dedo"
       },
       "unit": {
         "galvanic-probe": "índice 1–10",
-        "kitchen-scale": "gramos"
+        "kitchen-scale": "gramos",
+        "wooden-stick": "escala de 3 niveles",
+        "finger": "escala de 3 niveles"
       },
       "help": {
-        "galvanic-probe": "Un medidor barato de dos puntas. Mide conductividad, no agua, así que compara cada maceta solo consigo misma.",
-        "kitchen-scale": "Pesa la maceta completa. Cada gramo que pierde es un gramo de agua, una vez que registres su peso recién regada y seca."
+        "galvanic-probe": "Una escala de diez puntos: suficientemente fina para seguir qué tan rápido se seca la maceta, y no necesita ajuste.",
+        "kitchen-scale": "La opción más precisa. Necesita pesar la maceta dos veces para calibrarla, y después de eso mide toda la maceta en vez de un solo punto.",
+        "wooden-stick": "La app puede distinguir mojado de seco, pero no qué tan mojado — suficiente para decidir si regar hoy, y le tomará más tiempo aprender el ritmo de tu maceta.",
+        "finger": "La misma lectura que el palito, pero solo los primeros centímetros — la parte más seca de la maceta, así que la app se inclina a regar antes."
+      },
+      "noInstrument": {
+        "title": "Sin instrumento",
+        "description": "Sin medición. La app predice cuándo regar a partir de la especie, el lugar y el clima — y lo dice claramente, en vez de aparentar que conoce tu tierra."
       },
       "table": {
         "instrument": "Instrumento",

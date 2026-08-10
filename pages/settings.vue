@@ -69,6 +69,14 @@ async function toggle(id: InstrumentId, on: boolean) {
 
         <Alert v-if="error" color="red" :description="error" announce />
 
+        <!-- The bottom rung of the ladder: declining to measure at all. Not a catalogue row — it is the
+             state the app is always in until the owner turns something on — so it is fixed copy, not part
+             of the `v-for` below, and always visible rather than conditioned on `selected` being empty. -->
+        <div class="mp-settings__baseline">
+          <div class="mp-settings__label">{{ t('settings.instruments.noInstrument.title') }}</div>
+          <div class="mp-settings__sub">{{ t('settings.instruments.noInstrument.description') }}</div>
+        </div>
+
         <div v-for="row in data?.available ?? []" :key="row.id" class="mp-settings__row">
           <div class="mp-settings__text">
             <div class="mp-settings__label">{{ t(`settings.instruments.name.${row.id}`) }}</div>
@@ -98,6 +106,7 @@ async function toggle(id: InstrumentId, on: boolean) {
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle);
 }
+.mp-settings__baseline { padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle); }
 .mp-settings__text { flex: 1; min-width: 0; }
 .mp-settings__label { font-weight: var(--weight-bold); color: var(--text-strong); }
 .mp-settings__sub { color: var(--text-muted); font-size: var(--text-sm); }

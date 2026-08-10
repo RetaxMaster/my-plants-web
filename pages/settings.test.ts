@@ -13,9 +13,14 @@
 // `<script setup>` import is inlined at compile time and bypasses Vue's runtime component resolver, so
 // `@vue/test-utils`'s `stubs` option cannot intercept it. The REAL component tree is mounted instead — none
 // of these are Nuxt-specific beyond the auto-imported composables already stubbed below.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref, computed, inject, useSlots, resolveComponent } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
+import { createI18n } from 'vue-i18n';
+import { INSTRUMENT_LIST } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
+import type { OwnerInstruments } from '../types/api';
+import en from '../i18n/locales/en.json';
+import es from '../i18n/locales/es.json';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -29,8 +34,16 @@ vi.stubGlobal('inject', inject);
 // set — neither call site here ever passes one, so the unregistered name resolves harmlessly).
 vi.stubGlobal('useSlots', useSlots);
 vi.stubGlobal('resolveComponent', resolveComponent);
-vi.stubGlobal('useI18n', () => ({ t: (k: string, params?: Record<string, unknown>) =>
-  (params ? `${k}|${Object.values(params).join('|')}` : k) }));
+// The passthrough `t` used by every test above/unrelated to the honesty-rule suite below: it stubs `t` as an
+// identity function (returns the key itself) so those tests can assert on stable key names regardless of
+// copy wording. It cannot tell a REAL translation apart from a raw, untranslated key path — so it could
+// never have caught the live defect this task opens with (a missing en.json/es.json entry rendering as
+// `settings.instruments.name.wooden-stick`). The honesty-rule describe block below swaps this out for a
+// REAL `vue-i18n` instance loaded from the actual locale files, precisely so a missing key genuinely
+// reproduces vue-i18n's own fallback behavior (returning the raw keypath) instead of a stub's approximation.
+const passthroughT = (k: string, params?: Record<string, unknown>) =>
+  (params ? `${k}|${Object.values(params).join('|')}` : k);
+vi.stubGlobal('useI18n', () => ({ t: passthroughT }));
 vi.stubGlobal('useHead', () => {});
 vi.stubGlobal('useSeoMeta', () => {});
 
@@ -51,19 +64,19 @@ vi.stubGlobal('useAsyncData', (_key: string, fn: () => Promise<unknown>) => {
   return load().then(() => ({ data, error, refresh: load }));
 });
 
-const AVAILABLE = [
-  {
-    id: 'galvanic-probe', kind: 'moisture', unit: '1–10 index', comparableAcrossPots: false,
-    requiresCalibration: false,
-  },
-  {
-    id: 'kitchen-scale', kind: 'moisture', unit: 'grams', comparableAcrossPots: false,
-    requiresCalibration: true,
-  },
-];
+// FIX (this task): the fixture used to be a hand-written pair of instrument-shaped object literals, and the
+// fetcher stub below was typed `Promise<unknown>` — so TypeScript never structurally checked either one
+// against the real contract. When `captureKind` landed as a required field on `InstrumentRow`, 39 sites went
+// red in the modal's tests while this fixture stayed silently green holding the same incomplete shape (no
+// `scale`/`direction`/`protocolKind`/`captureKind`/`rawMin`/`rawMax`/`rawStep`). Sourcing the fixture directly
+// from the shared contract's own `INSTRUMENT_LIST` — the exact table the API serves — makes that structurally
+// impossible: a fixture that is the real catalogue can never diverge from it, and it also means a future 5th
+// instrument (or a 6th) joins these tests with zero edits here, the same "iterate the catalogue" discipline
+// the page itself follows.
+const AVAILABLE: OwnerInstruments['available'] = [...INSTRUMENT_LIST];
 
-let getOwnerInstrumentsImpl: () => Promise<unknown>;
-const setOwnerInstrumentsMock = vi.fn(async () => ({ available: AVAILABLE, selected: [] }));
+let getOwnerInstrumentsImpl: () => Promise<OwnerInstruments>;
+const setOwnerInstrumentsMock = vi.fn(async (): Promise<OwnerInstruments> => ({ available: AVAILABLE, selected: [] }));
 
 beforeEach(() => {
   getOwnerInstrumentsImpl = async () => ({ available: AVAILABLE, selected: [] });
@@ -99,7 +112,7 @@ describe('pages/settings — a failed instruments load (fix wave 1, item 6)', ()
   it('never shows the load-error banner on a healthy load', async () => {
     const w = await mountPage();
     expect(w.text()).not.toContain('settings.instruments.loadError');
-    expect(w.findAll('.mp-settings__row')).toHaveLength(2);
+    expect(w.findAll('.mp-settings__row')).toHaveLength(INSTRUMENT_LIST.length);
   });
 
   it('retrying re-runs the SAME fetch and clears the banner once it succeeds', async () => {
@@ -114,7 +127,7 @@ describe('pages/settings — a failed instruments load (fix wave 1, item 6)', ()
     await flushPromises();
 
     expect(w.text()).not.toContain('settings.instruments.loadError');
-    expect(w.findAll('.mp-settings__row')).toHaveLength(2);
+    expect(w.findAll('.mp-settings__row')).toHaveLength(INSTRUMENT_LIST.length);
   });
 
   it('does not touch the UNRELATED save-failure path — Switch/toggle failures still use their own message', async () => {
@@ -129,5 +142,69 @@ describe('pages/settings — a failed instruments load (fix wave 1, item 6)', ()
 
     expect(w.text()).toContain('settings.instruments.saveFailed');
     expect(w.text()).not.toContain('settings.instruments.loadError');
+  });
+});
+
+// The live defect this task opens with: the catalogue grew two new ordinal instruments (`wooden-stick`,
+// `finger`) and nobody added their `en.json`/`es.json` copy, so the page rendered raw key paths — literally
+// `settings.instruments.name.wooden-stick` — where a name should be. This suite mounts the page against a
+// REAL vue-i18n instance (see `realI18n` below) so a missing message genuinely reproduces vue-i18n's own
+// fallback behavior instead of a stub's approximation, which is what makes the first test below load-bearing:
+// it would have gone red the moment the two new rows joined `INSTRUMENT_IDS` without their copy.
+const realI18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en, es } }).global;
+
+describe('pages/settings — the instrument ladder honesty rule', () => {
+  beforeEach(() => {
+    vi.stubGlobal('useI18n', () => ({ t: realI18n.t }));
+  });
+
+  // Restore the passthrough stub the rest of the file relies on, so this suite's real-i18n swap stays
+  // scoped to its own tests and never leaks into a describe block that runs after it.
+  afterEach(() => {
+    vi.stubGlobal('useI18n', () => ({ t: passthroughT }));
+  });
+
+  it('names every instrument the contract publishes — no raw key paths', async () => {
+    const w = await mountPage();
+    // A raw, untranslated key path always contains this literal substring (vue-i18n's fallback IS the
+    // keypath itself) — a real translation, in either locale, never does. Checking the whole rendered page
+    // covers both the row list AND the comparison table, which read the exact same `t(...)` key shapes.
+    expect(w.text()).not.toContain('settings.instruments.');
+    // Belt and suspenders, anchored to the catalogue rather than a hand-written id list: every row's own
+    // name must have rendered as something other than its raw key.
+    for (const row of AVAILABLE) {
+      expect(w.text()).not.toContain(`settings.instruments.name.${row.id}`);
+    }
+  });
+
+  it('states a consequence for every instrument', async () => {
+    const w = await mountPage();
+    // Scoped to `.mp-settings__row` — the baseline "no instrument" block below also uses `.mp-settings__sub`
+    // for its own description, and that one is asserted separately in the next test.
+    const subs = w.findAll('.mp-settings__row .mp-settings__sub').map((el) => el.text());
+    expect(subs).toHaveLength(AVAILABLE.length);
+    for (const text of subs) {
+      // Real prose, not an empty string or a bare label — long enough to state a consequence, not just
+      // name the instrument again.
+      expect(text.length).toBeGreaterThan(20);
+    }
+    // Each instrument's consequence is its OWN — no two rows sharing one copy-pasted sentence.
+    expect(new Set(subs).size).toBe(subs.length);
+  });
+
+  it('tells the owner what declining to measure means', async () => {
+    const w = await mountPage();
+    expect(w.text()).toContain(realI18n.t('settings.instruments.noInstrument.title'));
+    expect(w.text()).toContain(realI18n.t('settings.instruments.noInstrument.description'));
+    // The bottom rung is always visible — it is the state the app is in whenever nothing is selected, not
+    // a fact that depends on today's fixture selecting zero instruments.
+    expect(w.find('.mp-settings__baseline').exists()).toBe(true);
+  });
+
+  it('never publishes a reliability percentage', async () => {
+    const w = await mountPage();
+    // No figure enters this screen without the command that produced it (care-engine honesty rule,
+    // extended here to the instrument ladder) — so no percentage may appear anywhere on the page.
+    expect(w.text()).not.toMatch(/\d+\s?%/);
   });
 });

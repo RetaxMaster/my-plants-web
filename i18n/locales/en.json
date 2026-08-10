@@ -1443,15 +1443,25 @@
       "retry": "Try again",
       "name": {
         "galvanic-probe": "Moisture probe",
-        "kitchen-scale": "Kitchen scale"
+        "kitchen-scale": "Kitchen scale",
+        "wooden-stick": "Wooden stick",
+        "finger": "Finger"
       },
       "unit": {
         "galvanic-probe": "1–10 index",
-        "kitchen-scale": "grams"
+        "kitchen-scale": "grams",
+        "wooden-stick": "3-level scale",
+        "finger": "3-level scale"
       },
       "help": {
-        "galvanic-probe": "A cheap two-prong meter. It reads conductivity, not water, so compare a pot only against itself.",
-        "kitchen-scale": "Weigh the whole pot. Every gram lost is a gram of water, once you record this pot's watered and dry weights."
+        "galvanic-probe": "A ten-point scale: fine enough to track how fast the pot dries, and it needs no setup.",
+        "kitchen-scale": "The most precise option. It needs weighing the pot twice to set up, and after that it reads the whole pot rather than one spot.",
+        "wooden-stick": "The app can tell wet from dry, but not how wet — enough to say whether to water today, and it will take longer to learn your pot's rhythm.",
+        "finger": "The same reading as a stick, but only the top few centimetres — the driest part of the pot, so the app leans toward watering sooner."
+      },
+      "noInstrument": {
+        "title": "No instrument",
+        "description": "No measuring. The app predicts when to water from the species, the place and the weather — and says so rather than pretending to know your soil."
       },
       "table": {
         "instrument": "Instrument",

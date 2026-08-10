@@ -16,9 +16,9 @@ import { fertilizeExplanation } from '../utils/fertilizeExplanation.js';
 // Explicit, like every other util this file uses: one implementation of "which pending evaluation may an
 // action name" and one of "which sign is worth suggesting next", shared with pages/index.vue.
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
-// The WATER row's survey rule — "may this row offer the survey at all" — lives once and is shared with
-// pages/index.vue, never restated per renderer.
-import { canOfferWaterSurvey } from '../utils/waterSurvey.js';
+// The WATER row's two survey rules — "may this row offer the survey at all" and "does a Posponer still have
+// anything to ask" — live once and are shared with pages/index.vue, never restated per renderer.
+import { canOfferWaterSurvey, postponeReasonWithoutAsking } from '../utils/waterSurvey.js';
 // Explicit import, same reasoning as `onUnmounted` above: the composable's OWN `shallowRef` import makes
 // it test-environment-agnostic. Round-5 finding V1 — extracted so this file and pages/index.vue (the
 // FIRST renderer of the same REPOT flows) share ONE attempt-tracking implementation instead of two
@@ -1009,10 +1009,18 @@ function onDone(task: TaskCode, status: 'overdue' | 'today' | 'upcoming', occurr
   return sendDone(task, occurredOn);
 }
 
-// Postpone: WATER asks why; a REPOT postpone (only reachable once a verdict is pending) sends immediately
-// with the fixed "needed, can't right now" reason; every other task sends immediately (unchanged).
+// Postpone: an UNMEASURED WATER asks why; a WATER postpone that follows today's measurement sends `no-time`
+// straight through (spec §5.4 — see `postponeReasonWithoutAsking`); a REPOT postpone (only reachable once a
+// verdict is pending) sends immediately with the fixed "needed, can't right now" reason; every other task
+// sends immediately (unchanged).
 function onPostpone(task: TaskCode) {
   if (task === 'WATER') {
+    // FIX W2 — the identical branch pages/index.vue's own `onPostpone` carries, applying the ONE shared
+    // rule rather than a second copy of it. Not a tap-count optimisation: the picker still offers
+    // `soil-still-moist`, which MOVES the watering cadence, so leaving it on offer after a measured
+    // WATER_NOW lets the owner contradict his own reading into the adaptation loop.
+    const reason = postponeReasonWithoutAsking(task, care.value?.measurement?.measuredToday === true);
+    if (reason) return sendPostpone(task, reason);
     pending.value = { task, type: 'POSTPONED' };
     postponePickerOpen.value = true;
     return;

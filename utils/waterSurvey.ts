@@ -1,10 +1,22 @@
-// The WATER row's survey rules, in ONE place, because TWO renderers apply them: the Today list
+// The WATER row's two survey rules, in ONE place, because TWO renderers apply them: the Today list
 // (`pages/index.vue`) and the plant page (`components/PlantDetail.vue`). Parallel per-surface copies of one
-// rule are this workspace's named highest-yield bug class, and this one had already drifted into a
-// half-implementation before it was extracted here.
+// rule are this workspace's named highest-yield bug class, and both of these rules had already drifted into
+// half-implementations before they were extracted here.
 //
-// The function touches neither Vue, the API, nor i18n: it takes the three facts the caller already holds
-// and returns a decision, so a test can pin the RULE without mounting a page.
+// Neither function touches Vue, the API, or i18n: they take the three facts the caller already holds and
+// return a decision, so a test can pin the RULE without mounting a page.
+import type { WaterPostponeReason } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
+import type { TaskCode } from './tasks.js';
+
+/**
+ * What a post-survey Posponer sends (spec §5.4). Named, never re-typed as a literal at the two call sites,
+ * and `satisfies`-checked against the shared vocabulary so a typo cannot reach the API as an unknown slug.
+ *
+ * It says "I ran out of day", which is why it is the honest one here: it moves the date and deliberately
+ * does NOT move the cadence.
+ */
+export const SURVEYED_POSTPONE_REASON = 'no-time' satisfies WaterPostponeReason;
+
 /**
  * Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey.
  *
@@ -31,3 +43,22 @@ export function canOfferWaterSurvey(facts: {
   return facts.hasInstrument && !facts.measuredToday && facts.catalogueAvailable;
 }
 
+/**
+ * The reason a Posponer sends WITHOUT asking, or `null` when the owner must still be asked (spec §5.4:
+ * "Postpone stops asking the owner for a reason. After a survey there is nothing to ask … The reason picker
+ * remains only on the un-gated (no-instrument) row.").
+ *
+ * `measuredToday` is exactly "a reading was taken for this plant today", so a WATER postpone that follows
+ * one can only mean the owner ran out of day — the soil already spoke, and it spoke through the reading.
+ *
+ * This is not a tap-count optimisation. The generic picker still offers `soil-still-moist`, which DOES move
+ * the watering cadence; leaving it on offer after a WATER_NOW verdict lets an owner feed the adaptation loop
+ * a subjective "the soil is wet" that his own measurement, taken minutes earlier, contradicts.
+ */
+export function postponeReasonWithoutAsking(
+  task: TaskCode,
+  measuredToday: boolean,
+): WaterPostponeReason | null {
+  if (task !== 'WATER') return null;
+  return measuredToday ? SURVEYED_POSTPONE_REASON : null;
+}

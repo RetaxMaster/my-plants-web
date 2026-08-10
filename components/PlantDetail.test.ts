@@ -2091,12 +2091,13 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   });
 });
 
-// FIX W1 on the plant page — the SAME rule pages/index.vue carries (see pages/index.test.ts's own W1
-// block). It is stated once in `utils/waterSurvey.ts` and applied twice; this block is what proves the
-// SECOND application exists, which is exactly what "one behaviour, both surfaces" needs a test for. The plumbing legitimately differs (this page holds ONE plant's catalogue from a page-load
+// FIX W1 + FIX W2 on the plant page — the SAME two rules pages/index.vue carries (see pages/index.test.ts's
+// own W1/W2 blocks). Both are stated once in `utils/waterSurvey.ts` and applied twice; this block is what
+// proves the SECOND application exists, which is exactly what "one behaviour, both surfaces" needs a test
+// for. The plumbing legitimately differs (this page holds ONE plant's catalogue from a page-load
 // `useAsyncData`, Today fetches per click), so the two blocks assert the same behaviour through different
 // seams.
-describe('PlantDetail — W1: a failed catalogue must not lock the watering row', () => {
+describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that stops asking', () => {
   const waterCare = (measuredToday = false) => ({
     plantId: 'p1',
     tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
@@ -2129,12 +2130,24 @@ describe('PlantDetail — W1: a failed catalogue must not lock the watering row'
     props: ['color', 'description', 'announce'],
     template: '<div class="detail-alert" :data-description="description"><slot /></div>',
   };
+  const UiReasonPickerStub = {
+    props: ['open', 'title', 'options', 'confirmLabel'],
+    emits: ['update:open', 'confirm'],
+    template: '<div class="reason-picker" :data-open="String(!!open)" />',
+  };
   const localStubs = {
     ...stubs,
     UiTaskRow: UiTaskRowStub,
     UiAlert: UiAlertStub,
+    UiReasonPicker: UiReasonPickerStub,
     UiSoilReadingModal: { name: 'UiSoilReadingModal', props: ['open', 'plantId', 'data', 'mode'], template: '<div />' },
   };
+
+  // Typed on its own parameters (rather than inferred from a zero-arg lambda) so `.mock.calls[n]` carries
+  // the real `[plantId, body]` tuple — same technique SoilReadingModal.test.ts uses for `recordSoilReading`.
+  const sendFeedbackMock = vi.fn(
+    async (_plantId: string, _body: Record<string, unknown>) => ({ ok: true }),
+  );
 
   // `readingsFails` drives the ONE thing under test in the W1 half: whether the page HOLDS this plant's
   // instrument catalogue. The `useAsyncData` stub below mirrors Nuxt's real behaviour on a rejected
@@ -2143,6 +2156,7 @@ describe('PlantDetail — W1: a failed catalogue must not lock the watering row'
   async function mountWater(
     { measuredToday = false, readingsFails = false }: { measuredToday?: boolean; readingsFails?: boolean } = {},
   ) {
+    sendFeedbackMock.mockClear();
     vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
       let data: unknown = null;
       try { data = await fn(); } catch { data = null; }
@@ -2160,6 +2174,7 @@ describe('PlantDetail — W1: a failed catalogue must not lock the watering row'
         return { instruments: [{ id: 'galvanic-probe' }], protocol: null, readings: [], wateringDays: [] };
       },
       getOwnerInstruments: async () => ({ available: [], selected: ['galvanic-probe'] }),
+      sendFeedback: sendFeedbackMock,
       invalidatePlant: vi.fn(),
     }));
     const PlantDetail = (await import('./PlantDetail.vue')).default;
@@ -2179,7 +2194,7 @@ describe('PlantDetail — W1: a failed catalogue must not lock the watering row'
     }));
   });
 
-  it('a failed catalogue fetch hands the classic Hecho | Posponer back instead of withholding them',
+  it('W1: a failed catalogue fetch hands the classic Hecho | Posponer back instead of withholding them',
     async () => {
       const w = await mountWater({ readingsFails: true });
       const row = w.find('[data-task=WATER]');
@@ -2189,7 +2204,7 @@ describe('PlantDetail — W1: a failed catalogue must not lock the watering row'
       expect(row.find('.postpone-btn').exists()).toBe(true);
     });
 
-  it('says the load failed, and never offers a voluntary reading it could only answer with the ' +
+  it('W1: says the load failed, and never offers a voluntary reading it could only answer with the ' +
     '"you have no instruments" lie', async () => {
     const w = await mountWater({ readingsFails: true });
     const banner = w.findAll('.detail-alert')
@@ -2201,7 +2216,7 @@ describe('PlantDetail — W1: a failed catalogue must not lock the watering row'
     expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(false);
   });
 
-  it('a catalogue we DO hold changes neither — the survey is offered and the reading stays addable',
+  it('W1: a catalogue we DO hold changes neither — the survey is offered and the reading stays addable',
     async () => {
       const w = await mountWater();
       expect(w.find('[data-task=WATER]').attributes('data-can-survey')).toBe('true');
@@ -2210,4 +2225,28 @@ describe('PlantDetail — W1: a failed catalogue must not lock the watering row'
         .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
     });
 
+  it('W2: a postpone after today\'s measurement submits no-time without opening the picker', async () => {
+    const w = await mountWater({ measuredToday: true });
+    await w.find('.postpone-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
+    expect(sendFeedbackMock.mock.calls[0][1]).toMatchObject({
+      task: 'WATER', type: 'POSTPONED', reason: 'no-time',
+    });
+    expect(w.findAll('.reason-picker').every((p) => p.attributes('data-open') === 'false')).toBe(true);
+  });
+
+  it('W2: the un-measured row still asks — but through the standalone Done path, since the survey is on ' +
+    'offer there', async () => {
+    // With the catalogue held and nothing measured, the survey withholds Postpone on this page too; the
+    // reachable un-measured postpone is the one a FAILED catalogue hands back (the W1 fallback), which is
+    // exactly the "un-gated row" the spec says keeps the picker.
+    const w = await mountWater({ readingsFails: true });
+    await w.find('.postpone-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).not.toHaveBeenCalled();
+    expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
+  });
 });

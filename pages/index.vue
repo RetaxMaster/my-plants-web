@@ -5,9 +5,9 @@ import { plantTitle } from '../utils/displayName.js';
 // One implementation of "which pending evaluation may an action name" and of "which sign is worth
 // suggesting next", shared with PlantDetail.vue — never a second copy in each renderer.
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
-// The WATER row's survey rule — "may this row offer the survey at all" — lives once and is shared with
-// PlantDetail.vue, never restated per renderer.
-import { canOfferWaterSurvey } from '../utils/waterSurvey.js';
+// The WATER row's two survey rules — "may this row offer the survey at all" and "does a Posponer still have
+// anything to ask" — live once and are shared with PlantDetail.vue, never restated per renderer.
+import { canOfferWaterSurvey, postponeReasonWithoutAsking } from '../utils/waterSurvey.js';
 // Explicit import (like PlantDetail.vue's `onUnmounted`, and for the same reason): the composable's own
 // `shallowRef` import from 'vue' makes it test-environment-agnostic, and this ONE implementation is now
 // shared with PlantDetail.vue (round-5 finding V1) — never a second copy of the attempt-tracking logic.
@@ -698,10 +698,19 @@ function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'tod
   return sendDone(plantId, task, occurredOn);
 }
 
-// Postpone: WATER asks why; a REPOT postpone (only reachable once a verdict is pending) sends immediately
-// with the fixed "needed, can't right now" reason; every other task sends immediately (unchanged).
+// Postpone: an UNMEASURED WATER asks why; a WATER postpone that follows today's measurement sends `no-time`
+// straight through (spec §5.4 — see `postponeReasonWithoutAsking`); a REPOT postpone (only reachable once a
+// verdict is pending) sends immediately with the fixed "needed, can't right now" reason; every other task
+// sends immediately (unchanged).
 function onPostpone(plantId: string, task: DueTask['task']) {
   if (task === 'WATER') {
+    // FIX W2 — spec §5.4 was never implemented: every WATER postpone opened the picker unconditionally.
+    // After a survey there is nothing left to ask, and asking anyway is not merely a wasted tap: the
+    // picker still offers `soil-still-moist`, which MOVES the watering cadence, so an owner who measured
+    // WATER_NOW and then ran out of day could feed the adaptation a wet-soil signal his own reading
+    // contradicts.
+    const reason = postponeReasonWithoutAsking(task, measuredTodayFor(plantId));
+    if (reason) return sendPostpone(plantId, task, reason);
     pending.value = { plantId, task, type: 'POSTPONED' };
     postponePickerOpen.value = true;
     return;

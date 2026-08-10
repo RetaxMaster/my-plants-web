@@ -1,8 +1,9 @@
-// The WATER-row survey rule, pinned at the level it actually lives at — one shared module, so a
+// The two WATER-row survey rules, pinned at the level they actually live at — one shared module, so a
 // renderer that half-implements either one is a wiring bug in that renderer and not a second, silently
 // different rule. The per-surface wiring is pinned in pages/index.test.ts and components/PlantDetail.test.ts.
 import { describe, it, expect } from 'vitest';
-import { canOfferWaterSurvey } from './waterSurvey.js';
+import { canOfferWaterSurvey, postponeReasonWithoutAsking, SURVEYED_POSTPONE_REASON } from './waterSurvey.js';
+import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
 
 describe('canOfferWaterSurvey', () => {
   it('offers the survey only when the owner has an instrument, has not measured today, and we HOLD the ' +
@@ -31,3 +32,35 @@ describe('canOfferWaterSurvey', () => {
   });
 });
 
+describe('postponeReasonWithoutAsking', () => {
+  // Spec §5.4: after a survey there is nothing to ask — either the soil said wait, or the owner ran out of
+  // day. A measured WATER postpone is the second one, and it says so with `no-time`.
+  it('sends no-time for a WATER postpone that follows today\'s measurement', () => {
+    expect(postponeReasonWithoutAsking('WATER', true)).toBe('no-time');
+  });
+
+  it('still asks on the un-gated WATER row — nothing was measured, so the reason is the only signal', () => {
+    expect(postponeReasonWithoutAsking('WATER', false)).toBeNull();
+  });
+
+  // The reason vocabulary is WATER-only (the shared contract's own header): no other task carries one, so a
+  // measured flag on a REPOT/FERTILIZE row must never invent one.
+  it('never invents a reason for a non-WATER task, measured or not', () => {
+    expect(postponeReasonWithoutAsking('REPOT', true)).toBeNull();
+    expect(postponeReasonWithoutAsking('FERTILIZE', true)).toBeNull();
+    expect(postponeReasonWithoutAsking('MIST', false)).toBeNull();
+  });
+
+  // The slug is persisted verbatim into CareEvent.payload and validated server-side against this exact
+  // vocabulary — pinned against the SHARED array rather than against a second copy of the string, so a
+  // rename upstream fails here instead of at runtime.
+  it('sends a slug the shared WATER vocabulary actually contains', () => {
+    expect(WATER_POSTPONE_REASONS).toContain(SURVEYED_POSTPONE_REASON);
+  });
+
+  // …and specifically NOT one of the two that move the cadence. `soil-still-moist` is the justified
+  // postpone reason (it shortens/lengthens the watering interval); a measured postpone must never claim it.
+  it('never sends the cadence-moving reason', () => {
+    expect(SURVEYED_POSTPONE_REASON).not.toBe('soil-still-moist');
+  });
+});

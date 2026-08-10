@@ -98,6 +98,9 @@ let completeRepotMock: ReturnType<typeof vi.fn>;
 // either — keeps passing unmodified; the WATER-specific describe block below overrides them per test.
 let getOwnerInstrumentsMock: ReturnType<typeof vi.fn>;
 let getSoilReadingsMock: ReturnType<typeof vi.fn>;
+// W2: the ONE seam every Done/Postpone on this page writes through — the WATER postpone tests below read
+// the recorded `reason` off it. Every pre-existing test ignores it.
+let sendFeedbackMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   // Store-isolation (W1): reset BOTH module-scope attempt stores before every test so no test's outstanding
@@ -113,6 +116,7 @@ beforeEach(() => {
   getSoilReadingsMock = vi.fn(async () => (
     { instruments: [], protocol: null, readings: [], wateringDays: [] } as unknown as PlantSoilReadings
   ));
+  sendFeedbackMock = vi.fn(async () => ({ ok: true }));
 
   vi.stubGlobal('useApi', () => ({
     todaysTasks: async () => TASKS,
@@ -124,6 +128,7 @@ beforeEach(() => {
     completeRepot: completeRepotMock,
     getOwnerInstruments: getOwnerInstrumentsMock,
     getSoilReadings: getSoilReadingsMock,
+    sendFeedback: sendFeedbackMock,
   }));
   vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
     data: ref(await fn()),
@@ -168,7 +173,14 @@ const stubs = {
   UiPlantName: true,
   UiPhotoChip: true,
   UiAppIcon: true,
-  UiReasonPicker: true,
+  // W2: a real stub rather than `true`, so a test can tell "the picker opened" from "the postpone went
+  // straight through". Both instances (early-water and postpone) render it; the page's own template order
+  // is early first, postpone second.
+  UiReasonPicker: {
+    props: ['open', 'title', 'options', 'confirmLabel'],
+    emits: ['update:open', 'confirm'],
+    template: '<div class="reason-picker" :data-open="String(!!open)" />',
+  },
   UiRepotVerdictModal: {
     // `checkedSignIds` (2026-08-07): the ids the owner ticked, which the real modal subtracts from the
     // catalogue to name a corroborating sign. Exposed here so this file can pin that THIS renderer wires
@@ -1318,6 +1330,7 @@ function stubApiWithWaterTask(tasks: unknown[] = [WATER_TASK_A]) {
     completeRepot: completeRepotMock,
     getOwnerInstruments: getOwnerInstrumentsMock,
     getSoilReadings: getSoilReadingsMock,
+    sendFeedback: sendFeedbackMock,
   }));
 }
 
@@ -1476,3 +1489,60 @@ describe('pages/index.vue — W1: a failed catalogue fetch must not lock the wat
   });
 });
 
+// FIX W2 — spec §5.4 ("Postpone stops asking the owner for a reason. After a survey there is nothing to
+// ask: either the soil said wait, or the owner ran out of day. The reason picker remains only on the
+// un-gated (no-instrument) row.") was never implemented: `onPostpone` opened the generic picker for EVERY
+// WATER postpone. Beyond the wasted tap, that picker still offers `soil-still-moist`, which MOVES the
+// watering cadence — so an owner who measured WATER_NOW and then ran out of day could feed the adaptation
+// loop a wet-soil signal his own measurement, taken minutes earlier, contradicts.
+describe('pages/index.vue — W2: a postpone after today\'s measurement sends no-time without asking', () => {
+  it('submits `no-time` directly and never opens the picker', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    stubApiWithWaterTask([WATER_TASK_A_MEASURED_TODAY]);
+
+    const w = await mountPage();
+    // Already measured today, so the row is back to its classic pair — this is the Posponer under test.
+    await w.find('.postpone-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
+    expect(sendFeedbackMock.mock.calls[0][0]).toBe('A');
+    expect(sendFeedbackMock.mock.calls[0][1]).toMatchObject({
+      task: 'WATER', type: 'POSTPONED', reason: 'no-time',
+    });
+    // Neither picker (early-water, postpone) was ever shown.
+    expect(w.findAll('.reason-picker').map((p) => p.attributes('data-open'))).toEqual(['false', 'false']);
+  });
+
+  it('still asks on the un-measured row — that reason is the only signal the engine has there', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: [] as string[] }));
+    stubApiWithWaterTask();
+
+    const w = await mountPage();
+    await w.find('.postpone-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).not.toHaveBeenCalled();
+    // The SECOND picker is the postpone one (template order: early-water first).
+    expect(w.findAll('.reason-picker')[1].attributes('data-open')).toBe('true');
+  });
+
+  // The rule is WATER's alone: no other task carries a feedback reason at all, so a measured flag must
+  // never leak a reason onto a REPOT postpone (which sends its own fixed inspection reason via a different
+  // path entirely).
+  it('leaves a REPOT postpone on its own path', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    stubApiWithWaterTask([
+      { plantId: 'A', task: 'REPOT' as const, nextDueOn: '2026-01-01',
+        pendingEvaluation: { evaluationId: 'ev-A', verdict: 'REPOT', reevaluateOn: null } },
+    ]);
+
+    const w = await mountPage();
+    await w.find('.postpone-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
+    expect(sendFeedbackMock.mock.calls[0][1].task).toBe('REPOT');
+    expect(sendFeedbackMock.mock.calls[0][1].reason).not.toBe('no-time');
+  });
+});

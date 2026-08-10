@@ -1440,6 +1440,12 @@
       "tooSlow": "This pot is drying much more slowly than it should. That's usually an oversized pot, poor aeration, or tired substrate — not a watering problem.",
       "tooSlowLink": "Look at repotting",
       "flatSeries": "Your readings aren't moving at all. Real soil dries steadily, so this points at the meter — salt build-up, poor contact, or a changing depth — rather than at the pot."
+    },
+    "historyEmpty": "No readings yet. Take one and it will show up here.",
+    "historyTitle": "Your readings",
+    "verdictBadge": {
+      "WATER_NOW": "Watered",
+      "POSTPONE": "Held off"
     }
   },
   "settings": {

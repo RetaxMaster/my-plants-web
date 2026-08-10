@@ -1445,6 +1445,15 @@ async function confirmRevive() {
             <UiButton v-else size="xs" variant="soft" color="neutral" icon="beaker" class="mp-detail__measurement-add" @click="openVoluntaryReading">
               {{ $t('reading.addReading') }}
             </UiButton>
+            <!-- QA UX-1: a saved reading used to vanish — no confirmation, no list, nothing on the page,
+                 so the only feedback the owner got was the modal closing. The list IS the confirmation:
+                 `onReadingSaved` already refreshes `readings`, so a new measurement appears at the top the
+                 moment it is written. Hidden while the catalogue failed to load, for the same reason "Add
+                 a reading" stands down there — an empty list would be a false statement, not a fact. -->
+            <template v-if="!readingsUnavailable && readings">
+              <UiSectionTitle class="mp-detail__measurement-title">{{ $t('reading.historyTitle') }}</UiSectionTitle>
+              <UiSoilReadingList :data="readings" />
+            </template>
             <UiAlert
               v-if="care?.measurement?.tooSlowDrying"
               color="amber"
@@ -1847,6 +1856,12 @@ async function confirmRevive() {
 
 .mp-detail__measurement-add {
   margin-bottom: 12px;
+}
+
+/* The readings history's own heading (QA UX-1). Sits under the two findings, so it needs its own top gap
+   rather than inheriting the button's. */
+.mp-detail__measurement-title {
+  margin-top: 16px;
 }
 
 .mp-detail__repot-error {

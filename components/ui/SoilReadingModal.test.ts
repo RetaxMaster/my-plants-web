@@ -1195,3 +1195,24 @@ describe('the protocol shown matches the instrument, not the pot', () => {
     expect(w.text()).not.toContain('reading.protocolUnknownPot');
   });
 });
+
+// QA UX-5. `<input type="date">` renders in the BROWSER's locale, never the app's, so `08/10/2026` is
+// 10 August to one reader and 8 October to another and nothing said which.
+describe('the measured-on date is stated unambiguously', () => {
+  function dateGroupHint(w: ReturnType<typeof mount>) {
+    return w.findAllComponents({ name: 'FormGroup' })
+      .find((g) => g.props('label') === 'reading.measuredOn')?.props('hint');
+  }
+
+  it('spells the chosen date out in the app locale beside the native control', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="date"]').setValue('2026-08-09');
+    // The stub's `d()` formats from LOCAL components, so this also pins that the hint is not one day off.
+    expect(dateGroupHint(w)).toBe('2026-08-09');
+  });
+
+  it('survey mode has no date field, so nothing to disambiguate', () => {
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+    expect(dateGroupHint(w)).toBeUndefined();
+  });
+});

@@ -350,6 +350,14 @@ const canSubmit = computed(() =>
 // interchangeable copy for the same button.
 const primaryLabel = computed(() => (props.mode === 'survey' ? t('reading.calculate') : t('reading.save')));
 
+// The chosen date spelled out in the APP's locale (QA UX-5). The `<input type="date">` above renders in the
+// BROWSER's, which is a different setting entirely — `08/10/2026` is 10 August to one reader and 8 October
+// to another, and nothing on screen said which. Built through `ymdToLocalDate` rather than `new Date(ymd)`:
+// the bare string parses as UTC midnight and renders one day early west of Greenwich, which would make the
+// clarification itself the lie.
+const measuredOnHint = computed(() =>
+  (measuredOn.value ? d(ymdToLocalDate(measuredOn.value), 'short') : undefined));
+
 async function submit() {
   if (!canSubmit.value || instrumentId.value === '' || rawValue.value == null) return;
   const chosenInstrumentId = instrumentId.value;
@@ -675,14 +683,19 @@ const holdDateLabel = computed(() => {
       <!-- Voluntary mode ONLY — a survey answers TODAY, so this field is hidden there entirely (never
            merely disabled), and `measuredOn` stays pinned to `todayYmd()` for the whole session. See the
            file-header comment. -->
-      <FormGroup v-if="mode === 'voluntary'" :label="t('reading.measuredOn')">
+      <!-- QA UX-5: `<input type="date">` renders in the BROWSER's locale, not the app's, so a Mexican
+           owner reading the interface in Spanish saw `08/10/2026` and could reasonably parse it as
+           8 October. The native control cannot be steered, so the resolved date is stated beside it in the
+           app's own locale — the unambiguous reading, next to the ambiguous one. -->
+      <FormGroup v-if="mode === 'voluntary'" :label="t('reading.measuredOn')" :hint="measuredOnHint">
         <Input v-model="measuredOn" type="date" :max="todayYmd()" />
       </FormGroup>
 
-      <!-- Owner-ruled (2026-08-08): shown ONLY in voluntary mode, on a day the plant was also watered —
-           never a default, never pre-selected (see `showWateringRelation`'s own comment for why survey mode
-           never reaches this at all). Two options → segmented control, same rule the instrument picker
-           above follows. -->
+      <!-- Owner-ruled (2026-08-08): shown on a day the plant was also watered — never a default, never
+           pre-selected. ⚠️ CORRECTED 2026-08-10: this comment used to say "voluntary mode ONLY … survey
+           mode never reaches this at all", which was true of the code and false of reality — see
+           `showWateringRelation`. Both modes ask it now. Two options → segmented control, same rule the
+           instrument picker above follows. -->
       <FormGroup
         v-if="showWateringRelation"
         :label="t('reading.wateringRelationLabel')"

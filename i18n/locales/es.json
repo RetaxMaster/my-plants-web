@@ -1440,6 +1440,12 @@
       "tooSlow": "Esta maceta se está secando mucho más lento de lo que debería. Casi siempre es una maceta muy grande, poca aireación o sustrato agotado — no un problema de riego.",
       "tooSlowLink": "Ver trasplante",
       "flatSeries": "Tus lecturas no se mueven. La tierra de verdad se seca de forma constante, así que esto apunta al medidor — sales acumuladas, mal contacto o profundidad cambiante — y no a la maceta."
+    },
+    "historyEmpty": "Todavía no hay lecturas. Toma una y aparecerá aquí.",
+    "historyTitle": "Tus lecturas",
+    "verdictBadge": {
+      "WATER_NOW": "Regada",
+      "POSTPONE": "Aplazada"
     }
   },
   "settings": {

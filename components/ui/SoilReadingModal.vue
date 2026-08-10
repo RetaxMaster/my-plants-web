@@ -165,15 +165,21 @@ const needsCalibration = computed(() =>
 // renders a choice of named states, not a number, so "Reading (índice 1–10)"-shaped copy would be
 // meaningless for it. Guarding here (rather than always attempting the interpolation) also keeps this modal
 // from ever rendering a raw, untranslated `settings.instruments.unit.*` key path for an ordinal row that
-// catalogue does not cover.
+// catalogue does not cover. THE ONE PLACE this modal names an instrument's unit — both call sites below
+// (this raw-value label AND `InstrumentCalibrationFields`'s own `unit-label` prop) route through this
+// computed rather than calling `t('settings.instruments.unit...')` inline a second time, so the guard can
+// never be bypassed by one of the two forgetting it.
 //
-// ⚠️ THE GAP THIS PATCHES OVER, named so it isn't only known here. `settings.instruments.unit.*` (and its
-// `name.*`/`help.*` siblings) currently define ONLY `galvanic-probe`/`kitchen-scale` — the wooden stick and
-// the finger have no entries there at all, because the Settings-page instrument SELECTOR has not been
-// updated to offer them yet (this task only wires the reading capture, not that catalogue page). This guard
-// is a real, load-bearing patch for that gap, not decoration — without it, selecting an ordinal instrument
-// here would render a raw `settings.instruments.unit.wooden-stick`-shaped key path to the owner. Filling in
-// `settings.instruments.*` for the ordinal rows belongs to whichever task finishes the Settings selector.
+// ⚠️ THE GAP THIS PATCHES OVER IS LIVE IN PRODUCTION TODAY, not merely forward-looking — code review
+// (2026-08-09) found `pages/settings.vue` ALREADY iterating the full instrument catalogue the API returns
+// (`getOwnerInstruments`'s `available`) and resolving `settings.instruments.name.*`/`help.*` for every row,
+// including the wooden stick and the finger — so that page is rendering raw, untranslated key paths to the
+// owner RIGHT NOW, independent of anything in this file. `settings.instruments.unit.*` (and its `name.*`/
+// `help.*` siblings) still define ONLY `galvanic-probe`/`kitchen-scale`, because the Settings-page
+// instrument SELECTOR has never been updated for the two ordinal rows (this task only wires the reading
+// capture, not that catalogue page). This computed is a real, load-bearing patch for THIS modal's own two
+// call sites — it does nothing for `pages/settings.vue`'s pre-existing, already-shipped defect, which is
+// out of this task's scope and is being routed to the Settings-selector task next but one.
 const valueUnitLabel = computed(() =>
   instrument.value && instrument.value.captureKind !== 'ordinal'
     ? t(`settings.instruments.unit.${instrument.value.id}`)
@@ -483,7 +489,7 @@ const holdDateLabel = computed(() => {
       <InstrumentCalibrationFields
         v-if="needsCalibration && instrument"
         v-model="calibration"
-        :unit-label="t(`settings.instruments.unit.${instrument.id}`)"
+        :unit-label="valueUnitLabel"
       />
 
       <FormGroup :label="t('reading.value', { unit: valueUnitLabel })" :error="rawValueErrorMessage">

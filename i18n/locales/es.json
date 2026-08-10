@@ -1408,7 +1408,7 @@
       "after": "Después"
     },
     "calculate": "Calcular riego",
-    "verdictWaterNowTitle": "Toca riego",
+    "verdictWaterNowTitle": "Toca regar",
     "verdictHoldTitle": "No riegues todavía",
     "verdictHoldBody": "Vuelve a revisar el {date}.",
     "verdictUnavailableReason": {

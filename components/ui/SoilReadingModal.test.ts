@@ -68,6 +68,8 @@ const galvanicProbe = {
   direction: 'higher-is-wetter' as const, comparableAcrossPots: false, requiresCalibration: false,
   // QA finding F2 — the protocol is a PROPERTY OF THE ROW: a probe is pushed INTO the medium.
   protocolKind: 'insertion' as const,
+  // The owner types a number on this instrument — see soil-instrument-constants.ts's own row.
+  captureKind: 'numeric' as const,
   rawMin: 1, rawMax: 10, rawStep: 1, calibration: null,
 };
 const kitchenScaleNoCalibration = {
@@ -75,6 +77,8 @@ const kitchenScaleNoCalibration = {
   direction: 'higher-is-wetter' as const, comparableAcrossPots: false, requiresCalibration: true,
   // …and a scale weighs the WHOLE POT. It is never inserted into anything, which is the whole finding.
   protocolKind: 'whole-pot-mass' as const,
+  // The owner types a number (grams) on this instrument too — see soil-instrument-constants.ts.
+  captureKind: 'numeric' as const,
   rawMin: 0, rawMax: null, rawStep: 1, calibration: null,
 };
 const kitchenScaleCalibrated = {

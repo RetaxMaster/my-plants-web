@@ -6,7 +6,11 @@ import FormGroup from './FormGroup.vue';
 import { toNullableNumber } from '~/utils/nullableNumber';
 
 const model = defineModel<{ saturatedValue: number | null; dryValue: number | null }>({ required: true });
-defineProps<{ unitLabel: string }>();
+// `offScaleError` is computed by the OWNER of the instrument row (SoilReadingModal.vue), not here: this
+// component is deliberately given two numbers and a unit label and knows nothing about which instrument it
+// is editing. Passing the resolved sentence in keeps the instrument's bounds read in exactly one place —
+// the same reason the unit label arrives as a prop rather than being looked up here.
+defineProps<{ unitLabel: string; offScaleError?: string }>();
 const { t } = useI18n();
 
 // Bridge between Input.vue's `v-model` (`string | number`) and the DTO's `number | null` fields — same
@@ -37,7 +41,11 @@ const invalid = computed(() =>
                :hint="t('reading.calibration.dryHint')">
       <Input v-model.number="dry" type="number" inputmode="decimal" min="0" />
     </FormGroup>
-    <p v-if="invalid" class="mp-calib__err">{{ t('reading.calibration.spanInvalid') }}</p>
+    <!-- Off-scale FIRST: a negative weight is a different, more basic fault than an inverted pair, and
+         `800 / -500` breaks both. One message, and it must be the one that names the impossible number —
+         the same bounds-before-span ordering `rawValueErrorMessage` uses for the reading itself. -->
+    <p v-if="offScaleError" class="mp-calib__err">{{ offScaleError }}</p>
+    <p v-else-if="invalid" class="mp-calib__err">{{ t('reading.calibration.spanInvalid') }}</p>
   </div>
 </template>
 

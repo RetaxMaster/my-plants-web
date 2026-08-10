@@ -155,10 +155,59 @@ function instrumentSegButtons(w: ReturnType<typeof mount>) {
 }
 // The raw-reading FormGroup's own `error` prop (QA F5). Read as a PROP, not as rendered text, so this
 // assertion is about the message the component chose rather than about the stub's markup.
+/**
+ * A FAILURE SHAPED THE WAY THE BROWSER ACTUALLY RECEIVES ONE.
+ *
+ * ⚠️ EVERY REJECTION FIXTURE IN THIS FILE MUST GO THROUGH HERE, and the reason is the most expensive lesson
+ * of QA round 3 (2026-08-10). These tests used to hand-build `{ statusCode, data: { message } }` — the
+ * shape an UNPROXIED call would produce. Nothing in this app is unproxied. Every backend call goes through
+ * the Nuxt BFF (`server/api/[...].ts`), which re-throws through h3's `createError({ statusCode, data: <the
+ * API body> })`; ofetch hands the client the whole serialized envelope as `err.data`, so the API's message
+ * really sits at `err.data.data.message` — and the envelope carries no `message` of its own.
+ *
+ * The component read `e.data.message ?? e.message` and compared it with `.includes(...)`. Against the old
+ * fixture it matched. Against the browser the first half is `undefined` and the second is ofetch's summary
+ * line (`[POST] "http://…": 400 Bad Request`), so it matched nothing, the recovery branch never ran, and
+ * the owner got "please try again" for a request the server would refuse forever. The tests were green the
+ * entire time — they were asserting against a wire shape that does not exist.
+ *
+ * A fixture is a claim about what the outside world sends. The shape below is COPIED FROM A MEASUREMENT —
+ * `server/api/proxy.wire.test.ts` drives the real proxy over a real socket — never from a mental model of
+ * what h3 probably does.
+ */
+function proxiedError(statusCode: number, upstreamMessage: string | string[]) {
+  return {
+    statusCode,
+    message: `[POST] "http://localhost/api/x": ${statusCode} Bad Request`,
+    data: {
+      statusCode,
+      statusMessage: 'Bad Request',
+      stack: [],
+      data: { statusCode, message: upstreamMessage, error: 'Bad Request' },
+    },
+  };
+}
+
 function rawValueError(w: ReturnType<typeof mount>) {
   const group = w.findAllComponents({ name: 'FormGroup' })
     .find((g) => String(g.props('label')).startsWith('reading.value|'));
   return group?.props('error');
+}
+
+/**
+ * THE READING'S OWN number input — never `w.find('input[type="number"]')`.
+ *
+ * That plain selector returns the FIRST number input in the dialog, and since QA round 3 (2026-08-10) a
+ * calibrating instrument renders its two anchor fields ABOVE the reading, on every pot rather than only on
+ * an uncalibrated one. So the bare selector silently starts typing the test's reading into the "weight when
+ * freshly watered" box: `rawValue` stays null, Save stays disabled, and the assertion fails somewhere that
+ * has nothing to do with what the test is about. Anchored to the reading's own FormGroup instead, which is
+ * what these cases actually mean.
+ */
+function readingInput(w: ReturnType<typeof mount>) {
+  const group = w.findAllComponents({ name: 'FormGroup' })
+    .find((g) => String(g.props('label')).startsWith('reading.value'));
+  return group!.find('input[type="number"]');
 }
 function findSaveButton(w: ReturnType<typeof mount>) {
   return w.findAll('button').find((b) => b.text().includes('reading.save'))!;
@@ -203,16 +252,69 @@ describe('SoilReadingModal', () => {
     expect(instrumentSegButtons(w)).toHaveLength(2);
   });
 
-  it('shows the calibration fields only when the chosen instrument needs one AND the pot has none', async () => {
+  // ⚠️ REWRITTEN 2026-08-10 (QA round 3, defect 3). This case used to assert the OPPOSITE for its middle
+  // clause — `calibrated.find('.mp-calib').exists()).toBe(false)` — and it passed, because that is exactly
+  // what the code did. It is kept and inverted rather than deleted, because the old assertion is the record
+  // of a decision that turned out to be wrong: hiding the fields the moment a pot HAD anchors made the
+  // calibration write-once from the app. A mis-weighed pot (the saucer left on, a transposed digit) could
+  // be seen nowhere and corrected nowhere, while every reading it ever produced was silently normalised off
+  // the wrong ruler into a perfectly legal 0..1 fraction. Deleting the case would erase the fact that this
+  // was once considered correct.
+  it('shows the calibration fields whenever the instrument USES one — calibrated pot included', async () => {
     const uncalibrated = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
     expect(uncalibrated.find('.mp-calib').exists()).toBe(true);
 
     const calibrated = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
-    expect(calibrated.find('.mp-calib').exists()).toBe(false);
+    expect(calibrated.find('.mp-calib').exists()).toBe(true);
 
-    // An instrument that never needs calibration (the probe) never shows the fields either.
+    // An instrument that never needs calibration (the probe) still never shows the fields — the change is
+    // about a pot that HAS anchors, never about instruments that have no use for them.
     const noCalibNeeded = mountModal(makeData({ instruments: [galvanicProbe] }));
     expect(noCalibNeeded.find('.mp-calib').exists()).toBe(false);
+  });
+
+  it('PREFILLS the stored anchors, so the owner sees what this pot is actually calibrated to', () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+    expect((saturatedInput!.element as HTMLInputElement).value).toBe('1850');
+    expect((dryInput!.element as HTMLInputElement).value).toBe('1200');
+  });
+
+  it('does NOT re-PUT a calibration the owner never touched', async () => {
+    // The API treats an anchor MOVE as a retraction of every fraction those anchors produced. Re-sending
+    // identical numbers on every reading would hand it a decision it should never have to make.
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
+    await readingInput(w).setValue(1500);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    expect(setInstrumentCalibration).not.toHaveBeenCalled();
+    expect(recordSoilReading).toHaveBeenCalledTimes(1);
+  });
+
+  it('DOES PUT a corrected calibration — an edit nobody sent is an edit that did not happen', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
+    const [saturatedInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(1900);
+    await readingInput(w).setValue(1500);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    expect(setInstrumentCalibration).toHaveBeenCalledWith('plant-1', 'kitchen-scale', {
+      saturatedValue: 1900, dryValue: 1200,
+    });
+  });
+
+  // The client half of the shared contract's `instrumentCalibrationSchemaFor`. QA (round 3) typed `-500`
+  // into the dry-weight box and the API stored it with a 200; from then on a real 1000 g reading on that
+  // pot reported 60 % wet. The span rule could never catch it — `2000 > -500` is perfectly true.
+  it('refuses an anchor that is off the instrument\'s own scale, span or no span', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
+    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(2000);
+    await dryInput!.setValue(-500);
+    await readingInput(w).setValue(1000);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    // Named as the bound problem it is, not as the span problem it is not.
+    expect(w.find('.mp-calib__err').text()).toBe('reading.calibration.belowMin|0');
   });
 
   it('blocks submit until the calibration span is strictly positive', async () => {
@@ -321,14 +423,14 @@ describe('SoilReadingModal', () => {
   describe('an open-ended scale still has a FLOOR (QA F5)', () => {
     it('rejects a negative weight and blocks Save', async () => {
       const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
-      await w.find('input[type="number"]').setValue(-50);
+      await readingInput(w).setValue(-50);
       expect(findSaveButton(w).attributes('disabled')).toBeDefined();
       expect(rawValueError(w)).toBe('reading.valueBelowMin|0');
     });
 
     it('accepts an arbitrarily large weight — grams genuinely have no ceiling', async () => {
       const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
-      await w.find('input[type="number"]').setValue(1_000_000);
+      await readingInput(w).setValue(1_000_000);
       expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
       expect(rawValueError(w)).toBeUndefined();
     });
@@ -449,7 +551,7 @@ describe('SoilReadingModal', () => {
   // The kitchen scale declares NO `rawMax` (grams are open-ended) — it must stay unrestricted.
   it('never restricts the kitchen scale — grams are open-ended, no declared rawMax', async () => {
     const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
-    const input = w.find('input[type="number"]');
+    const input = readingInput(w);
     await input.setValue(999999);
     expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
     expect(input.attributes('aria-invalid')).toBeUndefined();
@@ -854,10 +956,9 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
   // 400 naming it there would have no control left to reveal — see the component's own catch-block comment.
   it('a 400 naming wateringRelation REVEALS the question instead of dead-ending on the generic error ' +
     '(voluntary mode)', async () => {
-    recordSoilReading.mockRejectedValueOnce({
-      statusCode: 400,
-      data: { message: 'wateringRelation is required: this plant was already watered on measuredOn' },
-    });
+    recordSoilReading.mockRejectedValueOnce(proxiedError(
+      400, 'wateringRelation is required: this plant was already watered on measuredOn',
+    ));
     // The cached list does NOT name today — that is precisely the stale-snapshot case.
     const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
     expect(wateringRelationSeg(w)).toBeUndefined();
@@ -871,8 +972,23 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
     expect(w.emitted('saved')).toBeUndefined();              // nothing was recorded
   });
 
+  // QA round 3, defect 7. The alert described a save of the reading that switching instruments has just
+  // cleared, so it sat in red under a fresh, untouched form and read as a fault in what the owner was about
+  // to do. An error that outlives the thing it was about is a lie with a delay on it.
+  it('clears the error alert when the instrument changes, along with the reading it described', async () => {
+    recordSoilReading.mockRejectedValueOnce(proxiedError(500, 'boom'));
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe, kitchenScaleNoCalibration] }), { mode: 'voluntary' },
+    );
+    await fillAndSubmit(w);
+    expect(w.text()).toContain('reading.saveFailed');
+
+    await instrumentSegButtons(w)[1]!.trigger('click');
+    expect(w.text()).not.toContain('reading.saveFailed');
+  });
+
   it('a 400 about anything ELSE keeps the generic message and does NOT reveal the question', async () => {
-    recordSoilReading.mockRejectedValueOnce({ statusCode: 400, data: { message: 'rawValue must be finite' } });
+    recordSoilReading.mockRejectedValueOnce(proxiedError(400, 'rawValue must be finite'));
     const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
     await fillAndSubmit(w);
 
@@ -1045,10 +1161,9 @@ describe('a survey refused for a missing wateringRelation recovers instead of de
     // one verdict that legitimately does NOT send `wateringRelation`. Queueing only one HOLD made the
     // retry assertion fail for a harness reason that looks exactly like the defect under test.
     previewSoilReading.mockResolvedValueOnce(HOLD_PREVIEW).mockResolvedValueOnce(HOLD_PREVIEW);
-    recordSoilReading.mockRejectedValueOnce({
-      statusCode: 400,
-      data: { message: 'wateringRelation is required: this plant was already watered on measuredOn' },
-    });
+    recordSoilReading.mockRejectedValueOnce(proxiedError(
+      400, 'wateringRelation is required: this plant was already watered on measuredOn',
+    ));
     // `wateringDays` EMPTY on purpose: this is the case the snapshot cannot predict — in survey mode the
     // plant's local day may not be the browser's, so the day the API judged is not the day this list was
     // checked against. The server is the only one who knows, and its refusal is the signal.
@@ -1107,7 +1222,7 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
   // declares `rawStep: 1` too, but grams are open-ended (`rawMax: null`) and 1234.5 g is a real reading.
   it('still accepts a FRACTIONAL weight on the open-ended kitchen scale', async () => {
     const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
-    await w.find('input[type="number"]').setValue(1234.5);
+    await readingInput(w).setValue(1234.5);
     expect(rawValueError(w)).toBeUndefined();
     expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
   });
@@ -1137,12 +1252,45 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
     expect(blockedText(w)).toBe('reading.missingWateringRelation');
   });
 
-  it('stays silent about a value fault, which already shows inline on the field', async () => {
+  // ⚠️ REWRITTEN 2026-08-10 (QA round 3, defect 4). It used to assert `blockedText(w)).toBeUndefined()`,
+  // on the reasoning that the field already says it inline and repeating it reads as two separate faults.
+  // QA overturned that from the owner's side: typing `11` into a field labelled `Reading (1–10 index)`
+  // greyed the button out with nothing beside it — and the same for `0`, `1.5`, `-5` and `1e3`. In a tall
+  // dialog the field scrolls out of view while the footer does not, and the footer is where the eye goes
+  // when a button will not press. Kept and inverted rather than deleted: the old assertion records a
+  // judgement that was made deliberately and turned out to be wrong in front of a user.
+  it('names the value fault in the footer too — the SAME sentence the field shows', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(99);
-    // Saying it twice, in two places, reads as two separate problems.
-    expect(rawValueError(w)).toBeDefined();
-    expect(blockedText(w)).toBeUndefined();
+    // One sentence in two places. Two DIFFERENT wordings for one fault is what actually reads as two
+    // faults, so this asserts they are identical rather than merely both present.
+    expect(rawValueError(w)).toBe('reading.valueOutOfRange|1|10');
+    expect(blockedText(w)).toBe('reading.valueOutOfRange|1|10');
+  });
+
+  it('names the off-step fault in the footer as well', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5.5);
+    expect(blockedText(w)).toBe('reading.valueOffStep|1|1');
+  });
+
+  // QA round 3, defect 5. Both weights filled, the real fault (inverted) stated correctly ON the field —
+  // and the footer said "fill in both reference weights first" about two boxes the owner was looking at.
+  // A blocking reason that describes a state the owner can see is false costs the trust he needs to
+  // believe the next one.
+  it('says the span is INVERTED, not that the weights are missing, when both are filled', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
+    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(800);
+    await dryInput!.setValue(1500);
+    await readingInput(w).setValue(1000);
+    expect(blockedText(w)).toBe('reading.calibration.spanInvalid');
+  });
+
+  it('still says the weights are missing when they genuinely are', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
+    await readingInput(w).setValue(1000);
+    expect(blockedText(w)).toBe('reading.missingCalibration');
   });
 
   it('says nothing at all once the form is submittable', async () => {
@@ -1295,10 +1443,9 @@ describe('a measurement cannot be dated in the future', () => {
   it('a SERVER refusal about measuredOn says what it is about, not "try again"', async () => {
     // Still reachable with the field guarded: the client compares against the BROWSER's today, the server
     // against the PLANT's, and across the midnight gap those are different days.
-    recordSoilReading.mockRejectedValueOnce({
-      statusCode: 400,
-      data: { message: 'measuredOn must be today or earlier for this plant (its local today is 2026-08-10)' },
-    });
+    recordSoilReading.mockRejectedValueOnce(proxiedError(
+      400, 'measuredOn must be today or earlier for this plant (its local today is 2026-08-10)',
+    ));
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(5);
     await findSaveButton(w).trigger('click');

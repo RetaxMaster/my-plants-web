@@ -22,7 +22,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createApp, toNodeListener, defineEventHandler, getRequestHeader, readRawBody, createError, parseCookies, setResponseStatus, setResponseHeader, type EventHandler } from 'h3';
 import { ofetch } from 'ofetch';
-import { upstreamErrorBody, upstreamErrorStatus } from '../../utils/upstreamError.js';
+import { upstreamErrorBody, upstreamErrorMessage, upstreamErrorStatus } from '../../utils/upstreamError.js';
 
 // The upstream stands in for NestJS. Only its RESPONSE SHAPE matters here, and that shape is pinned by
 // the API's own e2e (`expect(res.body.status).toBe('EXPIRED')` in plant-doctor-proposals.e2e-spec.ts) —
@@ -163,6 +163,45 @@ describe('the Nuxt BFF proxy, seen from the browser', () => {
     const { err } = (await callThroughBff('/api/x')) as { err: unknown };
     expect(upstreamErrorStatus(err)).toBeUndefined();
     expect(upstreamErrorBody(err)).toEqual({ message: 'boom' });
+  });
+
+  // ⚠️ DEFECT FAMILY MEMBER #5 (QA round 3, 2026-08-10) — the longest-hidden one. `SoilReadingModal.vue`
+  // read `String(e?.data?.message ?? e?.message ?? '')` and tested it with `.includes('wateringRelation')`.
+  // Both halves of that fallback are wrong through this proxy, and the assertions below are the MEASURED
+  // shape rather than anyone's model of it:
+  //
+  //   - the envelope has NO `message` key at all, so `e.data.message` is `undefined`;
+  //   - the fallback therefore lands on ofetch's own error summary, which is the request line and the
+  //     status — `[GET] "http://…/api/…": 400 Bad Request` — and contains none of the API's words.
+  //
+  // So the test matched nothing, the recovery branch never ran, and the owner was told to "try again" on a
+  // request the API would refuse identically forever. Every unit test either side stayed green: each
+  // asserted the un-nested shape its own layer produces.
+  //
+  // This case is the only one that can see it, because it is the only one that crosses the real proxy.
+  it('has NO `message` of its own — the naive lookup falls through to ofetch\'s status line', async () => {
+    nextStatus = 400;
+    nextBody = { statusCode: 400, message: 'wateringRelation is required: …', error: 'Bad Request' };
+    const { err } = (await callThroughBff('/api/plants/p1/soil-readings')) as {
+      err: { data?: { message?: string }; message?: string };
+    };
+    // What the old code read first…
+    expect(err.data?.message).toBeUndefined();
+    // …and what it fell back to: ofetch's summary, which names the method, the URL and the status, and
+    // nothing the API actually said.
+    expect(err.message).toContain('400 Bad Request');
+    expect(err.message).not.toContain('wateringRelation');
+    // What the shared helper reads instead.
+    expect(upstreamErrorMessage(err)).toBe('wateringRelation is required: …');
+  });
+
+  it('carries a validation pipe\'s ARRAY of messages through unflattened', async () => {
+    nextStatus = 400;
+    nextBody = { statusCode: 400, message: ['dryValue: dryValue -500 is outside the kitchen-scale scale (0..open-ended)'] };
+    const { err } = (await callThroughBff('/api/plants/p1/soil-readings/calibration/kitchen-scale')) as {
+      err: unknown;
+    };
+    expect(upstreamErrorMessage(err)).toContain('outside the kitchen-scale scale');
   });
 
   it('preserves the upstream STATUS CODE (401 is what drives the app to the login screen)', async () => {

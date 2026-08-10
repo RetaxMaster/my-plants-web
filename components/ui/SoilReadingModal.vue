@@ -49,6 +49,10 @@ import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-in
 import type { PlantSoilReadings, SoilReadingPreview, WateringRelation } from '~/types/api';
 import { toNullableNumber } from '~/utils/nullableNumber';
 import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
+// The ONE module that knows the Nuxt BFF's error envelope. Read its header before touching the catch
+// blocks below: the envelope carries no `message` of its own, so a hand-rolled `e.data.message` read here
+// does not merely duplicate this module — it silently never matches, on every proxied failure.
+import { upstreamErrorCode, upstreamErrorMessage } from '~/utils/upstreamError';
 
 // `mode` is now REQUIRED (Task 6, watering-survey-web plan): both callers pass it explicitly —
 // pages/index.vue's WATER survey passes `'survey'` (commit ff75f51), PlantDetail.vue passes a dynamic
@@ -142,8 +146,13 @@ watch(open, (isOpen) => {
   measuredOn.value = todayYmd();
   wateringRelation.value = '';
   serverSaysWateringDay.value = false;
-  calibration.saturatedValue = null;
-  calibration.dryValue = null;
+  // ⚠️ NOT nulled any more (QA round 3, 2026-08-10) — PREFILLED from the pot's stored anchors. The rule the
+  // old code enforced is still right and still enforced: anchors TYPED for the old pot and abandoned
+  // without saving must never sit pre-filled. What it got wrong is that the server's own stored calibration
+  // is not that — it IS this pot's current calibration, and hiding it is what made a mis-weighed pot
+  // unrepairable from the app and made a failed save look like it had lost a calibration it had actually
+  // written. `syncCalibrationFromStored` reads `props.data`, so it shows what the pot has NOW.
+  syncCalibrationFromStored();
   // `instrumentId`'s setup-time initializer (`props.data.instruments[0]?.id ?? ''`) can miss the "default
   // to the first instrument" intent entirely: PlantDetail.vue's template falls back to an empty
   // `{ instruments: [], … }` shape while its own async readings fetch is still in flight, so the modal can
@@ -173,8 +182,15 @@ watch(open, (isOpen) => {
  */
 watch(instrumentId, () => {
   rawValue.value = null;
-  calibration.saturatedValue = null;
-  calibration.dryValue = null;
+  // Re-read from the SERVER for the newly chosen instrument rather than blanking: anchors are per (pot,
+  // instrument), so the old instrument's numbers describe nothing here — but the new instrument may well
+  // have its own stored pair, and that pair is exactly what the owner should see.
+  syncCalibrationFromStored();
+  // ⚠️ AND THE ERROR ALERT GOES WITH THEM (QA round 3, defect 7). It described a save of the READING that
+  // has just been cleared, so leaving it up puts a red "we couldn't save that reading, please try again"
+  // under a fresh, untouched form — the owner reads it as a fault in what he is about to do. An error
+  // outliving the thing it was about is a lie with a delay on it.
+  error.value = null;
 });
 
 const options = computed(() =>
@@ -189,6 +205,82 @@ const instrument = computed(() =>
 const protocolKind = computed(() => instrument.value?.protocolKind ?? 'insertion');
 const needsCalibration = computed(() =>
   instrument.value?.requiresCalibration === true && instrument.value.calibration == null);
+
+/**
+ * A SAVED CALIBRATION MUST STAY VISIBLE AND CORRECTABLE (QA round 3, 2026-08-10).
+ *
+ * This used to be `needsCalibration` — the fields rendered only while the pot had NO anchors, and vanished
+ * the instant it had some. That made the calibration write-once from the app: a mis-weighed pot (an
+ * ordinary mistake — the saucer left on, the wrong pot, a transposed digit) could be seen nowhere, in the
+ * dialog, on the plant page, or in /settings, and could be repaired by nothing short of a raw `PUT`.
+ *
+ * It is the reason the negative-anchor defect had no exit. It is also why a FAILED save appeared to lose a
+ * calibration that had in fact been stored: the anchors were written by the first half of `submit()`, the
+ * reading then failed, and reopening re-rendered two empty fields, one tap from silently overwriting a
+ * perfectly good calibration with whatever the owner re-typed.
+ *
+ * `needsCalibration` above survives and still means what it says — "there is nothing to normalise against
+ * yet" — which is what `canSubmit` and `blockedReason` must gate on. This one answers a different question:
+ * "does this instrument have anchors the owner should be able to see?"
+ */
+const showsCalibration = computed(() => instrument.value?.requiresCalibration === true);
+
+/** The anchors as the SERVER currently holds them, for this instrument, or `null`. The one place the stored
+ *  calibration is read, so the prefill and the "did the owner change it?" comparison below can never
+ *  disagree about what "stored" means. */
+const storedCalibration = computed(() => instrument.value?.calibration ?? null);
+
+/** Pull the stored anchors into the editable fields. Called on open and on every instrument switch — the
+ *  two moments the fields stop describing whatever they described before — AND once at setup, for the same
+ *  reason `instrumentId` re-applies its default in the `open` watcher: a modal that is mounted ALREADY open
+ *  never fires that watcher, and an initializer that only runs on a transition is an initializer with a
+ *  precondition nobody stated. Cheap, idempotent, and it removes the precondition. */
+function syncCalibrationFromStored() {
+  calibration.saturatedValue = storedCalibration.value?.saturatedValue ?? null;
+  calibration.dryValue = storedCalibration.value?.dryValue ?? null;
+}
+syncCalibrationFromStored();
+
+/** Has the owner actually moved the anchors? Drives whether `submit()` writes them at all — re-`PUT`ting
+ *  identical numbers is not merely wasteful, it is a request the API must reason about (its own comment:
+ *  replacing anchors RETRACTS the fractions they produced, and it compares before deciding). Sending only a
+ *  real change keeps that decision unambiguous on both sides. */
+const calibrationChanged = computed(() => {
+  const stored = storedCalibration.value;
+  if (calibration.saturatedValue == null || calibration.dryValue == null) return false;
+  if (stored == null) return true;
+  return stored.saturatedValue !== calibration.saturatedValue
+    || stored.dryValue !== calibration.dryValue;
+});
+
+/**
+ * AN ANCHOR IS A READING ON THE SAME SCALE, so the instrument's own bounds bind it (QA round 3).
+ *
+ * The client half of the shared contract's `instrumentCalibrationSchemaFor` — the same relationship
+ * `rawValueOutOfRange` below has with `rawValueRangeRefinement`. Returns the offending field's label-ready
+ * reason, or `undefined`.
+ *
+ * Worth stating plainly, because the browser bound alone would be a false comfort: the server refuses these
+ * too, through the shared contract. This exists so the owner never reaches the refusal by accident, not as
+ * the only thing standing between a typo and the database.
+ */
+const calibrationOffScale = computed(() => {
+  const row = instrument.value;
+  if (row == null) return undefined;
+  const offScale = (v: number | null) =>
+    v != null && (v < row.rawMin || (row.rawMax != null && v > row.rawMax));
+  if (offScale(calibration.saturatedValue) || offScale(calibration.dryValue)) {
+    return row.rawMax == null
+      ? t('reading.calibration.belowMin', { min: row.rawMin })
+      : t('reading.calibration.outOfRange', { min: row.rawMin, max: row.rawMax });
+  }
+  return undefined;
+});
+
+/** The anchors are usable: both present, ordered, and each one on the instrument's scale. */
+const calibrationUsable = computed(() =>
+  calibration.saturatedValue != null && calibration.dryValue != null &&
+  calibration.saturatedValue > calibration.dryValue && calibrationOffScale.value === undefined);
 // An ORDINAL instrument (the wooden stick, the finger) has no physical unit to name — `OrdinalReadingPicker`
 // renders a choice of named states, not a number, so "Reading (índice 1–10)"-shaped copy would be
 // meaningless for it. Guarding here (rather than always attempting the interpolation) also keeps this modal
@@ -339,19 +431,34 @@ const rawValueErrorMessage = computed(() => {
  * order matters: it reports the FIRST thing standing in the way, walking the form top-to-bottom the way
  * the owner's eye does, rather than whichever condition happens to be evaluated first.
  *
- * Deliberately silent about the value's own bounds/step problems — those already render inline on the
- * field itself (`rawValueErrorMessage`), and saying it twice in two places reads as two separate faults.
+ * ⚠️ IT USED TO GO DELIBERATELY SILENT ABOUT THE VALUE'S OWN BOUNDS AND STEP, on the reasoning that those
+ * already render inline on the field and saying it twice reads as two separate faults. QA (round 3,
+ * 2026-08-10) overturned that from the owner's side: typing `11` into a field labelled `Reading (1–10
+ * index)` greyed the button out with nothing beside it, and the same for `0`, `1.5`, `-5` and `1e3`. The
+ * inline message is real, but the footer is where the owner looks when the button will not press — and in a
+ * tall dialog (the kitchen scale renders three number fields plus two hints) the field can be scrolled out
+ * of view while the footer is not. THE DATE FIELD ALREADY WORKS THIS WAY, states its reason in both places,
+ * and QA verified it as the good case; this is the same treatment for the number.
  */
 const blockedReason = computed(() => {
   if (submitting.value || instrumentId.value === '') return undefined;
   // Ahead of the value: a date the owner has to correct anyway makes every other complaint noise.
   if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
   if (rawValue.value == null) return t('reading.missingValue');
-  if (rawValueOutOfRange.value || rawValueOffStep.value) return undefined;
-  if (needsCalibration.value &&
-      !(calibration.saturatedValue != null && calibration.dryValue != null &&
-        calibration.saturatedValue > calibration.dryValue)) {
-    return t('reading.missingCalibration');
+  // The SAME sentence the field shows, not a second phrasing of it — two wordings for one fault is what
+  // actually reads as two faults.
+  if (rawValueOutOfRange.value || rawValueOffStep.value) return rawValueErrorMessage.value;
+  if (needsCalibration.value || (showsCalibration.value && calibrationChanged.value)) {
+    // ⚠️ THREE OUTCOMES, NOT TWO (QA round 3, defect 5). This used to collapse every calibration problem
+    // into "fill in both reference weights first", so an INVERTED pair (800 watered / 1500 dry) — both
+    // fields filled, the real fault stated correctly inline — was explained in the footer as two empty
+    // fields the owner was staring at. A blocking reason that describes a state the owner can see is false
+    // is worse than none: it costs him the trust he needs to believe the next one.
+    if (calibration.saturatedValue == null || calibration.dryValue == null) {
+      return t('reading.missingCalibration');
+    }
+    if (calibrationOffScale.value) return calibrationOffScale.value;
+    if (calibration.saturatedValue <= calibration.dryValue) return t('reading.calibration.spanInvalid');
   }
   if (showWateringRelation.value && wateringRelation.value === '') {
     return t('reading.missingWateringRelation');
@@ -365,9 +472,11 @@ const canSubmit = computed(() =>
   // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — since
   // 2026-08-10 that means ANY watering day, in either mode (see `showWateringRelation`).
   (!showWateringRelation.value || wateringRelation.value !== '') &&
-  (!needsCalibration.value ||
-    (calibration.saturatedValue != null && calibration.dryValue != null &&
-     calibration.saturatedValue > calibration.dryValue)));
+  // Two conditions, because a calibration can now be EDITED as well as first supplied (QA round 3):
+  // it must be usable when the pot has none yet, and it must still be usable if the owner has touched it.
+  // A pot with a good stored calibration the owner leaves alone gates on neither.
+  (!needsCalibration.value || calibrationUsable.value) &&
+  (!calibrationChanged.value || calibrationUsable.value));
 
 // "Calcular riego" in survey mode (the modal is about to ANSWER something), "Save reading" in voluntary
 // mode (the modal is simply recording one). See the file-header comment for why the two verbs are not
@@ -409,7 +518,14 @@ async function submit() {
   try {
     // The calibration is saved FIRST when the pot has none: the reading's normalisation reads it, so a
     // reading (or a preview, which normalises the SAME way) run before it would see a null wetness.
-    if (needsCalibration.value) {
+    //
+    // ⚠️ ALSO WHEN THE OWNER CORRECTED AN EXISTING ONE (QA round 3) — the fields are editable now, and an
+    // edit nobody sent is an edit that did not happen, which is the worst of the three outcomes: the owner
+    // watched himself fix a wrong anchor and the pot kept the wrong one. Gated on `calibrationChanged` and
+    // not merely on "the fields are filled", so simply opening the dialog on a calibrated pot does not
+    // re-`PUT` identical numbers — the API treats an anchor MOVE as a retraction of the fractions it
+    // produced, and it deserves to see only real moves.
+    if (needsCalibration.value || calibrationChanged.value) {
       await api.setInstrumentCalibration(props.plantId, chosenInstrumentId, {
         saturatedValue: calibration.saturatedValue as number,
         dryValue: calibration.dryValue as number,
@@ -521,15 +637,33 @@ async function submit() {
     // porting RepotDoneForm.vue's whole `frozen` machinery here (owner ruling) — reopening mints a fresh
     // key, and there is nothing left to retry once the server already has the reading. Applies to BOTH
     // modes: a genuine idempotency replay means the same thing regardless of which flow produced the write.
-    const status = e?.statusCode ?? e?.response?.status;
+    // ⚠️ READ THROUGH `utils/upstreamError.ts`, NEVER OFF `e.data` DIRECTLY (QA round 3, 2026-08-10).
+    //
+    // Every call here is proxied by the Nuxt BFF, which re-throws through h3's `createError({ statusCode,
+    // data: <the API's body> })`. ofetch hands the browser the whole serialized envelope as `err.data`, so
+    // the API's own message sits at `err.data.data.message` — and the envelope carries NO `message` key of
+    // its own (measured, in `server/api/proxy.wire.test.ts`).
+    //
+    // The two branches below used to read `String(e?.data?.message ?? e?.message ?? '')`. Both halves of
+    // that fallback miss: the first is `undefined`, and the second is ofetch's own summary line —
+    // `[GET] "http://…/api/…": 400 Bad Request` — which contains the method, the URL and the status, and
+    // none of the API's words. So `.includes('wateringRelation')` was false EVERY TIME, since the day these
+    // branches were written, and both fell through to the generic `reading.saveFailed`. QA saw only the
+    // symptom (a survey dead-ended on a plant watered earlier the same day, told to "try again" on a
+    // request the server would refuse identically forever). The cause was not that the recovery was wrong:
+    // it was unreachable.
+    //
+    // This repo already learned this once. That module was written after an EXPIRED proposal was explained
+    // to the owner as "someone else resolved this", and its header says outright that consumers must never
+    // index into `data.data` themselves. This file did its own indexing anyway — which is why a second copy
+    // of a lookup is not a harmless duplicate: it is a copy that can be silently wrong while looking right.
+    const status = upstreamErrorCode(e);
+    const upstreamMessage = upstreamErrorMessage(e);
     if (status === 409 || status === 422) {
       error.value = t('reading.alreadyRecorded');
       open.value = false;
       emit('saved');
-    } else if (
-      status === 400 &&
-      String(e?.data?.message ?? e?.message ?? '').includes('wateringRelation')
-    ) {
+    } else if (status === 400 && upstreamMessage.includes('wateringRelation')) {
       // DEFENCE IN DEPTH for the same-day question — IN BOTH MODES since 2026-08-10 (QA defect 3). It used
       // to be voluntary-only, on the reasoning that survey mode "never sends `wateringRelation` at all —
       // impossible by construction". That reasoning has been corrected where it originates, at
@@ -548,10 +682,7 @@ async function submit() {
       // carries a real answer.
       serverSaysWateringDay.value = true;
       error.value = t('reading.wateringRelationRequired');
-    } else if (
-      status === 400 &&
-      String(e?.data?.message ?? e?.message ?? '').includes('measuredOn')
-    ) {
+    } else if (status === 400 && upstreamMessage.includes('measuredOn')) {
       // The server judges "future" against the PLANT's local day; the client guard above judges against the
       // browser's. Across the midnight gap those disagree, so this refusal stays reachable even with the
       // field guarded — and it must say what it is about. Falling through to the generic branch printed
@@ -611,14 +742,31 @@ async function saveUnavailableReading() {
     emit('saved');
   } catch (e: any) {
     // Same idempotency-replay handling as `submit()`'s catch — a 409/422 here can only mean this exact
-    // reading already committed under this key (see that comment for the full reasoning). Never the
-    // `wateringRelation`-reveal branch: this button never sends that field, in either mode.
-    const status = e?.statusCode ?? e?.response?.status;
+    // reading already committed under this key (see that comment for the full reasoning), and the same
+    // `utils/upstreamError.ts` lookup, for the same reason: the BFF envelope has no `message` of its own,
+    // so a direct `e.data.message` read is `undefined` and matches nothing.
+    const status = upstreamErrorCode(e);
     if (status === 409 || status === 422) {
       error.value = t('reading.alreadyRecorded');
       pendingUnavailableReading.value = null;
       open.value = false;
       emit('saved');
+    } else if (status === 400 && upstreamErrorMessage(e).includes('wateringRelation')) {
+      // ⚠️ THIS BRANCH USED TO BE RULED OUT IN A COMMENT — *"never the `wateringRelation`-reveal branch:
+      // this button never sends that field"*. True, and beside the point: the field is not missing because
+      // the button declined to send it, it is missing because the PENDING RECORD was frozen at a moment
+      // when `showWateringRelation` was false (the page's `wateringDays` snapshot did not yet name the day
+      // as watered). The owner then taps "Guardar lectura" minutes later, against a server that knows
+      // better, and the save is refused — permanently, since the frozen record can never gain the field.
+      //
+      // So send him BACK to the measure step rather than leaving a dead verdict screen. The reveal below
+      // makes the control appear there, the instrument and reading are still filled in, and pressing the
+      // primary button again runs the ordinary survey path — which now carries the answer. No new save
+      // path, no second way to write a reading: the recovery is the flow he already knows.
+      serverSaysWateringDay.value = true;
+      pendingUnavailableReading.value = null;
+      step.value = 'measure';
+      error.value = t('reading.wateringRelationRequired');
     } else {
       error.value = t('reading.saveFailed');
     }
@@ -704,10 +852,14 @@ const holdDateLabel = computed(() => {
         {{ t(`reading.honesty.${instrument.id}`) }}
       </p>
 
+      <!-- Shown whenever the instrument USES a calibration — not only while it lacks one (QA round 3).
+           A stored calibration the owner cannot see is one he cannot correct, and a wrong anchor silently
+           rescales every future reading of this pot into a perfectly legal fraction. -->
       <InstrumentCalibrationFields
-        v-if="needsCalibration && instrument"
+        v-if="showsCalibration && instrument"
         v-model="calibration"
         :unit-label="valueUnitLabel"
+        :off-scale-error="calibrationOffScale"
       />
 
       <FormGroup :label="valueFieldLabel" :error="rawValueErrorMessage">

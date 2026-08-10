@@ -171,9 +171,40 @@ const readingMode = ref<'survey' | 'voluntary'>('voluntary');
 // The measurement-history block's own entry point (Task 6): recording a back-dated reading is not part of
 // deciding today's watering, so it lives here — never on the WATER task row, which the `@measure`
 // affordance used to occupy (removed; see the TaskRow binding below).
-function openVoluntaryReading() {
+async function openVoluntaryReading() {
+  await refreshReadingsBeforeOpening();
   readingMode.value = 'voluntary';
   readingModalOpen.value = true;
+}
+
+/**
+ * REFRESH THE READINGS SNAPSHOT BEFORE THE DIALOG OPENS ON IT (QA round 3, 2026-08-10).
+ *
+ * `readings` is fetched once, with the page. Three things inside the measuring modal are decided from that
+ * snapshot, and all three are wrong if it is stale:
+ *
+ *  - `wateringDays` decides whether the same-day "before or after that watering?" question is even ASKED.
+ *    Water the plant from a second tab (or from Today, or from the API) and this page never hears about it:
+ *    the question is not asked, the field is not sent, and the server refuses the write — permanently, for
+ *    a request the owner can retry as often as he likes. QA reproduced exactly that, 3/3.
+ *  - the pot's stored CALIBRATION prefills the anchor fields, so a stale snapshot shows two empty boxes for
+ *    a pot that is calibrated — one tap from overwriting good anchors with re-typed ones.
+ *  - the instrument list itself, if the owner just changed it in /settings in another tab.
+ *
+ * AWAITED, not fired and forgotten, and that is the whole point: the modal reads this data in its `open`
+ * watcher, so a refresh that lands a moment later would arrive after the prefill had already used the stale
+ * values. Awaiting costs one round trip against localhost and buys a dialog that is correct on arrival.
+ *
+ * FAILS OPEN. A refresh that errors must never stop the owner measuring — he then gets exactly what he had
+ * before this function existed (the page's original snapshot), plus the modal's own 400 recovery underneath
+ * it. Blocking the dialog on a failed background fetch would trade a rare stale field for a dead button.
+ */
+async function refreshReadingsBeforeOpening() {
+  try {
+    await refreshReadings();
+  } catch {
+    // Deliberately silent: see FAILS OPEN above. Nothing is lost that the owner had a moment ago.
+  }
 }
 // A saved reading can change BOTH the readings list (SoilReadingModal's own data) and the care payload's
 // `measurement` block (a new reading can flip `suggestMeasuring`/`tooSlowDrying`/`flatSeries`, and now
@@ -739,8 +770,12 @@ function retryEvaluate() {
 // which fetches a fresh per-plant reading catalogue on every click (it never preloads one for every card up
 // front), this page already holds `readings` for its ONE plant from the top-level `useAsyncData` read above
 // — reused here rather than a second, per-click fetch.
-function onEvaluateTask(e: { task: TaskCode }) {
+async function onEvaluateTask(e: { task: TaskCode }) {
   if (e.task === 'WATER') {
+    // ⚠️ THE SENTENCE ABOVE — "reused here rather than a second, per-click fetch" — was the reasoning that
+    // made the survey dead-end on a plant watered from anywhere else (QA round 3). A snapshot taken at page
+    // load is not the state the server will judge this write against; see `refreshReadingsBeforeOpening`.
+    await refreshReadingsBeforeOpening();
     readingMode.value = 'survey';
     readingModalOpen.value = true;
     return;

@@ -1430,7 +1430,9 @@
       "saturatedHint": "Riégala, deja que escurra y pesa la maceta completa.",
       "dry": "Peso en seco ({unit})",
       "dryHint": "Vuelve a pesarla justo antes de cuando normalmente la regarías.",
-      "spanInvalid": "El peso recién regada tiene que ser mayor que el peso en seco."
+      "spanInvalid": "El peso recién regada tiene que ser mayor que el peso en seco.",
+      "belowMin": "Un peso tiene que ser de {min} o más.",
+      "outOfRange": "Una lectura tiene que estar entre {min} y {max}."
     },
     "measureAction": "Medir",
     "surveyQuestion": "¿Necesitas regar?",

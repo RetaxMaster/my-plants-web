@@ -3,9 +3,10 @@
  *
  * Every backend call in this app is proxied. The proxy catches the upstream failure and re-throws it with
  * h3's `createError({ statusCode, statusMessage, data: <upstream body> })`. h3 serializes that as a JSON
- * body `{ statusCode, statusMessage, message, data }`, and ofetch hands the client that WHOLE body as
+ * body `{ statusCode, statusMessage, stack, data }`, and ofetch hands the client that WHOLE body as
  * `err.data`. So the upstream's own body — the one the API's e2e sees at the top level — sits at
- * `err.data.data` in the browser, ONE LEVEL DEEPER than anywhere else.
+ * `err.data.data` in the browser, ONE LEVEL DEEPER than anywhere else, and the envelope contributes NO
+ * `message` of its own (see `upstreamErrorMessage` below for why that second fact matters as much).
  *
  * That single level is not trivia. `err.data.status` reads `undefined` instead of `'EXPIRED'`, and an
  * expired proposal was therefore explained to the owner as "someone else resolved this" — on the consent
@@ -18,7 +19,7 @@
 /** The upstream (NestJS) response body, unwrapped from the BFF envelope. `null` when there is none. */
 export function upstreamErrorBody(err: unknown): Record<string, unknown> | null {
   const outer = (err as { data?: unknown } | null | undefined)?.data;
-  // The h3 envelope. Accepted only when `data` is a plain object: h3 also emits `statusMessage`/`message`
+  // The h3 envelope. Accepted only when `data` is a plain object: h3 also emits `statusCode`/`statusMessage`
   // siblings, and a non-object `data` is not a body we can read fields out of.
   const inner = (outer as { data?: unknown } | null | undefined)?.data;
   if (inner && typeof inner === 'object' && !Array.isArray(inner)) return inner as Record<string, unknown>;
@@ -39,6 +40,39 @@ export function upstreamErrorBody(err: unknown): Record<string, unknown> | null 
 export function upstreamErrorStatus(err: unknown): string | undefined {
   const status = upstreamErrorBody(err)?.status;
   return typeof status === 'string' ? status : undefined;
+}
+
+/**
+ * THE UPSTREAM'S OWN MESSAGE, as one string. `''` when there is none.
+ *
+ * ⚠️ THIS EXISTS BECAUSE READING `err.data.message` DIRECTLY IS ALWAYS WRONG, AND FAILS SILENTLY.
+ *
+ * MEASURED, not assumed — `server/api/proxy.wire.test.ts` drives the real proxy over a real socket and
+ * pins this. A 400 whose API body is `{ message: 'wateringRelation is required: …' }` reaches the browser
+ * as an error whose `data` is `{ statusCode, statusMessage, stack, data: <the API body> }`. Note what is
+ * NOT there: the envelope has **no `message` key at all**. So a caller reading `err.data.message` gets
+ * `undefined`, and the usual `?? err.message` fallback lands on ofetch's own summary —
+ * `[GET] "http://…/api/…": 400 Bad Request` — which names the method, the URL and the status, and none of
+ * the API's words. A caller that tests either one against anything (`.includes('wateringRelation')`, a
+ * code, a substring) gets a confident `false` and falls through to its generic branch. Nothing throws;
+ * nothing is logged; the recovery code simply never runs.
+ *
+ * That is not hypothetical. `SoilReadingModal.vue` carried TWO such branches — reveal the same-day-watering
+ * question the server says is missing, and explain a future `measuredOn` — and QA (2026-08-10) found the
+ * survey dead-ending on a plant watered earlier that day, with "we couldn't save that reading, please try
+ * again" on a request that could never succeed. Both branches were correct. Neither had ever executed.
+ *
+ * Nest sends `message` as a STRING for a thrown `BadRequestException(string)` and as a STRING[] when a
+ * validation pipe maps issues (`ZodValidationPipe` does exactly that). Both are joined here so a caller
+ * never has to know which shape it got — the difference is an implementation detail of the throw site, and
+ * making every consumer branch on it is how one of them ends up handling only the shape it was written
+ * against.
+ */
+export function upstreamErrorMessage(err: unknown): string {
+  const message = upstreamErrorBody(err)?.message;
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message)) return message.filter((m) => typeof m === 'string').join('; ');
+  return '';
 }
 
 /** The HTTP status code of a proxied failure, from whichever field the client library populated. */

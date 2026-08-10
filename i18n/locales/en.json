@@ -1430,7 +1430,9 @@
       "saturatedHint": "Water it, let it drain, then weigh the whole pot.",
       "dry": "Weight when dry ({unit})",
       "dryHint": "Weigh it again right before you'd normally water.",
-      "spanInvalid": "The watered weight has to be higher than the dry weight."
+      "spanInvalid": "The watered weight has to be higher than the dry weight.",
+      "belowMin": "A weight has to be {min} or more.",
+      "outOfRange": "A reading has to be between {min} and {max}."
     },
     "measureAction": "Measure",
     "surveyQuestion": "Do you need to water?",

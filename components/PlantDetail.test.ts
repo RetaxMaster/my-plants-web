@@ -2076,6 +2076,91 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(modal.props('mode')).toBe('voluntary');
   });
 
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  // OPENING THE DIALOG REFRESHES THE READINGS — AND A FAILED REFRESH MUST NOT BLANK THEM.
+  //
+  // QA round 3 added the refresh (a plant watered from another tab left this page's snapshot behind, and
+  // the survey dead-ended). QA round 5 found what it introduced: `useAsyncData`'s `refresh()` resets
+  // `data` to its default on error, so a failed refresh did not leave the snapshot alone — it BLANKED it,
+  // and the dialog told an owner with four instruments that he had told us nothing about what he measures
+  // with, while the card behind it correctly said the load had failed.
+  //
+  // The stub below models the REAL failure shape rather than a convenient one: `refresh()` RESOLVES and
+  // sets `data` to null. A stub that merely rejected would let a `try/catch`-only fix pass, which is
+  // exactly the fix that does not work here.
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  describe('a failed refresh on open keeps the readings the owner already had', () => {
+    const LOADED = {
+      instruments: [{ id: 'galvanic-probe', requiresCalibration: false }],
+      protocol: null, readings: [], wateringDays: [],
+    };
+
+    afterEach(() => {
+      vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+        data: ref(await fn()),
+        refresh: vi.fn(async () => {}),
+      }));
+    });
+
+    async function mountWithFailingReadingsRefresh() {
+      vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => {
+        const data = ref(await fn());
+        return {
+          data,
+          refresh: key.startsWith('soil-readings-')
+            // Resolves. Blanks. This is what Nuxt does on a failed refresh.
+            ? vi.fn(async () => { data.value = null; })
+            : vi.fn(async () => {}),
+        };
+      });
+      vi.stubGlobal('useApi', () => ({
+        getPlant: async () => basePlant(),
+        getPlantCare: async () => waterCare(false),
+        listPlaces: async () => [],
+        getPlantHistory: async () => [],
+        getPlantPhotos: async () => [],
+        getRepotSigns: async () => ({ signs: [] }),
+        getSoilReadings: async () => LOADED,
+        getOwnerInstruments: async () => ({ available: [], selected: ['galvanic-probe'] }),
+        invalidatePlant: vi.fn(),
+      }));
+      const PlantDetail = (await import('./PlantDetail.vue')).default;
+      const w = mount(
+        { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+        { global: { stubs: localStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+      );
+      await flushPromises();
+      return w;
+    }
+
+    it('still opens the dialog, carrying the instruments it had a second earlier', async () => {
+      const w = await mountWithFailingReadingsRefresh();
+      const addBtn = w.findAll('button').find((b) => b.text() === i18n.t('reading.addReading'));
+      await addBtn!.trigger('click');
+      await flushPromises();
+
+      const modal = w.findComponent({ name: 'UiSoilReadingModal' });
+      expect(modal.attributes('data-open')).toBe('true');
+      // THE ASSERTION THAT MATTERS. Blanked, this is `[]` and the dialog says "you haven't told us what
+      // you measure with yet" to an owner who has.
+      expect((modal.props('data') as typeof LOADED).instruments).toHaveLength(1);
+    });
+
+    it('leaves the entry point usable afterwards — the guard must not wedge', async () => {
+      const w = await mountWithFailingReadingsRefresh();
+      const addBtn = () => w.findAll('button').find((b) => b.text() === i18n.t('reading.addReading'));
+      await addBtn()!.trigger('click');
+      await flushPromises();
+      // Close, then open again: a `readingOpening` flag left true by a failing path would make the second
+      // open a silent no-op — the same "nothing happened" the guard exists to remove.
+      await w.findComponent({ name: 'UiSoilReadingModal' }).vm.$emit('update:open', false);
+      await flushPromises();
+      await addBtn()!.trigger('click');
+      await flushPromises();
+      expect(w.findComponent({ name: 'UiSoilReadingModal' }).attributes('data-open')).toBe('true');
+    });
+  });
+
   // Not one of the four pinned tests, but the wiring it proves is new production code this task adds
   // (`onEvaluateTask`, routing a WATER row's own survey click to `readingMode: 'survey'` instead of into
   // the REPOT-only `onEvaluate`): unverified, it would ship a WATER "¿Necesitas regar?" click that silently

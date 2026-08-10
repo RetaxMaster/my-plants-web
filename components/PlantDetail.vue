@@ -193,16 +193,35 @@ function openVoluntaryReading() {
  * watcher, so a refresh that lands a moment later would arrive after the prefill had already used the stale
  * values. Awaiting costs one round trip against localhost and buys a dialog that is correct on arrival.
  *
- * FAILS OPEN. A refresh that errors must never stop the owner measuring — he then gets exactly what he had
- * before this function existed (the page's original snapshot), plus the modal's own 400 recovery underneath
- * it. Blocking the dialog on a failed background fetch would trade a rare stale field for a dead button.
+ * FAILS OPEN — AND THAT TOOK TWO TRIES TO ACTUALLY BE TRUE (QA round 5, 2026-08-10).
+ *
+ * The first version was a bare `try { await refreshReadings() } catch {}`, with a comment claiming the
+ * owner "gets exactly what he had before this function existed (the page's original snapshot)". **That
+ * claim was false, and the comment asserting it is what made it hard to notice.** `useAsyncData`'s
+ * `refresh()` resets `data` to its default on error — so a failed refresh did not leave the snapshot
+ * alone, it BLANKED it. `readings` went null, the dialog fell back to its empty `{ instruments: [] }`
+ * shape, and the owner opening it mid-outage was told *"You haven't told us what you measure with yet"*
+ * about instruments he demonstrably has, while the card behind it correctly said the load had failed. One
+ * screen, two contradictory explanations, and the wrong one in front.
+ *
+ * That is a defect this refresh INTRODUCED: before it existed, opening the dialog fetched nothing, so
+ * nothing could blank. So the snapshot is captured and restored by hand, which makes "fails open" mean
+ * what it says: on failure the owner sees exactly the data he saw a second earlier, plus the modal's own
+ * 400 recovery underneath it. Blocking the dialog on a failed background fetch would trade a rare stale
+ * field for a dead button; blanking it trades a rare stale field for a lie.
  */
 async function refreshReadingsBeforeOpening() {
+  const previous = readings.value;
   try {
     await refreshReadings();
   } catch {
-    // Deliberately silent: see FAILS OPEN above. Nothing is lost that the owner had a moment ago.
+    // Deliberately silent about the FAILURE (the owner is opening a dialog, not asking about the network),
+    // but never silent about the DATA: put back what he already had.
   }
+  // Outside the catch on purpose. `refresh()` does not necessarily reject — it can resolve having recorded
+  // the error and reset `data` — so the restore has to be driven by the OBSERVED state, not by whether a
+  // rejection happened to be thrown.
+  if (readings.value == null && previous != null) readings.value = previous;
 }
 
 /**

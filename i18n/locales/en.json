@@ -1388,6 +1388,18 @@
       "galvanic-probe": "This probe reads conductivity, not water — so compare this pot against itself, never against another.",
       "kitchen-scale": "A pot's weight depends on the pot — so compare this pot against itself, never against another."
     },
+    "levels": {
+      "wooden-stick": {
+        "1": "It comes out clean",
+        "2": "A little dry soil clings to it",
+        "3": "Damp soil sticks to it"
+      },
+      "finger": {
+        "1": "It feels dry",
+        "2": "Barely damp",
+        "3": "Clearly damp"
+      }
+    },
     "wateringRelationLabel": "Before or after that day's watering?",
     "wateringRelationHint": "This plant was also watered on that date, so we need to know which side of the watering the reading falls on — it decides which drying cycle it belongs to.",
     "wateringRelationRequired": "This reading needs to say whether it was taken before or after that day’s watering.",

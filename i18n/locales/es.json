@@ -1388,6 +1388,18 @@
       "galvanic-probe": "Este medidor lee conductividad, no agua — así que compara esta maceta consigo misma, nunca con otra.",
       "kitchen-scale": "El peso depende de la maceta — así que compara esta maceta consigo misma, nunca con otra."
     },
+    "levels": {
+      "wooden-stick": {
+        "1": "Sale limpio",
+        "2": "Se le pega algo de tierra seca",
+        "3": "Se le pega tierra húmeda"
+      },
+      "finger": {
+        "1": "Se siente seca",
+        "2": "Apenas húmeda",
+        "3": "Claramente húmeda"
+      }
+    },
     "wateringRelationLabel": "¿Antes o después del riego de ese día?",
     "wateringRelationHint": "Esta planta también se regó ese día, así que necesitamos saber de qué lado del riego cae la lectura — eso decide a qué ciclo de secado pertenece.",
     "wateringRelationRequired": "Esta lectura necesita decir si se tomó antes o después del riego de ese día.",

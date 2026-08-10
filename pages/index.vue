@@ -698,6 +698,37 @@ function onDone(plantId: string, task: DueTask['task'], status: 'overdue' | 'tod
   return sendDone(plantId, task, occurredOn);
 }
 
+/**
+ * The WATER_NOW verdict's two actions (QA 2026-08-10). Both route into the SAME `onDone`/`onPostpone` the
+ * task row's own buttons use, so there is never a second way to record a watering or a postpone.
+ *
+ * `readingModalPlantId` is the plant the survey was opened for; it is read here rather than carried in the
+ * event because the modal has no business knowing which card it was opened from. A null id means the modal
+ * is not open for any plant, which cannot happen from this footer — guarded anyway so a stale event can
+ * never act on the wrong garden.
+ *
+ * Status comes from the live `tasks` list, the same source `measuredTodayFor` reads, and falls back to
+ * `'today'` — deliberately the one value that does NOT trigger the early-water question, because asking
+ * "why are you watering early?" about a watering the owner just measured his way into would have the app
+ * second-guessing its own verdict.
+ */
+function onWaterVerdictDone() {
+  const plantId = readingModalPlantId.value;
+  if (!plantId) return;
+  // Derived through `rowStatus(nextDueOn)` — the SAME function the rendered row binds to its own
+  // `:status`, so the verdict's button and the row's button can never classify one task differently. The
+  // Today payload carries no `status` field of its own; it is a view-level reading of `nextDueOn` against
+  // the local calendar, and that reading lives here in exactly one place.
+  const row = (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER');
+  return onDone(plantId, 'WATER', row ? rowStatus(row.nextDueOn) : 'today');
+}
+
+function onWaterVerdictPostpone() {
+  const plantId = readingModalPlantId.value;
+  if (!plantId) return;
+  return onPostpone(plantId, 'WATER');
+}
+
 // Postpone: an UNMEASURED WATER asks why; a WATER postpone that follows today's measurement sends `no-time`
 // straight through (spec §5.4 — see `postponeReasonWithoutAsking`); a REPOT postpone (only reachable once a
 // verdict is pending) sends immediately with the fixed "needed, can't right now" reason; every other task
@@ -884,6 +915,8 @@ function openProgress(plantId: string) {
       :data="readingModalData"
       mode="survey"
       @saved="onReadingSaved"
+      @water-done="onWaterVerdictDone"
+      @water-postpone="onWaterVerdictPostpone"
     />
   </div>
 </template>

@@ -61,7 +61,11 @@ const props = defineProps<{
   data: PlantSoilReadings;
   mode: 'survey' | 'voluntary';
 }>();
-const emit = defineEmits<{ saved: [] }>();
+// `water-done` / `water-postpone` are raised ONLY from the WATER_NOW verdict's footer. They carry no
+// payload on purpose: this modal must not decide HOW a watering is recorded — the page owns that, and owns
+// it in exactly one place (`onDone`/`onPostpone`), which is what keeps the verdict's buttons and the task
+// row's buttons from becoming two implementations of one action that can drift apart.
+const emit = defineEmits<{ saved: []; 'water-done': []; 'water-postpone': [] }>();
 const open = defineModel<boolean>('open', { default: false });
 
 const { t, d } = useI18n();
@@ -424,6 +428,23 @@ async function submit() {
   }
 }
 
+/**
+ * The WATER_NOW verdict's two actions (QA 2026-08-10). CLOSES FIRST, then emits.
+ *
+ * The order is load-bearing, not tidiness: the page's `onDone` can open a SECOND dialog (the early-water
+ * reason picker, when the watering is ahead of schedule), and emitting while this modal is still mounted
+ * would stack one modal on another. Closing first also means the owner's next view is the task row — which
+ * by then has already flipped out of its survey state, because the reading written on the way to this
+ * verdict set `measuredToday`.
+ */
+function actOnVerdict(action: 'water-done' | 'water-postpone') {
+  open.value = false;
+  // Branched rather than `emit(action)`: `defineEmits`'s generated overloads are resolved per literal, so
+  // handing one a UNION of two event names matches no overload at all (TS2769). Two calls, no cast.
+  if (action === 'water-done') emit('water-done');
+  else emit('water-postpone');
+}
+
 // The OFFERED save for an UNAVAILABLE verdict (owner ruling, 2026-08-09 — see `submit()`'s own comment on
 // the branch that sets `pendingUnavailableReading` instead of writing). Reachable ONLY from the verdict
 // step's own "Guardar lectura" button, and only while that pending reading exists — `previewResult` staying
@@ -586,6 +607,9 @@ const holdDateLabel = computed(() => {
     <template v-else>
       <template v-if="previewResult?.recommendation === 'WATER_NOW'">
         <h3 class="mp-reading__verdict-title">{{ t('reading.verdictWaterNowTitle') }}</h3>
+        <!-- QA (2026-08-10, UX-4): HOLD carried a supporting sentence and WATER_NOW carried none, so the
+             payoff verdict of the whole redesign read as an unfinished screen next to the "not yet" one. -->
+        <p class="mp-reading__verdict-body">{{ t('reading.verdictWaterNowBody') }}</p>
       </template>
       <template v-else-if="previewResult?.recommendation === 'HOLD'">
         <h3 class="mp-reading__verdict-title">{{ t('reading.verdictHoldTitle') }}</h3>
@@ -609,11 +633,27 @@ const holdDateLabel = computed(() => {
           {{ primaryLabel }}
         </Button>
       </template>
-      <!-- WATER_NOW and HOLD BOTH already wrote/applied themselves the instant this step was reached (see
-           `submit()`) — the row's Hecho/Posponer take over from here on WATER_NOW — so neither has
-           anything left to confirm, only to close. UNAVAILABLE is the one exception (owner ruling,
-           2026-08-09): it OFFERS a save rather than performing one, so its own footer adds "Guardar
-           lectura" alongside Close. -->
+      <!-- WATER_NOW and HOLD both already WROTE their reading the instant this step was reached (see
+           `submit()`), so neither has a reading left to confirm.
+           ⚠️ WATER_NOW nonetheless CARRIES ACTIONS, and the reason it now does is worth stating: the
+           reading it wrote uses `verdict: 'NONE'`, which deliberately moves no schedule — so at this point
+           the app knows the pot needs water and NOTHING has recorded that it was watered. This footer used
+           to offer only Close, on the reasoning that "the row's Hecho/Posponer take over from here". They
+           do (the write flips `measuredToday`, which closes the survey affordance and reopens the classic
+           pair) — but only AFTER the owner closes this dialog and finds them, and QA (2026-08-10) judged
+           the payoff of the entire redesign unreachable in practice for exactly that reason.
+           The two actions are NOT a second implementation: they emit, and the page routes them through the
+           same `onDone`/`onPostpone` the row itself uses. And they are two SEPARATE statements on purpose
+           (spec §5) — "I should water" is not "I had time to water", so an owner who cannot water right now
+           must be able to say so without the app recording a watering that never happened.
+           HOLD keeps Close alone: it applied its own postpone, so there is nothing left to decide.
+           UNAVAILABLE is the third case (owner ruling, 2026-08-09): it OFFERS a save rather than performing
+           one, so its footer adds "Guardar lectura". -->
+      <template v-else-if="previewResult?.recommendation === 'WATER_NOW'">
+        <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
+        <Button variant="ghost" @click="actOnVerdict('water-postpone')">{{ t('common.postpone') }}</Button>
+        <Button @click="actOnVerdict('water-done')">{{ t('common.done') }}</Button>
+      </template>
       <template v-else-if="previewResult?.recommendation === 'UNAVAILABLE'">
         <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
         <Button :loading="submitting" @click="saveUnavailableReading">{{ t('reading.save') }}</Button>

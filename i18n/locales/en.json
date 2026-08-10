@@ -1412,6 +1412,7 @@
     },
     "calculate": "Calculate watering",
     "verdictWaterNowTitle": "Time to water",
+    "verdictWaterNowBody": "The soil has dried to the point this species is watered at. Water it now, or postpone if you can't right now.",
     "verdictHoldTitle": "Don't water yet",
     "verdictHoldBody": "Check again on {date}.",
     "verdictUnavailableReason": {

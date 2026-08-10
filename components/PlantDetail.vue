@@ -1031,6 +1031,23 @@ function onPostpone(task: TaskCode) {
   return sendPostpone(task);
 }
 
+/**
+ * "Hecho" pressed on the WATER_NOW verdict (QA 2026-08-10). Routes into the SAME `onDone` the task row's
+ * own button uses — never a second way to record a watering — so the early-water branch, the REPOT branch
+ * and every future rule stay written once.
+ *
+ * The status is read from the live care payload rather than passed by the modal, because the modal has no
+ * business knowing whether the task was overdue: that is the page's own fact, and duplicating it into a
+ * prop is how the two would eventually disagree. Falls back to `'today'` when the WATER row is somehow
+ * absent — the conservative choice, since it is the one value that does NOT trigger the early-water
+ * question, and asking "why are you watering early?" about a watering the owner just MEASURED his way into
+ * would be the app second-guessing its own verdict.
+ */
+function onWaterVerdictDone() {
+  const status = care.value?.tasks.find((t) => t.task === 'WATER')?.status ?? 'today';
+  return onDone('WATER', status);
+}
+
 function confirmEarly(reason: string) {
   const p = pending.value;
   pending.value = null;
@@ -1454,6 +1471,8 @@ async function confirmRevive() {
           :data="readings ?? { instruments: [], protocol: null, readings: [], wateringDays: [] }"
           :mode="readingMode"
           @saved="onReadingSaved"
+          @water-done="onWaterVerdictDone"
+          @water-postpone="onPostpone('WATER')"
         />
 
         <!-- The care plan is based on -->

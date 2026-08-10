@@ -896,3 +896,92 @@ describe('an ordinal instrument', () => {
     expect(w.find('input[type="number"]').exists()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// The WATER_NOW verdict's two actions (QA 2026-08-10, defect 2).
+//
+// Before this, the verdict that is the PAYOFF of the whole redesign rendered a bare title and a single
+// `Cerrar`. The row behind it did take over — the reading written on the way here flips `measuredToday`,
+// which closes the survey affordance and restores the classic pair — but only after the owner closed the
+// dialog and went looking, and QA judged the verdict unactionable in practice for exactly that reason.
+//
+// Done and Postpone are two SEPARATE statements on purpose (spec §5): "I should water" is not "I had time
+// to water", so an owner who cannot water right now must be able to say so without the app recording a
+// watering that never happened.
+// ---------------------------------------------------------------------------------------------------
+describe('the WATER_NOW verdict is actionable', () => {
+  async function reachWaterNowVerdict() {
+    previewSoilReading.mockResolvedValueOnce({
+      measuredOn: PLANT_TODAY, wetness: 0.2, target: 0.4, recommendation: 'WATER_NOW',
+      suggestedPostponeToOn: null, basis: null, unavailableReason: null,
+    });
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'survey' });
+    await w.find('input[type="number"]').setValue(3);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+    return w;
+  }
+
+  function verdictButton(w: ReturnType<typeof mount>, label: string) {
+    return w.findAll('button').find((b) => b.text().includes(label));
+  }
+
+  it('carries a supporting sentence, not a bare title (UX-4)', async () => {
+    const w = await reachWaterNowVerdict();
+    expect(w.text()).toContain('reading.verdictWaterNowTitle');
+    // HOLD always had one; WATER_NOW read as an unfinished screen next to it.
+    expect(w.text()).toContain('reading.verdictWaterNowBody');
+  });
+
+  it('offers BOTH Done and Postpone alongside Close', async () => {
+    const w = await reachWaterNowVerdict();
+    expect(verdictButton(w, 'common.done')).toBeDefined();
+    expect(verdictButton(w, 'common.postpone')).toBeDefined();
+    expect(verdictButton(w, 'common.close')).toBeDefined();
+  });
+
+  it('Done closes the modal FIRST, then emits — never both open at once', async () => {
+    const w = await reachWaterNowVerdict();
+    await verdictButton(w, 'common.done')!.trigger('click');
+
+    expect(w.emitted('water-done')).toHaveLength(1);
+    // The page's own `onDone` may open a SECOND dialog (the early-water reason picker). Emitting while
+    // this modal was still mounted would stack one modal on another.
+    expect(w.find('[data-modal-stub]').exists()).toBe(false);
+  });
+
+  it('Postpone emits its own event, distinct from Done', async () => {
+    const w = await reachWaterNowVerdict();
+    await verdictButton(w, 'common.postpone')!.trigger('click');
+
+    expect(w.emitted('water-postpone')).toHaveLength(1);
+    // Collapsing the two into one event would let a "no tuve tiempo" be recorded as a watering.
+    expect(w.emitted('water-done')).toBeUndefined();
+    expect(w.find('[data-modal-stub]').exists()).toBe(false);
+  });
+
+  it('the modal itself records NO watering — the page owns that, in one place', async () => {
+    const w = await reachWaterNowVerdict();
+    recordSoilReading.mockClear();
+    await verdictButton(w, 'common.done')!.trigger('click');
+
+    // The reading was already written on the way to this verdict (`verdict: 'NONE'`). If this footer ever
+    // starts writing the watering itself, that is a second implementation of "mark watered" that will
+    // drift from the row's own.
+    expect(recordSoilReading).not.toHaveBeenCalled();
+  });
+
+  it('a HOLD verdict still offers Close alone — it already applied its own postpone', async () => {
+    previewSoilReading.mockResolvedValueOnce({
+      measuredOn: PLANT_TODAY, wetness: 0.8, target: 0.4, recommendation: 'HOLD',
+      suggestedPostponeToOn: '2026-08-21', basis: 'MEASURED_SLOPE', unavailableReason: null,
+    });
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'survey' });
+    await w.find('input[type="number"]').setValue(9);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+
+    expect(verdictButton(w, 'common.done')).toBeUndefined();
+    expect(verdictButton(w, 'common.postpone')).toBeUndefined();
+  });
+});

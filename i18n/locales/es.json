@@ -1412,6 +1412,7 @@
     },
     "calculate": "Calcular riego",
     "verdictWaterNowTitle": "Toca regar",
+    "verdictWaterNowBody": "La tierra llegó al punto de sequedad en que se riega esta especie. Riégala ahora, o pospón si en este momento no puedes.",
     "verdictHoldTitle": "No riegues todavía",
     "verdictHoldBody": "Vuelve a revisar el {date}.",
     "verdictUnavailableReason": {

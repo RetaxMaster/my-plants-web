@@ -1407,18 +1407,14 @@
       "before": "Antes",
       "after": "Después"
     },
-    "verdictLabel": "¿Qué vas a hacer?",
-    "verdictHint": {
-      "none": "Solo registrar no cambia nada del plan de hoy — pero le enseña a la app qué tan rápido se seca esta maceta.",
-      "postpone": "Lo vamos a registrar como pospuesto y moveremos el siguiente riego a la fecha que elijas — y la lectura igual le enseña a la app qué tan rápido se seca esta maceta.",
-      "waterNow": "Vamos a registrar un riego ese día y reprogramaremos a partir de ahí — y la lectura igual le enseña a la app qué tan rápido se seca esta maceta."
+    "calculate": "Calcular riego",
+    "verdictWaterNowTitle": "Toca riego",
+    "verdictHoldTitle": "No riegues todavía",
+    "verdictHoldBody": "Vuelve a revisar el {date}.",
+    "verdictUnavailableReason": {
+      "NEEDS_CALIBRATION": "A este instrumento todavía le faltan sus pesos recién regada y en seco — agrégalos e inténtalo de nuevo.",
+      "NOT_MEASURABLE": "Todavía no podemos convertir esta lectura en un número confiable."
     },
-    "verdict": {
-      "none": "Solo registrar",
-      "postpone": "Aún no la riego",
-      "waterNow": "La riego ahora"
-    },
-    "postponeTo": "Volver a revisar el",
     "calibration": {
       "saturated": "Peso recién regada ({unit})",
       "saturatedHint": "Riégala, deja que escurra y pesa la maceta completa.",

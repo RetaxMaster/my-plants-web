@@ -1407,18 +1407,14 @@
       "before": "Before",
       "after": "After"
     },
-    "verdictLabel": "What are you doing about it?",
-    "verdictHint": {
-      "none": "Just recording changes nothing on today's plan — but it teaches the app how fast this pot dries.",
-      "postpone": "We’ll log this as a postponement and move the next watering to the date you pick — and the reading still teaches the app how fast this pot dries.",
-      "waterNow": "We’ll record a watering for that day and reschedule from it — and the reading still teaches the app how fast this pot dries."
+    "calculate": "Calculate watering",
+    "verdictWaterNowTitle": "Time to water",
+    "verdictHoldTitle": "Don't water yet",
+    "verdictHoldBody": "Check again on {date}.",
+    "verdictUnavailableReason": {
+      "NEEDS_CALIBRATION": "This instrument still needs its watered and dry weights set — add them and try again.",
+      "NOT_MEASURABLE": "We can't turn this reading into an honest number yet."
     },
-    "verdict": {
-      "none": "Just recording",
-      "postpone": "Not watering yet",
-      "waterNow": "Watering now"
-    },
-    "postponeTo": "Check again on",
     "calibration": {
       "saturated": "Weight when freshly watered ({unit})",
       "saturatedHint": "Water it, let it drain, then weigh the whole pot.",

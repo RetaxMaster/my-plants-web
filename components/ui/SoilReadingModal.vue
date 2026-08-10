@@ -1,7 +1,32 @@
 <script setup lang="ts">
-// The measuring modal (spec §4.6). Reuses the canonical Modal. There is NO new task and no mode: this is an
-// affordance on the WATER task, and the verdict routes onto the postpone / early-water paths that already
-// exist.
+// The measuring modal (2026-08-09 redesign: "the modal answers the question instead of asking three of
+// ours"). Reuses the canonical Modal, over TWO possible steps in the SAME modal instance: `measure` (the
+// reading itself) and `verdict` (survey mode only — what the reading answers).
+//
+// ⚠️ TWO MODES, and they are not a cosmetic toggle — they change what is asked and what is written.
+//   `survey`    — reached from a DUE water task: the owner is deciding RIGHT NOW. `measuredOn` is hidden
+//                 (fixed to today — a survey answers today), the watering-relation question is IMPOSSIBLE
+//                 BY CONSTRUCTION (see below), and the reading is never recorded standalone — it is
+//                 evaluated by the read-only preview endpoint and the outcome decides what (if anything)
+//                 gets written.
+//   `voluntary` — a back-dated reading taken earlier. `measuredOn` stays editable (capped at today), the
+//                 watering-relation question is asked exactly as before (owner-ruled 2026-08-08, no
+//                 pre-selection — see below), and the reading is recorded with `verdict: 'NONE'`. No
+//                 verdict step: this mode never calls the preview endpoint at all.
+//
+// ⚠️ WHY THE WATERING-RELATION QUESTION IS IMPOSSIBLE IN SURVEY MODE, not merely hidden. That question
+// exists because a reading taken on a day the plant was ALSO watered is ambiguous about which side of the
+// watering it falls on. A survey's own order is fixed by construction: the task appears due → the owner
+// measures → the verdict → (if WATER_NOW) he waters → he marks the task done. The measurement is always
+// BEFORE that day's watering, and it is KNOWN rather than assumed — there is no ambiguity left to ask
+// about. The question survives only in `voluntary` mode, where the owner recalls a PAST day: the one place
+// the ambiguity was ever real.
+//
+// ⚠️ THE VERDICT PICKER AND THE POSTPONE-DATE FIELD ARE GONE, not hidden. The engine now chooses (via
+// `previewSoilReading`), so nothing in this component asks "what are you doing about it?" any more — that
+// question is the one this whole redesign exists to stop asking. Do not resurrect either field behind a
+// `v-if`: they have no caller left in either mode, and a hidden control is a thing the next reader has to
+// reason about.
 import Modal from './Modal.vue';
 import Button from './Button.vue';
 import Input from './Input.vue';
@@ -9,19 +34,30 @@ import FormGroup from './FormGroup.vue';
 import SegmentedControl from './SegmentedControl.vue';
 import Alert from './Alert.vue';
 import InstrumentCalibrationFields from './InstrumentCalibrationFields.vue';
-// `InstrumentId` has a Zod-free subpath in the shared contract; `ReadingVerdict` and `WateringRelation` are
-// the shared contract's Zod-module types, re-exported from `~/types/api` (see that file's own comment) —
-// so they come from there, never from `soil-instrument-constants`.
+import OrdinalReadingPicker from './OrdinalReadingPicker.vue';
+// `InstrumentId` has a Zod-free subpath in the shared contract; `WateringRelation` is the shared contract's
+// Zod-module type, re-exported from `~/types/api` (see that file's own comment) — so it comes from there,
+// never from `soil-instrument-constants`.
 import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-instrument-constants';
-import type { PlantSoilReadings, ReadingVerdict, WateringRelation } from '~/types/api';
+import type { PlantSoilReadings, SoilReadingPreview, WateringRelation } from '~/types/api';
 import { toNullableNumber } from '~/utils/nullableNumber';
-import { todayYmd } from '~/utils/localDate';
+import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
 
-const props = defineProps<{ plantId: string; data: PlantSoilReadings }>();
+const props = withDefaults(
+  defineProps<{
+    plantId: string;
+    data: PlantSoilReadings;
+    /** See the file-header comment for the full contract. Defaults to `voluntary` — the closer analog of
+     * the pre-redesign single-step form — until the caller (a DUE water task) is wired to pass `survey`
+     * explicitly; that wiring is a later task. */
+    mode?: 'survey' | 'voluntary';
+  }>(),
+  { mode: 'voluntary' },
+);
 const emit = defineEmits<{ saved: [] }>();
 const open = defineModel<boolean>('open', { default: false });
 
-const { t } = useI18n();
+const { t, d } = useI18n();
 const api = useApi();
 
 // SegmentedControl's own model is a plain, non-nullable `string` (`defineModel<string>({ required: true
@@ -29,12 +65,11 @@ const api = useApi();
 // already use for an unanswered field, rather than `null` (which SegmentedControl cannot accept).
 const instrumentId = ref<InstrumentId | ''>(props.data.instruments[0]?.id ?? '');
 const rawValue = ref<number | null>(null);
-const verdict = ref<ReadingVerdict>('NONE');
-const postponeToOn = ref<string>('');
 // SegmentedControl's own model is a plain, non-nullable `string` — '' is the "nothing chosen yet" sentinel
 // (same convention `instrumentId` above already uses). Owner-ruled (2026-08-08): NO default and NO
 // pre-selection — the ambiguity a same-day-as-watering reading carries is resolved by ASKING, never by
-// assuming, so this starts unanswered and stays that way until the owner picks one.
+// assuming, so this starts unanswered and stays that way until the owner picks one. VOLUNTARY MODE ONLY —
+// see `showWateringRelation` below.
 const wateringRelation = ref<WateringRelation | ''>('');
 const calibration = reactive<{ saturatedValue: number | null; dryValue: number | null }>({
   saturatedValue: null, dryValue: null,
@@ -42,8 +77,17 @@ const calibration = reactive<{ saturatedValue: number | null; dryValue: number |
 const submitting = ref(false);
 const error = ref<string | null>(null);
 
+// Which screen of the modal is showing. `verdict` is reachable ONLY from survey mode, once
+// `previewSoilReading` has answered — see `submit()`. Voluntary mode never leaves `measure`.
+const step = ref<'measure' | 'verdict'>('measure');
+// The survey's own answer, once it has one. Drives the verdict step's copy; `null` until `submit()` sets
+// it (or on any reopen — see the `watch(open, …)` reset below).
+const previewResult = ref<SoilReadingPreview | null>(null);
+
 // Bridge between Input.vue's `v-model` (`string | number`) and `rawValue`'s `number | null` — same pattern
-// (and same shared util) as PlaceEditModal.vue's temperature fields.
+// (and same shared util) as PlaceEditModal.vue's temperature fields. Numeric instruments only — an ordinal
+// instrument (`OrdinalReadingPicker`) binds `rawValue` directly, since its own model is already
+// `number | null`.
 const rawValueField = computed<number | string>({
   get: () => rawValue.value ?? '',
   set: (v) => { rawValue.value = toNullableNumber(v); },
@@ -57,10 +101,12 @@ const idempotencyKey = ref(crypto.randomUUID());
 // `dryValue`): the API's own comment records that a REPOT invalidates a calibration, so anchors typed for
 // the OLD pot and abandoned without saving must never sit pre-filled, one tap from being written as the
 // NEW pot's anchors. The modal is mounted once for the page's life (PlantDetail.vue, no `:key`), so a field
-// left un-reset here silently carries a prior reading's value into the next one. `measuredOn` and
-// `postponeToOn` are the two date fields: a stale `measuredOn` is the worse of the two, since two readings
-// landing on the same date is a zero-span pair that corrupts the drying-rate slope fit — the exact data
-// quality this whole feature exists to protect.
+// left un-reset here silently carries a prior reading's value into the next one. `measuredOn` is the one
+// date field left (`postponeToOn` no longer exists — see the file-header comment): a stale `measuredOn` is
+// the worse trap of the two it used to guard against, since two readings landing on the same date is a
+// zero-span pair that corrupts the drying-rate slope fit — the exact data quality this whole feature exists
+// to protect. `step`/`previewResult` reset too: a survey's verdict describes ONE reading and must never be
+// shown stale over a fresh one.
 // The server told us this day carries a watering even though our cached `wateringDays` did not name it —
 // see the 400 branch in `submit()`. Reset with everything else on reopen and whenever the date changes.
 const serverSaysWateringDay = ref(false);
@@ -70,9 +116,9 @@ watch(open, (isOpen) => {
   idempotencyKey.value = crypto.randomUUID();
   error.value = null;
   rawValue.value = null;
-  verdict.value = 'NONE';
+  step.value = 'measure';
+  previewResult.value = null;
   measuredOn.value = todayYmd();
-  postponeToOn.value = '';
   wateringRelation.value = '';
   serverSaysWateringDay.value = false;
   calibration.saturatedValue = null;
@@ -100,17 +146,28 @@ const instrument = computed(() =>
 const protocolKind = computed(() => instrument.value?.protocolKind ?? 'insertion');
 const needsCalibration = computed(() =>
   instrument.value?.requiresCalibration === true && instrument.value.calibration == null);
+// An ORDINAL instrument (the wooden stick, the finger) has no physical unit to name — `OrdinalReadingPicker`
+// renders a choice of named states, not a number, so "Reading (índice 1–10)"-shaped copy would be
+// meaningless for it. Guarding here (rather than always attempting the interpolation) also keeps this modal
+// from ever rendering a raw, untranslated `settings.instruments.unit.*` key path for an ordinal row that
+// catalogue does not cover.
+const valueUnitLabel = computed(() =>
+  instrument.value && instrument.value.captureKind !== 'ordinal'
+    ? t(`settings.instruments.unit.${instrument.value.id}`)
+    : '');
 
 // The date the browser must not let the owner exceed: a reading in the future is not a measurement. Uses
 // the app's single local-calendar-day helper (`~/utils/localDate`'s `todayYmd()`) — never a second,
 // independent `new Date().toLocaleDateString('en-CA')` of its own (see `RepotDoneForm.vue`'s own comment on
 // this exact trap): that expression's output depends on the runtime's ICU locale data, while the shared
-// helper builds the string from local Date components so it does not.
+// helper builds the string from local Date components so it does not. Editable ONLY in voluntary mode — a
+// survey answers TODAY, so the field is hidden there and this ref simply stays at its `todayYmd()` default
+// for the whole session (see the template's `v-if="mode === 'voluntary'"`).
 const measuredOn = ref(todayYmd());
 
 // Owner-ruled (2026-08-08): the same-day-watering question is asked ONLY when the chosen `measuredOn` is
 // itself a day the plant was watered — asking on every reading would be noise on the overwhelming majority
-// of them, and noise is how a question stops being read.
+// of them, and noise is how a question stops being read. VOLUNTARY MODE ONLY — see `showWateringRelation`.
 const isWateringDay = computed(() =>
   serverSaysWateringDay.value || props.data.wateringDays.includes(measuredOn.value));
 
@@ -119,27 +176,21 @@ const isWateringDay = computed(() =>
 // describes the new day and must never survive: not into a submission for a day it doesn't describe, and
 // not as a stale pre-selection if the control reappears for a later watering day (that would silently
 // reintroduce the very default/pre-selection the owner ruled against). Cleared unconditionally on every
-// change; harmless when there was nothing to clear.
+// change; harmless when there was nothing to clear. (Survey mode never changes `measuredOn` — the field
+// isn't rendered — so this watcher is inert there, not dead: voluntary mode still needs it.)
 watch(measuredOn, () => {
   wateringRelation.value = '';
   // The server's reveal was about the PREVIOUS day; a new date must be judged on its own evidence.
   serverSaysWateringDay.value = false;
 });
 
-// A WATER_NOW reading is, by construction, taken BEFORE the watering it causes — the API now always records
-// BEFORE for it and rejects the field outright, so asking (and sending) the relation here would be a question
-// the modal discards. `showWateringRelation` below is the single source of truth for "ask/show/send it", and
-// this watcher clears a stale answer the instant the owner flips the verdict TO WATER_NOW, so switching AWAY
-// and back never resubmits a leftover AFTER/BEFORE that no longer describes anything.
-watch(verdict, (v) => {
-  if (v === 'WATER_NOW') wateringRelation.value = '';
-});
-
-// Single source of truth for "ask the same-day-watering question at all": a watering day (per the owner's
-// ruling above) AND not a WATER_NOW verdict — a WATER_NOW reading always anchors BEFORE its watering, so the
-// question the modal would otherwise ask has no answer left to give. Drives the FormGroup's `v-if`, `canSubmit`
-// and the payload alike, so the three can never drift out of sync with each other again.
-const showWateringRelation = computed(() => isWateringDay.value && verdict.value !== 'WATER_NOW');
+// Single source of truth for "ask the same-day-watering question at all" — and, since the 2026-08-09
+// redesign, for "is this question even POSSIBLE": survey mode's own order is fixed by construction (measure
+// → verdict → water → done), so the reading is always BEFORE that day's watering and there is nothing left
+// to ask (see the file-header comment). Voluntary mode keeps the original owner-ruled gate: a watering day,
+// full stop — there is no verdict-driven exception left to layer on top of it, because voluntary mode never
+// reaches a verdict at all.
+const showWateringRelation = computed(() => props.mode === 'voluntary' && isWateringDay.value);
 
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
 // shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
@@ -175,13 +226,17 @@ const rawValueErrorMessage = computed(() => {
 
 const canSubmit = computed(() =>
   instrumentId.value !== '' && rawValue.value != null && !submitting.value && !rawValueOutOfRange.value &&
-  (verdict.value !== 'POSTPONE' || postponeToOn.value !== '') &&
-  // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — and it is
-  // never shown for WATER_NOW (see `showWateringRelation`), so a WATER_NOW reading needs no answer here.
+  // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — voluntary
+  // mode + a watering day (see `showWateringRelation`).
   (!showWateringRelation.value || wateringRelation.value !== '') &&
   (!needsCalibration.value ||
     (calibration.saturatedValue != null && calibration.dryValue != null &&
      calibration.saturatedValue > calibration.dryValue)));
+
+// "Calcular riego" in survey mode (the modal is about to ANSWER something), "Save reading" in voluntary
+// mode (the modal is simply recording one). See the file-header comment for why the two verbs are not
+// interchangeable copy for the same button.
+const primaryLabel = computed(() => (props.mode === 'survey' ? t('reading.calculate') : t('reading.save')));
 
 async function submit() {
   if (!canSubmit.value || instrumentId.value === '' || rawValue.value == null) return;
@@ -191,26 +246,69 @@ async function submit() {
   error.value = null;
   try {
     // The calibration is saved FIRST when the pot has none: the reading's normalisation reads it, so a
-    // reading written before it would be stored with a null wetness and never enter the estimator.
+    // reading (or a preview, which normalises the SAME way) run before it would see a null wetness.
     if (needsCalibration.value) {
       await api.setInstrumentCalibration(props.plantId, chosenInstrumentId, {
         saturatedValue: calibration.saturatedValue as number,
         dryValue: calibration.dryValue as number,
       });
     }
-    await api.recordSoilReading(props.plantId, {
-      instrumentId: chosenInstrumentId,
-      rawValue: chosenRawValue,
-      measuredOn: measuredOn.value,
-      verdict: verdict.value,
-      ...(verdict.value === 'POSTPONE' ? { postponeToOn: postponeToOn.value } : {}),
-      // Sent ONLY when the question was actually asked (`showWateringRelation`, which already excludes
-      // WATER_NOW — the API always records BEFORE for it and rejects the field) — `canSubmit` already
-      // guarantees it was answered whenever that holds, so the cast is safe.
-      ...(showWateringRelation.value ? { wateringRelation: wateringRelation.value as WateringRelation } : {}),
-    }, idempotencyKey.value);
-    open.value = false;
-    emit('saved');
+
+    if (props.mode === 'survey') {
+      // Read-only: "water this pot today, or hold?" Nothing is written by this call, and — per the branch
+      // below — nothing is written at all until the branch itself decides to (see the file-header comment,
+      // "Nothing is written until the branch acts").
+      const preview = await api.previewSoilReading(props.plantId, {
+        instrumentId: chosenInstrumentId,
+        rawValue: chosenRawValue,
+      });
+      previewResult.value = preview;
+
+      if (preview.recommendation === 'HOLD') {
+        // "No riegues todavía" — applied IMMEDIATELY. The owner asked a question and the engine answered
+        // it; there is nothing left for him to confirm, so the postpone is recorded as part of reaching
+        // this verdict, not behind a second tap.
+        await api.recordSoilReading(props.plantId, {
+          instrumentId: chosenInstrumentId,
+          rawValue: chosenRawValue,
+          measuredOn: measuredOn.value,
+          verdict: 'POSTPONE',
+          ...(preview.suggestedPostponeToOn ? { postponeToOn: preview.suggestedPostponeToOn } : {}),
+        }, idempotencyKey.value);
+        emit('saved');
+      } else if (preview.recommendation === 'UNAVAILABLE') {
+        // No honest fraction exists to answer with — recorded as a plain, verdict-less reading (it still
+        // teaches the drying-rate fit what it can), never silently rounded into a HOLD the engine never
+        // actually reached.
+        await api.recordSoilReading(props.plantId, {
+          instrumentId: chosenInstrumentId,
+          rawValue: chosenRawValue,
+          measuredOn: measuredOn.value,
+          verdict: 'NONE',
+        }, idempotencyKey.value);
+        emit('saved');
+      }
+      // WATER_NOW writes NOTHING: "the owner acts; the row's Hecho/Posponer take over." The reading he just
+      // took is not persisted here — he is about to water, and the task row's own Done flow is what records
+      // that. Closing the modal from this branch writes nothing either, by construction (there is nothing
+      // queued to write).
+      step.value = 'verdict';
+    } else {
+      // Voluntary: always `verdict: 'NONE'` — this mode never asks "what are you doing about it", it only
+      // records the reading. No verdict step follows a successful save; the modal closes exactly like the
+      // pre-redesign NONE-verdict path did.
+      await api.recordSoilReading(props.plantId, {
+        instrumentId: chosenInstrumentId,
+        rawValue: chosenRawValue,
+        measuredOn: measuredOn.value,
+        verdict: 'NONE',
+        // Sent ONLY when the question was actually asked (`showWateringRelation`) — `canSubmit` already
+        // guarantees it was answered whenever that holds, so the cast is safe.
+        ...(showWateringRelation.value ? { wateringRelation: wateringRelation.value as WateringRelation } : {}),
+      }, idempotencyKey.value);
+      open.value = false;
+      emit('saved');
+    }
   } catch (e: any) {
     // FIX (fix wave 1, item 4) — the idempotency key is pinned per open and reused across retries (correct:
     // a lost-response retry must never write a second reading), but that same discipline means a 409/422 on
@@ -220,23 +318,33 @@ async function submit() {
     // — it is "this already happened": tell the owner, refresh through the SAME seam a successful save uses
     // (`emit('saved')`, which drives PlantDetail.vue's `onReadingSaved`), and close. Deliberately NOT
     // porting RepotDoneForm.vue's whole `frozen` machinery here (owner ruling) — reopening mints a fresh
-    // key, and there is nothing left to retry once the server already has the reading.
+    // key, and there is nothing left to retry once the server already has the reading. Applies to BOTH
+    // modes: a genuine idempotency replay means the same thing regardless of which flow produced the write.
     const status = e?.statusCode ?? e?.response?.status;
     if (status === 409 || status === 422) {
       error.value = t('reading.alreadyRecorded');
       open.value = false;
       emit('saved');
-    } else if (status === 400 && String(e?.data?.message ?? e?.message ?? '').includes('wateringRelation')) {
-      // DEFENCE IN DEPTH for the same-day question. `wateringDays` is a SNAPSHOT, so it can be behind the
-      // server in two real ways: the owner watered from this same page after it loaded (PlantDetail.vue's
-      // `sendDone` now refreshes it, which is the primary fix), or the reading is back-dated to a watering
-      // day older than the window that list covers. In both cases the server knows the day carries a
-      // watering and refuses honestly — so REVEAL THE QUESTION rather than showing a generic "save failed"
-      // the owner can only clear by reloading. The question is still ASKED, never inferred: we surface it,
-      // the owner answers it, and the retry carries a real answer.
+    } else if (
+      props.mode === 'voluntary' && status === 400 &&
+      String(e?.data?.message ?? e?.message ?? '').includes('wateringRelation')
+    ) {
+      // DEFENCE IN DEPTH for the same-day question — VOLUNTARY MODE ONLY, since survey mode never sends
+      // `wateringRelation` at all (it is impossible by construction there, not merely unanswered) and has
+      // no control left to reveal. `wateringDays` is a SNAPSHOT, so it can be behind the server in two real
+      // ways: the owner watered from this same page after it loaded (PlantDetail.vue's `sendDone` now
+      // refreshes it, which is the primary fix), or the reading is back-dated to a watering day older than
+      // the window that list covers. In both cases the server knows the day carries a watering and refuses
+      // honestly — so REVEAL THE QUESTION rather than showing a generic "save failed" the owner can only
+      // clear by reloading. The question is still ASKED, never inferred: we surface it, the owner answers
+      // it, and the retry carries a real answer.
       serverSaysWateringDay.value = true;
       error.value = t('reading.wateringRelationRequired');
     } else {
+      // Covers every OTHER failure too, including a rejected `previewSoilReading` call and a rejected
+      // survey-branch `recordSoilReading` — in every case `step` is still `measure` (it only ever advances
+      // AFTER the awaited call above succeeds), so the owner lands back on the form, unwritten, and free to
+      // retry with the same idempotency key.
       error.value = t('reading.saveFailed');
     }
   } finally {
@@ -244,31 +352,21 @@ async function submit() {
   }
 }
 
-const verdictOptions = computed(() => [
-  { key: 'NONE', label: t('reading.verdict.none') },
-  { key: 'POSTPONE', label: t('reading.verdict.postpone') },
-  { key: 'WATER_NOW', label: t('reading.verdict.waterNow') },
-]);
-
-// ⚠️ THE HELPER LINE FOLLOWS THE SELECTED VERDICT (QA finding F3, 2026-08-08). It used to be ONE static
-// sentence — "Recording alone won't water or postpone anything today" — shown under all three options,
-// and it was false of two of them: `WATER_NOW` writes a real `WATER DONE` care event and `POSTPONE`
-// writes a real POSTPONED one that moves the next watering (measured: 08-14 → 08-20). The modal was
-// denying, in its own hint text, exactly what the button beneath it was about to do. Each verdict now
-// states its own consequence; the "and it still teaches the app how fast this pot dries" half is true of
-// all three and is repeated in each, because a translated sentence is one unit, never two glued together.
-const VERDICT_HINT_KEY: Record<ReadingVerdict, string> = {
-  NONE: 'reading.verdictHint.none',
-  POSTPONE: 'reading.verdictHint.postpone',
-  WATER_NOW: 'reading.verdictHint.waterNow',
-};
-const verdictHint = computed(() => t(VERDICT_HINT_KEY[verdict.value]));
-
 // Two options → segmented control, same design-system rule `instrumentId`'s picker above already follows.
 const wateringRelationOptions = computed(() => [
   { key: 'BEFORE', label: t('reading.wateringRelation.before') },
   { key: 'AFTER', label: t('reading.wateringRelation.after') },
 ]);
+
+// The date `verdictHoldBody` names, formatted the same way every other calendar-date display in the app
+// already does (`d(ymdToLocalDate(...), 'short')` — ClinicalRecordModal.vue, RepotVerdictModal.vue,
+// TaskRow.vue). `suggestedPostponeToOn` is null only when the recommendation is NOT `HOLD` (the shared
+// contract's own invariant); this stays defensive rather than asserting it, so a contract violation renders
+// an empty date instead of throwing.
+const holdDateLabel = computed(() => {
+  const on = previewResult.value?.suggestedPostponeToOn;
+  return on ? d(ymdToLocalDate(on), 'short') : '';
+});
 </script>
 
 <template>
@@ -288,7 +386,7 @@ const wateringRelationOptions = computed(() => [
       </i18n-t>
     </Alert>
 
-    <template v-else>
+    <template v-else-if="step === 'measure'">
       <!-- Two options today → segmented control (design-system rule: up to 3–4 short options). -->
       <FormGroup :label="t('reading.instrument')">
         <SegmentedControl v-model="instrumentId" :options="options" />
@@ -328,11 +426,17 @@ const wateringRelationOptions = computed(() => [
         :unit-label="t(`settings.instruments.unit.${instrument.id}`)"
       />
 
-      <FormGroup
-        :label="t('reading.value', { unit: instrument ? t(`settings.instruments.unit.${instrument.id}`) : '' })"
-        :error="rawValueErrorMessage"
-      >
+      <FormGroup :label="t('reading.value', { unit: valueUnitLabel })" :error="rawValueErrorMessage">
+        <!-- An ORDINAL instrument (the wooden stick, the finger) produces one of a few NAMED states, never
+             a number — see OrdinalReadingPicker.vue's own header comment. The caller (here) is responsible
+             for gating on `captureKind === 'ordinal'`; the picker throws legibly if that guard is skipped. -->
+        <OrdinalReadingPicker
+          v-if="instrument && instrument.captureKind === 'ordinal'"
+          v-model="rawValue"
+          :instrument-id="instrument.id"
+        />
         <Input
+          v-else
           v-model.number="rawValueField"
           type="number"
           inputmode="decimal"
@@ -343,14 +447,17 @@ const wateringRelationOptions = computed(() => [
         />
       </FormGroup>
 
-      <FormGroup :label="t('reading.measuredOn')">
+      <!-- Voluntary mode ONLY — a survey answers TODAY, so this field is hidden there entirely (never
+           merely disabled), and `measuredOn` stays pinned to `todayYmd()` for the whole session. See the
+           file-header comment. -->
+      <FormGroup v-if="mode === 'voluntary'" :label="t('reading.measuredOn')">
         <Input v-model="measuredOn" type="date" :max="todayYmd()" />
       </FormGroup>
 
-      <!-- Owner-ruled (2026-08-08): shown ONLY on a day the plant was also watered AND the verdict is not
-           WATER_NOW — never a default, never pre-selected, and never asked when the answer would be
-           discarded (see `showWateringRelation`). Two options → segmented control, same rule the instrument
-           picker above follows. -->
+      <!-- Owner-ruled (2026-08-08): shown ONLY in voluntary mode, on a day the plant was also watered —
+           never a default, never pre-selected (see `showWateringRelation`'s own comment for why survey mode
+           never reaches this at all). Two options → segmented control, same rule the instrument picker
+           above follows. -->
       <FormGroup
         v-if="showWateringRelation"
         :label="t('reading.wateringRelationLabel')"
@@ -360,22 +467,41 @@ const wateringRelationOptions = computed(() => [
         <SegmentedControl v-model="wateringRelation" :options="wateringRelationOptions" />
       </FormGroup>
 
-      <FormGroup :label="t('reading.verdictLabel')" :hint="verdictHint">
-        <SegmentedControl v-model="verdict" :options="verdictOptions" />
-      </FormGroup>
-
-      <FormGroup v-if="verdict === 'POSTPONE'" :label="t('reading.postponeTo')">
-        <Input v-model="postponeToOn" type="date" :min="todayYmd()" />
-      </FormGroup>
-
       <Alert v-if="error" color="red" :description="error" announce />
     </template>
 
+    <!-- The verdict step — survey mode only (see `submit()`'s `step.value = 'verdict'` assignment, reached
+         only from the `mode === 'survey'` branch). Shaped like RepotVerdictModal.vue: a short title stating
+         the answer, then whatever body that answer needs. -->
+    <template v-else>
+      <template v-if="previewResult?.recommendation === 'WATER_NOW'">
+        <h3 class="mp-reading__verdict-title">{{ t('reading.verdictWaterNowTitle') }}</h3>
+      </template>
+      <template v-else-if="previewResult?.recommendation === 'HOLD'">
+        <h3 class="mp-reading__verdict-title">{{ t('reading.verdictHoldTitle') }}</h3>
+        <p class="mp-reading__verdict-body">{{ t('reading.verdictHoldBody', { date: holdDateLabel }) }}</p>
+      </template>
+      <template v-else-if="previewResult?.recommendation === 'UNAVAILABLE'">
+        <!-- "no verdict" (spec) — no title claiming an answer that was never reached, only the reason. -->
+        <p class="mp-reading__verdict-body">
+          {{ t(`reading.verdictUnavailableReason.${previewResult.unavailableReason}`) }}
+        </p>
+      </template>
+    </template>
+
     <template #footer>
-      <Button variant="ghost" @click="open = false">{{ t('common.cancel') }}</Button>
-      <Button :disabled="!canSubmit" :loading="submitting" @click="submit">
-        {{ t('reading.save') }}
-      </Button>
+      <template v-if="step === 'measure'">
+        <Button variant="ghost" @click="open = false">{{ t('common.cancel') }}</Button>
+        <Button :disabled="!canSubmit" :loading="submitting" @click="submit">
+          {{ primaryLabel }}
+        </Button>
+      </template>
+      <!-- The verdict step never asks anything further: WATER_NOW wrote nothing (the row's Hecho/Posponer
+           take over), and HOLD/UNAVAILABLE already applied themselves the instant this step was reached
+           (see `submit()`). There is nothing left to confirm — only to close. -->
+      <template v-else>
+        <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
+      </template>
     </template>
   </Modal>
 </template>
@@ -385,4 +511,8 @@ const wateringRelationOptions = computed(() => [
 /* The empty state's link to /settings (QA F11). Inherits the alert's own colour so it reads as part of
    the sentence rather than as a foreign element; the underline is what makes it recognisably a link. */
 .mp-reading__link { color: inherit; text-decoration: underline; font-weight: var(--weight-semibold); }
+/* The verdict step (2026-08-09 redesign). Class conventions follow RepotVerdictModal.vue's own
+   `.mp-repotverdict__body`. */
+.mp-reading__verdict-title { margin: 0 0 var(--space-2); font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--text-strong); }
+.mp-reading__verdict-body { margin: 0; font-size: var(--text-sm); color: var(--text-body); }
 </style>

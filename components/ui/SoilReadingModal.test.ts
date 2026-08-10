@@ -7,11 +7,15 @@
 // InstrumentCalibrationFields are left REAL so their actual rendered markup — disabled state, option
 // count, alert text — can be asserted, the same choice `stubsWithRealInputs()` makes in RepotDoneForm's
 // own test file.
+//
+// 2026-08-09 redesign ("the modal answers the question instead of asking three of ours"): every test below
+// now mounts with an EXPLICIT `mode`, never relying on the component's own default — see `mountModal`'s own
+// comment for why that matters for the mutation proofs this file's spec calls for.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ref, reactive, computed, watch, inject } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
-import type { CreateSoilReading, PlantSoilReadings } from '~/types/api';
+import type { CreateSoilReading, PlantSoilReadings, SoilReadingPreview } from '~/types/api';
 import { todayYmd } from '../../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
@@ -24,9 +28,13 @@ vi.stubGlobal('watch', watch);
 // injected value resolves to its declared default (`undefined`) rather than a real field id — harmless
 // here, since no assertion below depends on the `<label for>` wiring itself.
 vi.stubGlobal('inject', inject);
+// `d` renders the date to a plain `YYYY-MM-DD` (same pattern RepotVerdictModal.test.ts/TaskRow.test.ts use)
+// so a test can tell "the date reached the component" from "the key was merely selected", matching the
+// component's own `d(ymdToLocalDate(...), 'short')` call for the HOLD verdict's date.
 vi.stubGlobal('useI18n', () => ({
   t: (k: string, params?: Record<string, unknown>) =>
     (params ? `${k}|${Object.values(params).join('|')}` : k),
+  d: (date: Date) => date.toISOString().slice(0, 10),
 }));
 
 // Typed on its own parameters (rather than inferred from a zero-arg lambda) so `.mock.calls[n]` carries the
@@ -35,7 +43,15 @@ const recordSoilReading = vi.fn(
   (_plantId: string, _body: CreateSoilReading, _idempotencyKey: string) => Promise.resolve({ readingId: 'r1' }),
 );
 const setInstrumentCalibration = vi.fn(() => Promise.resolve({ saturatedValue: 1850, dryValue: 1200 }));
-vi.stubGlobal('useApi', () => ({ recordSoilReading, setInstrumentCalibration }));
+// Read-only "water this pot today, or hold?" — survey mode's own branch point. Defaults to WATER_NOW
+// (arbitrary; every survey test that cares about the recommendation overrides it with `mockResolvedValueOnce`).
+const previewSoilReading = vi.fn(
+  (): Promise<SoilReadingPreview> => Promise.resolve({
+    wetness: 0.5, target: 0.4, recommendation: 'WATER_NOW',
+    suggestedPostponeToOn: null, basis: null, unavailableReason: null,
+  }),
+);
+vi.stubGlobal('useApi', () => ({ recordSoilReading, setInstrumentCalibration, previewSoilReading }));
 
 const stubs = {
   // `data-modal-stub` names the rendered panel, same hook RepotDoneForm.test.ts / RepotEvaluationModal.
@@ -91,21 +107,23 @@ function makeData(overrides: Partial<PlantSoilReadings> = {}): PlantSoilReadings
   return { instruments: [galvanicProbe], protocol, readings: [], wateringDays: [], ...overrides };
 }
 
-function mountModal(data: PlantSoilReadings) {
+// `mode` is ALWAYS passed explicitly — defaulted to `'voluntary'` here in the helper, never left to the
+// component's own prop default. This is what makes mutation proof 1 (see the spec) meaningful: if the
+// component ever stopped reading `props.mode` and hard-used one behavior regardless of what was passed,
+// every test that names a mode explicitly would still catch it, because the prop really is being set.
+function mountModal(data: PlantSoilReadings, extra: { mode?: 'survey' | 'voluntary' } = {}) {
   return mount(SoilReadingModal, {
-    props: { open: true, plantId: 'plant-1', data },
+    props: { open: true, plantId: 'plant-1', data, mode: 'voluntary', ...extra },
     global: { mocks: { $t: (k: string) => k }, stubs },
   });
 }
+function mountSurvey(data: PlantSoilReadings, extra: Record<string, unknown> = {}) {
+  return mountModal(data, { mode: 'survey', ...extra });
+}
 
-// The instrument picker is always the FIRST `.mp-seg` in the DOM — the verdict picker (always 3 options)
-// renders after it, so scoping to index 0 is what keeps this assertion from accidentally counting the
-// verdict control's buttons instead.
+// The instrument picker is always the FIRST `.mp-seg` in the DOM.
 function instrumentSegButtons(w: ReturnType<typeof mount>) {
   return w.findAll('.mp-seg')[0]!.findAll('button');
-}
-function verdictSegButtons(w: ReturnType<typeof mount>) {
-  return w.findAll('.mp-seg')[1]!.findAll('button');
 }
 // The raw-reading FormGroup's own `error` prop (QA F5). Read as a PROP, not as rendered text, so this
 // assertion is about the message the component chose rather than about the stub's markup.
@@ -117,21 +135,34 @@ function rawValueError(w: ReturnType<typeof mount>) {
 function findSaveButton(w: ReturnType<typeof mount>) {
   return w.findAll('button').find((b) => b.text().includes('reading.save'))!;
 }
+// Survey mode's own primary action — a DIFFERENT verb ("Calcular riego") because the modal is about to
+// ANSWER something, not just record it. See the component's own `primaryLabel` comment.
+function findCalculateButton(w: ReturnType<typeof mount>) {
+  return w.findAll('button').find((b) => b.text().includes('reading.calculate'))!;
+}
+function findCloseButton(w: ReturnType<typeof mount>) {
+  return w.findAll('button').find((b) => b.text().includes('common.close'))!;
+}
 // Located by its own button labels rather than a fixed `.mp-seg` index — the watering-relation control only
 // renders on a watering day, so its position among the other segmented controls is NOT fixed the way
-// `instrumentSegButtons`/`verdictSegButtons` above assume. Returns `undefined` when the control isn't shown.
+// `instrumentSegButtons` above assumes. Returns `undefined` when the control isn't shown.
 function wateringRelationSeg(w: ReturnType<typeof mount>) {
   return w.findAll('.mp-seg').find((seg) =>
     seg.findAll('button').some((b) => b.text() === 'reading.wateringRelation.before'));
 }
-// Located by its own button labels rather than a fixed `.mp-seg` index, same reasoning as
-// `wateringRelationSeg` above: on a watering day the relation control renders BETWEEN the instrument picker
-// and the verdict picker, shifting the verdict picker's index — a trap `verdictSegButtons`'s fixed index 1
-// falls into whenever a test combines a watering day with the verdict control.
-function verdictSegOnWateringDay(w: ReturnType<typeof mount>) {
-  return w.findAll('.mp-seg').find((seg) =>
-    seg.findAll('button').some((b) => b.text() === 'reading.verdict.waterNow'))!;
-}
+
+const holdPreview: SoilReadingPreview = {
+  wetness: 0.55, target: 0.4, recommendation: 'HOLD',
+  suggestedPostponeToOn: '2026-08-20', basis: 'MEASURED_SLOPE', unavailableReason: null,
+};
+const waterNowPreview: SoilReadingPreview = {
+  wetness: 0.2, target: 0.4, recommendation: 'WATER_NOW',
+  suggestedPostponeToOn: null, basis: null, unavailableReason: null,
+};
+const unavailablePreview: SoilReadingPreview = {
+  wetness: null, target: 0.4, recommendation: 'UNAVAILABLE',
+  suggestedPostponeToOn: null, basis: null, unavailableReason: 'NOT_MEASURABLE',
+};
 
 describe('SoilReadingModal', () => {
   it('offers ONLY the instruments the owner selected in /settings', () => {
@@ -229,45 +260,6 @@ describe('SoilReadingModal', () => {
     });
   });
 
-  // QA finding F3 (2026-08-08): ONE static line — "Recording alone won't water or postpone anything
-  // today" — was shown under all three options, and it was false of two of them: `WATER_NOW` writes a real
-  // WATER DONE and `POSTPONE` writes a POSTPONED that moved a watering 08-14 -> 08-20.
-  describe('the verdict helper line follows the SELECTED verdict (QA F3)', () => {
-    function hintOf(w: ReturnType<typeof mountModal>) {
-      const group = w.findAllComponents({ name: 'FormGroup' })
-        .find((g) => String(g.props('label')) === 'reading.verdictLabel');
-      return group?.props('hint');
-    }
-
-    it('starts on the NONE hint, which is the only one the old static line described', () => {
-      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
-      expect(hintOf(w)).toBe('reading.verdictHint.none');
-    });
-
-    it('switches to the POSTPONE hint — the verdict that really does move the next watering', async () => {
-      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
-      await verdictSegButtons(w)[1]!.trigger('click');
-      expect(hintOf(w)).toBe('reading.verdictHint.postpone');
-    });
-
-    it('switches to the WATER_NOW hint — the verdict that really does write a watering', async () => {
-      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
-      await verdictSegButtons(w)[2]!.trigger('click');
-      expect(hintOf(w)).toBe('reading.verdictHint.waterNow');
-    });
-
-    it('never shows one hint under a different verdict — the three are distinct strings', async () => {
-      const w = mountModal(makeData({ instruments: [galvanicProbe] }));
-      const seen = new Set<unknown>();
-      seen.add(hintOf(w));
-      await verdictSegButtons(w)[1]!.trigger('click');
-      seen.add(hintOf(w));
-      await verdictSegButtons(w)[2]!.trigger('click');
-      seen.add(hintOf(w));
-      expect(seen.size).toBe(3);
-    });
-  });
-
   // QA finding F11 (2026-08-08): the empty state told the owner to go to Settings and gave them no way to
   // get there — and on a desktop viewport there was no other route to that page at all (QA F1).
   describe('the empty state links to /settings (QA F11)', () => {
@@ -320,26 +312,8 @@ describe('SoilReadingModal', () => {
     });
   });
 
-  it('requires a postpone date only for the POSTPONE verdict', async () => {
-    const w = mountModal(makeData({ instruments: [galvanicProbe] }));
-    await w.find('input[type="number"]').setValue(5); // a valid raw reading, so only the verdict gates it
-
-    // WATER_NOW (index 2): no postpone date needed.
-    await verdictSegButtons(w)[2]!.trigger('click');
-    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
-
-    // POSTPONE (index 1): blocked until a date is chosen.
-    await verdictSegButtons(w)[1]!.trigger('click');
-    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
-
-    const dateInputs = w.findAll('input[type="date"]');
-    // The postpone date field only renders once the POSTPONE verdict is active — the last date input.
-    await dateInputs[dateInputs.length - 1]!.setValue('2026-08-15');
-    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
-  });
-
-  it('caps the measured date at today — a reading in the future is not a measurement', () => {
-    const w = mountModal(makeData());
+  it('caps the measured date at today — a reading in the future is not a measurement (voluntary mode)', () => {
+    const w = mountModal(makeData(), { mode: 'voluntary' });
     // Uses the app's own `~/utils/localDate` helper for the expected value — NOT a second, independent
     // `new Date().toLocaleDateString('en-CA')` of its own — so this test can actually catch the component
     // reintroducing that exact fork (level-1 integration review finding 3): a duplicated expression here
@@ -349,12 +323,14 @@ describe('SoilReadingModal', () => {
   });
 
   // Level-1 integration review finding 2: the modal is mounted once for the page's life (PlantDetail.vue,
-  // no `:key`), and its reopen-watch resets idempotencyKey/error/rawValue/verdict but used to leave
-  // `measuredOn` untouched — so logging a back-dated reading, closing the modal, and reopening it to log
-  // TODAY's reading showed the stale date, silently recording the new reading under the wrong day. Two
-  // readings on the same date is a zero-span pair that corrupts the drying-rate slope fit.
-  it('resets measuredOn back to today when the modal is closed and reopened, even after a back-dated reading', async () => {
-    const w = mountModal(makeData());
+  // no `:key`), and its reopen-watch resets idempotencyKey/error/rawValue but used to leave `measuredOn`
+  // untouched — so logging a back-dated reading, closing the modal, and reopening it to log TODAY's reading
+  // showed the stale date, silently recording the new reading under the wrong day. Two readings on the same
+  // date is a zero-span pair that corrupts the drying-rate slope fit. Voluntary mode only — `measuredOn`
+  // isn't rendered in survey mode at all (see the survey-mode describe block below).
+  it('resets measuredOn back to today when the modal is closed and reopened, even after a back-dated ' +
+    'reading (voluntary mode)', async () => {
+    const w = mountModal(makeData(), { mode: 'voluntary' });
     const measuredOnInput = () => w.findAll('input[type="date"]')[0]!;
 
     await measuredOnInput().setValue('2026-08-01');
@@ -398,7 +374,7 @@ describe('SoilReadingModal', () => {
   it('defaults the instrument to the first one on a first open, even with a late-arriving data prop, but ' +
     'never overwrites an explicit LATER choice on reopen (fix wave 1, item 1b)', async () => {
     const w = mount(SoilReadingModal, {
-      props: { open: false, plantId: 'plant-1', data: makeData({ instruments: [] }) },
+      props: { open: false, plantId: 'plant-1', data: makeData({ instruments: [] }), mode: 'voluntary' },
       global: { mocks: { $t: (k: string) => k }, stubs },
     });
 
@@ -457,17 +433,24 @@ describe('SoilReadingModal', () => {
 // to. The API tells the modal when to ask via `PlantSoilReadings.wateringDays`. NO default, NO
 // pre-selection: `canSubmit` stays false until the owner answers, and the field is reset on reopen and on
 // any `measuredOn` change, exactly like every other field this modal already resets.
-describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-08-08)', () => {
+//
+// MOVED to voluntary mode (2026-08-09 redesign): the question is impossible by construction in survey mode
+// — see the component's own `showWateringRelation` comment — so it survives only here. Every assertion
+// below is unchanged in substance from the pre-redesign version; only the explicit `mode: 'voluntary'` is
+// new.
+describe('SoilReadingModal — the same-day-watering question, voluntary mode (owner-ruled 2026-08-08)', () => {
   it('shows the question ONLY when measuredOn is a watering day', () => {
-    const onWateringDay = mountModal(makeData({ wateringDays: [todayYmd()] }));
+    const onWateringDay = mountModal(makeData({ wateringDays: [todayYmd()] }), { mode: 'voluntary' });
     expect(wateringRelationSeg(onWateringDay)).toBeTruthy();
 
-    const notWateringDay = mountModal(makeData({ wateringDays: [] }));
+    const notWateringDay = mountModal(makeData({ wateringDays: [] }), { mode: 'voluntary' });
     expect(wateringRelationSeg(notWateringDay)).toBeUndefined();
   });
 
   it('blocks submit until the question is answered, and never pre-selects either option', async () => {
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+    );
     await w.find('input[type="number"]').setValue(5); // a valid raw reading, so only the question gates it
 
     const buttons = wateringRelationSeg(w)!.findAll('button');
@@ -479,7 +462,9 @@ describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-
   });
 
   it('sends the chosen answer to the API only when the question was asked', async () => {
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+    );
     await w.find('input[type="number"]').setValue(5);
     const buttons = wateringRelationSeg(w)!.findAll('button');
     await buttons[1]!.trigger('click'); // AFTER
@@ -491,7 +476,7 @@ describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-
   });
 
   it('omits wateringRelation entirely when measuredOn is not a watering day', async () => {
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(5);
     await findSaveButton(w).trigger('click');
     await flushPromises();
@@ -504,7 +489,9 @@ describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-
     'silently submitted for a day it does not describe', async () => {
     const wateringDay = todayYmd();
     const otherDay = '2026-08-01';
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }));
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }), { mode: 'voluntary' },
+    );
     await w.find('input[type="number"]').setValue(5);
     expect(findSaveButton(w).attributes('disabled')).toBeDefined(); // watering day, unanswered
 
@@ -528,7 +515,9 @@ describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-
 
   it('resets the answer on close/reopen', async () => {
     const wateringDay = todayYmd();
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }));
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }), { mode: 'voluntary' },
+    );
     await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click'); // AFTER
     expect(wateringRelationSeg(w)!.findAll('button')[1]!.attributes('aria-pressed')).toBe('true');
 
@@ -540,49 +529,137 @@ describe('SoilReadingModal — the same-day-watering question (owner-ruled 2026-
     const buttonsAfter = wateringRelationSeg(w)!.findAll('button');
     expect(buttonsAfter.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
   });
+});
 
-  // Fix wave 7: a WATER_NOW reading is, by construction, taken BEFORE the watering it causes — the API
-  // always records BEFORE for it and rejects the field. Asking (and sending) the relation for WATER_NOW is
-  // therefore a question the modal would discard, which the owner ruled unacceptable ("the extra tap is the
-  // point" only holds for a question whose answer is actually used).
-  it('never asks or sends the watering-relation question when the verdict is WATER_NOW, even on a ' +
-    'watering day', async () => {
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
-    await w.find('input[type="number"]').setValue(5);
-
-    // WATER_NOW is verdict index 2 — located by label since the relation control shifts the fixed index.
-    await verdictSegOnWateringDay(w).findAll('button')[2]!.trigger('click');
-
-    // The question must not even render, and submit must not be blocked by it.
-    expect(wateringRelationSeg(w)).toBeUndefined();
-    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
-
-    await findSaveButton(w).trigger('click');
-    await flushPromises();
-
-    const lastCall = recordSoilReading.mock.calls[recordSoilReading.mock.calls.length - 1]!;
-    expect(lastCall[1]).toMatchObject({ verdict: 'WATER_NOW' });
-    expect(lastCall[1]).not.toHaveProperty('wateringRelation');
+// The measuring modal's whole point, since the 2026-08-09 redesign: survey mode ANSWERS "do I water this
+// today?" instead of asking the owner three questions the engine can now answer itself.
+describe('SoilReadingModal — survey mode (the redesigned measuring modal answers, not asks)', () => {
+  afterEach(() => {
+    previewSoilReading.mockClear();
+    recordSoilReading.mockClear();
   });
 
-  // A previously-given answer must not survive a mid-session switch TO WATER_NOW: answer the question on a
-  // watering day, THEN change the verdict to WATER_NOW, and confirm the stale answer never reaches the API
-  // even if the owner switches back to a verdict that would show the control again.
-  it('drops a previously-given answer when the verdict switches to WATER_NOW mid-session', async () => {
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
-    await w.find('input[type="number"]').setValue(5);
-    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click'); // AFTER
+  it('hides measuredOn — a survey answers TODAY, never a chosen date', () => {
+    const w = mountSurvey(makeData());
+    expect(w.findAll('input[type="date"]')).toHaveLength(0);
+  });
 
-    await verdictSegOnWateringDay(w).findAll('button')[2]!.trigger('click'); // WATER_NOW
+  it('never renders the watering-relation control, even on a watering day — impossible by construction', () => {
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
     expect(wateringRelationSeg(w)).toBeUndefined();
+  });
 
-    // Switch back to NONE (verdict index 0): the control reappears, unanswered — never the stale AFTER.
-    // Located by label again — with the relation control hidden (WATER_NOW), the verdict picker is now the
-    // second `.mp-seg` rather than the third, another index shift `verdictSegButtons` would miss.
-    await verdictSegOnWateringDay(w).findAll('button')[0]!.trigger('click');
-    const buttonsAgain = wateringRelationSeg(w)!.findAll('button');
-    expect(buttonsAgain.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
-    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+  it('has no verdict picker and no postpone-date field', () => {
+    const w = mountSurvey(makeData());
+    // The retired controls rendered these exact strings before the redesign; neither may appear anywhere,
+    // including inside a still-unanswered measure step.
+    expect(w.text()).not.toContain('reading.verdictLabel');
+    expect(w.text()).not.toContain('reading.verdict.');
+    expect(w.text()).not.toContain('reading.postponeTo');
+  });
+
+  it('labels the primary action "Calcular riego" — never "Guardar lectura"', () => {
+    const w = mountSurvey(makeData());
+    expect(findCalculateButton(w)).toBeTruthy();
+    expect(w.findAll('button').some((b) => b.text().includes('reading.save'))).toBe(false);
+  });
+
+  it('a WATER_NOW verdict writes NOTHING and waits — the row\'s own Hecho/Posponer take over', async () => {
+    previewSoilReading.mockResolvedValueOnce(waterNowPreview);
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+    await w.find('input[type="number"]').setValue(5);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+
+    expect(previewSoilReading).toHaveBeenCalledWith('plant-1', { instrumentId: 'galvanic-probe', rawValue: 5 });
+    expect(recordSoilReading).not.toHaveBeenCalled();
+    expect(w.text()).toContain('reading.verdictWaterNowTitle');
+    // The modal stays open on the verdict step, waiting for the owner to close it and go act on the row —
+    // it never auto-closes the way a successful voluntary save does.
+    expect(w.find('[data-modal-stub]').exists()).toBe(true);
+
+    // Closing from here writes nothing either — there is nothing queued to write.
+    await findCloseButton(w).trigger('click');
+    expect(recordSoilReading).not.toHaveBeenCalled();
+  });
+
+  it('a HOLD verdict applies IMMEDIATELY: verdict POSTPONE with the suggested date, no extra tap', async () => {
+    previewSoilReading.mockResolvedValueOnce(holdPreview);
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+    await w.find('input[type="number"]').setValue(5);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+
+    expect(recordSoilReading).toHaveBeenCalledTimes(1);
+    const [, body] = recordSoilReading.mock.calls[0]!;
+    expect(body).toMatchObject({
+      instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'POSTPONE', postponeToOn: '2026-08-20',
+    });
+    expect(body).not.toHaveProperty('wateringRelation');
+    expect(w.text()).toContain('reading.verdictHoldTitle');
+    expect(w.text()).toContain('reading.verdictHoldBody|2026-08-20');
+    expect(w.emitted('saved')).toHaveLength(1);
+  });
+
+  // The endpoint's own contract (`watering-verdict-constants.ts`): UNAVAILABLE means no honest fraction
+  // exists to compare against the target — it is a genuinely DIFFERENT outcome from HOLD (a real,
+  // measured "wait until X" answer), and the modal must never blur that distinction by treating the two
+  // the same way.
+  it('an UNAVAILABLE verdict is never rounded into a HOLD — it names the reason and records a plain NONE', async () => {
+    previewSoilReading.mockResolvedValueOnce(unavailablePreview);
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+    await w.find('input[type="number"]').setValue(5);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+
+    expect(w.text()).not.toContain('reading.verdictHoldTitle');
+    expect(w.text()).not.toContain('reading.verdictWaterNowTitle');
+    expect(w.text()).toContain('reading.verdictUnavailableReason.NOT_MEASURABLE');
+
+    expect(recordSoilReading).toHaveBeenCalledTimes(1);
+    const [, body] = recordSoilReading.mock.calls[0]!;
+    expect(body).toMatchObject({ instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'NONE' });
+    expect(body).not.toHaveProperty('postponeToOn');
+    expect(w.emitted('saved')).toHaveLength(1);
+  });
+
+  it('a failed preview writes nothing and stays retryable', async () => {
+    previewSoilReading.mockRejectedValueOnce({ statusCode: 500 });
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+    await w.find('input[type="number"]').setValue(5);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+
+    expect(recordSoilReading).not.toHaveBeenCalled();
+    expect(w.emitted('saved')).toBeUndefined();
+    expect(w.text()).toContain('reading.saveFailed');
+    // Still on the measure step — the primary action is offered again, unchanged, retryable with the
+    // SAME idempotency key (nothing about the form was reset).
+    expect(findCalculateButton(w)).toBeTruthy();
+    expect(findCalculateButton(w).attributes('disabled')).toBeUndefined();
+
+    // The retry actually works once the API stops failing — proving "retryable" is real, not just an
+    // absence of a disabled attribute.
+    previewSoilReading.mockResolvedValueOnce(waterNowPreview);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+    expect(w.text()).toContain('reading.verdictWaterNowTitle');
+  });
+
+  it('resets the verdict step back to measure on close/reopen — a stale verdict must never survive a ' +
+    'fresh reading', async () => {
+    previewSoilReading.mockResolvedValueOnce(waterNowPreview);
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+    await w.find('input[type="number"]').setValue(5);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+    expect(w.text()).toContain('reading.verdictWaterNowTitle');
+
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    expect(w.text()).not.toContain('reading.verdictWaterNowTitle');
+    expect(findCalculateButton(w)).toBeTruthy();
   });
 });
 
@@ -598,13 +675,13 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
 
   afterEach(() => {
     // Restore the module's default (non-spy) useI18n stub for every other describe block in this file.
-    vi.stubGlobal('useI18n', () => ({ t: plainT }));
+    vi.stubGlobal('useI18n', () => ({ t: plainT, d: (date: Date) => date.toISOString().slice(0, 10) }));
     recordSoilReading.mockReset();
     recordSoilReading.mockImplementation(() => Promise.resolve({ readingId: 'r1' }));
   });
 
   function mountReady() {
-    return mountModal(makeData({ instruments: [galvanicProbe] }));
+    return mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
   }
 
   async function fillAndSubmit(w: ReturnType<typeof mountReady>) {
@@ -616,7 +693,7 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
   it('on a 422 (same-key retry after an edit), shows the "already recorded" message, refreshes, and ' +
     'closes the modal', async () => {
     const tSpy = vi.fn(plainT);
-    vi.stubGlobal('useI18n', () => ({ t: tSpy }));
+    vi.stubGlobal('useI18n', () => ({ t: tSpy, d: (date: Date) => date.toISOString().slice(0, 10) }));
     recordSoilReading.mockRejectedValueOnce({ statusCode: 422 });
 
     const w = mountReady();
@@ -642,13 +719,17 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
   // covers. The server then refuses honestly with a 400 naming the field, and the modal must REVEAL the
   // question rather than show a generic "save failed" the owner can only clear by reloading. The question is
   // still ASKED, never inferred — we surface it, the owner answers, the retry carries a real answer.
-  it('a 400 naming wateringRelation REVEALS the question instead of dead-ending on the generic error', async () => {
+  //
+  // MOVED to voluntary mode (2026-08-09 redesign): survey mode never sends `wateringRelation` at all, so a
+  // 400 naming it there would have no control left to reveal — see the component's own catch-block comment.
+  it('a 400 naming wateringRelation REVEALS the question instead of dead-ending on the generic error ' +
+    '(voluntary mode)', async () => {
     recordSoilReading.mockRejectedValueOnce({
       statusCode: 400,
       data: { message: 'wateringRelation is required: this plant was already watered on measuredOn' },
     });
     // The cached list does NOT name today — that is precisely the stale-snapshot case.
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
     expect(wateringRelationSeg(w)).toBeUndefined();
 
     await fillAndSubmit(w);
@@ -662,7 +743,7 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
 
   it('a 400 about anything ELSE keeps the generic message and does NOT reveal the question', async () => {
     recordSoilReading.mockRejectedValueOnce({ statusCode: 400, data: { message: 'rawValue must be finite' } });
-    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
     await fillAndSubmit(w);
 
     expect(w.text()).toContain('reading.saveFailed');

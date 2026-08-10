@@ -923,6 +923,18 @@ export type UnavailableReason = (typeof UNAVAILABLE_REASONS)[number];
 /** The read-only answer to "water this pot today, or hold?" (`POST /plants/:id/soil-readings/preview`,
  *  §8 of the 2026-08-09 redesign). Nothing is written to produce this. */
 export interface SoilReadingPreview {
+  /**
+   * `YYYY-MM-DD` — the PLANT-LOCAL calendar day the verdict was computed for, and the day the write that
+   * follows a survey must carry (finding W3).
+   *
+   * The browser's own day is not that day. The API evaluates against the plant CITY's local day, so in the
+   * midnight gap the two disagree, and both directions dead-end: browser-behind writes a reading dated
+   * yesterday, so `measuredToday` never flips and the row re-offers the survey forever; browser-ahead
+   * writes a future date, which the API's own past-event rule refuses with a 400 and the survey ends
+   * nowhere. Voluntary mode is the one place the browser's day is still right — there the owner picks the
+   * date himself, and no preview ran to name a better one.
+   */
+  measuredOn: string;
   /** The normalised fraction (`normaliseReading`), or null when no honest fraction exists. */
   wetness: number | null;
   /** The species' own trigger (`targetWetnessFor`). Always present — it needs no reading to compute. */

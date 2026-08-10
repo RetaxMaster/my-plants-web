@@ -13,6 +13,9 @@
 //                 drying-rate fit, and what lets the row's `measuredToday` gate close the "asks again
 //                 forever" dead-end once the owner has answered for today), and UNAVAILABLE writes nothing
 //                 until the owner explicitly offers to save it (see `submit()`'s own branch comments).
+//                 ⚠️ Every survey write is dated by the PREVIEW's `measuredOn` — the plant-local day the
+//                 verdict was computed for — and never by this browser's day, which is a DIFFERENT day
+//                 across the midnight gap (finding W3; the full reasoning sits at that assignment).
 //   `voluntary` — a back-dated reading taken earlier. `measuredOn` stays editable (capped at today), the
 //                 watering-relation question is asked exactly as before (owner-ruled 2026-08-08, no
 //                 pre-selection — see below), and the reading is recorded with `verdict: 'NONE'`. No
@@ -187,8 +190,12 @@ const valueUnitLabel = computed(() =>
 // independent `new Date().toLocaleDateString('en-CA')` of its own (see `RepotDoneForm.vue`'s own comment on
 // this exact trap): that expression's output depends on the runtime's ICU locale data, while the shared
 // helper builds the string from local Date components so it does not. Editable ONLY in voluntary mode — a
-// survey answers TODAY, so the field is hidden there and this ref simply stays at its `todayYmd()` default
-// for the whole session (see the template's `v-if="mode === 'voluntary'"`).
+// survey answers TODAY, so the field is hidden there (see the template's `v-if="mode === 'voluntary'"`).
+//
+// ⚠️ THIS REF IS VOLUNTARY MODE'S DATE, and since W3 it is ONLY that. Survey mode does not write it: what
+// the browser calls "today" is not necessarily the plant city's today, and the API judges — and the write
+// is validated — on the PLANT's day, so every survey write carries `preview.measuredOn` instead. This ref
+// still sits at its `todayYmd()` default through a survey session; nothing reads it there.
 const measuredOn = ref(todayYmd());
 
 // Owner-ruled (2026-08-08): the same-day-watering question is asked ONLY when the chosen `measuredOn` is
@@ -289,6 +296,20 @@ async function submit() {
         rawValue: chosenRawValue,
       });
       previewResult.value = preview;
+      // FIX W3 — every write that follows a survey is dated by the PREVIEW, never by this browser.
+      //
+      // The API judges the reading against the plant CITY's local day, and this component's `measuredOn`
+      // holds the BROWSER's (`todayYmd()`). Those are the same day for most of the day and different
+      // across the midnight gap, and both directions dead-end the survey. Browser BEHIND the plant: the
+      // reading lands on yesterday, so the care payload's `measuredToday` never flips and the row goes on
+      // asking "¿Necesitas regar?" forever. Browser AHEAD: the write carries a future date and the API's
+      // own past-event rule refuses it with a 400, after the owner has already measured.
+      //
+      // Read ONCE, here, into a local — not off `previewResult` at each write site — so all three survey
+      // writes below (HOLD, WATER_NOW, and the UNAVAILABLE save the owner may tap much later) are dated by
+      // the same one answer, and the reopen reset cannot strand the deferred one. Voluntary mode never
+      // reaches this: there the owner picks the date himself, and no preview ran to name a better one.
+      const verdictMeasuredOn = preview.measuredOn;
 
       if (preview.recommendation === 'HOLD') {
         // "No riegues todavía" — applied IMMEDIATELY. The owner asked a question and the engine answered
@@ -297,7 +318,7 @@ async function submit() {
         await api.recordSoilReading(props.plantId, {
           instrumentId: chosenInstrumentId,
           rawValue: chosenRawValue,
-          measuredOn: measuredOn.value,
+          measuredOn: verdictMeasuredOn,
           verdict: 'POSTPONE',
           ...(preview.suggestedPostponeToOn ? { postponeToOn: preview.suggestedPostponeToOn } : {}),
         }, idempotencyKey.value);
@@ -310,7 +331,7 @@ async function submit() {
         // for no benefit. Asking costs one tap and is honest. `saveUnavailableReading()` below is that tap;
         // it fires ONLY if the owner presses "Guardar lectura" on the verdict step.
         pendingUnavailableReading.value = {
-          instrumentId: chosenInstrumentId, rawValue: chosenRawValue, measuredOn: measuredOn.value,
+          instrumentId: chosenInstrumentId, rawValue: chosenRawValue, measuredOn: verdictMeasuredOn,
         };
       } else if (preview.recommendation === 'WATER_NOW') {
         // Owner ruling (2026-08-09, measured-verdict-gap redesign): WATER_NOW now WRITES the reading, with
@@ -326,7 +347,7 @@ async function submit() {
         await api.recordSoilReading(props.plantId, {
           instrumentId: chosenInstrumentId,
           rawValue: chosenRawValue,
-          measuredOn: measuredOn.value,
+          measuredOn: verdictMeasuredOn,
           verdict: 'NONE',
         }, idempotencyKey.value);
         emit('saved');

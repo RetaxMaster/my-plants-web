@@ -46,6 +46,12 @@ vi.stubGlobal('useI18n', () => ({
   d: (date: Date) => ymdFromLocalDate(date),
 }));
 
+// FIX W3 — the PLANT-LOCAL day the preview says it judged, and DELIBERATELY not the browser's `todayYmd()`.
+// The API evaluates against the plant city's calendar day, so across the midnight gap the two are different
+// days; picking a fixed date far from any real "today" is what lets every assertion below tell "the write
+// carried the preview's day" from "the write carried the browser's day and happened to agree".
+const PLANT_TODAY = '2026-08-19';
+
 // Typed on its own parameters (rather than inferred from a zero-arg lambda) so `.mock.calls[n]` carries the
 // real `[plantId, body, idempotencyKey]` tuple type — needed below to read the recorded `body` argument.
 const recordSoilReading = vi.fn(
@@ -56,7 +62,7 @@ const setInstrumentCalibration = vi.fn(() => Promise.resolve({ saturatedValue: 1
 // (arbitrary; every survey test that cares about the recommendation overrides it with `mockResolvedValueOnce`).
 const previewSoilReading = vi.fn(
   (): Promise<SoilReadingPreview> => Promise.resolve({
-    wetness: 0.5, target: 0.4, recommendation: 'WATER_NOW',
+    measuredOn: PLANT_TODAY, wetness: 0.5, target: 0.4, recommendation: 'WATER_NOW',
     suggestedPostponeToOn: null, basis: null, unavailableReason: null,
   }),
 );
@@ -161,15 +167,15 @@ function wateringRelationSeg(w: ReturnType<typeof mount>) {
 }
 
 const holdPreview: SoilReadingPreview = {
-  wetness: 0.55, target: 0.4, recommendation: 'HOLD',
+  measuredOn: PLANT_TODAY, wetness: 0.55, target: 0.4, recommendation: 'HOLD',
   suggestedPostponeToOn: '2026-08-20', basis: 'MEASURED_SLOPE', unavailableReason: null,
 };
 const waterNowPreview: SoilReadingPreview = {
-  wetness: 0.2, target: 0.4, recommendation: 'WATER_NOW',
+  measuredOn: PLANT_TODAY, wetness: 0.2, target: 0.4, recommendation: 'WATER_NOW',
   suggestedPostponeToOn: null, basis: null, unavailableReason: null,
 };
 const unavailablePreview: SoilReadingPreview = {
-  wetness: null, target: 0.4, recommendation: 'UNAVAILABLE',
+  measuredOn: PLANT_TODAY, wetness: null, target: 0.4, recommendation: 'UNAVAILABLE',
   suggestedPostponeToOn: null, basis: null, unavailableReason: 'NOT_MEASURABLE',
 };
 
@@ -484,6 +490,25 @@ describe('SoilReadingModal — the same-day-watering question, voluntary mode (o
     expect(lastCall[1]).toMatchObject({ wateringRelation: 'AFTER' });
   });
 
+  // FIX W3's counter-case, and the boundary of that fix. Voluntary mode is the ONE surface where the
+  // browser's day is still the right one: no preview runs (there is no verdict to compute for a five-day-old
+  // reading), and the owner picks the date himself — so a survey-mode fix that reached in here would
+  // silently overwrite a back-dated reading with today.
+  it('voluntary mode still sends the date the OWNER chose, and never consults the preview for one',
+    async () => {
+      const backDated = '2026-08-01';
+      const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
+      await w.find('input[type="date"]').setValue(backDated);
+      await w.find('input[type="number"]').setValue(5);
+      await findSaveButton(w).trigger('click');
+      await flushPromises();
+
+      const lastCall = recordSoilReading.mock.calls[recordSoilReading.mock.calls.length - 1]!;
+      expect(lastCall[1].measuredOn).toBe(backDated);
+      expect(lastCall[1].measuredOn).not.toBe(PLANT_TODAY);
+      expect(previewSoilReading).not.toHaveBeenCalled();
+    });
+
   it('omits wateringRelation entirely when measuredOn is not a watering day', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(5);
@@ -594,6 +619,11 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     const [plantId, body] = recordSoilReading.mock.calls[0]!;
     expect(plantId).toBe('plant-1');
     expect(body).toMatchObject({ instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'NONE' });
+    // FIX W3 — dated by the PREVIEW's plant-local day, never by this browser's. Browser-behind would write
+    // yesterday, so `measuredToday` never flips and the row asks forever; browser-ahead would write a
+    // future date the API's own past-event rule refuses with a 400. Both dead-end the survey.
+    expect(body.measuredOn).toBe(PLANT_TODAY);
+    expect(body.measuredOn).not.toBe(todayYmd());
     // Never a schedule-moving field — this write teaches the fit, it does not postpone anything.
     expect(body).not.toHaveProperty('postponeToOn');
     expect(w.emitted('saved')).toHaveLength(1);
@@ -620,6 +650,9 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(body).toMatchObject({
       instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'POSTPONE', postponeToOn: '2026-08-20',
     });
+    // FIX W3 — the plant's day, not the browser's (see the WATER_NOW case for the full reasoning).
+    expect(body.measuredOn).toBe(PLANT_TODAY);
+    expect(body.measuredOn).not.toBe(todayYmd());
     expect(body).not.toHaveProperty('wateringRelation');
     expect(w.text()).toContain('reading.verdictHoldTitle');
     expect(w.text()).toContain('reading.verdictHoldBody|2026-08-20');
@@ -661,6 +694,11 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(recordSoilReading).toHaveBeenCalledTimes(1);
     const [, body] = recordSoilReading.mock.calls[0]!;
     expect(body).toMatchObject({ instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'NONE' });
+    // FIX W3, and this is the branch most easily missed: the write happens on a LATER tap, out of
+    // `pendingUnavailableReading`, so the preview's day has to have been captured INTO that object at
+    // verdict time rather than read off a live field at save time.
+    expect(body.measuredOn).toBe(PLANT_TODAY);
+    expect(body.measuredOn).not.toBe(todayYmd());
     expect(body).not.toHaveProperty('postponeToOn');
     expect(w.emitted('saved')).toHaveLength(1);
   });

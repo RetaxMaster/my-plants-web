@@ -452,6 +452,11 @@ describe('UiTaskRow — the measure affordance on WATER (measured:22)', () => {
 describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
   it('a WATER row that CAN be surveyed offers the survey and withholds Done and Postpone', () => {
     const w = mountRow({ task: 'WATER', status: 'today', canSurvey: true });
+    // The copy IS the reframe — a QUESTION ("Do you need to water?"), never REPOT's "Time to evaluate".
+    // `t` is mocked as identity (see the top of this file), so the rendered text is the i18n KEY itself —
+    // pinning it here is what catches a REPOT-namespaced key silently leaking onto the WATER row.
+    expect(w.text()).toContain('reading.surveyQuestion');
+    expect(w.text()).not.toContain('repotEval.cardAction');
     const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
     expect(icons).toContain('magnifying-glass'); // the survey affordance
     expect(icons).not.toContain('check'); // Done withheld
@@ -463,6 +468,7 @@ describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
     const explicit = mountRow({ task: 'WATER', status: 'today', canSurvey: false });
     const omitted = mountRow({ task: 'WATER', status: 'today' }); // canSurvey omitted — default false
     for (const w of [explicit, omitted]) {
+      expect(w.text()).not.toContain('reading.surveyQuestion'); // no survey copy at all
       const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
       expect(icons).not.toContain('magnifying-glass'); // no survey affordance
       expect(icons).toContain('check'); // Done, exactly as before
@@ -472,6 +478,7 @@ describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
 
   it('allowStandaloneDone re-opens Done and NEVER Postpone, exactly as it does for REPOT', () => {
     const w = mountRow({ task: 'WATER', status: 'today', canSurvey: true, allowStandaloneDone: true });
+    expect(w.text()).toContain('reading.surveyQuestion'); // the survey question is still on offer
     const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
     expect(icons).toContain('magnifying-glass'); // the survey is still on offer
     expect(icons).toContain('check'); // Done re-opened
@@ -480,9 +487,12 @@ describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
 
   it('every REPOT case is unchanged', () => {
     // `canSurvey` is inert on REPOT — its own state machine is entirely `pendingVerdict`-driven and does not
-    // consult this prop at all, whatever value a caller happens to pass.
+    // consult this prop at all, whatever value a caller happens to pass. And REPOT keeps its OWN copy key —
+    // branching the label on `task` must never touch the string a REPOT row was already showing.
     const noVerdict = mountRow({ pendingVerdict: null, canSurvey: true });
     expect(noVerdict.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).toEqual(['magnifying-glass']);
+    expect(noVerdict.text()).toContain('repotEval.cardAction');
+    expect(noVerdict.text()).not.toContain('reading.surveyQuestion');
 
     const repotVerdict = mountRow({ pendingVerdict: 'REPOT', canSurvey: false });
     const repotIcons = repotVerdict.findAll('.stub-btn').map((b) => b.attributes('data-icon'));

@@ -210,18 +210,29 @@ const reevaluateNoticeDate = computed(() =>
   props.pendingReevaluateOn ? d(ymdToLocalDate(props.pendingReevaluateOn), 'short') : '',
 );
 
-// The two states in which the REPOT state machine is WITHHOLDING Done/Postpone because no verdict has said
-// the plant needs repotting: the questionnaire is on offer, or a RE-EVALUATE date has not arrived yet.
-// Named once so the three computeds below cannot disagree about which states those are.
+// The states in which the survey shape is WITHHOLDING Done/Postpone because the question hasn't been
+// answered yet: the survey is on offer (REPOT's questionnaire, or WATER's check when `canSurvey` is true),
+// or a REPOT RE-EVALUATE date has not arrived yet. Named once so the three computeds below cannot disagree
+// about which states those are.
 const verdictWithholdsDone = computed(() => showEvaluate.value || reevaluatePending.value);
 
-// Done renders whenever the state machine is not withholding it — i.e. every non-REPOT task, and a REPOT
-// whose verdict already said so — PLUS the surface that has explicitly opted into a standalone Done.
+// Done renders whenever the survey shape is not withholding it — i.e. REPOT with a decided verdict, a WATER
+// row with no way to survey (`canSurvey: false`, the default), and every task the shape doesn't touch at all
+// — PLUS the surface that has explicitly opted into a standalone Done.
 const showDone = computed(() => !verdictWithholdsDone.value || props.allowStandaloneDone);
 
 // Postpone is NEVER unlocked by `allowStandaloneDone` — see the prop's own doc. It keeps exactly the rule
 // it had: offered alongside a non-withheld Done, and never on a task that is not due yet.
 const showPostpone = computed(() => !verdictWithholdsDone.value && effectiveStatus.value !== 'upcoming');
+
+// The survey button's own copy is task-specific even though the shape is not: REPOT's key ("Time to
+// evaluate") describes reading visual signs, and reusing it for WATER would reassert the instruction voice
+// this whole change exists to remove — the approved wording for WATER is a QUESTION ("Do you need to
+// water?"), because the question IS the reframe. Branched here, not baked into a shared key, so a future
+// edit to REPOT's wording can never silently rewrite WATER's prompt.
+const evaluateLabel = computed(() =>
+  props.task === 'WATER' ? t('reading.surveyQuestion') : t('repotEval.cardAction'),
+);
 
 const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
 const onPostpone = () => emit('postpone', { task: props.task });
@@ -256,7 +267,7 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
              or the "we'll ask again on <date>" note. `allowStandaloneDone` does not replace either of
              these — it renders Done BESIDE them, so the plant page offers both actions at once. -->
         <Button v-if="showEvaluate" size="xs" color="primary" icon="magnifying-glass" @click="onEvaluate">
-          {{ t('repotEval.cardAction') }}
+          {{ evaluateLabel }}
         </Button>
         <span v-else-if="reevaluatePending" class="mp-taskrow__pending-note">
           {{ t('repotEval.pendingReevaluateNote', { date: reevaluateNoticeDate }) }}

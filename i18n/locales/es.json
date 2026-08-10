@@ -1415,6 +1415,7 @@
       "spanInvalid": "El peso recién regada tiene que ser mayor que el peso en seco."
     },
     "measureAction": "Medir",
+    "surveyQuestion": "¿Necesitas regar?",
     "finding": {
       "tooSlow": "Esta maceta se está secando mucho más lento de lo que debería. Casi siempre es una maceta muy grande, poca aireación o sustrato agotado — no un problema de riego.",
       "tooSlowLink": "Ver trasplante",

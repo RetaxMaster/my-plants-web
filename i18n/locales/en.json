@@ -1415,6 +1415,7 @@
       "spanInvalid": "The watered weight has to be higher than the dry weight."
     },
     "measureAction": "Measure",
+    "surveyQuestion": "Do you need to water?",
     "finding": {
       "tooSlow": "This pot is drying much more slowly than it should. That's usually an oversized pot, poor aeration, or tired substrate — not a watering problem.",
       "tooSlowLink": "Look at repotting",

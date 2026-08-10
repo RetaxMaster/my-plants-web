@@ -49,7 +49,14 @@ const props = withDefaults(
     data: PlantSoilReadings;
     /** See the file-header comment for the full contract. Defaults to `voluntary` — the closer analog of
      * the pre-redesign single-step form — until the caller (a DUE water task) is wired to pass `survey`
-     * explicitly; that wiring is a later task. */
+     * explicitly; that wiring is a later task.
+     *
+     * ⚠️ THIS DEFAULT IS TEMPORARY SCAFFOLDING, not a real fallback — it exists ONLY so `PlantDetail.vue`
+     * (today's one caller, still unwired to either mode) keeps compiling. A default on a prop like this is
+     * a wiring hazard: a caller that FORGETS to pass `mode` gets a plausible-looking screen instead of a
+     * compile error, so a missing wire never fails loudly. Once every caller (the DUE-task survey entry
+     * point included) passes `mode` explicitly, drop the default and make this prop required — that is the
+     * last web task in this feature's own scope, not a follow-up someone has to remember on their own. */
     mode?: 'survey' | 'voluntary';
   }>(),
   { mode: 'voluntary' },
@@ -83,6 +90,13 @@ const step = ref<'measure' | 'verdict'>('measure');
 // The survey's own answer, once it has one. Drives the verdict step's copy; `null` until `submit()` sets
 // it (or on any reopen — see the `watch(open, …)` reset below).
 const previewResult = ref<SoilReadingPreview | null>(null);
+// UNAVAILABLE only (owner ruling, 2026-08-09): the reading `saveUnavailableReading()` will write if — and
+// only if — the owner presses "Guardar lectura". Captured at the moment the verdict is reached (not read
+// live off `instrumentId`/`rawValue`/`measuredOn` at save time) so the write can never pick up a value that
+// changed after the fields it came from stopped being rendered — those refs are frozen in practice once
+// `step` leaves `measure` (nothing re-renders them), but this keeps the save from depending on that being
+// true forever.
+const pendingUnavailableReading = ref<{ instrumentId: InstrumentId; rawValue: number; measuredOn: string } | null>(null);
 
 // Bridge between Input.vue's `v-model` (`string | number`) and `rawValue`'s `number | null` — same pattern
 // (and same shared util) as PlaceEditModal.vue's temperature fields. Numeric instruments only — an ordinal
@@ -118,6 +132,7 @@ watch(open, (isOpen) => {
   rawValue.value = null;
   step.value = 'measure';
   previewResult.value = null;
+  pendingUnavailableReading.value = null;
   measuredOn.value = todayYmd();
   wateringRelation.value = '';
   serverSaysWateringDay.value = false;
@@ -151,6 +166,14 @@ const needsCalibration = computed(() =>
 // meaningless for it. Guarding here (rather than always attempting the interpolation) also keeps this modal
 // from ever rendering a raw, untranslated `settings.instruments.unit.*` key path for an ordinal row that
 // catalogue does not cover.
+//
+// ⚠️ THE GAP THIS PATCHES OVER, named so it isn't only known here. `settings.instruments.unit.*` (and its
+// `name.*`/`help.*` siblings) currently define ONLY `galvanic-probe`/`kitchen-scale` — the wooden stick and
+// the finger have no entries there at all, because the Settings-page instrument SELECTOR has not been
+// updated to offer them yet (this task only wires the reading capture, not that catalogue page). This guard
+// is a real, load-bearing patch for that gap, not decoration — without it, selecting an ordinal instrument
+// here would render a raw `settings.instruments.unit.wooden-stick`-shaped key path to the owner. Filling in
+// `settings.instruments.*` for the ordinal rows belongs to whichever task finishes the Settings selector.
 const valueUnitLabel = computed(() =>
   instrument.value && instrument.value.captureKind !== 'ordinal'
     ? t(`settings.instruments.unit.${instrument.value.id}`)
@@ -277,16 +300,15 @@ async function submit() {
         }, idempotencyKey.value);
         emit('saved');
       } else if (preview.recommendation === 'UNAVAILABLE') {
-        // No honest fraction exists to answer with — recorded as a plain, verdict-less reading (it still
-        // teaches the drying-rate fit what it can), never silently rounded into a HOLD the engine never
-        // actually reached.
-        await api.recordSoilReading(props.plantId, {
-          instrumentId: chosenInstrumentId,
-          rawValue: chosenRawValue,
-          measuredOn: measuredOn.value,
-          verdict: 'NONE',
-        }, idempotencyKey.value);
-        emit('saved');
+        // Owner ruling (2026-08-09): UNAVAILABLE is OFFERED, never PERFORMED — nothing is written on
+        // arrival. HOLD applies itself because the app HAS an answer and that answer IS an action;
+        // UNAVAILABLE has no answer, and a null-wetness reading teaches the drying-rate fit nothing (a null
+        // fraction is excluded from the fit), so an automatic write would be acting on the owner's behalf
+        // for no benefit. Asking costs one tap and is honest. `saveUnavailableReading()` below is that tap;
+        // it fires ONLY if the owner presses "Guardar lectura" on the verdict step.
+        pendingUnavailableReading.value = {
+          instrumentId: chosenInstrumentId, rawValue: chosenRawValue, measuredOn: measuredOn.value,
+        };
       }
       // WATER_NOW writes NOTHING: "the owner acts; the row's Hecho/Posponer take over." The reading he just
       // took is not persisted here — he is about to water, and the task row's own Done flow is what records
@@ -345,6 +367,44 @@ async function submit() {
       // survey-branch `recordSoilReading` — in every case `step` is still `measure` (it only ever advances
       // AFTER the awaited call above succeeds), so the owner lands back on the form, unwritten, and free to
       // retry with the same idempotency key.
+      error.value = t('reading.saveFailed');
+    }
+  } finally {
+    submitting.value = false;
+  }
+}
+
+// The OFFERED save for an UNAVAILABLE verdict (owner ruling, 2026-08-09 — see `submit()`'s own comment on
+// the branch that sets `pendingUnavailableReading` instead of writing). Reachable ONLY from the verdict
+// step's own "Guardar lectura" button, and only while that pending reading exists — `previewResult` staying
+// `UNAVAILABLE` is not enough on its own, since a stale click after a reopen must not resurrect a PREVIOUS
+// session's reading.
+async function saveUnavailableReading() {
+  const pending = pendingUnavailableReading.value;
+  if (pending == null || submitting.value) return;
+  submitting.value = true;
+  error.value = null;
+  try {
+    await api.recordSoilReading(props.plantId, {
+      instrumentId: pending.instrumentId,
+      rawValue: pending.rawValue,
+      measuredOn: pending.measuredOn,
+      verdict: 'NONE',
+    }, idempotencyKey.value);
+    pendingUnavailableReading.value = null;
+    open.value = false;
+    emit('saved');
+  } catch (e: any) {
+    // Same idempotency-replay handling as `submit()`'s catch — a 409/422 here can only mean this exact
+    // reading already committed under this key (see that comment for the full reasoning). Never the
+    // `wateringRelation`-reveal branch: this button never sends that field, in either mode.
+    const status = e?.statusCode ?? e?.response?.status;
+    if (status === 409 || status === 422) {
+      error.value = t('reading.alreadyRecorded');
+      pendingUnavailableReading.value = null;
+      open.value = false;
+      emit('saved');
+    } else {
       error.value = t('reading.saveFailed');
     }
   } finally {
@@ -482,11 +542,14 @@ const holdDateLabel = computed(() => {
         <p class="mp-reading__verdict-body">{{ t('reading.verdictHoldBody', { date: holdDateLabel }) }}</p>
       </template>
       <template v-else-if="previewResult?.recommendation === 'UNAVAILABLE'">
-        <!-- "no verdict" (spec) — no title claiming an answer that was never reached, only the reason. -->
+        <!-- "no verdict" (spec) — no title claiming an answer that was never reached, only the reason. The
+             save itself is OFFERED here (owner ruling, 2026-08-09), via the footer's "Guardar lectura" —
+             see `saveUnavailableReading()`. -->
         <p class="mp-reading__verdict-body">
           {{ t(`reading.verdictUnavailableReason.${previewResult.unavailableReason}`) }}
         </p>
       </template>
+      <Alert v-if="error" color="red" :description="error" announce />
     </template>
 
     <template #footer>
@@ -496,9 +559,14 @@ const holdDateLabel = computed(() => {
           {{ primaryLabel }}
         </Button>
       </template>
-      <!-- The verdict step never asks anything further: WATER_NOW wrote nothing (the row's Hecho/Posponer
-           take over), and HOLD/UNAVAILABLE already applied themselves the instant this step was reached
-           (see `submit()`). There is nothing left to confirm — only to close. -->
+      <!-- WATER_NOW wrote nothing (the row's Hecho/Posponer take over) and HOLD already applied itself the
+           instant this step was reached (see `submit()`) — both have nothing left to confirm, only to
+           close. UNAVAILABLE is the one exception (owner ruling, 2026-08-09): it OFFERS a save rather than
+           performing one, so its own footer adds "Guardar lectura" alongside Close. -->
+      <template v-else-if="previewResult?.recommendation === 'UNAVAILABLE'">
+        <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
+        <Button :loading="submitting" @click="saveUnavailableReading">{{ t('reading.save') }}</Button>
+      </template>
       <template v-else>
         <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
       </template>

@@ -605,7 +605,14 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
   // exists to compare against the target — it is a genuinely DIFFERENT outcome from HOLD (a real,
   // measured "wait until X" answer), and the modal must never blur that distinction by treating the two
   // the same way.
-  it('an UNAVAILABLE verdict is never rounded into a HOLD — it names the reason and records a plain NONE', async () => {
+  //
+  // Owner ruling (2026-08-09): UNAVAILABLE is OFFERED, never PERFORMED — HOLD applies itself because the
+  // app HAS an answer and that answer IS an action; UNAVAILABLE has no answer, and a null-wetness reading
+  // teaches the drying-rate fit nothing, so an automatic write would act on the owner's behalf for no
+  // benefit. Both halves below are load-bearing: nothing written on arrival, and a real write ONLY once the
+  // owner presses "Guardar lectura".
+  it('an UNAVAILABLE verdict is never rounded into a HOLD, writes NOTHING on arrival, and records a plain ' +
+    'NONE only once the owner presses Guardar lectura', async () => {
     previewSoilReading.mockResolvedValueOnce(unavailablePreview);
     const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
     await w.find('input[type="number"]').setValue(5);
@@ -615,6 +622,16 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(w.text()).not.toContain('reading.verdictHoldTitle');
     expect(w.text()).not.toContain('reading.verdictWaterNowTitle');
     expect(w.text()).toContain('reading.verdictUnavailableReason.NOT_MEASURABLE');
+
+    // Half 1: nothing written on arrival — the modal only OFFERS the save, and stays open on the verdict
+    // step waiting for the owner's own tap.
+    expect(recordSoilReading).not.toHaveBeenCalled();
+    expect(w.emitted('saved')).toBeUndefined();
+    expect(w.find('[data-modal-stub]').exists()).toBe(true);
+
+    // Half 2: pressing "Guardar lectura" writes the plain NONE reading, and only then.
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
 
     expect(recordSoilReading).toHaveBeenCalledTimes(1);
     const [, body] = recordSoilReading.mock.calls[0]!;

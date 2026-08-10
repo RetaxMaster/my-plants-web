@@ -899,6 +899,25 @@ export interface CreateSoilReading {
   wateringRelation?: WateringRelation;
 }
 
+/** The read-only answer to "water this pot today, or hold?" (`POST /plants/:id/soil-readings/preview`,
+ *  §8 of the 2026-08-09 redesign). Nothing is written to produce this. `recommendation`/`basis`/
+ *  `unavailableReason` mirror the API's own `Recommendation`/`HoldBasis`/`UnavailableReason` unions
+ *  (`repos/my-plants-api/src/engines/watering-verdict.ts` + `soil-readings.service.ts`) — those are NOT
+ *  exported from the shared `@retaxmaster/my-plants-species-schema` contract (only `ReadingVerdict`,
+ *  `WateringRelation` and `InstrumentCalibration` live there, and they answer a different question: the
+ *  owner's post-reading decision, not this engine's verdict), so there is nothing to import and this is
+ *  the single place the shape is declared for the web. */
+export interface SoilReadingPreview {
+  /** The normalised fraction (`normaliseReading`), or null when no honest fraction exists. */
+  wetness: number | null;
+  /** The species' own trigger (`targetWetnessFor`). Always present — it needs no reading to compute. */
+  target: number;
+  recommendation: 'WATER_NOW' | 'HOLD' | 'UNAVAILABLE';
+  suggestedPostponeToOn: string | null;
+  basis: 'MEASURED_SLOPE' | 'SHORT_RECHECK' | null;
+  unavailableReason: 'NEEDS_CALIBRATION' | 'NOT_MEASURABLE' | null;
+}
+
 /** The care payload's read-time measurement block. Null for a frozen plant. */
 export interface PlantMeasurement {
   dryingRate: {

@@ -16,7 +16,7 @@ import type {
   AgentProposal, DoctorSessionSettings,
   ClinicalRecordSummary, ClinicalRecordDetail,
   RepotSign, RepotSignsResponse, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
-  OwnerInstruments, PlantSoilReadings, CreateSoilReading, InstrumentCalibration,
+  OwnerInstruments, PlantSoilReadings, CreateSoilReading, InstrumentCalibration, SoilReadingPreview,
 } from '../types/api.js';
 
 // Bounded wait for the two REPOT mutating submits (round-4 finding V2): a plain JSON POST via ofetch has NO
@@ -323,6 +323,12 @@ export function useApi() {
         body,
         headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
       }),
+
+    /** Read-only — "water this pot today, or hold?" — writes nothing, so unlike `recordSoilReading` it
+     *  carries NO idempotency key: the interceptor dedups any header-bearing POST regardless of route, and
+     *  a preview has no create to protect from a lost-response retry. */
+    previewSoilReading: (plantId: string, body: { instrumentId: InstrumentId; rawValue: number }) =>
+      api<SoilReadingPreview>(`/plants/${plantId}/soil-readings/preview`, { method: 'POST', body }),
 
     setInstrumentCalibration: (
       plantId: string, instrumentId: InstrumentId, body: InstrumentCalibration,

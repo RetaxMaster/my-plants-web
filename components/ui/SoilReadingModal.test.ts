@@ -11,7 +11,7 @@
 // 2026-08-09 redesign ("the modal answers the question instead of asking three of ours"): every test below
 // now mounts with an EXPLICIT `mode`, never relying on the component's own default — see `mountModal`'s own
 // comment for why that matters for the mutation proofs this file's spec calls for.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { ref, reactive, computed, watch, inject } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
@@ -1157,9 +1157,14 @@ describe('a survey refused for a missing wateringRelation recovers instead of de
   };
 
   async function surveyRefusedOnce() {
-    // TWICE: the retry re-runs the preview, and this file's default preview mock answers WATER_NOW — the
-    // one verdict that legitimately does NOT send `wateringRelation`. Queueing only one HOLD made the
-    // retry assertion fail for a harness reason that looks exactly like the defect under test.
+    // TWICE: the retry re-runs the preview, and queueing only one HOLD let the second call fall through to
+    // this file's default mock, changing the verdict under the retry — a harness fault that looks exactly
+    // like the defect under test.
+    //
+    // ⚠️ This comment used to justify that differently: *"the default answers WATER_NOW — the one verdict
+    // that legitimately does NOT send `wateringRelation`."* That belief was false and is corrected below,
+    // in `every verdict branch carries the same-day answer`. It is quoted rather than deleted because a
+    // false premise written down in a test harness is how the branch it describes stops being tested.
     previewSoilReading.mockResolvedValueOnce(HOLD_PREVIEW).mockResolvedValueOnce(HOLD_PREVIEW);
     recordSoilReading.mockRejectedValueOnce(proxiedError(
       400, 'wateringRelation is required: this plant was already watered on measuredOn',
@@ -1453,5 +1458,98 @@ describe('a measurement cannot be dated in the future', () => {
 
     expect(w.text()).toContain('reading.measuredOnFuture');
     expect(w.text()).not.toContain('reading.saveFailed');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// THE REQUEST BODY, PER VERDICT BRANCH, ON A DAY THAT CARRIES A WATERING (QA round 4, 2026-08-10).
+//
+// This suite exists because of a defect that was invisible from every angle the tests looked from. The
+// survey's three branches build three DIFFERENT create bodies, and the WATER_NOW one silently omitted
+// `wateringRelation` — justified by a comment pointing at a real API exemption that this branch had
+// stopped qualifying for the day it started writing `verdict: 'NONE'` instead. Nothing broke at the seam:
+// two independently correct pieces stopped meeting.
+//
+// From the UI the three branches are indistinguishable until the 400 arrives, and a test that asserts only
+// "the save was called" or "the verdict rendered" cannot tell them apart at all. So these cases assert the
+// BODY — the artefact that actually differed — for every branch, on the one day the field is required.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('every verdict branch carries the same-day answer', () => {
+  // ⚠️ `mockReset`, not `mockClear`. `mockClear` wipes recorded CALLS but leaves a queued
+  // `mockResolvedValueOnce` in place, so a preview queued by an earlier suite and never consumed is handed
+  // to the FIRST case here — which is how the WATER_NOW case below first read back `verdict: 'POSTPONE'`
+  // and looked like a defect in the code rather than in the harness. Every case here queues its own
+  // preview explicitly, so resetting the implementation costs nothing; `recordSoilReading` gets its
+  // default restored because these cases read the body it was called with.
+  beforeEach(() => {
+    previewSoilReading.mockReset();
+    recordSoilReading.mockReset();
+    recordSoilReading.mockResolvedValue({ readingId: 'r1' });
+  });
+
+  /** Run a full survey on a plant already watered TODAY, answering the same-day question, and hand back
+   *  the body that reached `recordSoilReading`. */
+  async function surveyBodyOnAWateringDay(preview: SoilReadingPreview) {
+    previewSoilReading.mockResolvedValueOnce(preview);
+    // ⚠️ `todayYmd()`, NOT `PLANT_TODAY`. In survey mode `measuredOn` stays pinned to the BROWSER's day
+    // (the field is not rendered), so that is the day `showWateringRelation` checks `wateringDays` against
+    // — while the WRITE is dated by `preview.measuredOn`, the PLANT's day. The two differ across the
+    // midnight gap, which is exactly the case `serverSaysWateringDay`'s 400 reveal exists to rescue. Using
+    // the plant's day here rendered no control at all and made every assertion below vacuous, which is a
+    // fair warning about how easy this pair is to mix up.
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+    await w.find('input[type="number"]').setValue(9);
+    // The control must be there in survey mode too — if this fails, the fix at `showWateringRelation`
+    // regressed and every assertion below would be vacuous.
+    const seg = wateringRelationSeg(w);
+    expect(seg, 'the same-day question must be asked in survey mode').toBeDefined();
+    await seg!.findAll('button')[0]!.trigger('click');   // BEFORE
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+    return { w, body: recordSoilReading.mock.calls.at(-1)?.[1] };
+  }
+
+  // THE REGRESSION. Reachable on a fresh install, on the ordinary rhythm of watering in the morning and
+  // measuring a dry pot in the evening: the preview said WATER_NOW, the write was refused, retrying was
+  // refused identically, and the owner watched his own answer sitting selected on screen.
+  it('WATER_NOW sends it — its verdict is NONE, so the API can derive nothing', async () => {
+    const { body } = await surveyBodyOnAWateringDay(waterNowPreview);
+    expect(body).toBeDefined();
+    expect(body!.verdict).toBe('NONE');
+    expect(body!.wateringRelation).toBe('BEFORE');
+  });
+
+  it('HOLD sends it', async () => {
+    const { body } = await surveyBodyOnAWateringDay(holdPreview);
+    expect(body!.verdict).toBe('POSTPONE');
+    expect(body!.wateringRelation).toBe('BEFORE');
+  });
+
+  it('UNAVAILABLE carries it through the deferred save the owner may tap much later', async () => {
+    const { w } = await surveyBodyOnAWateringDay(unavailablePreview);
+    // UNAVAILABLE writes nothing on arrival (owner ruling 2026-08-09) — it is OFFERED.
+    expect(recordSoilReading).not.toHaveBeenCalled();
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    const body = recordSoilReading.mock.calls.at(-1)![1];
+    expect(body.wateringRelation).toBe('BEFORE');
+  });
+
+  // The mirror the API enforces: sending the field on a day with no watering is a 400 of its own ("there
+  // is no watering for the reading to be before or after"). So "always send it" would be as wrong as
+  // "never send it" — the gate is the day, not the verdict.
+  it('and NO branch sends it on an ordinary day', async () => {
+    for (const preview of [waterNowPreview, holdPreview]) {
+      recordSoilReading.mockClear();
+      previewSoilReading.mockResolvedValueOnce(preview);
+      const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+      await w.find('input[type="number"]').setValue(9);
+      expect(wateringRelationSeg(w)).toBeUndefined();
+      await findCalculateButton(w).trigger('click');
+      await flushPromises();
+      const body = recordSoilReading.mock.calls.at(-1)![1];
+      expect(body).not.toHaveProperty('wateringRelation');
+    }
   });
 });

@@ -171,10 +171,8 @@ const readingMode = ref<'survey' | 'voluntary'>('voluntary');
 // The measurement-history block's own entry point (Task 6): recording a back-dated reading is not part of
 // deciding today's watering, so it lives here — never on the WATER task row, which the `@measure`
 // affordance used to occupy (removed; see the TaskRow binding below).
-async function openVoluntaryReading() {
-  await refreshReadingsBeforeOpening();
-  readingMode.value = 'voluntary';
-  readingModalOpen.value = true;
+function openVoluntaryReading() {
+  return openReading('voluntary');
 }
 
 /**
@@ -204,6 +202,34 @@ async function refreshReadingsBeforeOpening() {
     await refreshReadings();
   } catch {
     // Deliberately silent: see FAILS OPEN above. Nothing is lost that the owner had a moment ago.
+  }
+}
+
+/**
+ * ONE OPEN AT A TIME (QA round 4, 2026-08-10, finding B1).
+ *
+ * Awaiting the refresh above opened a window — as wide as the request is slow, so wide on a phone — in
+ * which both entry points stay live, unspinnered and inviting a second tap. QA tapped "Add a reading" and
+ * then "Do you need to water?" 300 ms later and got **no dialog at all**, 6 times out of 7: no error, no
+ * console message, nothing to retry against. Reversing the order opened a dialog in a NON-DETERMINISTIC
+ * mode — the owner can land in the flow he did not click.
+ *
+ * The two handlers race over `readingMode` and `readingModalOpen` around an await, which is the whole
+ * class. This closes it at the source rather than patching either symptom: while an open is in flight both
+ * entry points are inert AND visibly busy, so the second tap is neither accepted nor invited. `finally`,
+ * because a failed refresh must not leave the buttons dead forever.
+ */
+const readingOpening = ref(false);
+
+async function openReading(mode: 'survey' | 'voluntary') {
+  if (readingOpening.value || readingModalOpen.value) return;
+  readingOpening.value = true;
+  try {
+    await refreshReadingsBeforeOpening();
+    readingMode.value = mode;
+    readingModalOpen.value = true;
+  } finally {
+    readingOpening.value = false;
   }
 }
 // A saved reading can change BOTH the readings list (SoilReadingModal's own data) and the care payload's
@@ -775,9 +801,9 @@ async function onEvaluateTask(e: { task: TaskCode }) {
     // ⚠️ THE SENTENCE ABOVE — "reused here rather than a second, per-click fetch" — was the reasoning that
     // made the survey dead-end on a plant watered from anywhere else (QA round 3). A snapshot taken at page
     // load is not the state the server will judge this write against; see `refreshReadingsBeforeOpening`.
-    await refreshReadingsBeforeOpening();
-    readingMode.value = 'survey';
-    readingModalOpen.value = true;
+    // Routed through `openReading` so this entry point and the voluntary one cannot race each other over
+    // `readingMode` around that await (QA round 4, finding B1).
+    await openReading('survey');
     return;
   }
   return onEvaluate();
@@ -1477,7 +1503,21 @@ async function confirmRevive() {
                 {{ $t('reading.surveyRetry') }}
               </UiButton>
             </UiAlert>
-            <UiButton v-else size="xs" variant="soft" color="neutral" icon="beaker" class="mp-detail__measurement-add" @click="openVoluntaryReading">
+            <!-- `:loading` is not decoration here: opening AWAITS a readings refresh, and a button that
+                 stays idle through it invites the second tap that used to swallow the dialog entirely
+                 (QA round 4, B1). `readingOpening` also makes it inert, so the guard holds even if a
+                 future variant drops the visual state. -->
+            <UiButton
+              v-else
+              size="xs"
+              variant="soft"
+              color="neutral"
+              icon="beaker"
+              class="mp-detail__measurement-add"
+              :loading="readingOpening"
+              :disabled="readingOpening"
+              @click="openVoluntaryReading"
+            >
               {{ $t('reading.addReading') }}
             </UiButton>
             <!-- QA UX-1: a saved reading used to vanish — no confirmation, no list, nothing on the page,

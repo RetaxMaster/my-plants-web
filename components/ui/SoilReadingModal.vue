@@ -366,13 +366,22 @@ watch(measuredOn, () => {
 // answerable before the owner presses the primary button rather than revealed afterwards by a failure. So
 // this gate is `isWateringDay` in both modes and nothing else.
 //
-// The `WATER_NOW` exemption is real but belongs to the API, not here: that verdict creates the watering in
-// its own transaction, so its reading definitionally precedes it, and the server derives `BEFORE` by
-// construction while ignoring whatever a caller sends (docs/care-engine.md §7.20.4). The client honours it
-// by not SENDING the field on that branch — see `submit()`. It is deliberately NOT expressed as a condition
-// here: a `previewResult`-based term would be inert (the control only renders while the verdict is still
-// unknown) and worse than inert, since the one moment it could ever evaluate true is a failed write, where
-// hiding the control is exactly the dead end this fix removes.
+// ⚠️ THERE IS NO `WATER_NOW` EXEMPTION ON THIS PATH — CORRECTED 2026-08-10 (QA round 4), and the previous
+// text here is the reason the defect existed, so it is quoted rather than deleted: *"the `WATER_NOW`
+// exemption is real but belongs to the API… the client honours it by not SENDING the field on that
+// branch."*
+//
+// The API's exemption is real and remains untouched, but it is keyed on `verdict: 'WATER_NOW'`, and this
+// flow has not sent that verdict since 2026-08-09 (a WATER_NOW survey writes `verdict: 'NONE'` — it teaches
+// the fit and moves no schedule). The exemption's justification is that the write creates the watering the
+// reading precedes; a write that creates no watering cannot derive that, so the client must supply it. The
+// full account sits at the WATER_NOW branch in `submit()`.
+//
+// The gate is `isWateringDay` in both modes, for all three verdicts, and nothing else. In particular it is
+// deliberately NOT conditioned on `previewResult`: such a term would be inert (the control only renders
+// while the verdict is still unknown) and worse than inert, since the one moment it could ever evaluate
+// true is a failed write, where hiding the control is exactly the dead end this whole area keeps
+// rediscovering.
 const showWateringRelation = computed(() => isWateringDay.value);
 
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
@@ -606,6 +615,32 @@ async function submit() {
           rawValue: chosenRawValue,
           measuredOn: verdictMeasuredOn,
           verdict: 'NONE',
+          // ⚠️ THIS SPREAD WAS MISSING, AND ITS ABSENCE WAS ARGUED FOR IN A COMMENT (QA round 4,
+          // 2026-08-10). The argument: a WATER_NOW reading is exempt from the same-day question because the
+          // API derives `BEFORE` by construction — the reading is what prompted the watering the write is
+          // about to create.
+          //
+          // Every word of that is still true OF `verdict: 'WATER_NOW'`. It stopped being true of THIS
+          // branch on 2026-08-09, when the owner ruled that a WATER_NOW survey writes the reading with
+          // `verdict: 'NONE'` (it teaches the drying-rate fit and moves no schedule; the owner presses Done
+          // separately afterwards). The server's exemption is keyed on the VERDICT, so the moment this
+          // branch stopped sending `WATER_NOW` it stopped qualifying — and it stopped qualifying
+          // CORRECTLY, because a write that creates no watering cannot derive a reading's position
+          // relative to one.
+          //
+          // Nothing failed at the seam. Two independently correct pieces simply stopped meeting, and the
+          // result was a permanent dead end on the ordinary case of watering in the morning and measuring a
+          // dry pot in the evening: the preview said WATER_NOW, the write was refused, and retrying was
+          // refused identically — while the owner watched his own answer sitting selected on screen. Worse,
+          // nothing was written, so `measuredToday` never flipped and the row went on asking "¿Necesitas
+          // regar?" forever, which is the exact dead end this write exists to close.
+          //
+          // So it travels, gated by `showWateringRelation` exactly as HOLD's does two branches up — true
+          // only on a day that genuinely carries a watering, which is also the only day the API accepts the
+          // field at all.
+          ...(showWateringRelation.value
+            ? { wateringRelation: wateringRelation.value as WateringRelation }
+            : {}),
         }, idempotencyKey.value);
         emit('saved');
       }
@@ -995,5 +1030,29 @@ const holdDateLabel = computed(() => {
 .mp-reading__verdict-body { margin: 0; font-size: var(--text-sm); color: var(--text-body); }
 /* The reason the primary action is unavailable (QA UX-2). `margin-right: auto` pushes it to the far side
    of the footer so the two buttons keep their existing right-aligned position rather than shifting. */
-.mp-reading__blocked { margin: 0 auto 0 0; font-size: var(--text-sm); color: var(--text-faint); }
+/* The blocking reason shares the modal's `display: flex` footer with Cancel/Save. `auto` on the right
+   margin pushes the buttons to the far edge, which is what we want on a wide panel.
+   ⚠️ IT NEEDS A FLOOR (QA round 4, 2026-08-10). With no `min-width`, a flex item shrinks to whatever the
+   two buttons leave over — and these sentences got LONGER in the same fix round that put them here (the
+   bound, step and calibration reasons all render in this slot now). QA measured 75 px of column wrapping
+   over NINE lines at 390 px wide, a footer 160 px tall, pushing the form out of view. `12ch` is a floor on
+   the text, not a width: it simply stops the column collapsing before the wrap-to-own-row rule below
+   takes over. */
+.mp-reading__blocked {
+  margin: 0 auto 0 0;
+  min-width: 12ch;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+/* On a phone the reason takes its OWN ROW, above the buttons, at full width — a sentence is not a third
+   button and should not compete with two for one line. `order: -1` puts it first without reordering the
+   markup, so the reading order a screen reader gets is unchanged (it is `aria-live` and announces on
+   appearance regardless). The footer itself has to be told to wrap: it is `display: flex` with no
+   `flex-wrap` in Modal.vue, which is correct for every OTHER modal's footer — none of them puts prose in
+   it — so the exception is declared here rather than changed for all of them. */
+@media (max-width: 480px) {
+  :global(.mp-modal__footer:has(.mp-reading__blocked)) { flex-wrap: wrap; }
+  .mp-reading__blocked { order: -1; flex-basis: 100%; min-width: 0; margin: 0; }
+}
 </style>

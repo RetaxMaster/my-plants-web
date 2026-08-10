@@ -1299,10 +1299,14 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
 // invented fetch, and an owner with none renders the row EXACTLY as it did before this feature — declining
 // to measure is a supported choice, not a degraded state.
 const WATER_TASK_A = { plantId: 'A', task: 'WATER' as const, nextDueOn: '2026-01-01', pendingEvaluation: null };
+// measured-verdict-gap spec (Task 47/T6b) — the SAME row, already measured today (WATER_NOW's own write,
+// `verdict: 'NONE'`, has already landed). `canSurveyWaterFor` must gate on this too, not just the
+// instrument — asking again after the owner already answered is the exact dead end this field closes.
+const WATER_TASK_A_MEASURED_TODAY = { ...WATER_TASK_A, measuredToday: true };
 
-function stubApiWithWaterTask() {
+function stubApiWithWaterTask(tasks: unknown[] = [WATER_TASK_A]) {
   vi.stubGlobal('useApi', () => ({
-    todaysTasks: async () => [WATER_TASK_A],
+    todaysTasks: async () => tasks,
     listPlants: async () => [],
     listPlaces: async () => [],
     getRepotSigns: getRepotSignsMock,
@@ -1343,6 +1347,21 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     expect(row.find('.postpone-btn').exists()).toBe(true);
   });
 
+  // measured-verdict-gap spec (Task 47/T6b) — the ground truth is the READING, not session memory: once
+  // WATER_NOW has written today's reading, the row must fall back to the classic Done | Postpone pair,
+  // exactly as an owner with no instrument sees, even though this owner DOES have one selected.
+  it('withholds the survey once the plant has already been measured today, even with an instrument', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    stubApiWithWaterTask([WATER_TASK_A_MEASURED_TODAY]);
+
+    const w = await mountPage();
+    const row = w.find('[data-can-survey]');
+    expect(row.attributes('data-can-survey')).toBe('false');
+    expect(row.find('.evaluate-btn').exists()).toBe(false);
+    expect(row.find('.done-btn').exists()).toBe(true);
+    expect(row.find('.postpone-btn').exists()).toBe(true);
+  });
+
   it('opens the modal in SURVEY mode', async () => {
     getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
     stubApiWithWaterTask();
@@ -1357,10 +1376,12 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     expect(modal.attributes('data-plant-id')).toBe('A');
   });
 
-  // Mutation proof 3 (Step 4): a survey's HOLD verdict applies itself and writes a postpone inside
-  // SoilReadingModal.vue's own `submit()` — the ONE signal Today gets that something was written is the
-  // `saved` event (WATER_NOW writes nothing and never emits it). Today must reconcile through the SAME
-  // `refresh()` seam every other completion already uses, never a second refresh path.
+  // Mutation proof 3 (Step 4): a survey's HOLD verdict applies itself and writes a postpone, and WATER_NOW
+  // writes the reading too (`verdict: 'NONE'`, measured-verdict-gap redesign 2026-08-09) — both inside
+  // SoilReadingModal.vue's own `submit()`. The ONE signal Today gets that something was written is the
+  // `saved` event. Today must reconcile through the SAME `refresh()` seam every other completion already
+  // uses, never a second refresh path — this is what lets a WATER_NOW save flip `measuredToday` and close
+  // the survey affordance back to false without a manual page reload.
   it('reconciles Today through the existing refresh() seam once the survey reports a save', async () => {
     getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
     const todaysTasksMock = vi.fn(async () => [WATER_TASK_A]);

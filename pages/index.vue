@@ -194,7 +194,7 @@ const { data: places } = useLazyAsyncData('places-for-today', () => api.listPlac
 // to the client like `plants`/`places` above, since it is secondary info that gates one affordance rather
 // than blocking the page's first render.
 const { data: ownerInstruments } = useLazyAsyncData('owner-instruments', () => api.getOwnerInstruments(), { server: false });
-const canSurveyWater = computed(() => (ownerInstruments.value?.selected.length ?? 0) > 0);
+const hasInstrument = computed(() => (ownerInstruments.value?.selected.length ?? 0) > 0);
 
 const plantById = (id: string): Plant | undefined => (plants.value ?? []).find((x) => x.id === id);
 const plantName = (id: string): string => {
@@ -230,6 +230,24 @@ function rowStatus(due: string): 'overdue' | 'today' | 'upcoming' {
 // evaluationId to a REPOT Done/Postpone that follows a resolved verdict.
 function pendingEvaluationFor(plantId: string): PendingRepotEvaluation | null {
   return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'REPOT')?.pendingEvaluation ?? null;
+}
+
+// measured-verdict-gap spec (Task 47/T6b) — the SAME "read off the list the page already holds, never a
+// fresh fetch" pattern `pendingEvaluationFor` uses just above, for the SAME reason: Today is a batched,
+// cross-plant read, and per-plant `measuredToday` travels on the WATER row itself (`todaysTasks()`'s own
+// batched lookup — see `docs/api/README.md`'s `/care-plan/today` entry) rather than on the narrower
+// `DueTask` shape `grouped`'s rows carry, so this looks it up by plantId+task the identical way.
+function measuredTodayFor(plantId: string): boolean {
+  return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER')?.measuredToday === true;
+}
+
+// Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey: the owner has an instrument
+// AND has not already measured this plant today. Once WATER_NOW writes today's reading (`verdict:
+// 'NONE'` — SoilReadingModal.vue's `submit()`), `measuredTodayFor` flips true on the next refresh and this
+// closes back to false — the row falls back to the classic Done | Postpone pair (TaskRow.vue's own
+// `showEvaluate`/`canSurvey` contract) instead of asking the same question forever.
+function canSurveyWaterFor(plantId: string): boolean {
+  return hasInstrument.value && !measuredTodayFor(plantId);
 }
 
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
@@ -607,17 +625,21 @@ async function onWaterEvaluate(plantId: string) {
     // Falls through with the empty shape already set above: the modal still opens, showing the same "you
     // have no instruments" alert a genuine zero-instrument owner would see — a network hiccup and a real
     // empty catalogue read identically to the owner either way, and this affordance is only ever offered
-    // once `canSurveyWater` is already true, so an empty instrument list here means the fetch failed, not
-    // that the owner has none.
+    // once `canSurveyWaterFor(plantId)` is already true (so `hasInstrument` already held), meaning an
+    // empty instrument list here means the fetch failed, not that the owner has none.
   }
   readingModalOpen.value = true;
 }
 
-// The survey's HOLD verdict applies itself and writes a postpone (SoilReadingModal.vue's own `submit()`),
+// The survey's HOLD verdict applies itself and writes a postpone, and WATER_NOW writes the reading too
+// (`verdict: 'NONE'`, measured-verdict-gap redesign 2026-08-09 — SoilReadingModal.vue's own `submit()`),
 // so Today must reconcile through the SAME seam every other completion on this page already uses — never a
-// second refresh path. `saved` is the modal's ONLY signal that something was actually written (WATER_NOW
-// writes nothing and never emits it; a plain voluntary-mode save isn't reachable from this survey-mode
-// instance at all), so this never fires for a no-op verdict.
+// second refresh path. `saved` is the modal's ONLY signal that something was actually written (a plain
+// voluntary-mode save isn't reachable from this survey-mode instance at all), so this never fires for a
+// no-op verdict — only UNAVAILABLE (unless the owner explicitly saves it) reaches `verdict` without one.
+// The refresh is what flips `measuredToday` on the reloaded `tasks` list, closing `canSurveyWaterFor` back
+// to false for this plant's WATER row — the whole reason WATER_NOW writes now, instead of leaving the row
+// asking "¿Necesitas regar?" forever after the owner already answered it.
 function onReadingSaved() {
   void refresh();
 }
@@ -733,7 +755,7 @@ function openProgress(plantId: string) {
             :due-label="dueLabel(dueState(t2.nextDueOn))"
             :pending-verdict="pendingEvaluationFor(plantId)?.verdict ?? null"
             :pending-reevaluate-on="pendingEvaluationFor(plantId)?.reevaluateOn ?? null"
-            :can-survey="t2.task === 'WATER' && canSurveyWater"
+            :can-survey="t2.task === 'WATER' && canSurveyWaterFor(plantId)"
             @done="e => onDone(plantId, e.task, rowStatus(t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"

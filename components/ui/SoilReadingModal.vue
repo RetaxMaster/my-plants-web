@@ -6,9 +6,13 @@
 // ⚠️ TWO MODES, and they are not a cosmetic toggle — they change what is asked and what is written.
 //   `survey`    — reached from a DUE water task: the owner is deciding RIGHT NOW. `measuredOn` is hidden
 //                 (fixed to today — a survey answers today), the watering-relation question is IMPOSSIBLE
-//                 BY CONSTRUCTION (see below), and the reading is never recorded standalone — it is
-//                 evaluated by the read-only preview endpoint and the outcome decides what (if anything)
-//                 gets written.
+//                 BY CONSTRUCTION (see below), and the reading is evaluated by the read-only preview
+//                 endpoint FIRST — the outcome decides what gets written and how: HOLD applies itself
+//                 (reading + `verdict: 'POSTPONE'`), WATER_NOW WRITES the reading too (`verdict: 'NONE'`,
+//                 owner ruling 2026-08-09 — measured-verdict-gap redesign: real data that teaches the
+//                 drying-rate fit, and what lets the row's `measuredToday` gate close the "asks again
+//                 forever" dead-end once the owner has answered for today), and UNAVAILABLE writes nothing
+//                 until the owner explicitly offers to save it (see `submit()`'s own branch comments).
 //   `voluntary` — a back-dated reading taken earlier. `measuredOn` stays editable (capped at today), the
 //                 watering-relation question is asked exactly as before (owner-ruled 2026-08-08, no
 //                 pre-selection — see below), and the reading is recorded with `verdict: 'NONE'`. No
@@ -308,11 +312,25 @@ async function submit() {
         pendingUnavailableReading.value = {
           instrumentId: chosenInstrumentId, rawValue: chosenRawValue, measuredOn: measuredOn.value,
         };
+      } else if (preview.recommendation === 'WATER_NOW') {
+        // Owner ruling (2026-08-09, measured-verdict-gap redesign): WATER_NOW now WRITES the reading, with
+        // `verdict: 'NONE'`. It changes no schedule (`NONE` never touches DueCache/TaskOverride the way
+        // `POSTPONE` does), but it IS real data — a genuine wetness fraction that feeds the drying-rate
+        // fit — and, just as importantly, it is what lets the row's own `measuredToday` gate flip: without
+        // this write, nothing on this plant would ever record that today's survey happened, and the row
+        // would keep offering "¿Necesitas regar?" forever after the owner already answered it and went to
+        // water. `emit('saved')` fires HERE, the same as HOLD's own branch above (and BEFORE the verdict
+        // step renders) — the caller's refresh (`onReadingSaved`/`onWaterEvaluate`'s callers) runs in the
+        // background while the owner is still reading the verdict, so `canSurvey` has already flipped false
+        // by the time he closes the modal, instead of only on a later reload.
+        await api.recordSoilReading(props.plantId, {
+          instrumentId: chosenInstrumentId,
+          rawValue: chosenRawValue,
+          measuredOn: measuredOn.value,
+          verdict: 'NONE',
+        }, idempotencyKey.value);
+        emit('saved');
       }
-      // WATER_NOW writes NOTHING: "the owner acts; the row's Hecho/Posponer take over." The reading he just
-      // took is not persisted here — he is about to water, and the task row's own Done flow is what records
-      // that. Closing the modal from this branch writes nothing either, by construction (there is nothing
-      // queued to write).
       step.value = 'verdict';
     } else {
       // Voluntary: always `verdict: 'NONE'` — this mode never asks "what are you doing about it", it only
@@ -558,10 +576,11 @@ const holdDateLabel = computed(() => {
           {{ primaryLabel }}
         </Button>
       </template>
-      <!-- WATER_NOW wrote nothing (the row's Hecho/Posponer take over) and HOLD already applied itself the
-           instant this step was reached (see `submit()`) — both have nothing left to confirm, only to
-           close. UNAVAILABLE is the one exception (owner ruling, 2026-08-09): it OFFERS a save rather than
-           performing one, so its own footer adds "Guardar lectura" alongside Close. -->
+      <!-- WATER_NOW and HOLD BOTH already wrote/applied themselves the instant this step was reached (see
+           `submit()`) — the row's Hecho/Posponer take over from here on WATER_NOW — so neither has
+           anything left to confirm, only to close. UNAVAILABLE is the one exception (owner ruling,
+           2026-08-09): it OFFERS a save rather than performing one, so its own footer adds "Guardar
+           lectura" alongside Close. -->
       <template v-else-if="previewResult?.recommendation === 'UNAVAILABLE'">
         <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
         <Button :loading="submitting" @click="saveUnavailableReading">{{ t('reading.save') }}</Button>

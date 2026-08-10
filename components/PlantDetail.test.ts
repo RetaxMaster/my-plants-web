@@ -1948,9 +1948,15 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
 // task row — the `@measure` binding is gone — and into the measurement-history block below the task-rows
 // card, which is the SAME block that already hosted the two drying-rate findings (Task 28).
 describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary reading moves to the history', () => {
-  const waterCare = () => ({
+  // measured-verdict-gap spec (Task 47/T6b) — `measuredToday` defaults to `false` (not measured), so
+  // every PRE-EXISTING test in this block keeps describing a plant nobody has surveyed yet, unchanged.
+  const waterCare = (measuredToday = false) => ({
     plantId: 'p1',
     tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+    measurement: {
+      dryingRate: null, reason: null, tooSlowDrying: false, flatSeries: false, suggestMeasuring: false,
+      measuredToday,
+    },
   });
 
   // A faithful-enough TaskRow: it re-derives Done/Postpone/Evaluate visibility from `canSurvey` and
@@ -1986,10 +1992,10 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
 
   const localStubs = { ...stubs, UiTaskRow: UiTaskRowStub, UiSoilReadingModal: UiSoilReadingModalStub };
 
-  async function mountWater(selected: string[]) {
+  async function mountWater(selected: string[], measuredToday = false) {
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
-      getPlantCare: async () => waterCare(),
+      getPlantCare: async () => waterCare(measuredToday),
       listPlaces: async () => [],
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
@@ -2030,6 +2036,20 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(row.find('.evaluate-btn').text()).toBe('¿Necesitas regar?');
     expect(row.find('.done-btn').exists()).toBe(true);
     expect(row.find('.postpone-btn').exists()).toBe(false);
+  });
+
+  // measured-verdict-gap spec (Task 47/T6b) — the ground truth is the READING (`care.measurement.
+  // measuredToday`), not session memory: once WATER_NOW has written today's reading, the row must fall
+  // back to the classic Done | Postpone pair, exactly as a no-instrument owner sees, even though this
+  // owner DOES have an instrument selected. Hardcoding `measuredToday` out of the `canSurveyWater`
+  // expression makes this go RED.
+  it('withholds the survey once the plant has already been measured today, even with an instrument', async () => {
+    const w = await mountWater(['galvanic-probe'], true);
+    const row = w.find('[data-task=WATER]');
+    expect(row.attributes('data-can-survey')).toBe('false');
+    expect(row.find('.evaluate-btn').exists()).toBe(false);
+    expect(row.find('.done-btn').exists()).toBe(true);
+    expect(row.find('.postpone-btn').exists()).toBe(true);
   });
 
   it('the Measure button is GONE from the task row', async () => {

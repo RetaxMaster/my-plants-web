@@ -564,7 +564,16 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(w.findAll('button').some((b) => b.text().includes('reading.save'))).toBe(false);
   });
 
-  it('a WATER_NOW verdict writes NOTHING and waits — the row\'s own Hecho/Posponer take over', async () => {
+  // REWRITTEN (measured-verdict-gap redesign, Task 47/T6b, owner ruling 2026-08-09) — the case this
+  // replaces asserted "WATER_NOW writes NOTHING", which was the exact dead end the redesign closes: with
+  // nothing written, the row had no way to know a measurement happened, so it kept offering "¿Necesitas
+  // regar?" forever after the owner already answered it and went to water. The new behaviour: WATER_NOW
+  // WRITES the reading, with `verdict: 'NONE'` (real data that teaches the drying-rate fit and changes no
+  // schedule — `NONE` never touches DueCache/TaskOverride the way `POSTPONE` does), and emits `saved` so
+  // the caller's refresh flips `measuredToday` and closes `canSurvey` back to false. The owner still acts
+  // on the row himself (Hecho once he has actually watered) — this write only stops the app from asking
+  // the same question again.
+  it('a WATER_NOW verdict WRITES the reading (verdict NONE) and still shows the verdict step', async () => {
     previewSoilReading.mockResolvedValueOnce(waterNowPreview);
     const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
     await w.find('input[type="number"]').setValue(5);
@@ -572,15 +581,22 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     await flushPromises();
 
     expect(previewSoilReading).toHaveBeenCalledWith('plant-1', { instrumentId: 'galvanic-probe', rawValue: 5 });
-    expect(recordSoilReading).not.toHaveBeenCalled();
+    expect(recordSoilReading).toHaveBeenCalledTimes(1);
+    const [plantId, body] = recordSoilReading.mock.calls[0]!;
+    expect(plantId).toBe('plant-1');
+    expect(body).toMatchObject({ instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'NONE' });
+    // Never a schedule-moving field — this write teaches the fit, it does not postpone anything.
+    expect(body).not.toHaveProperty('postponeToOn');
+    expect(w.emitted('saved')).toHaveLength(1);
     expect(w.text()).toContain('reading.verdictWaterNowTitle');
     // The modal stays open on the verdict step, waiting for the owner to close it and go act on the row —
     // it never auto-closes the way a successful voluntary save does.
     expect(w.find('[data-modal-stub]').exists()).toBe(true);
 
-    // Closing from here writes nothing either — there is nothing queued to write.
+    // Closing from here writes nothing further — the ONE write already happened when the verdict arrived,
+    // never a second one on close.
     await findCloseButton(w).trigger('click');
-    expect(recordSoilReading).not.toHaveBeenCalled();
+    expect(recordSoilReading).toHaveBeenCalledTimes(1);
   });
 
   it('a HOLD verdict applies IMMEDIATELY: verdict POSTPONE with the suggested date, no extra tap', async () => {

@@ -153,6 +153,15 @@ export interface DueTaskResponse {
   // deploy.sh --web). The runtime read (`pendingEvaluationFor`, pages/index.vue) already defaults to
   // `null` when absent, so this is a type-contract correction with no behavior change.
   pendingEvaluation?: PendingRepotEvaluation | null;
+  /**
+   * Meaningful ONLY on a `WATER` row (mirrors `pendingEvaluation`'s own REPOT-only convention): `null`
+   * on every other task, `true`/`false` on WATER — whether this plant already has a soil reading dated
+   * its own local today (measured-verdict-gap spec, Task 47/T6b). Optional at the type level for the
+   * same rolling-deploy reason `pendingEvaluation` is; the runtime read (`measuredTodayFor`,
+   * pages/index.vue) treats an absent field as "not measured", the safe default (still offers the
+   * survey, never silently hides it).
+   */
+  measuredToday?: boolean | null;
 }
 
 export type FeedbackType = 'DONE' | 'POSTPONED' | 'SYMPTOM';
@@ -936,6 +945,14 @@ export interface PlantMeasurement {
   tooSlowDrying: boolean;
   flatSeries: boolean;
   suggestMeasuring: boolean;
+  /**
+   * True when this plant already has a soil reading dated its own LOCAL today (measured-verdict-gap
+   * spec, Task 47/T6b). This is the row's own gate on re-offering the "¿Necesitas regar?" survey: once
+   * WATER_NOW writes its reading (`verdict: 'NONE'` — SoilReadingModal.vue's `submit()`), the owner has
+   * already answered the question for today, so `canSurvey` must go false and the row falls back to the
+   * classic Done | Postpone pair instead of asking again.
+   */
+  measuredToday: boolean;
 }
 
 export type UpdateBlogpost = Partial<CreateBlogpost>;

@@ -173,13 +173,17 @@ function openVoluntaryReading() {
   readingModalOpen.value = true;
 }
 // A saved reading can change BOTH the readings list (SoilReadingModal's own data) and the care payload's
-// `measurement` block (a new reading can flip `suggestMeasuring`/`tooSlowDrying`/`flatSeries`) — refresh
-// both, never just one, or one of the two surfaces silently shows stale data right after a save. A
-// WATER_NOW/POSTPONE verdict also writes a real DONE/POSTPONED care event in the SAME transaction as the
-// reading, and a DONE care event renders in the History timeline — the exact same reasoning `sendDone`'s
-// own comment already states ("A completed action becomes a history item … so refresh the timeline in
-// place too"), which this path must honor identically rather than leaving History stale until a manual
-// reload.
+// `measurement` block (a new reading can flip `suggestMeasuring`/`tooSlowDrying`/`flatSeries`, and now
+// `measuredToday` too — measured-verdict-gap redesign, Task 47/T6b) — refresh both, never just one, or one
+// of the two surfaces silently shows stale data right after a save. A HOLD verdict also writes a real
+// POSTPONED care event in the SAME transaction as the reading, and a POSTPONED care event renders in the
+// History timeline — the exact same reasoning `sendDone`'s own comment already states ("A completed action
+// becomes a history item … so refresh the timeline in place too"), which this path must honor identically
+// rather than leaving History stale until a manual reload. WATER_NOW writes the reading with `verdict:
+// 'NONE'` (owner ruling, 2026-08-09): that verdict writes NO care event by design (`soil-reading.write-
+// core.ts` skips the care-event write entirely for `'NONE'`) — the owner still marks the task Done
+// himself, separately, once he has actually watered — so a WATER_NOW save changes the readings list and the
+// measurement block, but never adds a History entry on its own.
 async function onReadingSaved() {
   await Promise.all([refresh(), refreshReadings(), refreshHistory()]);
 }
@@ -238,7 +242,13 @@ const { data: places } = useLazyAsyncData('places-for-edit', () => api.listPlace
 // duplicated; deferred to the client like `places`/`history`/`photos` below, since it is secondary info
 // that gates one affordance rather than blocking the page's first render.
 const { data: ownerInstruments } = useLazyAsyncData('owner-instruments', () => api.getOwnerInstruments(), { server: false });
-const canSurveyWater = computed(() => (ownerInstruments.value?.selected.length ?? 0) > 0);
+// measured-verdict-gap spec (Task 47/T6b) — an owner who already measured TODAY has already answered
+// "¿Necesitas regar?" (WATER_NOW now WRITES that reading, `verdict: 'NONE'` — SoilReadingModal.vue's
+// `submit()`), so offering the survey again would ask the same question forever. `care.value.measurement`
+// is already fetched on this page (the SAME payload `tooSlowDrying`/`flatSeries` read below), so this
+// reads its own `measuredToday` — never a second fetch — rather than the instrument check alone.
+const canSurveyWater = computed(() =>
+  (ownerInstruments.value?.selected.length ?? 0) > 0 && care.value?.measurement?.measuredToday !== true);
 
 const { data: history, refresh: refreshHistory } =
   useLazyAsyncData(`history-${id}`, () => api.getPlantHistory(id), { server: false });

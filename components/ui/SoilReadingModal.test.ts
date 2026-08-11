@@ -100,11 +100,18 @@ const stubs = {
   // href assertion in this file into a comparison between two identical, meaningless strings.
   NuxtLink: {
     name: 'NuxtLink',
-    props: ['to'],
+    props: ['to', 'replace'],
     template: '<a class="nuxt-link" :href="typeof to === \'string\' ? to : to.path" '
       + ':data-to-query="typeof to === \'string\' ? \'\' : JSON.stringify(to.query)"><slot /></a>',
   },
 };
+
+// The modal asks the router whether it is ALREADY on the plant's page, to decide push-vs-replace for the
+// calibration link (QA 2026-08-11). Mutable per test so both sides of that decision can be driven.
+let currentPath = '/';
+vi.stubGlobal('useRoute', () => ({ path: currentPath, query: {} }));
+// Hermetic: no test inherits another's location.
+beforeEach(() => { currentPath = '/'; });
 
 const galvanicProbe = {
   id: 'galvanic-probe' as const, kind: 'moisture' as const, unit: '1–10 index', scale: 'galvanic-1-10',
@@ -1752,6 +1759,35 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
       const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
       expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
       expect(instrumentSegButtons(w)).toHaveLength(2);
+    });
+  });
+
+  // ---- QA 2026-08-11: the calibration link must not cost the owner a wasted Back press -----------------
+  describe('the calibration link chooses push vs replace by where the survey was opened', () => {
+    const linkReplaces = () => {
+      const w = mountSurvey(makeData({ instruments: [kitchenScaleNoCalibration] }));
+      return w.findComponent({ name: 'NuxtLink' }).props('replace');
+    };
+
+    // Opened FROM the plant page: the page consumes `?calibrate=1` and strips it with `router.replace`, so a
+    // PUSH would leave two consecutive identical `/plants/plant-1` entries and Back would appear to do
+    // nothing. Replacing removes the duplicate — the entry replaced is the page we are navigating to.
+    it('REPLACES when already on that plant\'s own page', () => {
+      currentPath = '/plants/plant-1';
+      expect(linkReplaces()).toBe(true);
+    });
+
+    // Opened from the Today list: a real page-to-page navigation. Replacing here would consume Today's own
+    // history entry, so Back from the plant page would skip straight past it — worse than the wasted press.
+    it('PUSHES when coming from the Today list', () => {
+      currentPath = '/';
+      expect(linkReplaces()).toBe(false);
+    });
+
+    // A different plant's page is still a real navigation, not a same-page query change.
+    it('PUSHES when on a DIFFERENT plant\'s page', () => {
+      currentPath = '/plants/some-other-plant';
+      expect(linkReplaces()).toBe(false);
     });
   });
 

@@ -102,25 +102,62 @@ export function useOverlay(isOpen: Ref<boolean>, panelRef: Ref<HTMLElement | nul
   // fading out (~--dur-normal), which reads as "Escape didn't close it" and provokes a second press. Keeping
   // focus inside the dialog until it is gone, then restoring, makes a single Escape close cleanly with focus
   // correctly back on the opener.
+  //
+  // ⚠️ IT MUST NOT STEAL FOCUS ANOTHER OVERLAY HAS ALREADY CLAIMED (QA, 2026-08-11). One overlay can hand
+  // straight over to another — the measuring survey's "calíbrala" link closes the survey and opens the
+  // calibration dialog in the same tick — and the two focus lifecycles then race. The new dialog moves
+  // focus into itself on its own `nextTick`, and the OLD one's leave transition finishes afterwards and
+  // yanks focus back to the button behind the backdrop. Measured consequence: `document.activeElement` was
+  // the background "¿Necesitas regar?" button, so Escape reached nothing and did not close the dialog, and
+  // Enter re-opened the survey UNDERNEATH it — two stacked panels with two visible Cancelar rows. Reachable
+  // by keyboard only, because the backdrop still blocks the mouse.
+  //
+  // So the restore is CONDITIONAL: it happens only when nothing else has taken focus in the meantime. On an
+  // ordinary close that is exactly the case — the panel is gone and `document.activeElement` has fallen
+  // back to `<body>` — so the single-Escape behaviour the comment above describes is unchanged. When focus
+  // sits inside some OTHER live element, that element is the current owner and this overlay is no longer
+  // entitled to move it.
   function restoreFocus() {
     if (!import.meta.client) return;
-    previouslyFocused?.focus?.();
+    const active = document.activeElement as HTMLElement | null;
+    const claimedElsewhere =
+      active != null && active !== document.body && !(panelRef.value?.contains(active) ?? false);
+    if (!claimedElsewhere) previouslyFocused?.focus?.();
     previouslyFocused = null;
+  }
+
+  // The open-side work, factored out because it now has TWO triggers — see `onMounted` below.
+  async function onOpened() {
+    previouslyFocused = document.activeElement as HTMLElement | null;
+    acquireLock();
+    await nextTick();
+    const focusables = focusableWithin(panelRef.value);
+    (focusables[0] ?? panelRef.value)?.focus();
   }
 
   watch(isOpen, async (open) => {
     if (!import.meta.client) return;
     if (open) {
-      previouslyFocused = document.activeElement as HTMLElement | null;
-      acquireLock();
-      await nextTick();
-      const focusables = focusableWithin(panelRef.value);
-      (focusables[0] ?? panelRef.value)?.focus();
+      await onOpened();
     } else {
       // Scroll-lock releases immediately (the page must not scroll behind a fading dialog); focus restoration
       // is deferred to `restoreFocus()` in the leave transition's `@after-leave`.
       releaseLock();
     }
+  });
+
+  // AN OVERLAY CAN BE MOUNTED ALREADY OPEN, and that must behave exactly like one that opened (QA,
+  // 2026-08-11). The watcher above only ever sees a TRANSITION, so a consumer whose flag is already true at
+  // mount got no scroll-lock and — the part that shows — no focus move, leaving a dialog on screen with
+  // focus still on whatever was behind it: Escape reaches nothing, Tab walks the page underneath.
+  //
+  // It is reachable through an ordinary product path, not a contrived one: a deep link that opens a dialog
+  // on arrival (`/plants/:id?calibrate=1`) sets the flag during the page's own setup, before this component
+  // exists. Handling it HERE, once, is what keeps every such consumer from having to defer its own open by
+  // a tick and get that timing right individually.
+  onMounted(async () => {
+    if (!import.meta.client || !isOpen.value) return;
+    await onOpened();
   });
 
   // An overlay UNMOUNTED while still open (e.g. a route change) never runs its leave transition, so restore

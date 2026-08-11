@@ -14,7 +14,7 @@
 // property of the resolved TEXT — a test on keys ('common.close' vs 'common.closeDialog') would pass on a
 // locale file that spelled both of them "Close".
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ref, watch, nextTick, onBeforeUnmount } from 'vue';
+import { ref, watch, nextTick, onBeforeUnmount, onMounted } from 'vue';
 import { mount } from '@vue/test-utils';
 import en from '../../i18n/locales/en.json';
 import es from '../../i18n/locales/es.json';
@@ -27,6 +27,9 @@ vi.stubGlobal('ref', ref);
 vi.stubGlobal('watch', watch);
 vi.stubGlobal('nextTick', nextTick);
 vi.stubGlobal('onBeforeUnmount', onBeforeUnmount);
+// `useOverlay` also runs an onMounted hook — an overlay MOUNTED already open must behave like one that
+// opened (focus moves into it), so this hook is part of the behaviour under test, not scaffolding.
+vi.stubGlobal('onMounted', onMounted);
 
 type Locale = typeof en;
 

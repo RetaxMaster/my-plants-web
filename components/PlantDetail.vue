@@ -324,6 +324,12 @@ const canCalibrate = computed(() =>
  * conjure a dead end the page itself would never offer. `readings` is awaited in setup, so a null there
  * means the catalogue FETCH FAILED, and the same stance applies: no catalogue, no claim.
  */
+//
+// On a HARD load of `/plants/:id?calibrate=1` this runs during setup, so the flag is already true when
+// `UiPlantCalibrationModal` first mounts. That is a supported shape rather than something to work around
+// here: `useOverlay` treats an overlay MOUNTED already-open exactly like one that opened, so focus still
+// lands inside the dialog. Keeping this assignment plain — no deferral, no tick — leaves the two arrival
+// paths (hard load and same-route query change) on one code path instead of two.
 watch(
   [() => route.query.calibrate, canCalibrate],
   ([flag, allowed]) => {

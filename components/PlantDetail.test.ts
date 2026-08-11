@@ -2567,6 +2567,10 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
     async () => {
       routeQuery = { calibrate: '1' };
       const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+      // The open is deliberately deferred one tick past the arrival, so the modal is MOUNTED when its flag
+      // flips and the shared overlay behaviour actually moves focus into it — see PlantDetail's own comment.
+      // Flushing here is therefore part of what this test asserts, not boilerplate around it.
+      await flushPromises();
       expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).props('open')).toBe(true);
     });
 
@@ -2576,6 +2580,7 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
   it('F3: strips the flag once consumed, leaving no history entry', async () => {
     routeQuery = { calibrate: '1' };
     await mountWithInstruments([kitchenScaleNoCalibration]);
+    await flushPromises();
     expect(routerReplaceMock).toHaveBeenCalledTimes(1);
     expect(routerReplaceMock.mock.calls[0][0]).toEqual({ path: '/plants/p1', query: {} });
   });
@@ -2584,6 +2589,7 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
   // unconditionally would pass both tests above. An ordinary visit must be an ordinary visit.
   it('F3: an ordinary visit opens nothing and rewrites no URL', async () => {
     const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+    await flushPromises();
     expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).props('open')).toBe(false);
     expect(routerReplaceMock).not.toHaveBeenCalled();
   });
@@ -2594,6 +2600,7 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
   it('F3: ignores the flag when this owner has no calibratable instrument', async () => {
     routeQuery = { calibrate: '1' };
     const w = await mountWithInstruments([galvanicProbe]);
+    await flushPromises();
     expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).props('open')).toBe(false);
     expect(routerReplaceMock).not.toHaveBeenCalled();
   });

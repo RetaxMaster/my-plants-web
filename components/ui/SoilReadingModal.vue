@@ -354,6 +354,22 @@ const showCalibrationNotice = computed(() => uncalibratedInstruments.value.lengt
 const calibrationLink = computed(() => ({ path: `/plants/${props.plantId}`, query: { calibrate: '1' } }));
 
 /**
+ * PUSH or REPLACE — and the answer differs by where the survey was opened from (QA, 2026-08-11).
+ *
+ * The plant page consumes the flag and immediately strips it with `router.replace`. When the survey was
+ * opened FROM that same plant page, pushing `?calibrate=1` and then replacing it leaves two consecutive,
+ * identical `/plants/:id` entries — so Back appears to do nothing and the owner has to press it twice.
+ * Replacing instead of pushing removes the duplicate, and costs nothing: the entry being replaced is the
+ * very page we are navigating to.
+ *
+ * From the Today list it must stay a PUSH. That navigation genuinely leaves one page for another, and
+ * replacing would consume Today's own history entry — Back from the plant page would skip straight past it.
+ * That would be a worse bug than the one being fixed, so the choice is made per case rather than globally.
+ */
+const route = useRoute();
+const calibrationReplacesHistory = computed(() => route.path === `/plants/${props.plantId}`);
+
+/**
  * Is there anything to measure WITH? False in both empty states, and in no other case (finding F4).
  *
  * This is what the footer branches on. A primary button that cannot ever be pressed, beside an alert
@@ -924,7 +940,12 @@ const holdDateLabel = computed(() => {
       <Alert v-if="showCalibrationNotice" color="amber">
         <i18n-t keypath="reading.calibration.notCalibratedYet" tag="span">
           <template #calibrate>
-            <NuxtLink :to="calibrationLink" class="mp-reading__link" @click="open = false">
+            <NuxtLink
+              :to="calibrationLink"
+              :replace="calibrationReplacesHistory"
+              class="mp-reading__link"
+              @click="open = false"
+            >
               {{ t('reading.calibration.calibrateAction') }}
             </NuxtLink>
           </template>

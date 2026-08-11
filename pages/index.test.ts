@@ -119,7 +119,9 @@ beforeEach(() => {
   ));
   sendFeedbackMock = vi.fn(async () => ({ ok: true }));
 
-  vi.stubGlobal('useApi', () => ({
+  // UiSoilReadingModal reads the route to decide push-vs-replace for its calibration link.
+vi.stubGlobal('useRoute', () => ({ path: '/', query: {} }));
+vi.stubGlobal('useApi', () => ({
     todaysTasks: async () => TASKS,
     listPlants: async () => [],
     listPlaces: async () => [],

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import ImageLightbox from './ImageLightbox.vue';
 
 // `ref`/`computed`/`watch`/`nextTick`/`onBeforeUnmount` are normally Nuxt auto-imports; plain vitest +
@@ -13,6 +13,9 @@ vi.stubGlobal('computed', computed);
 vi.stubGlobal('watch', watch);
 vi.stubGlobal('nextTick', nextTick);
 vi.stubGlobal('onBeforeUnmount', onBeforeUnmount);
+// `useOverlay` also runs an onMounted hook — an overlay MOUNTED already open must behave like one that
+// opened (focus moves into it), so this hook is part of the behaviour under test, not scaffolding.
+vi.stubGlobal('onMounted', onMounted);
 
 // Content teleports to <body>; query it there. offsetParent shim so the focus-trap sees focusables.
 const proto = Object.getPrototypeOf(document.createElement('div'));
@@ -36,8 +39,21 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+// ⚠️ EVERY MOUNTED LIGHTBOX IS UNMOUNTED BETWEEN TESTS, and that is load-bearing, not tidiness.
+// `useOverlay`'s scroll lock is a MODULE-LEVEL refcount deliberately shared by every overlay (a lightbox
+// over a modal must not let either one unlock the page while the other is still open), and an overlay
+// mounted ALREADY OPEN now takes that lock at mount, as it should. Wiping `innerHTML` detaches the DOM but
+// never runs a component's unmount hooks, so any test leaving an open lightbox behind used to leak a count
+// into the next one — and the nested-overlay test, whose whole subject is that refcount, is the one that
+// notices. Unmounting releases the lock through the same `onBeforeUnmount` path the app uses.
+const mountedLightboxes: { unmount: () => void }[] = [];
+
 afterEach(() => {
+  while (mountedLightboxes.length > 0) {
+    try { mountedLightboxes.pop()!.unmount(); } catch { /* already unmounted by the test itself */ }
+  }
   document.body.innerHTML = '';
+  document.body.style.overflow = '';
 });
 
 const THREE = [
@@ -48,7 +64,7 @@ const THREE = [
 
 // Global stubs for the AppIcon child + the $t/$d template helpers (happy-dom mount has no i18n plugin).
 function mountLightbox(props: Record<string, unknown>) {
-  return mount(ImageLightbox, {
+  const w = mount(ImageLightbox, {
     // `images` is a REQUIRED prop at the component level; the spread of a loose `Record<string, unknown>`
     // defeats vue-tsc's structural check (same cast technique as ProgressForm.test.ts's mountForm).
     props: props as unknown as InstanceType<typeof ImageLightbox>['$props'],
@@ -58,6 +74,8 @@ function mountLightbox(props: Record<string, unknown>) {
       mocks: { $t: (k: string) => k, $d: (v: unknown) => String(v) },
     },
   });
+  mountedLightboxes.push(w); // released in afterEach — see its comment
+  return w;
 }
 
 describe('ImageLightbox', () => {
@@ -176,6 +194,75 @@ describe('ImageLightbox', () => {
     focusables[focusables.length - 1].focus();
     backdrop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(focusables[0]);
+  });
+
+  // ---- QA 2026-08-11: one overlay handing straight over to another --------------------------------------
+  //
+  // The measured defect: the measuring survey's "calíbrala" link closes the survey and opens the calibration
+  // dialog in the SAME tick. The new dialog moves focus into itself; the old one's focus-restore then ran and
+  // yanked focus back to the button behind the backdrop. Escape reached nothing and Enter re-opened the
+  // survey UNDERNEATH the dialog — two stacked panels.
+  //
+  // Driven here through UNMOUNT, which is a real path to the same `restoreFocus` (`onBeforeUnmount` is its
+  // safety net for an overlay torn down while still open, e.g. a route change) and needs no component to
+  // expose internals. Pinned on the shared overlay behaviour rather than on those two specific components,
+  // because the race is the composable's to resolve and any future pair of overlays would hit it identically.
+  const panels = () =>
+    [...document.body.querySelectorAll('.mp-lightbox__panel')] as HTMLElement[];
+
+  it('HAND-OFF: a closing overlay must not steal focus the next overlay has already taken', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const outgoing = mountLightbox({ modelValue: false, index: 0, images: THREE });
+    await outgoing.setProps({ modelValue: true });
+    await outgoing.vm.$nextTick();
+
+    // The incoming overlay opens and claims focus, exactly as the calibration dialog does.
+    const incoming = mountLightbox({ modelValue: false, index: 0, images: THREE });
+    await incoming.setProps({ modelValue: true });
+    await incoming.vm.$nextTick();
+    const incomingPanel = panels()[1]!;
+    expect(incomingPanel.contains(document.activeElement)).toBe(true);
+
+    // Now the outgoing one goes away and runs its restore. It must be a NO-OP here.
+    outgoing.unmount();
+
+    expect(document.activeElement).not.toBe(opener);
+    expect(incomingPanel.contains(document.activeElement)).toBe(true);
+  });
+
+  // THE OTHER DIRECTION, and without it the fix above could be "never restore focus at all" — which would
+  // silently break the ordinary single-overlay case the restore exists for.
+  it('an ordinary teardown still returns focus to whatever opened it', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const w = mountLightbox({ modelValue: false, index: 0, images: THREE });
+    await w.setProps({ modelValue: true });
+    await w.vm.$nextTick();
+    expect(document.activeElement).not.toBe(opener); // focus moved into the dialog
+
+    w.unmount();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  // An overlay whose flag is ALREADY true when it mounts (a deep link that opens a dialog on arrival) must
+  // behave like one that opened: the watcher only ever sees a TRANSITION, so this is the `onMounted` path.
+  // Before it existed, such a dialog rendered with focus still behind it — Escape reached nothing.
+  it('MOUNTED ALREADY OPEN: focus still lands inside the dialog, and the page is locked', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const w = mountLightbox({ modelValue: true, index: 0, images: THREE });
+    await w.vm.$nextTick();
+    await w.vm.$nextTick();
+
+    expect(panels()[0]!.contains(document.activeElement)).toBe(true);
+    expect(document.body.style.overflow).toBe('hidden');
   });
 
   it('NESTED overlays: body scroll stays locked until the LAST overlay closes (SHOULD-FIX 6)', async () => {

@@ -90,7 +90,55 @@ function findSaveButton(w: ReturnType<typeof mount>) {
   return w.findAll('button').find((b) => b.text().includes('reading.calibration.save'))!;
 }
 
+// No real row other than the kitchen scale has `requiresCalibration: true` today — `INSTRUMENT_IDS` in the
+// shared contract lists exactly one (see soil-instrument-constants.ts). This fixture exists solely to
+// exercise the "two or more calibratable instruments enabled" branch, a shape the real catalogue cannot
+// produce yet but the component must still handle correctly once it does.
+const fakeSecondCalibratableInstrument = {
+  ...kitchenScaleCalibrated, id: 'wooden-stick' as const, calibration: { saturatedValue: 3, dryValue: 1 },
+};
+// Same fabrication, uncalibrated — used where the test cares about switching between two calibratable
+// instruments that both START empty, rather than about one of them arriving pre-filled.
+const fakeSecondCalibratableInstrumentUncalibrated = {
+  ...kitchenScaleNoCalibration, id: 'wooden-stick' as const,
+};
+
 describe('PlantCalibrationModal', () => {
+  // -----------------------------------------------------------------------------------------------------
+  // Finding A (spec review of commit b988f96) — the picker used to be built from EVERY enabled instrument,
+  // with no filter, so a non-calibratable one (the probe, the stick, the finger) could be selected on this
+  // calibration-SETUP screen and land on a dead end: no fields, no alert, no explanation, Save permanently
+  // disabled. Fixed by building every list from `requiresCalibration` instruments only, and by skipping the
+  // picker entirely when there is only one such instrument to choose from — a one-segment control is noise.
+  // -----------------------------------------------------------------------------------------------------
+
+  it('shows the empty-state alert when no CALIBRATABLE instrument is enabled — even with a ' +
+    'non-calibratable one enabled (finding A)', () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }));
+    expect(w.text()).toContain('reading.noInstruments');
+    expect(w.find('.mp-seg').exists()).toBe(false);
+    expect(w.find('.mp-calib').exists()).toBe(false);
+  });
+
+  it('never offers the moisture probe on a pot with a kitchen scale AND a probe enabled — a ' +
+    'non-calibratable instrument has no place on a calibration-setup screen (finding A)', () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated, galvanicProbe] }));
+    // Exactly one CALIBRATABLE instrument is enabled (the scale), so the picker never renders at all —
+    // the owner goes straight to its fields, and the probe is never a choice in the first place.
+    expect(w.find('.mp-seg').exists()).toBe(false);
+    expect(w.find('.mp-calib').exists()).toBe(true);
+    expect(w.text()).not.toContain('settings.instruments.name.galvanic-probe');
+  });
+
+  it('keeps the picker when two or more calibratable instruments are enabled, and still excludes ' +
+    'the probe (finding A)', () => {
+    const w = mountModal(makeData({
+      instruments: [kitchenScaleCalibrated, fakeSecondCalibratableInstrument, galvanicProbe] as never,
+    }));
+    expect(instrumentSegButtons(w)).toHaveLength(2);
+    expect(w.text()).not.toContain('settings.instruments.name.galvanic-probe');
+  });
+
   it('PREFILLS the stored anchors, so the owner sees what this pot is actually calibrated to', () => {
     const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
     const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
@@ -148,13 +196,64 @@ describe('PlantCalibrationModal', () => {
     expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
   });
 
+  // MOVED here 2026-08-10 (finding B, spec review of commit b988f96) from SoilReadingModal.test.ts, where
+  // it guarded a QA-round-3 fix: a calibrated pot must still show its own (prefilled) fields, not just an
+  // uncalibrated one. The first two sub-cases are unchanged. The third is REBASED: the original mounted a
+  // non-calibratable-only fixture (the probe alone) to prove fields hide for it, but finding A now filters
+  // the probe out of the picker entirely, so "select the probe and see no fields" is not a reachable path
+  // any more — mounting probe-only now lands on the EMPTY-STATE alert instead (a different property, its
+  // own test above), not on "fields hidden for the selected instrument". The isolation property this case
+  // exists for — an instrument with `requiresCalibration: false` never earns the fields, even sitting
+  // alongside a calibratable one — is proven instead by mounting both together and confirming the probe
+  // never reaches the screen at all, neither as a field nor as a picker segment.
+  it('shows the calibration fields whenever the instrument USES one — calibrated pot included', () => {
+    const uncalibrated = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    expect(uncalibrated.find('.mp-calib').exists()).toBe(true);
+
+    const calibrated = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+    expect(calibrated.find('.mp-calib').exists()).toBe(true);
+
+    const withNonCalibratable = mountModal(makeData({ instruments: [kitchenScaleCalibrated, galvanicProbe] }));
+    expect(withNonCalibratable.find('.mp-calib').exists()).toBe(true);
+    expect(withNonCalibratable.text()).not.toContain('settings.instruments.name.galvanic-probe');
+  });
+
+  // MOVED here 2026-08-10 (finding B) from SoilReadingModal.test.ts, where it guarded a fix-wave-1 reopen
+  // bug: the same modal instance, closed and reopened without re-mounting, must forget the anchors the
+  // owner typed but never saved — otherwise a value abandoned on one instrument silently reappears. No
+  // plumbing trimmed: this modal never had a reading value or a `recordSoilReading` call to strip.
+  it('resets the calibration anchors too on close/reopen (fix wave 1, item 1a)', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(1850);
+    await dryInput!.setValue(1200);
+    expect((saturatedInput!.element as HTMLInputElement).value).toBe('1850');
+    expect((dryInput!.element as HTMLInputElement).value).toBe('1200');
+
+    // Close, then reopen — the same modal instance a page reuse never re-mounts.
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    const [saturatedAfter, dryAfter] = w.findAll('.mp-calib input');
+    expect((saturatedAfter!.element as HTMLInputElement).value).toBe('');
+    expect((dryAfter!.element as HTMLInputElement).value).toBe('');
+  });
+
+  // REBASED 2026-08-10 (finding A): originally mounted with `[kitchenScaleNoCalibration, galvanicProbe]`
+  // and switched TO the probe to prove its fields stay hidden — but the probe is never offered by the
+  // picker any more (it isn't calibratable), so that path no longer exists. Rebased onto two calibratable
+  // fixtures so the property under test — switching instruments must never carry one instrument's
+  // typed-but-unsaved anchors onto another's scale — is proven the same way it always was: type into one,
+  // switch away, switch back, confirm nothing leaked.
   it('clears calibration anchors too — they describe one instrument on one pot', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration, galvanicProbe] as never }));
+    const w = mountModal(makeData({
+      instruments: [kitchenScaleNoCalibration, fakeSecondCalibratableInstrumentUncalibrated] as never,
+    }));
     const anchors = w.findAll('input[type="number"]');
     await anchors[0]!.setValue(1850);
     await anchors[1]!.setValue(1200);
-    // The probe needs no calibration, so switching to it hides `.mp-calib` entirely; switching back to the
-    // scale must show it empty again, never carrying the abandoned numbers.
+    // Switching instruments must never carry one instrument's typed-but-unsaved anchors onto another's
+    // scale; switching back to the first must show it empty again, never carrying the abandoned numbers.
     await pickInstrument(w, 1);
     await pickInstrument(w, 0);
 

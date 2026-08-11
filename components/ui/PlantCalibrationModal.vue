@@ -37,9 +37,16 @@ const open = defineModel<boolean>('open', { default: false });
 const { t } = useI18n();
 const api = useApi();
 
+// This IS a calibration-setup surface, so an instrument that never needs calibration (the probe, the stick,
+// the finger) has no business appearing in its picker at all — offering it renders no fields, fires no
+// alert, and leaves Save permanently disabled: a dead option, found in review. Every list below is built off
+// THIS filtered set, never off `props.data.instruments` directly.
+const calibratableInstruments = computed(() =>
+  props.data.instruments.filter((i) => i.requiresCalibration));
+
 // Same '' sentinel convention `SoilReadingModal.vue`'s own `instrumentId` uses (SegmentedControl's model is
 // a plain non-nullable `string`, and '' means "nothing chosen yet").
-const instrumentId = ref<InstrumentId | ''>(props.data.instruments[0]?.id ?? '');
+const instrumentId = ref<InstrumentId | ''>(calibratableInstruments.value[0]?.id ?? '');
 const calibration = reactive<{ saturatedValue: number | null; dryValue: number | null }>({
   saturatedValue: null, dryValue: null,
 });
@@ -47,11 +54,12 @@ const submitting = ref(false);
 const error = ref<string | null>(null);
 
 const options = computed(() =>
-  props.data.instruments.map((i) => ({ key: i.id, label: t(`settings.instruments.name.${i.id}`) })));
+  calibratableInstruments.value.map((i) => ({ key: i.id, label: t(`settings.instruments.name.${i.id}`) })));
 const instrument = computed(() =>
-  props.data.instruments.find((i) => i.id === instrumentId.value) ?? null);
-// Whether the CHOSEN instrument even uses a per-pot calibration — the picker above may also list
-// instruments that don't (the probe, the stick), same as the measuring modal used to.
+  calibratableInstruments.value.find((i) => i.id === instrumentId.value) ?? null);
+// Whether the CHOSEN instrument even uses a per-pot calibration. With `instrument` now resolved only from
+// `calibratableInstruments`, this is true whenever `instrument` resolves at all — kept as its own computed
+// (rather than inlined as `instrument.value != null`) because it names the INTENT the template checks for.
 const showsCalibration = computed(() => instrument.value?.requiresCalibration === true);
 
 /** The anchors as the SERVER currently holds them, for this instrument, or `null`. */
@@ -70,8 +78,8 @@ watch(open, (isOpen) => {
   if (!isOpen) return;
   error.value = null;
   submitting.value = false;
-  if (instrumentId.value === '' && props.data.instruments[0]) {
-    instrumentId.value = props.data.instruments[0].id;
+  if (instrumentId.value === '' && calibratableInstruments.value[0]) {
+    instrumentId.value = calibratableInstruments.value[0].id;
   }
   syncCalibrationFromStored();
 });
@@ -163,9 +171,9 @@ async function save() {
     <p class="mp-plant-calib__once">{{ t('reading.calibration.once') }}</p>
     <p class="mp-plant-calib__how">{{ t('reading.calibration.how') }}</p>
 
-    <Alert v-if="data.instruments.length === 0" color="amber" :description="t('reading.noInstruments')" />
+    <Alert v-if="calibratableInstruments.length === 0" color="amber" :description="t('reading.noInstruments')" />
     <template v-else>
-      <FormGroup :label="t('reading.instrument')">
+      <FormGroup v-if="calibratableInstruments.length > 1" :label="t('reading.instrument')">
         <SegmentedControl v-model="instrumentId" :options="options" />
       </FormGroup>
 

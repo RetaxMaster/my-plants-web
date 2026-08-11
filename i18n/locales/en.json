@@ -1411,6 +1411,7 @@
       }
     },
     "wateringRelationLabel": "You also watered this plant that day",
+    "wateringRelationLabelToday": "You also watered this plant today",
     "wateringRelationHint": "Did you take this measurement before watering, or after watering?",
     "wateringRelationRequired": "This reading needs to say whether it was taken before or after that day’s watering.",
     "wateringRelation": {
@@ -1455,6 +1456,8 @@
     },
     "historyEmpty": "No readings yet. Take one and it will show up here.",
     "historyTitle": "Your readings",
+    "wetnessPct": "{pct}% moisture",
+    "wetnessUnknown": "No moisture reading",
     "verdictBadge": {
       "WATER_NOW": "Watered",
       "POSTPONE": "Held off"

@@ -95,7 +95,15 @@ const stubs = {
     props: ['keypath', 'tag'],
     template: '<span class="i18n-t">{{ keypath }}<slot name="settings" /><slot name="calibrate" /></span>',
   },
-  NuxtLink: { props: ['to'], template: '<a class="nuxt-link" :href="to"><slot /></a>' },
+  // ⚠️ `href` renders the ROUTE'S PATH ONLY, and the query is exposed separately as `data-to-query`.
+  // A route object stringifies to `[object Object]` in an attribute, which would silently turn every
+  // href assertion in this file into a comparison between two identical, meaningless strings.
+  NuxtLink: {
+    name: 'NuxtLink',
+    props: ['to'],
+    template: '<a class="nuxt-link" :href="typeof to === \'string\' ? to : to.path" '
+      + ':data-to-query="typeof to === \'string\' ? \'\' : JSON.stringify(to.query)"><slot /></a>',
+  },
 };
 
 const galvanicProbe = {
@@ -522,6 +530,45 @@ describe('SoilReadingModal — the same-day-watering question, voluntary mode (o
     // Same day, same data, survey mode: silent. The mode is the whole difference.
     const survey = mountSurvey(makeData({ wateringDays: [todayYmd()] }));
     expect(wateringRelationSeg(survey)).toBeUndefined();
+  });
+
+  // ---- QA finding F4 (2026-08-10): "that day", when the day is today -----------------------------------
+  //
+  // One wording served every date, so a TODAY-dated reading asked *"Ese día también regaste esta planta"* /
+  // *"You also watered this plant that day"*. For a measurement being taken right now, "that day" reads as
+  // some OTHER day. Only the deixis changes; both variants still name the ACTION (regar / watered), never
+  // the soil's state.
+  //
+  // ⚠️ ASSERTED AGAINST THE TWO KEYS, NOT AGAINST PROSE. The `t` stub in this file echoes the key, so these
+  // pin WHICH STRING the component chose — the one thing a copy edit must not be able to silently break,
+  // and the one thing an assertion on rendered English would break on every wording tweak instead.
+  describe('F4: the relation question names the day the way the owner would', () => {
+    // Read off the `label` PROP, the convention this file already uses for FormGroup (its stub renders
+    // only the slot). Located by its HINT, which is the one thing about this group that F4 does not change.
+    const relationLabel = (w: ReturnType<typeof mountModal>) =>
+      w.findAllComponents({ name: 'FormGroup' })
+        .find((g) => g.props('hint') === 'reading.wateringRelationHint')
+        ?.props('label');
+
+    it('says TODAY for a today-dated reading', () => {
+      const w = mountModal(makeData({ wateringDays: [todayYmd()] }), { mode: 'voluntary' });
+      expect(relationLabel(w)).toBe('reading.wateringRelationLabelToday');
+    });
+
+    // The other direction, and it is what stops "always say today" from passing: a BACK-DATED reading is
+    // genuinely about another day, and must keep the original wording.
+    it('says THAT DAY once the owner back-dates the reading', async () => {
+      const backDated = '2026-08-01';
+      const w = mountModal(
+        makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd(), backDated] }),
+        { mode: 'voluntary' },
+      );
+      // Starts on today, so it starts on the today wording — then FOLLOWS the field, which is the whole
+      // reason the label is derived from `measuredOn` rather than struck once when the modal opened.
+      expect(relationLabel(w)).toBe('reading.wateringRelationLabelToday');
+      await w.find('input[type="date"]').setValue(backDated);
+      expect(relationLabel(w)).toBe('reading.wateringRelationLabel');
+    });
   });
 
   it('blocks submit until the question is answered, and never pre-selects either option', async () => {
@@ -1645,9 +1692,67 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
     // The plant page, not /settings: calibration is per (pot, instrument), so it can only be done from a
     // plant. `plantId` comes from this modal's own props.
     expect(link.attributes('href')).toBe('/plants/plant-1');
+    // QA finding F3 (2026-08-10) — and it ARRIVES at the calibration modal rather than at the top of a
+    // 4127px page. Pinned as its own assertion, separate from the path above: a regression that keeps the
+    // path and drops the flag is exactly the original defect, and it must fail on its own line.
+    expect(link.attributes('data-to-query')).toBe(JSON.stringify({ calibrate: '1' }));
 
     await link.trigger('click');
     expect(w.emitted('update:open')?.at(-1)).toEqual([false]);
+  });
+
+  // ---- QA finding F2 (2026-08-10): the FOURTH case — some usable, one not ------------------------------
+  //
+  // The three states above were all "how many instruments are unusable: none, or all of them". QA measured
+  // the one in between: enable a moisture probe AND an uncalibrated scale, and the picker silently showed
+  // only the probe. The instrument the owner deliberately turned on in Settings was simply absent — no
+  // reason, no link, nothing on screen admitting it existed. Same family as the greyed-out-with-no-reason
+  // rule this app already holds itself to.
+  describe('F2: an enabled instrument that is unusable for want of calibration always says so', () => {
+    const bothInstruments = { instruments: [galvanicProbe, kitchenScaleNoCalibration] };
+
+    it('shows the not-calibrated message even though ANOTHER instrument is perfectly usable', () => {
+      const w = mountSurvey(makeData(bothInstruments));
+      expect(w.text()).toContain('reading.calibration.notCalibratedYet');
+    });
+
+    it('shows it WITH the picker, not instead of it — the usable instrument stays measurable', () => {
+      const w = mountSurvey(makeData(bothInstruments));
+      // The whole point of this case: the explanation appears and the survey still works. A fix that
+      // showed the alert by suppressing the form would trade one dead end for a worse one.
+      const buttons = instrumentSegButtons(w);
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0]!.text()).toBe('settings.instruments.name.galvanic-probe');
+      expect(w.find('input[type="number"]').exists()).toBe(true);
+    });
+
+    it('carries the same working link to this plant\'s calibration, inside the same one i18n unit', () => {
+      const w = mountSurvey(makeData(bothInstruments));
+      const sentence = w.find('.i18n-t');
+      expect(sentence.text()).toContain('reading.calibration.notCalibratedYet');
+      const link = sentence.find('a.nuxt-link');
+      expect(link.exists()).toBe(true);
+      expect(link.attributes('href')).toBe('/plants/plant-1');
+      expect(link.attributes('data-to-query')).toBe(JSON.stringify({ calibrate: '1' }));
+    });
+
+    // THE NEGATIVE HALF, and it is the one that makes the three above mean something. Without it, an alert
+    // rendered unconditionally in survey mode would pass every assertion in this block — and would then be
+    // telling an owner whose every instrument is calibrated that one of them is not.
+    it('says nothing when every enabled instrument is usable', () => {
+      const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+      expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
+      expect(instrumentSegButtons(w)).toHaveLength(1);
+    });
+
+    // VOLUNTARY MODE OFFERS AN UNCALIBRATED SCALE ON PURPOSE (the raw weight is still the owner's data, and
+    // a first calibration backfills it later), so nothing is being withheld there and there is nothing to
+    // explain. Derived from the same filter the picker uses, so this holds by construction.
+    it('says nothing in VOLUNTARY mode, where the uncalibrated scale is offered anyway', () => {
+      const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
+      expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
+      expect(instrumentSegButtons(w)).toHaveLength(2);
+    });
   });
 
   it('still shows the "add one in Settings" state when the owner truly owns nothing', () => {

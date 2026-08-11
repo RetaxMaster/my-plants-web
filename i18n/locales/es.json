@@ -1411,6 +1411,7 @@
       }
     },
     "wateringRelationLabel": "Ese día también regaste esta planta",
+    "wateringRelationLabelToday": "Hoy también regaste esta planta",
     "wateringRelationHint": "¿Tomaste esta medición antes de regar o después de regar?",
     "wateringRelationRequired": "Esta lectura necesita decir si se tomó antes o después del riego de ese día.",
     "wateringRelation": {
@@ -1455,6 +1456,8 @@
     },
     "historyEmpty": "Todavía no hay lecturas. Toma una y aparecerá aquí.",
     "historyTitle": "Tus lecturas",
+    "wetnessPct": "{pct}% de humedad",
+    "wetnessUnknown": "Sin lectura de humedad",
     "verdictBadge": {
       "WATER_NOW": "Regada",
       "POSTPONE": "Aplazada"

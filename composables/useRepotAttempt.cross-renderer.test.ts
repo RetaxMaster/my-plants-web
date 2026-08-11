@@ -47,7 +47,9 @@ vi.stubGlobal('useProfileMeta', () => ({
   soilMixLabel: () => null,
   growthHabitLabel: () => null,
 }));
-vi.stubGlobal('useRoute', () => ({ path: '/plants/p1' }));
+vi.stubGlobal('useRoute', () => ({ path: '/plants/p1', query: {} }));
+// PlantDetail's `?calibrate=1` arrival handler (QA finding F3) strips the flag via the router.
+vi.stubGlobal('useRouter', () => ({ replace: vi.fn(async () => {}) }));
 
 function deferred<T>() {
   let resolve!: (v: T) => void;

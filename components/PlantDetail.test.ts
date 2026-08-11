@@ -56,7 +56,13 @@ vi.stubGlobal('useProfileMeta', () => ({
   soilMixLabel: () => null,
   growthHabitLabel: () => null,
 }));
-vi.stubGlobal('useRoute', () => ({ path: '/plants/p1' }));
+// QA finding F3 (2026-08-10) — the survey's "calíbrala" link arrives as `?calibrate=1`, and PlantDetail
+// opens the calibration modal on it and then strips the flag. Both halves are stubbed here, per-test
+// mutable, so the calibration block below can drive an arrival and assert the strip.
+let routeQuery: Record<string, string> = {};
+const routerReplaceMock = vi.fn(async (_to: { path: string; query: Record<string, string> }) => {});
+vi.stubGlobal('useRoute', () => ({ path: '/plants/p1', query: routeQuery }));
+vi.stubGlobal('useRouter', () => ({ replace: routerReplaceMock }));
 
 const navigateToMock = vi.fn(async () => {});
 vi.stubGlobal('navigateTo', navigateToMock);
@@ -224,6 +230,9 @@ beforeEach(() => {
   giftPlantMock.mockClear();
   revivePlantMock.mockClear();
   navigateToMock.mockClear();
+  // F3: no test inherits a previous one's `?calibrate=1` arrival.
+  routeQuery = {};
+  routerReplaceMock.mockClear();
 });
 
 describe('PlantDetail lifecycle actions — visibility gating', () => {
@@ -2124,7 +2133,7 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
       });
       vi.stubGlobal('useApi', () => ({
         getPlant: async () => basePlant(),
-        getPlantCare: async () => waterCare(false),
+        getPlantCare: async () => waterCare(null),
         listPlaces: async () => [],
         getPlantHistory: async () => [],
         getPlantPhotos: async () => [],
@@ -2525,7 +2534,7 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
               props: ['keypath', 'tag'],
               template: '<span class="i18n-t">{{ $t(keypath) }}<slot name="settings" /><slot name="calibrate" /></span>',
             },
-            NuxtLink: { props: ['to'], template: '<a class="nuxt-link" :href="to"><slot /></a>' },
+            NuxtLink: { name: 'NuxtLink', props: ['to'], template: '<a class="nuxt-link"><slot /></a>' },
           },
         },
       });
@@ -2536,12 +2545,58 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
       expect(survey.text()).not.toContain(i18n.t('reading.settingsLink'));
 
       // --- THE RECEIVING END: the page that link actually names.
-      expect(link.attributes('href')).toBe('/plants/p1');
+      // QA finding F3 (2026-08-10) — the link is a route OBJECT now, carrying `?calibrate=1`, because
+      // landing at `scrollY: 0` on a 4127px page left the owner hunting for a button 1104px (desktop) /
+      // 2694px (mobile) down. Asserted on the object rather than a rendered href so the PATH and the FLAG
+      // are pinned separately: a regression that drops the flag but keeps the path — the exact shape of
+      // the original defect — fails on its own line, and says so.
+      const to = survey.findComponent({ name: 'NuxtLink' }).props('to') as { path: string; query: Record<string, string> };
+      expect(to.path).toBe('/plants/p1');
+      expect(to.query).toEqual({ calibrate: '1' });
       expect(
         calibrateButton(w),
         'the survey sends the owner to /plants/p1 promising calibration — it has to be there',
       ).toBeTruthy();
     });
+
+  // ---- QA finding F3, the ARRIVAL half ------------------------------------------------------------------
+  //
+  // The sending end above proves the link carries the flag. These prove the page ACTS on it — which is the
+  // half that makes the link actually arrive, rather than merely point.
+  it('F3: arriving with ?calibrate=1 opens the calibration modal instead of leaving the owner to hunt',
+    async () => {
+      routeQuery = { calibrate: '1' };
+      const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+      expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).props('open')).toBe(true);
+    });
+
+  // Without the strip, closing the modal leaves `?calibrate=1` in the address bar: a reload or a shared
+  // link reopens it forever, and Back steps through a query change instead of leaving the page. `replace`,
+  // never `push`, for that second reason.
+  it('F3: strips the flag once consumed, leaving no history entry', async () => {
+    routeQuery = { calibrate: '1' };
+    await mountWithInstruments([kitchenScaleNoCalibration]);
+    expect(routerReplaceMock).toHaveBeenCalledTimes(1);
+    expect(routerReplaceMock.mock.calls[0][0]).toEqual({ path: '/plants/p1', query: {} });
+  });
+
+  // THE NEGATIVE HALF, and it is not symmetry for its own sake: without it, a handler that opened the modal
+  // unconditionally would pass both tests above. An ordinary visit must be an ordinary visit.
+  it('F3: an ordinary visit opens nothing and rewrites no URL', async () => {
+    const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+    expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).props('open')).toBe(false);
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+
+  // A URL must not be able to conjure a dead end the page itself would never offer: with no calibratable
+  // instrument the modal can only render its "nothing to set up here" terminal state, which is exactly why
+  // the button is withheld in that case too.
+  it('F3: ignores the flag when this owner has no calibratable instrument', async () => {
+    routeQuery = { calibrate: '1' };
+    const w = await mountWithInstruments([galvanicProbe]);
+    expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).props('open')).toBe(false);
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
 
   // Mutation proof: dropping the `v-if="canCalibrate"` guard (or weakening it to "the owner has any
   // instrument") makes this go RED. Without it the button is a door onto the modal's "none of your

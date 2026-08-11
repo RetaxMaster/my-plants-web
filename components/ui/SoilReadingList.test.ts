@@ -12,7 +12,12 @@ import { ymdFromLocalDate } from '../../utils/localDate.js';
 
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('useI18n', () => ({
-  t: (k: string) => k,
+  // Key-echoing, EXTENDED to echo the interpolation params too (F5, 2026-08-10). A plain `k => k` stub makes
+  // the number invisible: `t('reading.wetnessPct', { pct: 76 })` and `t('reading.wetnessPct', { pct: 0 })`
+  // would render the same string, so no assertion could tell a correct percentage from a wrong one and the
+  // whole moisture-rendering suite would be unfalsifiable. Appending the params keeps the "this exact key was
+  // selected" property AND pins the value that was fed into it.
+  t: (k: string, params?: Record<string, unknown>) => (params ? `${k} ${JSON.stringify(params)}` : k),
   // Formats from LOCAL components, never `toISOString()` — see SoilReadingModal.test.ts's own note on the
   // harness defect that only exists east of Greenwich.
   d: (date: Date) => ymdFromLocalDate(date),
@@ -97,6 +102,32 @@ describe('SoilReadingList', () => {
       readings: [reading({ instrumentId: 'tensiometer', rawValue: 7 })] as never,
     }));
     expect(w.find('.mp-readinglist__value').text()).toBe('7');
+  });
+
+  // F5 (QA, 2026-08-10): the first calibration BACKFILLED the old readings — `wetness` really did go from
+  // `null` to a number in the database — and this list rendered byte-identically before and after. The owner
+  // weighed the pot twice and saw no payoff at all. These two cases are the payoff, and its honest absence.
+  it('shows the interpreted moisture as a ROUNDED PERCENTAGE, alongside the raw value', () => {
+    // 0.756 is chosen so the assertion is falsifiable in BOTH directions at once: forget the ×100 and it is
+    // `1`, forget the rounding and it is `75.60000000000001`. A tidy fixture like 0.75 would survive the
+    // second mutation unchanged (75 either way) and quietly stop testing anything.
+    const w = mountList(makeData({ readings: [reading({ rawValue: 1450, wetness: 0.756 })] as never }));
+    expect(w.find('.mp-readinglist__wetness').text()).toBe('reading.wetnessPct {"pct":76}');
+    // Alongside, not instead of: the raw value the owner actually recorded stays on the row.
+    expect(w.find('.mp-readinglist__value').text()).toContain('1450');
+  });
+
+  it('marks an UNINTERPRETED reading honestly — never as zero, never as a blank', () => {
+    // A reading taken before this pot was calibrated has no moisture, and `0`/`0%`/an empty gap would each be
+    // a positive claim ("bone dry" / "nothing here") about a measurement we deliberately declined to read.
+    const w = mountList(makeData({ readings: [reading({ wetness: null })] as never }));
+    const cell = w.find('.mp-readinglist__wetness');
+    expect(cell.text()).toBe('reading.wetnessUnknown');
+    // Not the interpreted key with a zero in it, and not empty — the two ways this could silently regress.
+    expect(w.text()).not.toContain('reading.wetnessPct');
+    expect(cell.text()).not.toBe('');
+    // And it must not LOOK like an interpreted one either: same words in the same style is the same defect.
+    expect(cell.classes()).toContain('mp-readinglist__wetness--unknown');
   });
 
   it('badges only a verdict that says something', () => {

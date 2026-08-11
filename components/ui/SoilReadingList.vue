@@ -70,6 +70,42 @@ function readingLabel(instrumentId: string, rawValue: number): string {
   return unit ? `${rawValue} ${unit}` : String(rawValue);
 }
 
+/**
+ * Has this reading been INTERPRETED — i.e. does a moisture value exist for it at all?
+ *
+ * A raw number is not a moisture: a kitchen scale's `1450 g` means nothing until this pot's two reference
+ * weights (bone dry, freshly watered) are on file. A reading taken before calibration is therefore stored
+ * honestly with `wetness: null`, and the first calibration BACKFILLS it. `typeof` rather than `!== null`
+ * because an absent key must land in the same honest branch as an explicit null, never in the numeric one.
+ */
+function isInterpreted(wetness: number | null): wetness is number {
+  return typeof wetness === 'number';
+}
+
+/**
+ * The moisture the raw value TURNED OUT TO MEAN — the payoff for calibrating.
+ *
+ * ⚠️ THE LIST USED TO RENDER NOTHING HERE (QA F5, 2026-08-10). The first calibration really did backfill the
+ * old readings — `wetness` went from `null` to `0.75` in the database — and the list looked byte-identical
+ * before and after: `Aug 10, 2026 · 1450 grams · Kitchen scale`. The owner did the work of weighing the pot
+ * twice and got no visible payoff whatsoever, which reads as "calibration did nothing".
+ *
+ * Two rules hold this honest, and neither is cosmetic:
+ *
+ * 1. The stored `wetness` is a 0..1 FRACTION of this pot's own dry→watered span. That is our internal unit,
+ *    not the owner's, so it is published as a rounded percentage — a raw `0.7559` would both invite
+ *    false precision and read as a scale nobody was ever shown.
+ * 2. An UNINTERPRETED reading gets its own words. It must never render as `0`, `0%` or a blank gap: each of
+ *    those is a positive claim ("this pot is bone dry" / "nothing to see") about a measurement we have
+ *    explicitly declined to interpret. Saying "no moisture reading" is the whole point of storing `null`
+ *    instead of guessing, and it is also what makes the backfill legible — the marker is what disappears.
+ */
+function wetnessLabel(wetness: number | null): string {
+  return isInterpreted(wetness)
+    ? t('reading.wetnessPct', { pct: Math.round(wetness * 100) })
+    : t('reading.wetnessUnknown');
+}
+
 /** Only a verdict that SAYS something is badged. `NONE` is the ordinary case — a reading recorded on its
  *  own, or the one a WATER_NOW survey writes — and badging every row "none" would be noise that buries the
  *  two rows that do carry a decision. */
@@ -85,6 +121,10 @@ function verdictLabel(verdict: string): string | null {
       <li v-for="row in rows" :key="row.id" class="mp-readinglist__row">
         <span class="mp-readinglist__date">{{ d(ymdToLocalDate(row.measuredOn), 'short') }}</span>
         <span class="mp-readinglist__value">{{ readingLabel(row.instrumentId, row.rawValue) }}</span>
+        <span
+          class="mp-readinglist__wetness"
+          :class="{ 'mp-readinglist__wetness--unknown': !isInterpreted(row.wetness) }"
+        >{{ wetnessLabel(row.wetness) }}</span>
         <span class="mp-readinglist__instrument">{{ instrumentName(row.instrumentId) }}</span>
         <UiBadge
           v-if="verdictLabel(row.verdict)"
@@ -109,4 +149,8 @@ function verdictLabel(verdict: string): string | null {
 .mp-readinglist__date { color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .mp-readinglist__value { font-weight: var(--weight-semibold); color: var(--text-strong); }
 .mp-readinglist__instrument { color: var(--text-faint); }
+/* An interpreted moisture reads as a figure; an uninterpreted one must not be mistakable for one — hence a
+   different colour AND a different face, on top of the different words. */
+.mp-readinglist__wetness { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mp-readinglist__wetness--unknown { color: var(--text-faint); font-style: italic; }
 </style>

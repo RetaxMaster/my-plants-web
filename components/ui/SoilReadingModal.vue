@@ -307,6 +307,53 @@ const needsCalibrationSetup = computed(() =>
   props.data.instruments.length > 0 && usableInstruments.value.length === 0);
 
 /**
+ * THE INSTRUMENTS THIS POT CANNOT USE YET — the FOURTH state (QA finding F2, 2026-08-10).
+ *
+ * `needsCalibrationSetup` above is the ALL-of-them case. QA measured what happens when only SOME are
+ * unusable: enable a moisture probe AND an uncalibrated scale, and the picker silently shows only the
+ * probe. The instrument the owner deliberately turned on in Settings is simply absent — no reason, no
+ * link, and nothing anywhere on the screen admitting it exists. `needsCalibrationSetup` was false (the
+ * probe IS usable) and nothing else spoke for the missing row.
+ *
+ * The rule is not "explain it when nothing else works", it is the app's standing one: an affordance that is
+ * withheld says WHY. So the not-calibrated message and its link render whenever ANY enabled instrument is
+ * unusable for want of calibration — alongside the picker when others remain usable, and INSTEAD of it when
+ * none do. Both cases are the same sentence about the same instrument, so they are the same alert, rendered
+ * once (see the template) rather than forked into two copies that could drift.
+ *
+ * Derived from the SAME filter `usableInstruments` applies, negated — never a second, hand-written copy of
+ * "requires calibration and has none", which is exactly how the picker and the explanation would come to
+ * disagree about which instruments are usable.
+ */
+const uncalibratedInstruments = computed(() =>
+  props.data.instruments.filter((i) => !usableInstruments.value.some((u) => u.id === i.id)));
+const showCalibrationNotice = computed(() => uncalibratedInstruments.value.length > 0);
+
+/**
+ * WHERE "calíbrala" ACTUALLY GOES (QA finding F3, 2026-08-10).
+ *
+ * The link kept its promise and still made the owner hunt: it landed on `/plants/<id>` at `scrollY: 0`,
+ * while the calibration button sits at `top: 1104px` on a 900px desktop viewport and `top: 2694px` on an
+ * 844px mobile one — two thirds down a 4127px page, with no anchor, no scroll and no highlight. A link that
+ * technically arrives but leaves the owner searching has not arrived.
+ *
+ * A QUERY FLAG THE PLANT PAGE ACTS ON, rather than a scroll or a fragment anchor. Three reasons, and the
+ * third is the one that decided it:
+ *   • it does not fight the router — it is an ordinary navigation the router already handles, with no
+ *     scroll-behaviour override and no post-navigation `scrollIntoView` racing the page's own async data;
+ *   • the plant page opens the calibration modal on arrival and strips the flag, so a reload or a shared
+ *     URL is a plain plant page again;
+ *   • it is VIEWPORT-INDEPENDENT BY CONSTRUCTION. A scroll offset is exactly the kind of fix that works at
+ *     1440 and misses at 390, because the target's position differs by 1590px between the two. A modal
+ *     opens in the same place at every width, so there is no second behaviour to get right.
+ *
+ * Same-route navigation (the survey opened FROM the plant page) is covered too: the page watches the query
+ * rather than reading it once on mount, so the flag arriving on a route the router does not remount still
+ * fires. See `PlantDetail.vue`'s own handler.
+ */
+const calibrationLink = computed(() => ({ path: `/plants/${props.plantId}`, query: { calibrate: '1' } }));
+
+/**
  * Is there anything to measure WITH? False in both empty states, and in no other case (finding F4).
  *
  * This is what the footer branches on. A primary button that cannot ever be pressed, beside an alert
@@ -392,6 +439,26 @@ watch(measuredOn, () => {
 // the survey must not ask AT ALL, because the answer is derivable there and the API now derives it.
 // So the gate is narrow again — but for a different reason, and with the server side that makes it true.
 const showWateringRelation = computed(() => props.mode === 'voluntary' && isWateringDay.value);
+
+/**
+ * THE SAME QUESTION, WORDED FOR THE DAY IT IS ABOUT (QA finding F4, 2026-08-10).
+ *
+ * One wording served every date, so a TODAY-dated reading asked *"Ese día también regaste esta planta"* /
+ * *"You also watered this plant that day"*. For a measurement being taken right now, "that day" reads as
+ * some OTHER day — the owner is being asked about a date the question never names, while looking at a date
+ * field that says today.
+ *
+ * Only the DEIXIS changes. Both variants still name the ACTION ("regaste" / "watered"), never the soil's
+ * state: the question is about the ordering of two events the owner performed, and describing it as "the
+ * soil was wet" would invite him to answer from the reading he is about to take.
+ *
+ * Keyed off `measuredOn`, the date THE READING IS FOR — never the browser's clock on its own, and never
+ * the modal's open time. The owner can change that field mid-session (it is a date input), and the label
+ * must follow it, or picking yesterday leaves "today" on screen.
+ */
+const wateringRelationIsToday = computed(() => measuredOn.value === todayYmd());
+const wateringRelationLabel = computed(() =>
+  t(wateringRelationIsToday.value ? 'reading.wateringRelationLabelToday' : 'reading.wateringRelationLabel'));
 
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
 // shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
@@ -832,28 +899,39 @@ const holdDateLabel = computed(() => {
       </i18n-t>
     </Alert>
 
-    <!-- THE THIRD EMPTY STATE (owner-ruled 2026-08-10) — see `needsCalibrationSetup`. The owner HAS an
-         instrument; it is a scale this pot has never been calibrated for, so it is not offered above and
-         there is nothing to pick. Never the "add one in Settings" copy: he already added one, and that
-         sentence would be both false and a dead end. The link goes to the plant's own page, where the
-         calibration modal lives — calibration is setup, done ahead of time, not collected mid-decision.
-         ⚠️ ONE `i18n-t` UNIT, exactly like the sibling above (review finding F5). This used to render
-         `<span>{{ t('…notCalibratedYet') }}</span>{{ ' ' }}<NuxtLink>…</NuxtLink>` — three fragments with
-         the word order hard-coded in the template, four lines under the comment that forbids it. No literal
-         leaked (both halves were keyed), but a translator could not move the link, and Spanish word order
-         is not English's. The sentence carries its own `{calibrate}` slot now, so the whole thing is one
-         translatable string in both locales. -->
-    <Alert v-else-if="needsCalibrationSetup" color="amber">
-      <i18n-t keypath="reading.calibration.notCalibratedYet" tag="span">
-        <template #calibrate>
-          <NuxtLink :to="`/plants/${plantId}`" class="mp-reading__link" @click="open = false">
-            {{ t('reading.calibration.calibrateAction') }}
-          </NuxtLink>
-        </template>
-      </i18n-t>
-    </Alert>
+    <template v-else>
+      <!-- THE NOT-CALIBRATED NOTICE (owner-ruled 2026-08-10; widened by QA finding F2) — see
+           `showCalibrationNotice`. The owner HAS an instrument; it is a scale this pot has never been
+           calibrated for, so it is not offered in the picker. Never the "add one in Settings" copy: he
+           already added one, and that sentence would be both false and a dead end.
 
-    <template v-else-if="step === 'measure'">
+           ⚠️ RENDERED ONCE, FOR BOTH SHAPES OF THE SAME PROBLEM. It used to be an arm of the empty-state
+           `v-else-if` chain, so it appeared ONLY when NOTHING was usable. QA measured the other half:
+           enable a probe AND an uncalibrated scale and the picker just showed the probe, with the scale
+           absent and unexplained. Now the sentence sits ABOVE the picker when other instruments remain
+           usable, and stands alone (the picker being empty) when none do — one alert, one translatable
+           string, no fork between the two cases.
+
+           ⚠️ ONE `i18n-t` UNIT (review finding F5). This used to render `<span>{{ t('…') }}</span>{{ ' ' }}
+           <NuxtLink>…</NuxtLink>` — three fragments with the word order hard-coded in the template, four
+           lines under the comment that forbids it. No literal leaked (both halves were keyed), but a
+           translator could not move the link, and Spanish word order is not English's. The sentence carries
+           its own `{calibrate}` slot, so the whole thing is one translatable string in both locales.
+
+           The link goes to the plant's own page, where the calibration modal lives — calibration is setup,
+           done ahead of time, not collected mid-decision — and it ARRIVES AT THE MODAL rather than at the
+           top of the page; see `calibrationLink`. -->
+      <Alert v-if="showCalibrationNotice" color="amber">
+        <i18n-t keypath="reading.calibration.notCalibratedYet" tag="span">
+          <template #calibrate>
+            <NuxtLink :to="calibrationLink" class="mp-reading__link" @click="open = false">
+              {{ t('reading.calibration.calibrateAction') }}
+            </NuxtLink>
+          </template>
+        </i18n-t>
+      </Alert>
+
+    <template v-if="step === 'measure' && hasUsableInstrument">
       <!-- Two options today → segmented control (design-system rule: up to 3–4 short options). -->
       <FormGroup :label="t('reading.instrument')">
         <SegmentedControl v-model="instrumentId" :options="options" />
@@ -947,7 +1025,7 @@ const holdDateLabel = computed(() => {
            Two options → segmented control, same rule the instrument picker above follows. -->
       <FormGroup
         v-if="showWateringRelation"
-        :label="t('reading.wateringRelationLabel')"
+        :label="wateringRelationLabel"
         :hint="t('reading.wateringRelationHint')"
         required
       >
@@ -959,8 +1037,11 @@ const holdDateLabel = computed(() => {
 
     <!-- The verdict step — survey mode only (see `submit()`'s `step.value = 'verdict'` assignment, reached
          only from the `mode === 'survey'` branch). Shaped like RepotVerdictModal.vue: a short title stating
-         the answer, then whatever body that answer needs. -->
-    <template v-else>
+         the answer, then whatever body that answer needs.
+         ⚠️ An EXPLICIT `step === 'verdict'` check, not a bare `v-else`. The notice above is no longer part
+         of an exclusive chain, so a `v-else` here would render the verdict body in the one state that has
+         no verdict: the measure step with nothing usable to measure with. -->
+    <template v-else-if="step === 'verdict'">
       <template v-if="previewResult?.recommendation === 'WATER_NOW'">
         <h3 class="mp-reading__verdict-title">{{ t('reading.verdictWaterNowTitle') }}</h3>
         <!-- QA (2026-08-10, UX-4): HOLD carried a supporting sentence and WATER_NOW carried none, so the
@@ -980,6 +1061,7 @@ const holdDateLabel = computed(() => {
         </p>
       </template>
       <Alert v-if="error" color="red" :description="error" announce />
+    </template>
     </template>
 
     <template #footer>

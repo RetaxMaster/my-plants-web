@@ -38,6 +38,7 @@ const { t, d, locale } = useI18n();
 const { dueLabelLong, healthLabel } = useTaskMeta();
 
 const route = useRoute();
+const router = useRouter();
 const api = useApi();
 
 const { earlyWaterOptions, postponeOptions } = useFeedbackReasons();
@@ -299,6 +300,40 @@ async function onReadingSaved() {
 const calibrationOpen = ref(false);
 const canCalibrate = computed(() =>
   (readings.value?.instruments ?? []).some((i) => i.requiresCalibration));
+
+/**
+ * THE RECEIVING END OF THE SURVEY'S "calíbrala" LINK (QA finding F3, 2026-08-10).
+ *
+ * That link used to land here at `scrollY: 0` while the calibration button sat at `top: 1104px` on a 900px
+ * desktop viewport and `top: 2694px` on an 844px mobile one — two thirds down a 4127px page, with no anchor
+ * and no scroll. It arrives AT the calibration modal now: `?calibrate=1` opens it here. See
+ * `SoilReadingModal.vue`'s `calibrationLink` for why a query flag rather than a scroll or a fragment.
+ *
+ * ⚠️ A WATCHER, NOT A ONE-SHOT READ ON MOUNT, and `immediate` so it covers both arrivals. The survey can be
+ * opened from the Today page (a real navigation, which mounts this component) OR from this very page (a
+ * SAME-ROUTE navigation, where the router updates the query and remounts nothing). A mount-time read would
+ * work for the first and silently do nothing for the second — which is the more common of the two, since
+ * the plant page is where an owner most often opens the survey.
+ *
+ * ⚠️ THE FLAG IS STRIPPED as soon as it is consumed, with `replace` so it leaves no history entry. Without
+ * that, closing the modal leaves `?calibrate=1` in the address bar: a reload or a shared link would reopen
+ * the modal forever, and Back would step through a query change rather than leaving the page.
+ *
+ * `canCalibrate` gates it for the same reason it gates the button — with no calibratable instrument the
+ * modal can only render its "nothing to set up here" terminal state, and a URL should not be able to
+ * conjure a dead end the page itself would never offer. `readings` is awaited in setup, so a null there
+ * means the catalogue FETCH FAILED, and the same stance applies: no catalogue, no claim.
+ */
+watch(
+  [() => route.query.calibrate, canCalibrate],
+  ([flag, allowed]) => {
+    if (flag === undefined || !allowed) return;
+    calibrationOpen.value = true;
+    const { calibrate: _dropped, ...rest } = route.query;
+    void router.replace({ path: route.path, query: rest });
+  },
+  { immediate: true },
+);
 
 // The browser tab shows the plant's own name (nickname, else localized species name); a plant that
 // failed to load falls back to the generic "Plant" title rather than an empty tab.

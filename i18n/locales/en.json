@@ -1432,7 +1432,13 @@
       "dryHint": "Weigh it again right before you'd normally water.",
       "spanInvalid": "The watered weight has to be higher than the dry weight.",
       "belowMin": "A weight has to be {min} or more.",
-      "outOfRange": "A reading has to be between {min} and {max}."
+      "outOfRange": "A reading has to be between {min} and {max}.",
+      "modalTitle": "Calibrate the scale for this pot",
+      "once": "You only do this once per pot.",
+      "how": "Weigh the pot when the soil is dry — right before you'd normally water it. Then water it, let it drain, and weigh it again. You can do both on the same day.",
+      "save": "Save calibration",
+      "notCalibratedYet": "This pot's scale isn't calibrated yet.",
+      "calibrateAction": "Calibrate it"
     },
     "measureAction": "Measure",
     "surveyQuestion": "Do you need to water?",

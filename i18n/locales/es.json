@@ -1432,7 +1432,13 @@
       "dryHint": "Vuelve a pesarla justo antes de cuando normalmente la regarías.",
       "spanInvalid": "El peso recién regada tiene que ser mayor que el peso en seco.",
       "belowMin": "Un peso tiene que ser de {min} o más.",
-      "outOfRange": "Una lectura tiene que estar entre {min} y {max}."
+      "outOfRange": "Una lectura tiene que estar entre {min} y {max}.",
+      "modalTitle": "Calibrar la báscula para esta maceta",
+      "once": "Esto se hace una sola vez por maceta.",
+      "how": "Pesa la maceta con la tierra seca, justo antes de cuando normalmente la regarías. Luego riégala, deja que escurra y vuelve a pesarla. Puedes hacer las dos el mismo día.",
+      "save": "Guardar calibración",
+      "notCalibratedYet": "La báscula de esta maceta todavía no está calibrada.",
+      "calibrateAction": "Calibrarla"
     },
     "measureAction": "Medir",
     "surveyQuestion": "¿Necesitas regar?",

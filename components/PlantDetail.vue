@@ -267,6 +267,39 @@ async function onReadingSaved() {
   await Promise.all([refresh(), refreshReadings(), refreshHistory()]);
 }
 
+/**
+ * CALIBRATION LIVES HERE, ON THE PLANT'S OWN PAGE (Task 8, owner-ruled 2026-08-10).
+ *
+ * Calibrating a pot's scale is SETUP, not something collected mid-decision: one of the two anchors is "the
+ * pot freshly watered", and supplying it means watering the plant — the very decision the survey has not
+ * made yet. So the anchors left `SoilReadingModal.vue` (commit 338762e) and the survey now REFUSES to offer
+ * an uncalibrated scale, showing instead a sentence whose link points at `/plants/:id` and promises
+ * calibration can be done there. Until this affordance existed that promise was false, and the owner
+ * landing here could neither measure nor calibrate — a total lockout, strictly worse than the circular dead
+ * end the move set out to fix.
+ *
+ * WHY THE BUTTON IS GATED ON `requiresCalibration`, and gated on exactly that. `PlantCalibrationModal`
+ * builds every list it renders off `instruments.filter(i => i.requiresCalibration)`; with that set empty it
+ * can only render its "none of your instruments needs calibration" terminal state, which is honest but has
+ * nothing to do — a dead end reachable by design. So an owner whose instruments are all calibration-free
+ * (the probe, the stick, the finger) is never offered the button at all.
+ *
+ * AND IT COVERS THE CASE THE SURVEY'S LINK IS SHOWN FOR, by construction rather than by coincidence. That
+ * link renders when `data.instruments.length > 0` and NO instrument survives the survey's filter — i.e.
+ * every enabled instrument is `requiresCalibration && calibration == null`. Every one of them therefore has
+ * `requiresCalibration === true`, so `.some(...)` here is necessarily true and the button is on the page
+ * the link lands on. (`SoilReadingModal.test.ts`'s *"offers a real link to THIS plant's page, where
+ * calibration lives"* pins the sending end; the calibration block in `PlantDetail.test.ts` pins this
+ * receiving end with the SAME catalogue — an uncalibrated kitchen scale as the owner's only instrument.)
+ *
+ * `readings` null means the catalogue FETCH FAILED (it is awaited in setup), so this is false then too —
+ * the same stance "Add a reading" already takes, and for the same reason: with no catalogue in hand the
+ * modal could only open on a claim about the owner's instruments that we cannot back.
+ */
+const calibrationOpen = ref(false);
+const canCalibrate = computed(() =>
+  (readings.value?.instruments ?? []).some((i) => i.requiresCalibration));
+
 // The browser tab shows the plant's own name (nickname, else localized species name); a plant that
 // failed to load falls back to the generic "Plant" title rather than an empty tab.
 useHead(() => ({ title: plant.value ? plantTitle(plant.value, locale.value) : t('meta.plantDetail.title') }));
@@ -1539,6 +1572,22 @@ async function confirmRevive() {
             >
               {{ $t('reading.addReading') }}
             </UiButton>
+            <!-- Task 8: the calibration entry point the survey's "calibrate it there" link promises. Shown
+                 ONLY when at least one enabled instrument actually needs anchors (`canCalibrate` — read its
+                 declaration for why that condition, and why it necessarily holds for the owner the link is
+                 shown to). No `readingOpening` guard: this opens no fetch of its own, so there is no window
+                 for the second tap B1 was about. -->
+            <UiButton
+              v-if="canCalibrate"
+              size="xs"
+              variant="soft"
+              color="neutral"
+              icon="scale"
+              class="mp-detail__measurement-calibrate"
+              @click="calibrationOpen = true"
+            >
+              {{ $t('reading.calibration.openAction') }}
+            </UiButton>
             <!-- QA UX-1: a saved reading used to vanish — no confirmation, no list, nothing on the page,
                  so the only feedback the owner got was the modal closing. The list IS the confirmation:
                  `onReadingSaved` already refreshes `readings`, so a new measurement appears at the top the
@@ -1576,6 +1625,24 @@ async function confirmRevive() {
           @saved="onReadingSaved"
           @water-done="onWaterVerdictDone"
           @water-postpone="onPostpone('WATER')"
+        />
+
+        <!-- ⚠️ NO INVENTED EMPTY SHAPE HERE, deliberately — this is NOT the `readings ?? { instruments: [],
+             … }` fallback its sibling above carries. `PlantCalibrationModal` reads `data.instruments` to
+             decide which of its states to render, and an empty list is not "still loading" to it: it is the
+             statement *"you haven't told us what you measure with yet — add one in Settings"*. `readings`
+             is awaited in setup, so by render time null can only mean the FETCH FAILED (FIX W1's whole
+             finding, one screen showing two contradictory explanations), and handing the modal a fabricated
+             empty catalogue would make it repeat that same lie to an owner who does own instruments. There
+             is no honest empty shape to pass, so the modal is simply not mounted until the real one is
+             here — which costs nothing, because `canCalibrate` is false in exactly that window and the only
+             way in is a button that is not on screen. -->
+        <UiPlantCalibrationModal
+          v-if="readings"
+          v-model:open="calibrationOpen"
+          :plant-id="id"
+          :data="readings"
+          @saved="onReadingSaved"
         />
 
         <!-- The care plan is based on -->
@@ -1950,6 +2017,12 @@ async function confirmRevive() {
 
 .mp-detail__measurement-add {
   margin-bottom: 12px;
+}
+
+/* Sits beside "Add a reading" (both are inline-flex `xs` buttons), sharing its bottom gap so the readings
+   history below keeps the same spacing whether one button or two are rendered. */
+.mp-detail__measurement-calibrate {
+  margin: 0 0 12px var(--space-2);
 }
 
 /* The readings history's own heading (QA UX-1). Sits under the two findings, so it needs its own top gap

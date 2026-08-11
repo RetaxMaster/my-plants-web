@@ -1410,12 +1410,12 @@
         "3": "Clearly damp"
       }
     },
-    "wateringRelationLabel": "Before or after that day's watering?",
-    "wateringRelationHint": "This plant was also watered on that date, so we need to know which side of the watering the reading falls on — it decides which drying cycle it belongs to.",
+    "wateringRelationLabel": "You also watered this plant that day",
+    "wateringRelationHint": "Did you take this measurement before watering, or after watering?",
     "wateringRelationRequired": "This reading needs to say whether it was taken before or after that day’s watering.",
     "wateringRelation": {
-      "before": "Before",
-      "after": "After"
+      "before": "Before watering",
+      "after": "After watering"
     },
     "calculate": "Calculate watering",
     "verdictWaterNowTitle": "Time to water",
@@ -1440,7 +1440,8 @@
       "save": "Save calibration",
       "notCalibratedYet": "This pot's scale isn't calibrated yet — {calibrate} before you can measure with it.",
       "calibrateAction": "calibrate it",
-      "noneCalibratable": "None of your instruments need calibration, so there's nothing to set up here."
+      "noneCalibratable": "None of your instruments need calibration, so there's nothing to set up here.",
+      "openAction": "Calibrate the scale"
     },
     "measureAction": "Measure",
     "surveyQuestion": "Do you need to water?",

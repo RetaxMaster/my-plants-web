@@ -2335,3 +2335,212 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// TASK 8 — CALIBRATION IS REACHED FROM THE PLANT PAGE.
+//
+// Calibrating a pot's scale used to happen INSIDE the measuring survey, which was circular: one of the two
+// anchors is "the pot freshly watered", and supplying it means watering the plant — the decision the survey
+// has not made yet. So the anchors moved out (commit 338762e) and the survey now refuses to offer an
+// uncalibrated scale, rendering instead a sentence whose link points at `/plants/:id` and promises the
+// owner can calibrate it THERE (`SoilReadingModal.test.ts`, "offers a real link to THIS plant's page, where
+// calibration lives"). Until this affordance existed, that promise was false: the destination page had no
+// calibration control at all, so the owner could neither measure nor calibrate.
+//
+// ⚠️ THE TWO ENDS OF THAT LINK LIVE IN DIFFERENT FILES AND NOTHING CONNECTED THEM. The sending end is
+// pinned in `SoilReadingModal.test.ts`; this block pins the RECEIVING end deliberately using the SAME
+// catalogue that end is pinned with — the owner's only enabled instrument is a kitchen scale this pot has
+// no anchors for — so the case the link is actually shown for is the case this page is proven to serve.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('PlantDetail — Task 8: calibration is reached from the plant page', () => {
+  // Copied in shape (not imported — it is a fixture, not behaviour) from `SoilReadingModal.test.ts`'s own
+  // `kitchenScaleNoCalibration`, which is the fixture that makes THAT file render the link under test here.
+  const kitchenScaleNoCalibration = {
+    id: 'kitchen-scale', kind: 'moisture', unit: 'grams', scale: 'kitchen-scale-grams',
+    direction: 'higher-is-wetter', comparableAcrossPots: false, requiresCalibration: true,
+    protocolKind: 'whole-pot-mass', captureKind: 'numeric',
+    rawMin: 0, rawMax: null, rawStep: 1, calibration: null,
+  };
+  // The other half of the gate: an instrument that never needs anchors. `PlantCalibrationModal` filters its
+  // whole picker down to `requiresCalibration` rows, so for this owner it could only render its "nothing to
+  // set up here" terminal state — a dead end the entry point must not offer a way into.
+  const galvanicProbe = {
+    id: 'galvanic-probe', kind: 'moisture', unit: 'index', scale: 'probe-1-10',
+    direction: 'higher-is-wetter', comparableAcrossPots: false, requiresCalibration: false,
+    protocolKind: 'insertion', captureKind: 'numeric',
+    rawMin: 1, rawMax: 10, rawStep: 1, calibration: null,
+  };
+
+  // Named so `findComponent({ name: 'UiPlantCalibrationModal' })` can locate it and its `saved` event can be
+  // fired — the same technique the `UiSoilReadingModal` stubs above use. The real component has its own
+  // test file; this block's only concern is that PlantDetail mounts it, opens it, and listens to it.
+  const UiPlantCalibrationModalStub = {
+    name: 'UiPlantCalibrationModal',
+    props: ['open', 'plantId', 'data'],
+    emits: ['update:open', 'saved'],
+    template: '<div class="calibration-modal" :data-open="String(!!open)" />',
+  };
+  const localStubs = { ...stubs, UiPlantCalibrationModal: UiPlantCalibrationModalStub };
+
+  // Key-distinguished refreshes, so "it went through `onReadingSaved`" is an assertion about the three
+  // reads that seam refreshes, not about a spy the component could satisfy any other way. Same technique as
+  // the "a saved measurement also refreshes History" block above.
+  const careRefresh = vi.fn(async () => {});
+  const readingsRefresh = vi.fn(async () => {});
+  const historyRefresh = vi.fn(async () => {});
+
+  beforeEach(() => {
+    careRefresh.mockClear();
+    readingsRefresh.mockClear();
+    historyRefresh.mockClear();
+    vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh:
+        key.startsWith('care-') ? careRefresh
+        : key.startsWith('soil-readings-') ? readingsRefresh
+        : vi.fn(async () => {}),
+    }));
+    vi.stubGlobal('useLazyAsyncData', (key: string, fn: () => Promise<unknown>) => {
+      const data = ref<unknown>(null);
+      void Promise.resolve(fn()).then((v) => { data.value = v; });
+      return { data, refresh: key.startsWith('history-') ? historyRefresh : vi.fn(async () => {}) };
+    });
+  });
+
+  afterEach(() => {
+    // Restore the module's default (non-instrumented) stubs for every other describe block in this file.
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: vi.fn(async () => {}),
+    }));
+    vi.stubGlobal('useLazyAsyncData', (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref<unknown>(null);
+      void Promise.resolve(fn()).then((v) => { data.value = v; });
+      return { data, refresh: vi.fn(async () => {}) };
+    });
+  });
+
+  async function mountWithInstruments(instruments: Record<string, unknown>[]) {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => basePlant(),
+      getPlantCare: async () => null,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments, protocol: null, readings: [], wateringDays: [] }),
+      getOwnerInstruments: async () => ({ available: [], selected: instruments.map((i) => i.id) }),
+      invalidatePlant: vi.fn(),
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: localStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  const calibrateButton = (w: ReturnType<typeof mount>) =>
+    w.findAll('button').find((b) => b.text() === i18n.t('reading.calibration.openAction'));
+
+  // Mutation proof: deleting the `@click="calibrationOpen = true"` binding (or the button itself) makes this
+  // go RED — `data-open` stays 'false', which is precisely the lockout this task closes.
+  it('the entry point the survey\'s link promises IS on this page, and it opens the calibration modal',
+    async () => {
+      const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+
+      const btn = calibrateButton(w);
+      expect(btn, 'the link says "calibrate it there" — there is here').toBeTruthy();
+      expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).attributes('data-open')).toBe('false');
+
+      await btn!.trigger('click');
+      await flushPromises();
+
+      expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).attributes('data-open')).toBe('true');
+    });
+
+  // ONE SEAM, REUSED. A saved calibration changes what the page shows for this pot exactly the way a saved
+  // reading does, so it must ride `onReadingSaved` rather than growing a second refresh path that can drift
+  // from it (this page has already paid for that once — `onReadingSaved` used to omit the History refresh).
+  //
+  // Mutation proof: rebinding `@saved` on the calibration modal to a no-op — or to a partial refresh such
+  // as `refreshReadings()` alone — makes this go RED on the care/history halves.
+  it('a saved calibration refreshes through the SAME onReadingSaved seam a saved reading uses', async () => {
+    const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+
+    expect(careRefresh).not.toHaveBeenCalled();
+    expect(readingsRefresh).not.toHaveBeenCalled();
+    expect(historyRefresh).not.toHaveBeenCalled();
+
+    await w.findComponent({ name: 'UiPlantCalibrationModal' }).vm.$emit('saved');
+    await flushPromises();
+
+    expect(careRefresh).toHaveBeenCalled();
+    expect(readingsRefresh).toHaveBeenCalled();
+    expect(historyRefresh).toHaveBeenCalled();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // THE SEAM ITSELF, IN ONE PROCESS — the only test in the repo that holds BOTH ends of the link at once.
+  //
+  // The two sides are two components in two files with two test suites, and each one was green on its own
+  // while the journey between them was broken: the survey correctly said "calibrate it there", the
+  // destination correctly rendered a plant page, and nobody asked whether "there" contained anything. A
+  // promise made by one component about another component's page cannot be checked by either component's
+  // own tests — so it is checked here, with ONE catalogue object flowing through both.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  it('THE SEAM: the catalogue that makes the survey promise "calibrate it there" makes THIS page offer it',
+    async () => {
+      // Mounted FIRST: it installs the `useApi` stub that the modal's own `useApi()` call then resolves.
+      const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+
+      // --- THE SENDING END: the real SoilReadingModal, survey mode, on the same catalogue.
+      const SoilReadingModal = (await import('./ui/SoilReadingModal.vue')).default;
+      const survey = mount(SoilReadingModal, {
+        props: {
+          open: true,
+          plantId: 'p1',
+          data: { instruments: [kitchenScaleNoCalibration], protocol: null, readings: [], wateringDays: [] } as never,
+          mode: 'survey',
+        },
+        global: {
+          mocks: { $t: i18n.t },
+          stubs: {
+            Modal: { props: ['modelValue', 'title'], template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>' },
+            Button: { props: ['disabled', 'loading'], template: '<button :disabled="disabled"><slot /></button>' },
+            AppIcon: true,
+            'i18n-t': {
+              props: ['keypath', 'tag'],
+              template: '<span class="i18n-t">{{ $t(keypath) }}<slot name="settings" /><slot name="calibrate" /></span>',
+            },
+            NuxtLink: { props: ['to'], template: '<a class="nuxt-link" :href="to"><slot /></a>' },
+          },
+        },
+      });
+      const link = survey.find('a.nuxt-link');
+      expect(link.exists(), 'the survey must be routing the owner somewhere').toBe(true);
+      // It is the CALIBRATE link, not the "add one in Settings" one — the two states must not be confused.
+      expect(survey.text()).toContain(i18n.t('reading.calibration.calibrateAction'));
+      expect(survey.text()).not.toContain(i18n.t('reading.settingsLink'));
+
+      // --- THE RECEIVING END: the page that link actually names.
+      expect(link.attributes('href')).toBe('/plants/p1');
+      expect(
+        calibrateButton(w),
+        'the survey sends the owner to /plants/p1 promising calibration — it has to be there',
+      ).toBeTruthy();
+    });
+
+  // Mutation proof: dropping the `v-if="canCalibrate"` guard (or weakening it to "the owner has any
+  // instrument") makes this go RED. Without it the button is a door onto the modal's "none of your
+  // instruments needs calibration" state — true, and with nothing behind it.
+  it('offers no calibration button when no enabled instrument requires calibration', async () => {
+    const w = await mountWithInstruments([galvanicProbe]);
+
+    expect(calibrateButton(w)).toBeUndefined();
+    // …and the absence is the GUARD's doing, not the measurement block failing to render: its sibling
+    // affordance is right there. Without this half, deleting the whole block would pass the test above.
+    expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(true);
+  });
+});

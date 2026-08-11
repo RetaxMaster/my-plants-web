@@ -52,13 +52,32 @@ export function todaysVerdictClosesSurvey(verdict: TodaysVerdict): boolean {
       // "Water it now." The verdict was delivered in the modal; what the row needs next is the ordinary
       // pair of task actions, Hecho | Posponer, which is exactly what TaskRow renders when `canSurvey` is
       // false. Reusing those controls, never a parallel pair built here.
+      //
+      // ⚠️ NOT REACHABLE FROM THE APP TODAY — see the `'NONE'` arm below before you rely on it.
       return true;
     case 'NONE':
       // ⚠️ SINGLE SEAM, OWNED BY A FOLLOW-UP TASK. A reading that decided nothing — the voluntary
       // "Agregar lectura" path, including a raw value no calibration could interpret. Today it closes the
       // survey exactly as every other reading does, which is the behaviour shipped before this fix and is
       // deliberately left untouched here. A follow-up owns this branch; when it lands, THIS ARM is the
-      // whole change — nothing else in the app reads the verdict to make this decision.
+      // whole change as far as this decision goes — nothing else in the app reads the verdict to make it.
+      //
+      // ⚠️⚠️ READ THIS BEFORE FLIPPING THE CONSTANT — THIS ARM CURRENTLY CARRIES TWO DIFFERENT CASES.
+      //
+      // A survey that answers "water it now" does NOT store `'WATER_NOW'`. It stores `'NONE'` (see
+      // `SoilReadingModal.vue`'s `submit()`), because on the API side a stored `'WATER_NOW'` verdict makes
+      // `soil-reading.write-core.ts` record a WATER **DONE** care event — fabricating a watering the owner
+      // has not performed yet, which the owner overturned on 2026-08-09. Sending the honest verdict was
+      // therefore not available as part of THIS fix. The consequence is that, in the data, a WATER_NOW
+      // survey and a voluntary log are the same row.
+      //
+      // So flipping this constant to `false` on its own would ALSO stop a WATER_NOW survey from closing
+      // the affordance — and since TaskRow withholds Hecho and Posponer for as long as the survey is on
+      // offer, the owner would be told to water, then given no way to record that he had. That is the
+      // exact dead end Task 47/T6b closed. The follow-up must separate the two cases first (the natural
+      // route: let the survey store `'WATER_NOW'` and narrow the write-core's care-event write to
+      // `'POSTPONE'` only — that branch is unreachable from the app today, so narrowing it changes no
+      // current behaviour), and only then decide what a genuine `'NONE'` should do.
       return NONE_VERDICT_CLOSES_SURVEY;
   }
 }

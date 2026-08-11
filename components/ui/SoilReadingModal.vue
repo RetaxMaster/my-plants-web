@@ -5,8 +5,8 @@
 //
 // ⚠️ TWO MODES, and they are not a cosmetic toggle — they change what is asked and what is written.
 //   `survey`    — reached from a DUE water task: the owner is deciding RIGHT NOW. `measuredOn` is hidden
-//                 (fixed to today — a survey answers today), the watering-relation question is IMPOSSIBLE
-//                 BY CONSTRUCTION (see below), and the reading is evaluated by the read-only preview
+//                 (fixed to today — a survey answers today), the watering-relation question is NEVER ASKED
+//                 (the API derives it — see below), and the reading is evaluated by the read-only preview
 //                 endpoint FIRST — the outcome decides what gets written and how: HOLD applies itself
 //                 (reading + `verdict: 'POSTPONE'`), WATER_NOW WRITES the reading too (`verdict: 'NONE'`,
 //                 owner ruling 2026-08-09 — measured-verdict-gap redesign: real data that teaches the
@@ -21,13 +21,29 @@
 //                 pre-selection — see below), and the reading is recorded with `verdict: 'NONE'`. No
 //                 verdict step: this mode never calls the preview endpoint at all.
 //
-// ⚠️ WHY THE WATERING-RELATION QUESTION IS IMPOSSIBLE IN SURVEY MODE, not merely hidden. That question
-// exists because a reading taken on a day the plant was ALSO watered is ambiguous about which side of the
-// watering it falls on. A survey's own order is fixed by construction: the task appears due → the owner
-// measures → the verdict → (if WATER_NOW) he waters → he marks the task done. The measurement is always
-// BEFORE that day's watering, and it is KNOWN rather than assumed — there is no ambiguity left to ask
-// about. The question survives only in `voluntary` mode, where the owner recalls a PAST day: the one place
-// the ambiguity was ever real.
+// ⚠️ WHY THE SURVEY NEVER ASKS THE WATERING-RELATION QUESTION (owner-ruled 2026-08-10). That question exists
+// because a reading taken on a day the plant was ALSO watered is ambiguous about which side of the watering
+// it falls on. In a survey there is no ambiguity to resolve: the owner is measuring NOW, and a watering
+// already recorded for today was recorded BEFORE this moment — so the reading sits inside the cycle that
+// watering opened, DERIVED from the ordering of events we already store rather than assumed. The API
+// performs that derivation itself (`soil-reading.write-core.ts`), so the client sends no relation at all on
+// any of the three verdict branches. The owner's ruling: *"que la pestaña de hoy me haga una encuesta si
+// debo regar o no. Y ya, es todo, no quiero marcar ni antes ni después ni nada."*
+//
+// The question survives only in `voluntary` mode, and that is not a leftover — it is the one place the
+// ambiguity is genuinely UNRESOLVABLE. Care events store a DATE and no time, so a back-dated reading and a
+// watering on that same past day have no order between them. Nobody can derive it; only the owner knows.
+//
+// ⚠️ AND IT MUST NOT BE INFERRED FROM THE READING'S OWN VALUE. *"It reads wet, so it must be after"* would
+// admit only wet rows into the new cycle and systematically flatten the fitted drying slope — a plausible
+// wrong number inside a legal range, the exact failure this whole feature exists to delete. Rejected in
+// writing so nobody proposes it later as an optimisation (spec §2).
+//
+// ⚠️ CALIBRATION IS NOT COLLECTED HERE, IN EITHER MODE (owner-ruled 2026-08-10). The kitchen scale's two
+// per-pot anchors moved to `PlantCalibrationModal.vue`, reached from the plant page, because asking for
+// them mid-survey is CIRCULAR: one anchor is "the pot freshly watered", and supplying it means watering the
+// plant — the very decision the survey has not made yet. An uncalibrated scale is therefore not OFFERED
+// here at all (see `usableInstruments`); the owner is routed to calibrate it instead.
 //
 // ⚠️ THE VERDICT PICKER AND THE POSTPONE-DATE FIELD ARE GONE, not hidden. The engine now chooses (via
 // `previewSoilReading`), so nothing in this component asks "what are you doing about it?" any more — that
@@ -40,7 +56,6 @@ import Input from './Input.vue';
 import FormGroup from './FormGroup.vue';
 import SegmentedControl from './SegmentedControl.vue';
 import Alert from './Alert.vue';
-import InstrumentCalibrationFields from './InstrumentCalibrationFields.vue';
 import OrdinalReadingPicker from './OrdinalReadingPicker.vue';
 // `InstrumentId` has a Zod-free subpath in the shared contract; `WateringRelation` is the shared contract's
 // Zod-module type, re-exported from `~/types/api` (see that file's own comment) — so it comes from there,
@@ -75,10 +90,17 @@ const open = defineModel<boolean>('open', { default: false });
 const { t, d } = useI18n();
 const api = useApi();
 
+// An instrument that NEEDS a calibration this pot does not have cannot produce a reading — the normaliser
+// has no scale to map onto. Offering it would put the owner in front of a control that can only fail.
+// Calibration is setup now (PlantCalibrationModal), so the honest move is to route him there rather than
+// to collect two weights mid-decision — which was circular anyway: one anchor is the pot freshly watered.
+const usableInstruments = computed(() =>
+  props.data.instruments.filter((i) => !(i.requiresCalibration && i.calibration == null)));
+
 // SegmentedControl's own model is a plain, non-nullable `string` (`defineModel<string>({ required: true
 // })`) — '' is the "nothing chosen yet" sentinel, the same convention RepotDoneForm.vue/PlaceEditModal.vue
 // already use for an unanswered field, rather than `null` (which SegmentedControl cannot accept).
-const instrumentId = ref<InstrumentId | ''>(props.data.instruments[0]?.id ?? '');
+const instrumentId = ref<InstrumentId | ''>(usableInstruments.value[0]?.id ?? '');
 const rawValue = ref<number | null>(null);
 // SegmentedControl's own model is a plain, non-nullable `string` — '' is the "nothing chosen yet" sentinel
 // (same convention `instrumentId` above already uses). Owner-ruled (2026-08-08): NO default and NO
@@ -86,9 +108,6 @@ const rawValue = ref<number | null>(null);
 // assuming, so this starts unanswered and stays that way until the owner picks one. VOLUNTARY MODE ONLY —
 // see `showWateringRelation` below.
 const wateringRelation = ref<WateringRelation | ''>('');
-const calibration = reactive<{ saturatedValue: number | null; dryValue: number | null }>({
-  saturatedValue: null, dryValue: null,
-});
 const submitting = ref(false);
 const error = ref<string | null>(null);
 
@@ -104,8 +123,10 @@ const previewResult = ref<SoilReadingPreview | null>(null);
 // changed after the fields it came from stopped being rendered — those refs are frozen in practice once
 // `step` leaves `measure` (nothing re-renders them), but this keeps the save from depending on that being
 // true forever.
+// (It used to carry an optional `wateringRelation` too, frozen at verdict time. Removed 2026-08-10 with
+// the question itself — a survey sends no relation, so there is nothing to freeze.)
 const pendingUnavailableReading = ref<{
-  instrumentId: InstrumentId; rawValue: number; measuredOn: string; wateringRelation?: WateringRelation;
+  instrumentId: InstrumentId; rawValue: number; measuredOn: string;
 } | null>(null);
 
 // Bridge between Input.vue's `v-model` (`string | number`) and `rawValue`'s `number | null` — same pattern
@@ -121,11 +142,10 @@ const rawValueField = computed<number | string>({
 // response is lost after the server committed never writes a second reading.
 const idempotencyKey = ref(crypto.randomUUID());
 // Reopen must reset EVERY field a previous session could have left stale — not just the ones an earlier
-// pass happened to touch, and that now explicitly includes the calibration anchors (`saturatedValue`/
-// `dryValue`): the API's own comment records that a REPOT invalidates a calibration, so anchors typed for
-// the OLD pot and abandoned without saving must never sit pre-filled, one tap from being written as the
-// NEW pot's anchors. The modal is mounted once for the page's life (PlantDetail.vue, no `:key`), so a field
-// left un-reset here silently carries a prior reading's value into the next one. `measuredOn` is the one
+// pass happened to touch. (It used to reset the calibration anchors too; those fields left this modal on
+// 2026-08-10 — calibration is setup now, in `PlantCalibrationModal.vue`, and that modal carries the same
+// reset for the same reason.) The modal is mounted once for the page's life (PlantDetail.vue, no `:key`),
+// so a field left un-reset here silently carries a prior reading's value into the next one. `measuredOn` is the one
 // date field left (`postponeToOn` no longer exists — see the file-header comment): a stale `measuredOn` is
 // the worse trap of the two it used to guard against, since two readings landing on the same date is a
 // zero-span pair that corrupts the drying-rate slope fit — the exact data quality this whole feature exists
@@ -146,21 +166,14 @@ watch(open, (isOpen) => {
   measuredOn.value = todayYmd();
   wateringRelation.value = '';
   serverSaysWateringDay.value = false;
-  // ⚠️ NOT nulled any more (QA round 3, 2026-08-10) — PREFILLED from the pot's stored anchors. The rule the
-  // old code enforced is still right and still enforced: anchors TYPED for the old pot and abandoned
-  // without saving must never sit pre-filled. What it got wrong is that the server's own stored calibration
-  // is not that — it IS this pot's current calibration, and hiding it is what made a mis-weighed pot
-  // unrepairable from the app and made a failed save look like it had lost a calibration it had actually
-  // written. `syncCalibrationFromStored` reads `props.data`, so it shows what the pot has NOW.
-  syncCalibrationFromStored();
-  // `instrumentId`'s setup-time initializer (`props.data.instruments[0]?.id ?? ''`) can miss the "default
+  // `instrumentId`'s setup-time initializer (`usableInstruments.value[0]?.id ?? ''`) can miss the "default
   // to the first instrument" intent entirely: PlantDetail.vue's template falls back to an empty
   // `{ instruments: [], … }` shape while its own async readings fetch is still in flight, so the modal can
   // be constructed before the real instrument list ever reaches it. Re-apply the default here, on every
   // open, but ONLY when nothing is currently selected — an owner's already-chosen instrument must survive
   // a close/reopen untouched, the deliberate stickiness this field otherwise has.
-  if (instrumentId.value === '' && props.data.instruments[0]) {
-    instrumentId.value = props.data.instruments[0].id;
+  if (instrumentId.value === '' && usableInstruments.value[0]) {
+    instrumentId.value = usableInstruments.value[0].id;
   }
 });
 
@@ -177,118 +190,54 @@ watch(open, (isOpen) => {
  * range check passes, the step check passes, and the server has no way to know the number was carried
  * rather than read. The only moment the mistake is visible is the switch itself.
  *
- * The calibration anchors go too: they are per (pot, instrument), so anchors typed for one instrument
- * describe nothing on another.
+ * (The calibration anchors used to be cleared here for the same per-(pot, instrument) reason. They live in
+ * `PlantCalibrationModal.vue` since 2026-08-10, and that modal carries the identical clear-on-switch.)
  */
 watch(instrumentId, () => {
   rawValue.value = null;
-  // Re-read from the SERVER for the newly chosen instrument rather than blanking: anchors are per (pot,
-  // instrument), so the old instrument's numbers describe nothing here — but the new instrument may well
-  // have its own stored pair, and that pair is exactly what the owner should see.
-  syncCalibrationFromStored();
-  // ⚠️ AND THE ERROR ALERT GOES WITH THEM (QA round 3, defect 7). It described a save of the READING that
+  // ⚠️ AND THE ERROR ALERT GOES WITH IT (QA round 3, defect 7). It described a save of the READING that
   // has just been cleared, so leaving it up puts a red "we couldn't save that reading, please try again"
   // under a fresh, untouched form — the owner reads it as a fault in what he is about to do. An error
   // outliving the thing it was about is a lie with a delay on it.
   error.value = null;
 });
 
+// Both built off `usableInstruments`, never off `props.data.instruments` directly — an instrument the picker
+// refuses to offer must also be un-resolvable, or a stale `instrumentId` would silently reach the fields.
 const options = computed(() =>
-  props.data.instruments.map((i) => ({ key: i.id, label: t(`settings.instruments.name.${i.id}`) })));
+  usableInstruments.value.map((i) => ({ key: i.id, label: t(`settings.instruments.name.${i.id}`) })));
 const instrument = computed(() =>
-  props.data.instruments.find((i) => i.id === instrumentId.value) ?? null);
+  usableInstruments.value.find((i) => i.id === instrumentId.value) ?? null);
 // Which measuring protocol this instrument's reading actually follows — read STRAIGHT OFF the shared
 // instrument row (QA finding F2), never branched on the id here, so a new row arrives with its own
 // protocol and this file needs no edit. `insertion` is the fallback ONLY for the transient window before
 // the readings fetch resolves (PlantDetail.vue renders an empty `{ instruments: [] }` shape meanwhile),
 // where no instrument is selected and no protocol is shown at all.
 const protocolKind = computed(() => instrument.value?.protocolKind ?? 'insertion');
-const needsCalibration = computed(() =>
-  instrument.value?.requiresCalibration === true && instrument.value.calibration == null);
 
 /**
- * A SAVED CALIBRATION MUST STAY VISIBLE AND CORRECTABLE (QA round 3, 2026-08-10).
+ * THE POT OWNS AN INSTRUMENT IT CANNOT USE YET — the third empty state (owner-ruled 2026-08-10, spec §3.4).
  *
- * This used to be `needsCalibration` — the fields rendered only while the pot had NO anchors, and vanished
- * the instant it had some. That made the calibration write-once from the app: a mis-weighed pot (an
- * ordinary mistake — the saucer left on, the wrong pot, a transposed digit) could be seen nowhere, in the
- * dialog, on the plant page, or in /settings, and could be repaired by nothing short of a raw `PUT`.
- *
- * It is the reason the negative-anchor defect had no exit. It is also why a FAILED save appeared to lose a
- * calibration that had in fact been stored: the anchors were written by the first half of `submit()`, the
- * reading then failed, and reopening re-rendered two empty fields, one tap from silently overwriting a
- * perfectly good calibration with whatever the owner re-typed.
- *
- * `needsCalibration` above survives and still means what it says — "there is nothing to normalise against
- * yet" — which is what `canSubmit` and `blockedReason` must gate on. This one answers a different question:
- * "does this instrument have anchors the owner should be able to see?"
+ * `usableInstruments` filtering an uncalibrated scale out closes a circular dead end and opens a fresh one:
+ * an owner whose ONLY enabled instrument is that scale would face an empty picker. That trap is closed here
+ * rather than deferred. Three states, and collapsing any two of them tells the owner something false:
+ *   • no instruments at all          → "add one in Settings" (true: there is a real setup gap)
+ *   • instruments, none usable       → THIS: "this pot's scale isn't calibrated yet" + a way to calibrate it
+ *   • otherwise                      → the picker
+ * The middle one must never borrow the first one's copy: the owner already added an instrument, so sending
+ * him to Settings would be a false statement AND a dead end.
  */
-const showsCalibration = computed(() => instrument.value?.requiresCalibration === true);
+const needsCalibrationSetup = computed(() =>
+  props.data.instruments.length > 0 && usableInstruments.value.length === 0);
 
-/** The anchors as the SERVER currently holds them, for this instrument, or `null`. The one place the stored
- *  calibration is read, so the prefill and the "did the owner change it?" comparison below can never
- *  disagree about what "stored" means. */
-const storedCalibration = computed(() => instrument.value?.calibration ?? null);
-
-/** Pull the stored anchors into the editable fields. Called on open and on every instrument switch — the
- *  two moments the fields stop describing whatever they described before — AND once at setup, for the same
- *  reason `instrumentId` re-applies its default in the `open` watcher: a modal that is mounted ALREADY open
- *  never fires that watcher, and an initializer that only runs on a transition is an initializer with a
- *  precondition nobody stated. Cheap, idempotent, and it removes the precondition. */
-function syncCalibrationFromStored() {
-  calibration.saturatedValue = storedCalibration.value?.saturatedValue ?? null;
-  calibration.dryValue = storedCalibration.value?.dryValue ?? null;
-}
-syncCalibrationFromStored();
-
-/** Has the owner actually moved the anchors? Drives whether `submit()` writes them at all — re-`PUT`ting
- *  identical numbers is not merely wasteful, it is a request the API must reason about (its own comment:
- *  replacing anchors RETRACTS the fractions they produced, and it compares before deciding). Sending only a
- *  real change keeps that decision unambiguous on both sides. */
-const calibrationChanged = computed(() => {
-  const stored = storedCalibration.value;
-  if (calibration.saturatedValue == null || calibration.dryValue == null) return false;
-  if (stored == null) return true;
-  return stored.saturatedValue !== calibration.saturatedValue
-    || stored.dryValue !== calibration.dryValue;
-});
-
-/**
- * AN ANCHOR IS A READING ON THE SAME SCALE, so the instrument's own bounds bind it (QA round 3).
- *
- * The client half of the shared contract's `instrumentCalibrationSchemaFor` — the same relationship
- * `rawValueOutOfRange` below has with `rawValueRangeRefinement`. Returns the offending field's label-ready
- * reason, or `undefined`.
- *
- * Worth stating plainly, because the browser bound alone would be a false comfort: the server refuses these
- * too, through the shared contract. This exists so the owner never reaches the refusal by accident, not as
- * the only thing standing between a typo and the database.
- */
-const calibrationOffScale = computed(() => {
-  const row = instrument.value;
-  if (row == null) return undefined;
-  const offScale = (v: number | null) =>
-    v != null && (v < row.rawMin || (row.rawMax != null && v > row.rawMax));
-  if (offScale(calibration.saturatedValue) || offScale(calibration.dryValue)) {
-    return row.rawMax == null
-      ? t('reading.calibration.belowMin', { min: row.rawMin })
-      : t('reading.calibration.outOfRange', { min: row.rawMin, max: row.rawMax });
-  }
-  return undefined;
-});
-
-/** The anchors are usable: both present, ordered, and each one on the instrument's scale. */
-const calibrationUsable = computed(() =>
-  calibration.saturatedValue != null && calibration.dryValue != null &&
-  calibration.saturatedValue > calibration.dryValue && calibrationOffScale.value === undefined);
 // An ORDINAL instrument (the wooden stick, the finger) has no physical unit to name — `OrdinalReadingPicker`
 // renders a choice of named states, not a number, so "Reading (índice 1–10)"-shaped copy would be
 // meaningless for it. Guarding here (rather than always attempting the interpolation) also keeps this modal
 // from ever rendering a raw, untranslated `settings.instruments.unit.*` key path for an ordinal row that
-// catalogue does not cover. THE ONE PLACE this modal names an instrument's unit — both call sites below
-// (this raw-value label AND `InstrumentCalibrationFields`'s own `unit-label` prop) route through this
-// computed rather than calling `t('settings.instruments.unit...')` inline a second time, so the guard can
-// never be bypassed by one of the two forgetting it.
+// catalogue does not cover. THE ONE PLACE this modal names an instrument's unit — the raw-value label below
+// routes through this computed rather than calling `t('settings.instruments.unit...')` inline, so the guard
+// can never be bypassed. (There were two call sites until 2026-08-10; the second belonged to the
+// calibration fields, which now live in `PlantCalibrationModal.vue` and carry the identical guard.)
 //
 // ⚠️ HISTORY, kept because it is the reason this guard exists rather than a stylistic preference. Code
 // review (2026-08-09) found `pages/settings.vue` iterating the full instrument catalogue the API returns
@@ -351,38 +300,12 @@ watch(measuredOn, () => {
 
 // Single source of truth for "ask the same-day-watering question at all".
 //
-// ⚠️ CORRECTED 2026-08-10 (QA defect 3). This used to read `props.mode === 'voluntary' && isWateringDay`,
-// justified by: "survey mode's own order is fixed by construction (measure → verdict → water → done), so
-// the reading is always BEFORE that day's watering and there is nothing left to ask."
-//
-// THAT PREMISE IS TRUE ONLY OF THE WATERING THIS FLOW CREATES. It is false of a watering that already
-// happened earlier the same day — water in the morning, measure in the evening, which is not an edge case
-// but the ordinary rhythm of caring for a plant. On such a plant the preview succeeded and the write was
-// refused `400` ("wateringRelation is required"), the owner saw a generic "please try again", and retrying
-// could never succeed because the question had no control to answer it through. Two of the four QA fixture
-// plants were unusable for the whole day.
-//
-// The question is asked on the MEASURE step, before any verdict exists — deliberately, because it must be
-// answerable before the owner presses the primary button rather than revealed afterwards by a failure. So
-// this gate is `isWateringDay` in both modes and nothing else.
-//
-// ⚠️ THERE IS NO `WATER_NOW` EXEMPTION ON THIS PATH — CORRECTED 2026-08-10 (QA round 4), and the previous
-// text here is the reason the defect existed, so it is quoted rather than deleted: *"the `WATER_NOW`
-// exemption is real but belongs to the API… the client honours it by not SENDING the field on that
-// branch."*
-//
-// The API's exemption is real and remains untouched, but it is keyed on `verdict: 'WATER_NOW'`, and this
-// flow has not sent that verdict since 2026-08-09 (a WATER_NOW survey writes `verdict: 'NONE'` — it teaches
-// the fit and moves no schedule). The exemption's justification is that the write creates the watering the
-// reading precedes; a write that creates no watering cannot derive that, so the client must supply it. The
-// full account sits at the WATER_NOW branch in `submit()`.
-//
-// The gate is `isWateringDay` in both modes, for all three verdicts, and nothing else. In particular it is
-// deliberately NOT conditioned on `previewResult`: such a term would be inert (the control only renders
-// while the verdict is still unknown) and worse than inert, since the one moment it could ever evaluate
-// true is a failed write, where hiding the control is exactly the dead end this whole area keeps
-// rediscovering.
-const showWateringRelation = computed(() => isWateringDay.value);
+// ⚠️ VOLUNTARY MODE ONLY, AND THIS IS THE THIRD TIME THIS LINE HAS MOVED — read the history before
+// touching it. It was `mode === 'voluntary' && isWateringDay`; QA round 3 widened it to `isWateringDay`
+// because a survey on a plant watered earlier that day dead-ended; the owner then ruled (2026-08-10) that
+// the survey must not ask AT ALL, because the answer is derivable there and the API now derives it.
+// So the gate is narrow again — but for a different reason, and with the server side that makes it true.
+const showWateringRelation = computed(() => props.mode === 'voluntary' && isWateringDay.value);
 
 // FIX (fix wave 1, item 3) — `min`/`max` attributes on a number input do NOT block a click-submit, and the
 // shared Zod schema requires only a finite number, so typing e.g. `55` on the 1–10 galvanic probe used to
@@ -457,18 +380,10 @@ const blockedReason = computed(() => {
   // The SAME sentence the field shows, not a second phrasing of it — two wordings for one fault is what
   // actually reads as two faults.
   if (rawValueOutOfRange.value || rawValueOffStep.value) return rawValueErrorMessage.value;
-  if (needsCalibration.value || (showsCalibration.value && calibrationChanged.value)) {
-    // ⚠️ THREE OUTCOMES, NOT TWO (QA round 3, defect 5). This used to collapse every calibration problem
-    // into "fill in both reference weights first", so an INVERTED pair (800 watered / 1500 dry) — both
-    // fields filled, the real fault stated correctly inline — was explained in the footer as two empty
-    // fields the owner was staring at. A blocking reason that describes a state the owner can see is false
-    // is worse than none: it costs him the trust he needs to believe the next one.
-    if (calibration.saturatedValue == null || calibration.dryValue == null) {
-      return t('reading.missingCalibration');
-    }
-    if (calibrationOffScale.value) return calibrationOffScale.value;
-    if (calibration.saturatedValue <= calibration.dryValue) return t('reading.calibration.spanInvalid');
-  }
+  // NOTE: three calibration reasons used to be reported here (missing anchors / off-scale anchor / inverted
+  // span). They left with the fields on 2026-08-10 — an instrument that still needs a calibration is no
+  // longer OFFERED (see `usableInstruments`), so none of the three can block a reading any more. Their
+  // assertions moved to `PlantCalibrationModal`, where the anchors are now typed.
   if (showWateringRelation.value && wateringRelation.value === '') {
     return t('reading.missingWateringRelation');
   }
@@ -479,13 +394,8 @@ const canSubmit = computed(() =>
   instrumentId.value !== '' && rawValue.value != null && !submitting.value &&
   !rawValueOutOfRange.value && !rawValueOffStep.value && !measuredOnInFuture.value &&
   // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — since
-  // 2026-08-10 that means ANY watering day, in either mode (see `showWateringRelation`).
-  (!showWateringRelation.value || wateringRelation.value !== '') &&
-  // Two conditions, because a calibration can now be EDITED as well as first supplied (QA round 3):
-  // it must be usable when the pot has none yet, and it must still be usable if the owner has touched it.
-  // A pot with a good stored calibration the owner leaves alone gates on neither.
-  (!needsCalibration.value || calibrationUsable.value) &&
-  (!calibrationChanged.value || calibrationUsable.value));
+  // 2026-08-10 that means a watering day in VOLUNTARY mode only (see `showWateringRelation`).
+  (!showWateringRelation.value || wateringRelation.value !== ''));
 
 // "Calcular riego" in survey mode (the modal is about to ANSWER something), "Save reading" in voluntary
 // mode (the modal is simply recording one). See the file-header comment for why the two verbs are not
@@ -525,22 +435,11 @@ async function submit() {
   submitting.value = true;
   error.value = null;
   try {
-    // The calibration is saved FIRST when the pot has none: the reading's normalisation reads it, so a
-    // reading (or a preview, which normalises the SAME way) run before it would see a null wetness.
-    //
-    // ⚠️ ALSO WHEN THE OWNER CORRECTED AN EXISTING ONE (QA round 3) — the fields are editable now, and an
-    // edit nobody sent is an edit that did not happen, which is the worst of the three outcomes: the owner
-    // watched himself fix a wrong anchor and the pot kept the wrong one. Gated on `calibrationChanged` and
-    // not merely on "the fields are filled", so simply opening the dialog on a calibrated pot does not
-    // re-`PUT` identical numbers — the API treats an anchor MOVE as a retraction of the fractions it
-    // produced, and it deserves to see only real moves.
-    if (needsCalibration.value || calibrationChanged.value) {
-      await api.setInstrumentCalibration(props.plantId, chosenInstrumentId, {
-        saturatedValue: calibration.saturatedValue as number,
-        dryValue: calibration.dryValue as number,
-      });
-    }
-
+    // ⚠️ THIS FUNCTION NO LONGER WRITES A CALIBRATION (owner-ruled 2026-08-10). It used to `PUT` the two
+    // anchors before the reading, because the normalisation needs them. That coupling is exactly what made
+    // the survey circular — one anchor is "the pot freshly watered". Calibration is setup now
+    // (`PlantCalibrationModal.vue`), and an instrument still missing one is never offered here, so by the
+    // time this runs the chosen instrument always has whatever scale it needs.
     if (props.mode === 'survey') {
       // Read-only: "water this pot today, or hold?" Nothing is written by this call, and — per the branch
       // below — nothing is written at all until the branch itself decides to (see the file-header comment,
@@ -575,12 +474,8 @@ async function submit() {
           measuredOn: verdictMeasuredOn,
           verdict: 'POSTPONE',
           ...(preview.suggestedPostponeToOn ? { postponeToOn: preview.suggestedPostponeToOn } : {}),
-          // QA defect 3 — a plant watered EARLIER today is refused without this, and survey mode had no
-          // way to supply it. `showWateringRelation` gates the control and `canSubmit` gates the button,
-          // so reaching here with the control shown means the owner answered it.
-          ...(showWateringRelation.value
-            ? { wateringRelation: wateringRelation.value as WateringRelation }
-            : {}),
+          // NO `wateringRelation` — see the file header. A survey reading is taken NOW, so a watering
+          // already recorded for today necessarily precedes it, and the API derives that itself.
         }, idempotencyKey.value);
         emit('saved');
       } else if (preview.recommendation === 'UNAVAILABLE') {
@@ -592,12 +487,9 @@ async function submit() {
         // it fires ONLY if the owner presses "Guardar lectura" on the verdict step.
         pendingUnavailableReading.value = {
           instrumentId: chosenInstrumentId, rawValue: chosenRawValue, measuredOn: verdictMeasuredOn,
-          // Captured WITH the rest of the pending reading rather than read off the ref at save time: the
-          // owner may tap "Guardar lectura" much later, and the answer must describe the day this reading
-          // was taken on, not whatever the control happens to hold by then (QA defect 3).
-          ...(showWateringRelation.value
-            ? { wateringRelation: wateringRelation.value as WateringRelation }
-            : {}),
+          // NO `wateringRelation` — see the file header. This record used to freeze the owner's answer at
+          // verdict time so a much-later "Guardar lectura" carried the day's real answer; there is no
+          // answer to freeze any more, because the survey does not ask and the API derives it.
         };
       } else if (preview.recommendation === 'WATER_NOW') {
         // Owner ruling (2026-08-09, measured-verdict-gap redesign): WATER_NOW now WRITES the reading, with
@@ -615,32 +507,20 @@ async function submit() {
           rawValue: chosenRawValue,
           measuredOn: verdictMeasuredOn,
           verdict: 'NONE',
-          // ⚠️ THIS SPREAD WAS MISSING, AND ITS ABSENCE WAS ARGUED FOR IN A COMMENT (QA round 4,
-          // 2026-08-10). The argument: a WATER_NOW reading is exempt from the same-day question because the
-          // API derives `BEFORE` by construction — the reading is what prompted the watering the write is
-          // about to create.
+          // NO `wateringRelation` — and the history of this ONE spread is worth keeping, because it has now
+          // been argued both ways and each argument was correct at the time.
           //
-          // Every word of that is still true OF `verdict: 'WATER_NOW'`. It stopped being true of THIS
-          // branch on 2026-08-09, when the owner ruled that a WATER_NOW survey writes the reading with
-          // `verdict: 'NONE'` (it teaches the drying-rate fit and moves no schedule; the owner presses Done
-          // separately afterwards). The server's exemption is keyed on the VERDICT, so the moment this
-          // branch stopped sending `WATER_NOW` it stopped qualifying — and it stopped qualifying
-          // CORRECTLY, because a write that creates no watering cannot derive a reading's position
-          // relative to one.
+          // It was originally ABSENT, justified by the API's `verdict: 'WATER_NOW'` exemption. That
+          // exemption is keyed on the VERDICT, and this branch stopped sending `WATER_NOW` on 2026-08-09
+          // (a WATER_NOW survey writes `verdict: 'NONE'` — it teaches the fit and moves no schedule), so it
+          // silently stopped qualifying. Nothing failed at the seam: two independently correct pieces
+          // stopped meeting, and the result was a permanent dead end on the ordinary rhythm of watering in
+          // the morning and measuring a dry pot in the evening.
           //
-          // Nothing failed at the seam. Two independently correct pieces simply stopped meeting, and the
-          // result was a permanent dead end on the ordinary case of watering in the morning and measuring a
-          // dry pot in the evening: the preview said WATER_NOW, the write was refused, and retrying was
-          // refused identically — while the owner watched his own answer sitting selected on screen. Worse,
-          // nothing was written, so `measuredToday` never flipped and the row went on asking "¿Necesitas
-          // regar?" forever, which is the exact dead end this write exists to close.
-          //
-          // So it travels, gated by `showWateringRelation` exactly as HOLD's does two branches up — true
-          // only on a day that genuinely carries a watering, which is also the only day the API accepts the
-          // field at all.
-          ...(showWateringRelation.value
-            ? { wateringRelation: wateringRelation.value as WateringRelation }
-            : {}),
+          // QA round 4 fixed that by SENDING the field. The owner's 2026-08-10 ruling deletes the defect
+          // instead of fixing it: the API now derives the relation for any today-dated reading on a
+          // watering day, whatever verdict it carries, so no branch sends it and the dead end is
+          // unreachable by construction. The verdict-keyed exemption is subsumed and stops being a rule.
         }, idempotencyKey.value);
         emit('saved');
       }
@@ -698,23 +578,21 @@ async function submit() {
       error.value = t('reading.alreadyRecorded');
       open.value = false;
       emit('saved');
-    } else if (status === 400 && upstreamMessage.includes('wateringRelation')) {
-      // DEFENCE IN DEPTH for the same-day question — IN BOTH MODES since 2026-08-10 (QA defect 3). It used
-      // to be voluntary-only, on the reasoning that survey mode "never sends `wateringRelation` at all —
-      // impossible by construction". That reasoning has been corrected where it originates, at
-      // `showWateringRelation`; the short version is that a survey's order is fixed only relative to the
-      // watering IT creates, not to one that already happened that morning. With the gate voluntary-only,
-      // a survey on such a plant showed a generic "please try again" for a request that could NEVER
-      // succeed — the recovery this branch exists to provide was the one thing walled off from the mode
-      // that needed it most.
+    } else if (status === 400 && props.mode === 'voluntary' && upstreamMessage.includes('wateringRelation')) {
+      // DEFENCE IN DEPTH for the same-day question — VOLUNTARY MODE ONLY again since 2026-08-10, and the
+      // two previous versions of this gate are both worth remembering. It was voluntary-only on the (then
+      // wrong) premise that a survey could never send the field; QA defect 3 widened it to both modes,
+      // correctly, because a survey on a plant watered that morning really was being refused with no
+      // control to answer through. It is narrow again now for a THIRD reason: the API derives the relation
+      // for a today-dated reading, so a survey can no longer be refused for a missing one — and revealing
+      // a control that `showWateringRelation` will refuse to render is the worse of the two dead ends.
       //
-      // `wateringDays` is a SNAPSHOT and can be behind the server in three real ways: the owner watered
-      // from this same page after it loaded (PlantDetail.vue's `sendDone` refreshes it, the primary fix),
-      // the reading is back-dated past the window that list covers, or — survey mode only — the plant's
-      // local day is not the browser's, so the day the API judged is not the day this list was checked
-      // against. In every case the server knows and refuses honestly, so REVEAL THE QUESTION rather than a
-      // dead end. The question is still ASKED, never inferred: we surface it, the owner answers, the retry
-      // carries a real answer.
+      // In voluntary mode the refusal stays genuinely reachable: `wateringDays` is a SNAPSHOT and can be
+      // behind the server, either because the owner watered from this same page after it loaded
+      // (PlantDetail.vue's `sendDone` refreshes it, the primary fix) or because the reading is back-dated
+      // past the window that list covers. The server knows and refuses honestly, so REVEAL THE QUESTION
+      // rather than a dead end. It is still ASKED, never inferred — and on a back-dated day it cannot be
+      // derived by anyone, because care events store a date and no time.
       serverSaysWateringDay.value = true;
       error.value = t('reading.wateringRelationRequired');
     } else if (status === 400 && upstreamMessage.includes('measuredOn')) {
@@ -768,9 +646,8 @@ async function saveUnavailableReading() {
       rawValue: pending.rawValue,
       measuredOn: pending.measuredOn,
       verdict: 'NONE',
-      // Carried from the moment the reading was taken, not re-read now (QA defect 3 — see where this
-      // pending record is built). Absent unless the day genuinely carried a watering.
-      ...(pending.wateringRelation ? { wateringRelation: pending.wateringRelation } : {}),
+      // No `wateringRelation`: the pending record no longer carries one (see where it is built) — the
+      // survey does not ask, and the API derives the relation for a today-dated reading itself.
     }, idempotencyKey.value);
     pendingUnavailableReading.value = null;
     open.value = false;
@@ -786,22 +663,17 @@ async function saveUnavailableReading() {
       pendingUnavailableReading.value = null;
       open.value = false;
       emit('saved');
-    } else if (status === 400 && upstreamErrorMessage(e).includes('wateringRelation')) {
-      // ⚠️ THIS BRANCH USED TO BE RULED OUT IN A COMMENT — *"never the `wateringRelation`-reveal branch:
-      // this button never sends that field"*. True, and beside the point: the field is not missing because
-      // the button declined to send it, it is missing because the PENDING RECORD was frozen at a moment
-      // when `showWateringRelation` was false (the page's `wateringDays` snapshot did not yet name the day
-      // as watered). The owner then taps "Guardar lectura" minutes later, against a server that knows
-      // better, and the save is refused — permanently, since the frozen record can never gain the field.
+      // ⚠️ THERE IS NO `wateringRelation`-REVEAL BRANCH HERE ANY MORE, and this is the second time that
+      // absence has had to be justified, so both arguments are recorded. It was first ruled out with
+      // *"this button never sends that field"* — true and beside the point at the time: the field was
+      // missing because the PENDING RECORD had been frozen while `showWateringRelation` was false, so the
+      // deferred save was refused permanently and a reveal was the right recovery.
       //
-      // So send him BACK to the measure step rather than leaving a dead verdict screen. The reveal below
-      // makes the control appear there, the instrument and reading are still filled in, and pressing the
-      // primary button again runs the ordinary survey path — which now carries the answer. No new save
-      // path, no second way to write a reading: the recovery is the flow he already knows.
-      serverSaysWateringDay.value = true;
-      pendingUnavailableReading.value = null;
-      step.value = 'measure';
-      error.value = t('reading.wateringRelationRequired');
+      // It is ruled out again, for a reason that actually holds: this save is survey-only (a pending record
+      // exists in no other mode), the survey sends no relation at all, and the API derives one for a
+      // today-dated reading. A refusal naming the field is therefore unreachable — and a reveal would be
+      // strictly harmful now, since `showWateringRelation` is voluntary-only and would render no control to
+      // answer through. A generic, retryable failure is the honest handling of an impossible refusal.
     } else {
       error.value = t('reading.saveFailed');
     }
@@ -842,6 +714,19 @@ const holdDateLabel = computed(() => {
           </NuxtLink>
         </template>
       </i18n-t>
+    </Alert>
+
+    <!-- THE THIRD EMPTY STATE (owner-ruled 2026-08-10) — see `needsCalibrationSetup`. The owner HAS an
+         instrument; it is a scale this pot has never been calibrated for, so it is not offered above and
+         there is nothing to pick. Never the "add one in Settings" copy: he already added one, and that
+         sentence would be both false and a dead end. The link goes to the plant's own page, where the
+         calibration modal lives — calibration is setup, done ahead of time, not collected mid-decision. -->
+    <Alert v-else-if="needsCalibrationSetup" color="amber">
+      <span>{{ t('reading.calibration.notCalibratedYet') }}</span>
+      {{ ' ' }}
+      <NuxtLink :to="`/plants/${plantId}`" class="mp-reading__link" @click="open = false">
+        {{ t('reading.calibration.calibrateAction') }}
+      </NuxtLink>
     </Alert>
 
     <template v-else-if="step === 'measure'">
@@ -887,15 +772,11 @@ const holdDateLabel = computed(() => {
         {{ t(`reading.honesty.${instrument.id}`) }}
       </p>
 
-      <!-- Shown whenever the instrument USES a calibration — not only while it lacks one (QA round 3).
-           A stored calibration the owner cannot see is one he cannot correct, and a wrong anchor silently
-           rescales every future reading of this pot into a perfectly legal fraction. -->
-      <InstrumentCalibrationFields
-        v-if="showsCalibration && instrument"
-        v-model="calibration"
-        :unit-label="valueUnitLabel"
-        :off-scale-error="calibrationOffScale"
-      />
+      <!-- ⚠️ THE CALIBRATION FIELDS ARE GONE FROM HERE (owner-ruled 2026-08-10), not hidden. Collecting an
+           anchor called "the pot freshly watered" inside the flow that decides whether to water the pot is
+           circular, and it made a survey on an uncalibrated pot impossible to complete. They live in
+           `PlantCalibrationModal.vue` now; an instrument still missing its anchors is filtered out of the
+           picker above and the owner is routed there instead. Do not resurrect them behind a `v-if`. -->
 
       <FormGroup :label="valueFieldLabel" :error="rawValueErrorMessage">
         <!-- An ORDINAL instrument (the wooden stick, the finger) produces one of a few NAMED states, never
@@ -935,10 +816,11 @@ const holdDateLabel = computed(() => {
       </FormGroup>
 
       <!-- Owner-ruled (2026-08-08): shown on a day the plant was also watered — never a default, never
-           pre-selected. ⚠️ CORRECTED 2026-08-10: this comment used to say "voluntary mode ONLY … survey
-           mode never reaches this at all", which was true of the code and false of reality — see
-           `showWateringRelation`. Both modes ask it now. Two options → segmented control, same rule the
-           instrument picker above follows. -->
+           pre-selected. ⚠️ VOLUNTARY MODE ONLY, again, since the owner's 2026-08-10 ruling: a survey is
+           taken NOW and the API derives the relation from the ordering of events it already stores, while
+           a BACK-DATED reading has no derivable order at all (care events store a date, not a time). The
+           full three-step history is at `showWateringRelation`; read it before widening this again.
+           Two options → segmented control, same rule the instrument picker above follows. -->
       <FormGroup
         v-if="showWateringRelation"
         :label="t('reading.wateringRelationLabel')"

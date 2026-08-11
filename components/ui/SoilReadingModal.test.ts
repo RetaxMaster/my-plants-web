@@ -3,10 +3,11 @@
 // Harness mirrors components/ui/RepotDoneForm.test.ts: Vue's own reactivity primitives and the bare Nuxt
 // auto-imports (`useI18n`/`useApi`) are stubbed as globals, because outside Nuxt's build pipeline (plain
 // vitest + @vue/test-utils, no auto-import shim) they don't exist. Modal/Button/FormGroup/AppIcon are
-// stubbed to plain passthroughs (their own behavior is irrelevant here); Input/SegmentedControl/Alert/
-// InstrumentCalibrationFields are left REAL so their actual rendered markup — disabled state, option
-// count, alert text — can be asserted, the same choice `stubsWithRealInputs()` makes in RepotDoneForm's
-// own test file.
+// stubbed to plain passthroughs (their own behavior is irrelevant here); Input/SegmentedControl/Alert are
+// left REAL so their actual rendered markup — disabled state, option count, alert text — can be asserted,
+// the same choice `stubsWithRealInputs()` makes in RepotDoneForm's own test file.
+// (`InstrumentCalibrationFields` used to be in that list. The calibration block left this component on
+// 2026-08-10 — it is setup now, and its cases live in `PlantCalibrationModal.test.ts`.)
 //
 // 2026-08-09 redesign ("the modal answers the question instead of asking three of ours"): every test below
 // now mounts with an EXPLICIT `mode`, never relying on the component's own default — see `mountModal`'s own
@@ -195,14 +196,13 @@ function rawValueError(w: ReturnType<typeof mount>) {
 }
 
 /**
- * THE READING'S OWN number input — never `w.find('input[type="number"]')`.
+ * THE READING'S OWN number input, located by its FormGroup rather than by `w.find('input[type="number"]')`.
  *
- * That plain selector returns the FIRST number input in the dialog, and since QA round 3 (2026-08-10) a
- * calibrating instrument renders its two anchor fields ABOVE the reading, on every pot rather than only on
- * an uncalibrated one. So the bare selector silently starts typing the test's reading into the "weight when
- * freshly watered" box: `rawValue` stays null, Save stays disabled, and the assertion fails somewhere that
- * has nothing to do with what the test is about. Anchored to the reading's own FormGroup instead, which is
- * what these cases actually mean.
+ * Kept even though the modal now renders exactly one number field. It used to be load-bearing: a
+ * calibrating instrument rendered its two anchor fields ABOVE the reading, so the bare selector silently
+ * typed the test's reading into the "weight when freshly watered" box and the case failed somewhere that
+ * had nothing to do with what it was about. Those fields left on 2026-08-10, but naming the field you mean
+ * is the right habit and costs nothing.
  */
 function readingInput(w: ReturnType<typeof mount>) {
   const group = w.findAllComponents({ name: 'FormGroup' })
@@ -247,95 +247,47 @@ describe('SoilReadingModal', () => {
     expect(instrumentSegButtons(w)).toHaveLength(1);
   });
 
+  // REWRITTEN 2026-08-10: the second fixture used to be `kitchenScaleNoCalibration`, which the picker no
+  // longer offers at all (see the `an uncalibrated instrument is not offered` describe below). Swapped for
+  // the CALIBRATED scale, so the property this case is actually about — one segment per enabled instrument
+  // — is still exercised rather than silently reduced to a one-segment assertion wearing a two-segment name.
   it('offers every selected instrument, one segment each', () => {
-    const w = mountModal(makeData({ instruments: [galvanicProbe, kitchenScaleNoCalibration] }));
+    const w = mountModal(makeData({ instruments: [galvanicProbe, kitchenScaleCalibrated] }));
     expect(instrumentSegButtons(w)).toHaveLength(2);
   });
 
-  // ⚠️ REWRITTEN 2026-08-10 (QA round 3, defect 3). This case used to assert the OPPOSITE for its middle
-  // clause — `calibrated.find('.mp-calib').exists()).toBe(false)` — and it passed, because that is exactly
-  // what the code did. It is kept and inverted rather than deleted, because the old assertion is the record
-  // of a decision that turned out to be wrong: hiding the fields the moment a pot HAD anchors made the
-  // calibration write-once from the app. A mis-weighed pot (the saucer left on, a transposed digit) could
-  // be seen nowhere and corrected nowhere, while every reading it ever produced was silently normalised off
-  // the wrong ruler into a perfectly legal 0..1 fraction. Deleting the case would erase the fact that this
-  // was once considered correct.
-  it('shows the calibration fields whenever the instrument USES one — calibrated pot included', async () => {
-    const uncalibrated = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
-    expect(uncalibrated.find('.mp-calib').exists()).toBe(true);
-
-    const calibrated = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
-    expect(calibrated.find('.mp-calib').exists()).toBe(true);
-
-    // An instrument that never needs calibration (the probe) still never shows the fields — the change is
-    // about a pot that HAS anchors, never about instruments that have no use for them.
-    const noCalibNeeded = mountModal(makeData({ instruments: [galvanicProbe] }));
-    expect(noCalibNeeded.find('.mp-calib').exists()).toBe(false);
-  });
-
-  it('PREFILLS the stored anchors, so the owner sees what this pot is actually calibrated to', () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
-    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
-    expect((saturatedInput!.element as HTMLInputElement).value).toBe('1850');
-    expect((dryInput!.element as HTMLInputElement).value).toBe('1200');
-  });
-
-  it('does NOT re-PUT a calibration the owner never touched', async () => {
-    // The API treats an anchor MOVE as a retraction of every fraction those anchors produced. Re-sending
-    // identical numbers on every reading would hand it a decision it should never have to make.
-    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
-    await readingInput(w).setValue(1500);
-    await findSaveButton(w).trigger('click');
-    await flushPromises();
-    expect(setInstrumentCalibration).not.toHaveBeenCalled();
-    expect(recordSoilReading).toHaveBeenCalledTimes(1);
-  });
-
-  it('DOES PUT a corrected calibration — an edit nobody sent is an edit that did not happen', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
-    const [saturatedInput] = w.findAll('.mp-calib input');
-    await saturatedInput!.setValue(1900);
-    await readingInput(w).setValue(1500);
-    await findSaveButton(w).trigger('click');
-    await flushPromises();
-    expect(setInstrumentCalibration).toHaveBeenCalledWith('plant-1', 'kitchen-scale', {
-      saturatedValue: 1900, dryValue: 1200,
-    });
-  });
-
-  // The client half of the shared contract's `instrumentCalibrationSchemaFor`. QA (round 3) typed `-500`
-  // into the dry-weight box and the API stored it with a 200; from then on a real 1000 g reading on that
-  // pot reported 60 % wet. The span rule could never catch it — `2000 > -500` is perfectly true.
-  it('refuses an anchor that is off the instrument\'s own scale, span or no span', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
-    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
-    await saturatedInput!.setValue(2000);
-    await dryInput!.setValue(-500);
-    await readingInput(w).setValue(1000);
-    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
-    // Named as the bound problem it is, not as the span problem it is not.
-    expect(w.find('.mp-calib__err').text()).toBe('reading.calibration.belowMin|0');
-  });
-
-  it('blocks submit until the calibration span is strictly positive', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
-    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
-    // The calibration fields render BEFORE the reading-value field, so the last `input[type="number"]`
-    // (never the first) is the raw reading — filling it keeps this assertion scoped to the calibration
-    // span alone, so only calibration gates the button below, not an empty reading value.
-    const numberInputs = w.findAll('input[type="number"]');
-    await numberInputs[numberInputs.length - 1]!.setValue(500);
-
-    await saturatedInput!.setValue(1200);
-    await dryInput!.setValue(1200);
-    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
-    expect(w.find('.mp-calib__err').exists()).toBe(true);
-
-    await saturatedInput!.setValue(1850);
-    await dryInput!.setValue(1200);
-    expect(w.find('.mp-calib__err').exists()).toBe(false);
-    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
-  });
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // RETRACTED 2026-08-10 — EIGHT CALIBRATION CASES, MOVED not deleted (spec §5 MOVED table).
+  //
+  // They all asserted the two per-pot anchor fields INSIDE this measuring modal, and each was written for
+  // a real defect, named here so a later reader never has to guess whether the coverage was dropped by
+  // design or by neglect:
+  //   • `shows the calibration fields whenever the instrument USES one — calibrated pot included`
+  //       — QA round 3, defect 3: a STORED calibration was invisible, so a mis-weighed pot (the saucer
+  //         left on, a transposed digit) could be corrected nowhere short of a raw `PUT`.
+  //   • `PREFILLS the stored anchors, so the owner sees what this pot is actually calibrated to`
+  //       — same QA round 3 defect: a failed save looked like it had LOST a calibration it had written.
+  //   • `does NOT re-PUT a calibration the owner never touched`
+  //       — an anchor MOVE retracts every fraction those anchors produced; identical re-`PUT`s handed the
+  //         API a retraction decision it should never have to make.
+  //   • `DOES PUT a corrected calibration — an edit nobody sent is an edit that did not happen`
+  //       — QA round 3: the owner watched himself fix a wrong anchor and the pot kept the wrong one.
+  //   • `refuses an anchor that is off the instrument's own scale, span or no span`
+  //       — QA round 3: `-500` typed in the dry box was stored with a 200, and a real 1000 g reading on
+  //         that pot then reported 60 % wet. The span rule could never catch it — `2000 > -500` is true.
+  //   • `blocks submit until the calibration span is strictly positive`
+  //       — a zero or inverted span makes every normalised fraction it produces meaningless.
+  //   • `resets the calibration anchors too on close/reopen (fix wave 1, item 1a)`
+  //       — a REPOT invalidates a calibration; anchors typed for the OLD pot must never sit pre-filled,
+  //         one tap from being written as the NEW pot's.
+  //   • `clears calibration anchors too — they describe one instrument on one pot`
+  //       — anchors are per (pot, instrument), so carrying them across a switch describes nothing.
+  //
+  // NONE of that coverage is gone: all eight live in `PlantCalibrationModal.test.ts`, verified case by
+  // case before this deletion. What is retracted is only the claim that THIS modal hosts them — the owner
+  // ruled (2026-08-10) that calibration is SETUP, done ahead of time, because collecting an anchor called
+  // "the pot freshly watered" inside the flow that decides whether to water the pot is circular.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
   it('states the protocol from THIS pot, and warns instead when the pot size is unknown', () => {
     const withProtocol = mountModal(makeData({ protocol }));
@@ -473,27 +425,12 @@ describe('SoilReadingModal', () => {
     expect((measuredOnInput().element as HTMLInputElement).value).toBe(todayYmd());
   });
 
-  // Fix wave 1, item 1a/1c: the reopen-reset watcher's own comment claimed it reset "EVERY field a
-  // previous session could have left stale" while silently leaving the calibration anchors
-  // (`saturatedValue`/`dryValue`) untouched. The API's own comment records that a REPOT invalidates a
-  // calibration — anchors typed for the OLD pot and abandoned without saving must never sit pre-filled,
-  // one tap from being written as the NEW pot's anchors.
-  it('resets the calibration anchors too on close/reopen (fix wave 1, item 1a)', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
-    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
-    await saturatedInput!.setValue(1850);
-    await dryInput!.setValue(1200);
-    expect((saturatedInput!.element as HTMLInputElement).value).toBe('1850');
-    expect((dryInput!.element as HTMLInputElement).value).toBe('1200');
-
-    // Close, then reopen — the same modal instance a page reuse never re-mounts.
-    await w.setProps({ open: false });
-    await w.setProps({ open: true });
-
-    const [saturatedAfter, dryAfter] = w.findAll('.mp-calib input');
-    expect((saturatedAfter!.element as HTMLInputElement).value).toBe('');
-    expect((dryAfter!.element as HTMLInputElement).value).toBe('');
-  });
+  // RETRACTED 2026-08-10 — `resets the calibration anchors too on close/reopen (fix wave 1, item 1a)`.
+  // Written for fix wave 1, item 1a/1c: the reopen-reset watcher claimed in its own comment to reset
+  // "EVERY field a previous session could have left stale" while silently leaving the anchors untouched,
+  // and the API records that a REPOT invalidates a calibration — so anchors typed for the OLD pot and
+  // abandoned without saving sat pre-filled, one tap from being written as the NEW pot's. Moved verbatim
+  // to `PlantCalibrationModal.test.ts`, which now hosts the fields and carries the identical reset.
 
   // Fix wave 1, item 1b: `instrumentId`'s setup-time initializer (`props.data.instruments[0]?.id ?? ''`)
   // can miss the "default to the first instrument" intent entirely — PlantDetail.vue's template falls
@@ -569,12 +506,19 @@ describe('SoilReadingModal', () => {
 // below is unchanged in substance from the pre-redesign version; only the explicit `mode: 'voluntary'` is
 // new.
 describe('SoilReadingModal — the same-day-watering question, voluntary mode (owner-ruled 2026-08-08)', () => {
-  it('shows the question ONLY when measuredOn is a watering day', () => {
+  // REWRITTEN 2026-08-10 (spec §5): a third clause, because the gate is now `mode === 'voluntary' &&
+  // isWateringDay` and the first two clauses alone cannot tell that apart from the bare `isWateringDay`
+  // the code carried between QA round 3 and the owner's ruling.
+  it('shows the question ONLY when measuredOn is a watering day — and only in VOLUNTARY mode', () => {
     const onWateringDay = mountModal(makeData({ wateringDays: [todayYmd()] }), { mode: 'voluntary' });
     expect(wateringRelationSeg(onWateringDay)).toBeTruthy();
 
     const notWateringDay = mountModal(makeData({ wateringDays: [] }), { mode: 'voluntary' });
     expect(wateringRelationSeg(notWateringDay)).toBeUndefined();
+
+    // Same day, same data, survey mode: silent. The mode is the whole difference.
+    const survey = mountSurvey(makeData({ wateringDays: [todayYmd()] }));
+    expect(wateringRelationSeg(survey)).toBeUndefined();
   });
 
   it('blocks submit until the question is answered, and never pre-selects either option', async () => {
@@ -693,46 +637,46 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(w.findAll('input[type="date"]')).toHaveLength(0);
   });
 
-  // ⚠️ REWRITTEN 2026-08-10 (QA defect 3). This case used to assert the OPPOSITE — "never renders the
-  // watering-relation control, even on a watering day — impossible by construction" — and it was not a
-  // weak test: it faithfully pinned what the code did. The code was wrong. A survey's order is fixed only
-  // relative to the watering it CREATES; a plant watered that morning and measured that evening breaks the
-  // premise, and the API rightly refused the write with a 400 the survey had no control to answer.
-  // Kept as a REWRITE rather than a deletion precisely because the behaviour it names is now inverted:
-  // deleting it would erase the record that this was once believed impossible.
-  it('DOES render the watering-relation control in survey mode on a day the plant was already watered', () => {
-    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
-    expect(wateringRelationSeg(w)).toBeDefined();
-  });
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // RETRACTED 2026-08-10 (owner's ruling — the survey stops asking). Three cases, each named with the
+  // defect it was written for, because the survey no longer renders the control at all:
+  //   • `DOES render the watering-relation control in survey mode on a day the plant was already watered`
+  //       — QA round 3, defect 3. It replaced an assertion of the exact OPPOSITE ("impossible by
+  //         construction"), because a plant watered that morning and measured that evening broke the
+  //         premise: the API refused the write with a 400 the survey had no control to answer, and two of
+  //         four QA fixture plants were unusable for a whole day.
+  //   • `the primary button stays disabled until the same-day question is answered`
+  //       — same defect, the gating half: an un-defaulted question must block submit while it is shown.
+  //   • `sends the answer with a HOLD write`
+  //       — same defect, the payload half.
+  //
+  // All three were correct about the code and correct about the fix available at the time. They are gone
+  // because the owner deleted the question instead of answering it: a survey reading is taken NOW, so a
+  // watering already recorded for today necessarily precedes it, and the API derives that from the
+  // ordering of events it already stores. The 400 they defended against is unreachable by construction.
+  // The behaviour they pinned survives in VOLUNTARY mode, where it is genuinely underivable, and the
+  // voluntary describe block above is unchanged.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
-  it('does not render it on an ordinary day — the question would be noise on almost every reading', () => {
-    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
-    expect(wateringRelationSeg(w)).toBeUndefined();
-  });
+  // REPLACES the three retracted cases above with the inverted invariant, so "the survey does not ask" is
+  // asserted rather than merely no longer contradicted. Both days are checked: a watering day is the one
+  // that used to render the control, and an ordinary day is the case that was always silent — a single
+  // assertion on the ordinary day would pass even if the gate regressed to `isWateringDay`.
+  it('NEVER renders the watering-relation control in survey mode — watering day or not', async () => {
+    const onWateringDay = mountSurvey(makeData({
+      instruments: [galvanicProbe], wateringDays: [todayYmd()],
+    }));
+    expect(wateringRelationSeg(onWateringDay)).toBeUndefined();
 
-  it('the primary button stays disabled until the same-day question is answered', async () => {
-    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
-    await w.find('input[type="number"]').setValue(5);
-    // A value alone is no longer enough: an unanswered, un-defaulted question must block the submit, the
-    // same rule voluntary mode has carried since the owner ruled on it (2026-08-08).
-    expect(findCalculateButton(w).attributes('disabled')).toBeDefined();
+    const ordinaryDay = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
+    expect(wateringRelationSeg(ordinaryDay)).toBeUndefined();
 
-    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click');
-    expect(findCalculateButton(w).attributes('disabled')).toBeUndefined();
-  });
-
-  it('sends the answer with a HOLD write', async () => {
-    previewSoilReading.mockResolvedValueOnce({
-      measuredOn: PLANT_TODAY, wetness: 0.9, target: 0.4, recommendation: 'HOLD',
-      suggestedPostponeToOn: '2026-08-21', basis: 'MEASURED_SLOPE', unavailableReason: null,
-    });
-    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
-    await w.find('input[type="number"]').setValue(9);
-    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click');
-    await findCalculateButton(w).trigger('click');
-    await flushPromises();
-
-    expect(recordSoilReading.mock.calls[0]![1].wateringRelation).toBe('AFTER');
+    // …and the absent question blocks nothing: on the very day it used to be mandatory, a valid reading is
+    // enough to press "Calcular riego". Without this half the case would also pass if the control were
+    // merely hidden while `canSubmit` still waited on an answer nobody could give — the exact dead end the
+    // ruling exists to delete.
+    await readingInput(onWateringDay).setValue(5);
+    expect(findCalculateButton(onWateringDay).attributes('disabled')).toBeUndefined();
   });
 
   it('has no verdict picker and no postpone-date field', () => {
@@ -977,8 +921,10 @@ describe('SoilReadingModal — a failed save (fix wave 1, item 4)', () => {
   // to do. An error that outlives the thing it was about is a lie with a delay on it.
   it('clears the error alert when the instrument changes, along with the reading it described', async () => {
     recordSoilReading.mockRejectedValueOnce(proxiedError(500, 'boom'));
+    // The CALIBRATED scale: an uncalibrated one is no longer offered by the picker (2026-08-10), so the
+    // second segment this case clicks would not exist.
     const w = mountModal(
-      makeData({ instruments: [galvanicProbe, kitchenScaleNoCalibration] }), { mode: 'voluntary' },
+      makeData({ instruments: [galvanicProbe, kitchenScaleCalibrated] }), { mode: 'voluntary' },
     );
     await fillAndSubmit(w);
     expect(w.text()).toContain('reading.saveFailed');
@@ -1139,71 +1085,23 @@ describe('the WATER_NOW verdict is actionable', () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------------------
-// QA defect 3, the recovery half. A survey on a plant watered EARLIER today used to show a generic
-// "please try again" for a request that could never succeed: the 400-recovery branch that reveals the
-// question was itself gated to voluntary mode, so the mode that most needed it was the one walled off
-// from it. Two of four fixture plants were unusable for a whole day.
-// ---------------------------------------------------------------------------------------------------
-describe('a survey refused for a missing wateringRelation recovers instead of dead-ending', () => {
-  afterEach(() => {
-    previewSoilReading.mockClear();
-    recordSoilReading.mockClear();
-  });
-
-  const HOLD_PREVIEW = {
-    measuredOn: PLANT_TODAY, wetness: 0.9, target: 0.4, recommendation: 'HOLD' as const,
-    suggestedPostponeToOn: '2026-08-21', basis: 'MEASURED_SLOPE' as const, unavailableReason: null,
-  };
-
-  async function surveyRefusedOnce() {
-    // TWICE: the retry re-runs the preview, and queueing only one HOLD let the second call fall through to
-    // this file's default mock, changing the verdict under the retry — a harness fault that looks exactly
-    // like the defect under test.
-    //
-    // ⚠️ This comment used to justify that differently: *"the default answers WATER_NOW — the one verdict
-    // that legitimately does NOT send `wateringRelation`."* That belief was false and is corrected below,
-    // in `every verdict branch carries the same-day answer`. It is quoted rather than deleted because a
-    // false premise written down in a test harness is how the branch it describes stops being tested.
-    previewSoilReading.mockResolvedValueOnce(HOLD_PREVIEW).mockResolvedValueOnce(HOLD_PREVIEW);
-    recordSoilReading.mockRejectedValueOnce(proxiedError(
-      400, 'wateringRelation is required: this plant was already watered on measuredOn',
-    ));
-    // `wateringDays` EMPTY on purpose: this is the case the snapshot cannot predict — in survey mode the
-    // plant's local day may not be the browser's, so the day the API judged is not the day this list was
-    // checked against. The server is the only one who knows, and its refusal is the signal.
-    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
-    await w.find('input[type="number"]').setValue(9);
-    await findCalculateButton(w).trigger('click');
-    await flushPromises();
-    return w;
-  }
-
-  it('reveals the question rather than showing the generic failure', async () => {
-    const w = await surveyRefusedOnce();
-    expect(w.text()).toContain('reading.wateringRelationRequired');
-    expect(w.text()).not.toContain('reading.saveFailed');
-    expect(wateringRelationSeg(w)).toBeDefined();
-  });
-
-  it('stays on the measure step so the retry is a real retry', async () => {
-    const w = await surveyRefusedOnce();
-    // The verdict step would strand the owner: nothing there can answer the question the server asked.
-    expect(w.find('input[type="number"]').exists()).toBe(true);
-    expect(w.emitted('saved')).toBeUndefined();
-  });
-
-  it('the answered retry carries the relation and succeeds', async () => {
-    const w = await surveyRefusedOnce();
-    await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click');
-    await findCalculateButton(w).trigger('click');
-    await flushPromises();
-
-    const lastBody = recordSoilReading.mock.calls.at(-1)![1];
-    expect(lastBody.wateringRelation).toBe('AFTER');
-    expect(w.emitted('saved')).toHaveLength(1);
-  });
-});
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// RETRACTED 2026-08-10 (owner's ruling) — the whole describe
+// `a survey refused for a missing wateringRelation recovers instead of dead-ending`, three cases:
+// `reveals the question rather than showing the generic failure`, `stays on the measure step so the retry
+// is a real retry`, and `the answered retry carries the relation and succeeds`.
+//
+// THE DEFECT THEY WERE WRITTEN FOR: QA defect 3, the recovery half. A survey on a plant watered EARLIER
+// today showed a generic "please try again" for a request the server would refuse identically forever —
+// the 400-recovery branch that reveals the question was itself gated to voluntary mode, so the mode that
+// needed it most was the one walled off from it. Two of four QA fixture plants were unusable for a day.
+//
+// They are unreachable now rather than wrong: the survey sends no `wateringRelation` on any branch, and the
+// API derives the relation for a today-dated reading, so there is no refusal left to recover from. The
+// recovery itself is NOT deleted — it survives, voluntary-only, in `a 400 naming wateringRelation REVEALS
+// the question ... (voluntary mode)` above, where a back-dated reading on a stale `wateringDays` snapshot
+// can still be refused and no one can derive the answer (care events store a date, not a time).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 
 // ---------------------------------------------------------------------------------------------------
 // QA defect 6 (granularity) and UX-2 (a button that dies silently), together because they share the
@@ -1239,20 +1137,25 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
     expect(rawValueError(w)).toBe('reading.valueOutOfRange|1|10');
   });
 
-  it('says WHY the primary action is unavailable instead of dying silently', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
-    // An uncalibrated scale renders THREE number inputs — its two anchors first, then the reading. Taking
-    // `find()`'s first match sets an anchor and leaves the reading empty, which reports `missingValue` and
-    // makes this case pass for the wrong reason. The reading is the last one.
-    const numbers = w.findAll('input[type="number"]');
-    expect(numbers).toHaveLength(3);
-    await numbers.at(-1)!.setValue(1500);
-    // The scale needs its two anchors; without them the button was dead and mute.
-    expect(blockedText(w)).toBe('reading.missingCalibration');
-  });
+  // RETRACTED 2026-08-10 — `says WHY the primary action is unavailable instead of dying silently`.
+  // Written for QA UX-2: an uncalibrated scale left the primary button dead and mute, so the owner had no
+  // way out of the dialog but to guess. Its ONLY vehicle was the calibration block, and that block left
+  // this modal — an instrument still missing its anchors is no longer OFFERED (the owner is routed to
+  // `PlantCalibrationModal` instead), so `reading.missingCalibration` has no path to the footer any more.
+  // The UX-2 property itself is NOT retracted: the cases below still assert the footer states the value
+  // bound, the off-step fault, and the unanswered same-day question.
+  //
+  // ⚠️ NOT LISTED IN THE SPEC'S §5 INVENTORY, unlike the eight MOVED calibration cases. Recorded here so
+  // the next reader knows this deletion was a deliberate consequence of the same ruling and not a test
+  // quietly dropped because it went red.
 
-  it('names the unanswered same-day question when that is what blocks', async () => {
-    const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
+  // REWRITTEN 2026-08-10: was `mountSurvey`. Survey mode does not ask the question any more, so this case
+  // would have been asserting a blocking reason that can never appear — it is re-pointed at VOLUNTARY
+  // mode, the one place the question (and therefore this blocking reason) still exists.
+  it('names the unanswered same-day question when that is what blocks (voluntary mode)', async () => {
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+    );
     await w.find('input[type="number"]').setValue(5);
     expect(blockedText(w)).toBe('reading.missingWateringRelation');
   });
@@ -1279,24 +1182,20 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
     expect(blockedText(w)).toBe('reading.valueOffStep|1|1');
   });
 
-  // QA round 3, defect 5. Both weights filled, the real fault (inverted) stated correctly ON the field —
-  // and the footer said "fill in both reference weights first" about two boxes the owner was looking at.
-  // A blocking reason that describes a state the owner can see is false costs the trust he needs to
-  // believe the next one.
-  it('says the span is INVERTED, not that the weights are missing, when both are filled', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
-    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
-    await saturatedInput!.setValue(800);
-    await dryInput!.setValue(1500);
-    await readingInput(w).setValue(1000);
-    expect(blockedText(w)).toBe('reading.calibration.spanInvalid');
-  });
-
-  it('still says the weights are missing when they genuinely are', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
-    await readingInput(w).setValue(1000);
-    expect(blockedText(w)).toBe('reading.missingCalibration');
-  });
+  // RETRACTED 2026-08-10 — two more calibration blocking-reason cases, with the defects they were written
+  // for, and both for the same reason as `says WHY the primary action is unavailable` above: the footer
+  // can no longer be blocked by a calibration, because an instrument missing one is not offered.
+  //   • `says the span is INVERTED, not that the weights are missing, when both are filled`
+  //       — QA round 3, defect 5: an inverted pair (800 watered / 1500 dry) was stated correctly ON the
+  //         field while the footer said "fill in both reference weights first" about two boxes the owner
+  //         was looking at. A blocking reason describing a state the owner can see is false costs him the
+  //         trust he needs to believe the next one.
+  //   • `still says the weights are missing when they genuinely are`
+  //       — defect 5's counter-case, so the correct message was not lost to the fix.
+  //
+  // ⚠️ ALSO NOT IN THE SPEC'S §5 INVENTORY. The `spanInvalid` and `missingCalibration` copy still exists
+  // and still binds — `PlantCalibrationModal` disables its own Save on exactly these two states, and its
+  // `blocks submit until the calibration span is strictly positive` case asserts it there.
 
   it('says nothing at all once the form is submittable', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
@@ -1403,21 +1302,12 @@ describe('switching instruments does not carry the reading across scales', () =>
     expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
   });
 
-  it('clears calibration anchors too — they describe one instrument on one pot', async () => {
-    const w = mountModal(
-      makeData({ instruments: [kitchenScaleNoCalibration, galvanicProbe] as never }),
-      { mode: 'voluntary' },
-    );
-    const anchors = w.findAll('input[type="number"]');
-    await anchors[0]!.setValue(1850);
-    await anchors[1]!.setValue(1200);
-    await pickInstrument(w, 1);
-    await pickInstrument(w, 0);
-
-    const after = w.findAll('input[type="number"]');
-    expect((after[0]!.element as HTMLInputElement).value).toBe('');
-    expect((after[1]!.element as HTMLInputElement).value).toBe('');
-  });
+  // RETRACTED 2026-08-10 — `clears calibration anchors too — they describe one instrument on one pot`.
+  // Written for QA round 2's "the app silently accepts something the owner never meant" pair: anchors are
+  // per (pot, instrument), so numbers typed for one instrument describe nothing on another's scale, and
+  // every value involved is legal wherever it lands so nothing downstream could catch the carry. Moved to
+  // `PlantCalibrationModal.test.ts`, rebased onto two calibratable fixtures (the probe is not offered on a
+  // calibration-setup screen). The READING half of the same rule stays here, in the two cases above.
 });
 
 describe('a measurement cannot be dated in the future', () => {
@@ -1463,93 +1353,206 @@ describe('a measurement cannot be dated in the future', () => {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// THE REQUEST BODY, PER VERDICT BRANCH, ON A DAY THAT CARRIES A WATERING (QA round 4, 2026-08-10).
+// THE REQUEST BODY, PER VERDICT BRANCH, ON A DAY THAT CARRIES A WATERING.
 //
-// This suite exists because of a defect that was invisible from every angle the tests looked from. The
-// survey's three branches build three DIFFERENT create bodies, and the WATER_NOW one silently omitted
-// `wateringRelation` — justified by a comment pointing at a real API exemption that this branch had
-// stopped qualifying for the day it started writing `verdict: 'NONE'` instead. Nothing broke at the seam:
-// two independently correct pieces stopped meeting.
+// ⚠️ RETRACTED-AND-INVERTED 2026-08-10, and the four cases this replaces are named here with the defect
+// they were written for, because their coverage is being removed BY DESIGN and not because they went red:
+//   • `WATER_NOW sends it — its verdict is NONE, so the API can derive nothing`
+//   • `HOLD sends it`
+//   • `UNAVAILABLE carries it through the deferred save the owner may tap much later`
+//   • `and NO branch sends it on an ordinary day`
 //
-// From the UI the three branches are indistinguishable until the 400 arrives, and a test that asserts only
-// "the save was called" or "the verdict rendered" cannot tell them apart at all. So these cases assert the
-// BODY — the artefact that actually differed — for every branch, on the one day the field is required.
+// THE DEFECT (QA round 4, 2026-08-10): the survey's three branches build three DIFFERENT create bodies,
+// and the WATER_NOW one silently omitted `wateringRelation` — justified by a comment pointing at a real
+// API exemption that this branch had stopped qualifying for the day it started writing `verdict: 'NONE'`.
+// Nothing broke at the seam: two independently correct pieces stopped meeting, and from the UI the three
+// branches are indistinguishable until the 400 arrives. A test asserting only "the save was called" or
+// "the verdict rendered" could not tell them apart at all, so those cases asserted the BODY.
+//
+// THE OWNER'S RULING (2026-08-10) deletes the field instead of sending it: a survey reading is taken NOW,
+// so a watering already recorded for today necessarily precedes it, and the API derives that. The lesson
+// survives inverted and the method is unchanged — assert the BODY, per branch, on the day the field used
+// to be mandatory. If any branch ever starts sending it again, exactly one of these cases goes red, which
+// is the property the round-4 suite existed to buy.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-describe('every verdict branch carries the same-day answer', () => {
+describe('no verdict branch sends wateringRelation — the API derives it', () => {
   // ⚠️ `mockReset`, not `mockClear`. `mockClear` wipes recorded CALLS but leaves a queued
   // `mockResolvedValueOnce` in place, so a preview queued by an earlier suite and never consumed is handed
-  // to the FIRST case here — which is how the WATER_NOW case below first read back `verdict: 'POSTPONE'`
-  // and looked like a defect in the code rather than in the harness. Every case here queues its own
-  // preview explicitly, so resetting the implementation costs nothing; `recordSoilReading` gets its
-  // default restored because these cases read the body it was called with.
+  // to the FIRST case here — which is how the WATER_NOW case once read back `verdict: 'POSTPONE'` and
+  // looked like a defect in the code rather than in the harness. Every case here queues its own preview.
   beforeEach(() => {
     previewSoilReading.mockReset();
     recordSoilReading.mockReset();
     recordSoilReading.mockResolvedValue({ readingId: 'r1' });
   });
 
-  /** Run a full survey on a plant already watered TODAY, answering the same-day question, and hand back
-   *  the body that reached `recordSoilReading`. */
+  /** Run a full survey on a plant already watered TODAY and hand back the body that reached
+   *  `recordSoilReading`. */
   async function surveyBodyOnAWateringDay(preview: SoilReadingPreview) {
     previewSoilReading.mockResolvedValueOnce(preview);
     // ⚠️ `todayYmd()`, NOT `PLANT_TODAY`. In survey mode `measuredOn` stays pinned to the BROWSER's day
-    // (the field is not rendered), so that is the day `showWateringRelation` checks `wateringDays` against
-    // — while the WRITE is dated by `preview.measuredOn`, the PLANT's day. The two differ across the
-    // midnight gap, which is exactly the case `serverSaysWateringDay`'s 400 reveal exists to rescue. Using
-    // the plant's day here rendered no control at all and made every assertion below vacuous, which is a
-    // fair warning about how easy this pair is to mix up.
+    // (the field is not rendered), so that is the day `isWateringDay` checks `wateringDays` against —
+    // while the WRITE is dated by `preview.measuredOn`, the PLANT's day. Using the plant's day here would
+    // make `isWateringDay` false and every assertion below vacuous for the wrong reason: the point is that
+    // the field is absent even on a day the modal itself recognises as a watering day.
     const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }));
-    await w.find('input[type="number"]').setValue(9);
-    // The control must be there in survey mode too — if this fails, the fix at `showWateringRelation`
-    // regressed and every assertion below would be vacuous.
-    const seg = wateringRelationSeg(w);
-    expect(seg, 'the same-day question must be asked in survey mode').toBeDefined();
-    await seg!.findAll('button')[0]!.trigger('click');   // BEFORE
+    await readingInput(w).setValue(9);
+    // The guard that keeps this suite honest, inverted from the round-4 version: the control must NOT be
+    // there. If it reappeared, the owner could answer it and these bodies would carry a relation again.
+    expect(wateringRelationSeg(w), 'the survey must not ask the same-day question').toBeUndefined();
+    // …and the absent question must not be silently gating the button either.
+    expect(findCalculateButton(w).attributes('disabled')).toBeUndefined();
     await findCalculateButton(w).trigger('click');
     await flushPromises();
     return { w, body: recordSoilReading.mock.calls.at(-1)?.[1] };
   }
 
-  // THE REGRESSION. Reachable on a fresh install, on the ordinary rhythm of watering in the morning and
-  // measuring a dry pot in the evening: the preview said WATER_NOW, the write was refused, retrying was
-  // refused identically, and the owner watched his own answer sitting selected on screen.
-  it('WATER_NOW sends it — its verdict is NONE, so the API can derive nothing', async () => {
+  it('WATER_NOW sends none — the write is still made, just without the field', async () => {
     const { body } = await surveyBodyOnAWateringDay(waterNowPreview);
     expect(body).toBeDefined();
     expect(body!.verdict).toBe('NONE');
-    expect(body!.wateringRelation).toBe('BEFORE');
+    expect(body).not.toHaveProperty('wateringRelation');
   });
 
-  it('HOLD sends it', async () => {
+  it('HOLD sends none', async () => {
     const { body } = await surveyBodyOnAWateringDay(holdPreview);
     expect(body!.verdict).toBe('POSTPONE');
-    expect(body!.wateringRelation).toBe('BEFORE');
+    expect(body).not.toHaveProperty('wateringRelation');
   });
 
-  it('UNAVAILABLE carries it through the deferred save the owner may tap much later', async () => {
+  it('UNAVAILABLE sends none through the deferred save the owner may tap much later', async () => {
     const { w } = await surveyBodyOnAWateringDay(unavailablePreview);
     // UNAVAILABLE writes nothing on arrival (owner ruling 2026-08-09) — it is OFFERED.
     expect(recordSoilReading).not.toHaveBeenCalled();
     await findSaveButton(w).trigger('click');
     await flushPromises();
     const body = recordSoilReading.mock.calls.at(-1)![1];
-    expect(body.wateringRelation).toBe('BEFORE');
+    expect(body.verdict).toBe('NONE');
+    expect(body).not.toHaveProperty('wateringRelation');
   });
 
-  // The mirror the API enforces: sending the field on a day with no watering is a 400 of its own ("there
-  // is no watering for the reading to be before or after"). So "always send it" would be as wrong as
-  // "never send it" — the gate is the day, not the verdict.
-  it('and NO branch sends it on an ordinary day', async () => {
+  it('and none of them sends it on an ordinary day either', async () => {
     for (const preview of [waterNowPreview, holdPreview]) {
       recordSoilReading.mockClear();
       previewSoilReading.mockResolvedValueOnce(preview);
       const w = mountSurvey(makeData({ instruments: [galvanicProbe], wateringDays: [] }));
-      await w.find('input[type="number"]').setValue(9);
+      await readingInput(w).setValue(9);
       expect(wateringRelationSeg(w)).toBeUndefined();
       await findCalculateButton(w).trigger('click');
       await flushPromises();
       const body = recordSoilReading.mock.calls.at(-1)![1];
       expect(body).not.toHaveProperty('wateringRelation');
     }
+  });
+
+  // The counter-case, and the boundary of this whole change. Voluntary mode is where the relation is
+  // genuinely UNDERIVABLE — care events store a date and no time, so a back-dated reading and a watering
+  // on that same past day have no order between them and only the owner knows. A "the client never sends
+  // it" fix that reached in here would silently discard the one answer nobody else can supply.
+  it('but VOLUNTARY mode still sends it — nobody can derive a back-dated reading\'s order', async () => {
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+    );
+    await readingInput(w).setValue(5);
+    const seg = wateringRelationSeg(w);
+    expect(seg, 'voluntary mode must still ask').toBeDefined();
+    await seg!.findAll('button')[0]!.trigger('click');   // BEFORE
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    expect(recordSoilReading.mock.calls.at(-1)![1].wateringRelation).toBe('BEFORE');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// AN UNCALIBRATED INSTRUMENT IS NOT OFFERED, AND THE OWNER IS ROUTED TO CALIBRATE IT
+// (owner-ruled 2026-08-10, spec §3.4).
+//
+// The scale's two per-pot anchors used to be collected HERE, mid-survey. That is circular: one anchor is
+// "the pot freshly watered", so supplying it means watering the plant — the very decision the survey has
+// not made yet. The primary button stayed disabled until both were filled, so a survey on an uncalibrated
+// pot could not be completed AT ALL, and no test caught it because every fixture either already had a
+// calibration or used another instrument.
+//
+// Filtering the instrument out closes that dead end and would open a fresh one — an empty picker — so the
+// third empty state is asserted here too, distinct from the "you own no instruments" one it must never
+// borrow: the owner already added an instrument, so sending him to Settings would be false AND a dead end.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('an uncalibrated instrument is not offered', () => {
+  // The preceding suite leaves `recordSoilReading` reset to a bare `mockResolvedValue` with its calls
+  // still recorded; the last case here counts calls, so start from a clean, working default.
+  beforeEach(() => {
+    setInstrumentCalibration.mockClear();
+    recordSoilReading.mockReset();
+    recordSoilReading.mockResolvedValue({ readingId: 'r1' });
+  });
+
+  it('filters an uncalibrated scale out of the picker but keeps a calibrated one', () => {
+    const withUncalibrated = mountModal(
+      makeData({ instruments: [galvanicProbe, kitchenScaleNoCalibration] }), { mode: 'voluntary' },
+    );
+    expect(instrumentSegButtons(withUncalibrated)).toHaveLength(1);
+    expect(withUncalibrated.text()).not.toContain('settings.instruments.name.kitchen-scale');
+
+    // Same pot, same instruments, one calibration: the scale is a perfectly good choice again. Without
+    // this half the filter could be "never offer a scale" and the case above would not notice.
+    const withCalibrated = mountModal(
+      makeData({ instruments: [galvanicProbe, kitchenScaleCalibrated] }), { mode: 'voluntary' },
+    );
+    expect(instrumentSegButtons(withCalibrated)).toHaveLength(2);
+    expect(withCalibrated.text()).toContain('settings.instruments.name.kitchen-scale');
+  });
+
+  it('never defaults the selection to an instrument it refuses to offer', () => {
+    // The uncalibrated scale is FIRST in the list, which is the slot `instrumentId`'s default reads.
+    const w = mountModal(
+      makeData({ instruments: [kitchenScaleNoCalibration, galvanicProbe] }), { mode: 'voluntary' },
+    );
+    const buttons = instrumentSegButtons(w);
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.attributes('aria-pressed')).toBe('true');
+    expect(buttons[0]!.text()).toBe('settings.instruments.name.galvanic-probe');
+  });
+
+  it('shows the CALIBRATE-THIS-POT state — never the "you own no instruments" one — when the only ' +
+    'instrument the owner enabled is an uncalibrated scale', () => {
+    const w = mountSurvey(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    expect(w.text()).toContain('reading.calibration.notCalibratedYet');
+    // The false message. The owner DID add an instrument; telling him to add one in Settings would send
+    // him somewhere that cannot help, which is the whole reason these are two separate states.
+    expect(w.text()).not.toContain('reading.noInstruments');
+    // And no control at all: an empty picker is the trap this state exists to replace.
+    expect(w.find('.mp-seg').exists()).toBe(false);
+    expect(w.find('input[type="number"]').exists()).toBe(false);
+  });
+
+  it('offers a real link to THIS plant\'s page, where calibration lives, and closes on the way', async () => {
+    const w = mountSurvey(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    const link = w.find('a.nuxt-link');
+    expect(link.exists()).toBe(true);
+    expect(link.text()).toBe('reading.calibration.calibrateAction');
+    // The plant page, not /settings: calibration is per (pot, instrument), so it can only be done from a
+    // plant. `plantId` comes from this modal's own props.
+    expect(link.attributes('href')).toBe('/plants/plant-1');
+
+    await link.trigger('click');
+    expect(w.emitted('update:open')?.at(-1)).toEqual([false]);
+  });
+
+  it('still shows the "add one in Settings" state when the owner truly owns nothing', () => {
+    const w = mountSurvey(makeData({ instruments: [] }));
+    expect(w.text()).toContain('reading.noInstruments');
+    expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
+    expect(w.find('a.nuxt-link').attributes('href')).toBe('/settings');
+  });
+
+  it('never writes a calibration from this modal — that is setup now, and it happens elsewhere', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }), { mode: 'voluntary' });
+    // No anchor fields to type into any more: the reading is the ONLY number on the form.
+    expect(w.findAll('input[type="number"]')).toHaveLength(1);
+    await readingInput(w).setValue(1500);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    expect(setInstrumentCalibration).not.toHaveBeenCalled();
+    expect(recordSoilReading).toHaveBeenCalledTimes(1);
   });
 });

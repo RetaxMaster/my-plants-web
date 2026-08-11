@@ -48,6 +48,14 @@ const stubs = {
     template: '<div><slot /></div>',
   },
   AppIcon: true,
+  // Mirrors SoilReadingModal.test.ts's own stub for the same "no instruments at all" empty state: `i18n-t`
+  // renders the keypath and its named slots so a test can assert both the sentence AND that the slot really
+  // is a NuxtLink.
+  'i18n-t': {
+    props: ['keypath', 'tag'],
+    template: '<span class="i18n-t">{{ keypath }}<slot name="settings" /></span>',
+  },
+  NuxtLink: { props: ['to'], template: '<a class="nuxt-link" :href="to"><slot /></a>' },
 };
 
 const galvanicProbe = {
@@ -112,12 +120,40 @@ describe('PlantCalibrationModal', () => {
   // picker entirely when there is only one such instrument to choose from — a one-segment control is noise.
   // -----------------------------------------------------------------------------------------------------
 
-  it('shows the empty-state alert when no CALIBRATABLE instrument is enabled — even with a ' +
-    'non-calibratable one enabled (finding A)', () => {
+  it('shows the NONE-CALIBRATABLE empty-state alert (never the "add an instrument" one) when an ' +
+    'instrument is enabled but none of them needs calibration (finding A; corrected 2026-08-10, review of ' +
+    'commit b988f96\'s retarget — the owner here already has an instrument, so sending them to Settings ' +
+    'again would be false and pointless)', () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }));
-    expect(w.text()).toContain('reading.noInstruments');
+    expect(w.text()).toContain('reading.calibration.noneCalibratable');
+    expect(w.text()).not.toContain('reading.noInstruments');
     expect(w.find('.mp-seg').exists()).toBe(false);
     expect(w.find('.mp-calib').exists()).toBe(false);
+  });
+
+  // -----------------------------------------------------------------------------------------------------
+  // Corrected 2026-08-10 (review of commit b988f96) — the retarget above reused `reading.noInstruments` for
+  // BOTH "no instruments enabled at all" and "instruments enabled, none calibratable", which made the first
+  // (true) message fire for the second (false) case. The two are now separate branches with separate keys;
+  // this block covers the ORIGINAL case, the one `reading.noInstruments` is actually true for.
+  // -----------------------------------------------------------------------------------------------------
+
+  it('shows the "add an instrument" empty state, with a real Settings link, when NO instrument is ' +
+    'enabled at all', () => {
+    const w = mountModal(makeData({ instruments: [] }));
+    expect(w.text()).toContain('reading.noInstruments');
+    expect(w.text()).not.toContain('reading.calibration.noneCalibratable');
+    const link = w.find('a.nuxt-link');
+    expect(link.exists()).toBe(true);
+    expect(link.attributes('href')).toBe('/settings');
+    expect(w.find('.mp-seg').exists()).toBe(false);
+    expect(w.find('.mp-calib').exists()).toBe(false);
+  });
+
+  it('closes the modal when the Settings link is followed', async () => {
+    const w = mountModal(makeData({ instruments: [] }));
+    await w.find('a.nuxt-link').trigger('click');
+    expect(w.emitted('update:open')?.at(-1)).toEqual([false]);
   });
 
   it('never offers the moisture probe on a pot with a kitchen scale AND a probe enabled — a ' +

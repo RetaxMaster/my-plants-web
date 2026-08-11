@@ -1438,7 +1438,8 @@
       "how": "Weigh the pot when the soil is dry — right before you'd normally water it. Then water it, let it drain, and weigh it again. You can do both on the same day.",
       "save": "Save calibration",
       "notCalibratedYet": "This pot's scale isn't calibrated yet.",
-      "calibrateAction": "Calibrate it"
+      "calibrateAction": "Calibrate it",
+      "noneCalibratable": "None of your instruments need calibration, so there's nothing to set up here."
     },
     "measureAction": "Measure",
     "surveyQuestion": "Do you need to water?",

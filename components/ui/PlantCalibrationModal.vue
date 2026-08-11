@@ -57,10 +57,12 @@ const options = computed(() =>
   calibratableInstruments.value.map((i) => ({ key: i.id, label: t(`settings.instruments.name.${i.id}`) })));
 const instrument = computed(() =>
   calibratableInstruments.value.find((i) => i.id === instrumentId.value) ?? null);
-// Whether the CHOSEN instrument even uses a per-pot calibration. With `instrument` now resolved only from
-// `calibratableInstruments`, this is true whenever `instrument` resolves at all — kept as its own computed
-// (rather than inlined as `instrument.value != null`) because it names the INTENT the template checks for.
-const showsCalibration = computed(() => instrument.value?.requiresCalibration === true);
+// NOTE: there used to be a separate `showsCalibration` computed here (`instrument.value?.requiresCalibration
+// === true`) meant to gate the fields on the chosen instrument actually needing calibration. Once `instrument`
+// was rewired to resolve only from `calibratableInstruments` (finding A), that condition became true whenever
+// `instrument` resolves at all — no fixture could ever make it false, so it was decoration wearing a guard's
+// comment. Removed; `instrument` resolving is now the single, honest condition the template and `canSave`
+// both check.
 
 /** The anchors as the SERVER currently holds them, for this instrument, or `null`. */
 const storedCalibration = computed(() => instrument.value?.calibration ?? null);
@@ -134,7 +136,7 @@ const valueUnitLabel = computed(() =>
     : '');
 
 const canSave = computed(() =>
-  instrumentId.value !== '' && showsCalibration.value && !submitting.value && calibrationUsable.value);
+  instrumentId.value !== '' && instrument.value != null && !submitting.value && calibrationUsable.value);
 
 /**
  * Save the anchors — only when they actually CHANGED (see `calibrationChanged`'s own comment) — then emit
@@ -171,14 +173,34 @@ async function save() {
     <p class="mp-plant-calib__once">{{ t('reading.calibration.once') }}</p>
     <p class="mp-plant-calib__how">{{ t('reading.calibration.how') }}</p>
 
-    <Alert v-if="calibratableInstruments.length === 0" color="amber" :description="t('reading.noInstruments')" />
+    <!-- Two DISTINCT empty states — collapsing them into one message was the defect a review caught here.
+         "No instruments enabled at all" is a real setup gap and sends the owner to Settings, exactly like
+         `SoilReadingModal.vue`'s own empty state (same `reading.noInstruments` key, same `i18n-t` + NuxtLink
+         rendering so the sentence stays ONE translatable unit instead of a concatenation with the link
+         silently dropped). "Instruments enabled, but none of them needs calibration" is a normal terminal
+         state, not a failure — the owner already did what Settings would ask, so it gets its own key and
+         never sends them there to "fix" something that isn't broken. -->
+    <Alert v-if="data.instruments.length === 0" color="amber">
+      <i18n-t keypath="reading.noInstruments" tag="span">
+        <template #settings>
+          <NuxtLink to="/settings" class="mp-plant-calib__link" @click="open = false">
+            {{ t('reading.settingsLink') }}
+          </NuxtLink>
+        </template>
+      </i18n-t>
+    </Alert>
+    <Alert
+      v-else-if="calibratableInstruments.length === 0"
+      color="green"
+      :description="t('reading.calibration.noneCalibratable')"
+    />
     <template v-else>
       <FormGroup v-if="calibratableInstruments.length > 1" :label="t('reading.instrument')">
         <SegmentedControl v-model="instrumentId" :options="options" />
       </FormGroup>
 
       <InstrumentCalibrationFields
-        v-if="showsCalibration && instrument"
+        v-if="instrument"
         v-model="calibration"
         :unit-label="valueUnitLabel"
         :off-scale-error="calibrationOffScale"
@@ -207,5 +229,12 @@ async function save() {
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
   color: var(--text-faint);
+}
+/* Same treatment as `SoilReadingModal.vue`'s own `.mp-reading__link` — inherits the alert's colour so it
+   reads as part of the sentence, underlined so it still reads as a link. */
+.mp-plant-calib__link {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: var(--weight-semibold);
 }
 </style>

@@ -90,11 +90,15 @@ import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-in
 import type { PlantSoilReadings, SoilReadingPreview, WateringRelation } from '~/types/api';
 import { toNullableNumber } from '~/utils/nullableNumber';
 import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
-// The WATER survey's shared rules. `verdictIsAnswer` is the web's half of the API's own definition of what
-// counts as an answer (read its comment before writing any `!== 'NONE'` here); `storedVerdictFor` is the
-// ONE translation from a preview's recommendation into the verdict a reading row stores, used by BOTH the
-// survey's branches below and the voluntary edit that re-derives one.
-import { storedVerdictFor, verdictIsAnswer } from '~/utils/waterSurvey';
+// "DID THIS READING DECIDE ANYTHING?" — imported from the SHARED CONTRACT, not from `~/utils/waterSurvey`
+// and not hand-written here as a `!== 'NONE'`. It is the same predicate the API applies when it decides
+// which of a day's readings speaks for that day and when it refuses to let an edit erase a stored answer;
+// it lived in both repos until 2026-08-11 and now lives once, beside the verdict vocabulary itself.
+import { verdictIsAnswer } from '@retaxmaster/my-plants-species-schema';
+// The WATER survey's own shared rules. `storedVerdictFor` is the ONE translation from a preview's
+// recommendation into the verdict a reading row stores, used by BOTH the survey's branches below and the
+// voluntary edit that re-derives one.
+import { storedVerdictFor } from '~/utils/waterSurvey';
 // The ONE module that knows the Nuxt BFF's error envelope. Read its header before touching the catch
 // blocks below: the envelope carries no `message` of its own, so a hand-rolled `e.data.message` read here
 // does not merely duplicate this module — it silently never matches, on every proxied failure.
@@ -612,8 +616,9 @@ const existingReading = computed(() =>
  *
  *  • `mode === 'voluntary'` — the survey previews unconditionally; it needs no permission from here.
  *
- *  • THE ROW ALREADY CARRIES AN ANSWER (`verdictIsAnswer`, the web's half of the API's own definition —
- *    never a hand-rolled `!== 'NONE'` here, see that function). A fresh log, a different instrument, or a
+ *  • THE ROW ALREADY CARRIES AN ANSWER (`verdictIsAnswer`, imported from the shared contract — never a
+ *    hand-rolled `!== 'NONE'` here, and no longer this repo's own copy of it). A fresh log, a different
+ *    instrument, or a
  *    row whose stored verdict is `'NONE'` all stay exactly as they were: `'NONE'` in, nothing decided,
  *    nothing moved. That narrowness is deliberate rather than caution — a voluntary log is the owner
  *    RECORDING something, and turning every recording into a verdict would re-open the very defect the

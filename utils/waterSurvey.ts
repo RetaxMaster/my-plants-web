@@ -30,33 +30,25 @@ export const SURVEYED_POSTPONE_REASON = 'no-time' satisfies WaterPostponeReason;
 export type TodaysVerdict = 'WATER_NOW' | 'POSTPONE' | 'NONE' | null;
 
 /**
- * DID THIS READING ANSWER THE DAY'S WATERING QUESTION? `'NONE'` is the ABSENCE of an answer, never one of
- * them — the voluntary "Agregar lectura" writes it, and so does a survey whose raw value no calibration
- * could interpret.
+ * ⚠️ `verdictIsAnswer` USED TO BE DEFINED IN THIS FILE, AND IT IS NOW IMPORTED FROM THE SHARED CONTRACT
+ * (hoisted 2026-08-11, code review). It was written here as *"the web's half of a definition the API
+ * owns"*, with a comment naming `my-plants-api/src/soil-readings/todays-reading.ts` as the real one — an
+ * honest fork is still a fork, and this workspace names parallel copies of one rule across two runtimes as
+ * its highest-yield bug class. The rule now lives once, in `@retaxmaster/my-plants-species-schema`, beside
+ * the `READING_VERDICTS` vocabulary it derives from; both API call sites and this repo import it from
+ * there, so a change to what counts as an answer cannot reach one runtime and miss the other.
  *
- * ⚠️ THIS IS THE WEB'S HALF OF A DEFINITION THE API ALREADY OWNS, AND THE TWO MUST NOT DRIFT. The API's
- * `verdictIsAnswer` (`my-plants-api/src/soil-readings/todays-reading.ts`) is the definition: it decides
- * which of a day's readings speaks for that day AND — since 2026-08-11 — it is the rule that stops a
- * voluntary edit (`verdict: 'NONE'`) from erasing an answer a survey already stored on that same row
- * (docs/care-engine.md §7.20.15). The web now needs the SAME question, because the edit dialog has to know
- * whether the row it is about to replace carries an answer worth restating (§7.20.17). Writing a second,
- * hand-rolled `!== 'NONE'` at the call site is precisely how the two halves would come to disagree about
- * what an answer is — this project's named highest-yield bug class — so the predicate is stated once, here,
- * beside the survey's other shared rules.
+ * It is re-stated here as a POINTER rather than a re-export, deliberately: a re-export would let call sites
+ * go on importing "the web's `verdictIsAnswer`", which is the fork surviving its own deletion. The one
+ * consumer in this repo (`SoilReadingModal.vue`) imports it straight from the package.
  *
- * ⚠️ IT IS NOT `todaysVerdictClosesSurvey` WITH THE NULL ARM REMOVED, however identical the two look on
- * today's three verdicts. That one answers *"should the survey control be withdrawn?"*; this one answers
- * *"did this reading decide anything?"*. They agree by coincidence, not by construction — a future verdict
- * could easily be an answer that nonetheless leaves the survey on offer — and collapsing them would make
- * one function silently responsible for two rulings.
- *
- * DERIVED FROM THE ONE VERDICT THAT MEANS "NOTHING DECIDED", exactly as the API derives it, so a future
- * fourth verdict is an ANSWER by default. That is the safe direction: a new answer that is ignored is a
- * silent regression, a new non-answer that is honoured is visible the first time it is used.
+ * ⚠️ AND IT IS STILL NOT `todaysVerdictClosesSurvey` WITH THE NULL ARM REMOVED, however identical the two
+ * look on today's three verdicts. That one answers *"should the survey control be withdrawn?"*; the shared
+ * one answers *"did this reading decide anything?"*. They agree by coincidence, not by construction — a
+ * future verdict could easily be an answer that nonetheless leaves the survey on offer — and collapsing
+ * them would make one function silently responsible for two rulings. That warning belongs HERE, next to
+ * the function it is about, which is why it did not travel to the shared package with the predicate.
  */
-export function verdictIsAnswer(verdict: ReadingVerdict): boolean {
-  return verdict !== 'NONE';
-}
 
 /**
  * WHAT A PREVIEW'S RECOMMENDATION IS STORED AS — the ONE translation from the read-only verdict endpoint's

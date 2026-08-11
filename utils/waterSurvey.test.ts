@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canOfferWaterSurvey, effectiveTaskStatus, postponeReasonWithoutAsking, todaysVerdictClosesSurvey,
-  NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, storedVerdictFor, verdictIsAnswer,
+  NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, storedVerdictFor,
   type TodaysVerdict,
 } from './waterSurvey.js';
 import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
@@ -222,25 +222,25 @@ describe('effectiveTaskStatus', () => {
   });
 });
 
-// ---- EDITING A READING RE-COMPUTES ITS ANSWER — the two rules the edit path leans on (owner-ruled
-// 2026-08-11; docs/care-engine.md §7.20.17) ---------------------------------------------------------------
-describe('verdictIsAnswer', () => {
-  // ⚠️ THE WEB'S HALF OF A DEFINITION THE API OWNS. `my-plants-api/src/soil-readings/todays-reading.ts`'s
-  // own `verdictIsAnswer` is the definition — it decides which of a day's readings speaks for that day, and
-  // it is the rule that stops a voluntary edit from erasing an answer a survey stored. These three cases
-  // are the same three the API's `todays-reading.test.ts` pins, so a divergence is a red suite on one side.
-  it('counts a real decision as an answer', () => {
-    expect(verdictIsAnswer('WATER_NOW')).toBe(true);
-    expect(verdictIsAnswer('POSTPONE')).toBe(true);
-  });
-
-  // ⚠️ MUTATION THIS PINS, BOTH DIRECTIONS: `return true` turns this case red (every voluntary log would
-  // start recomputing a verdict nobody asked for); `return false` turns the case above red (a corrected
-  // reading would go on posting `'NONE'` and the owner's deferral would stand, which is the live defect).
-  it('counts "nothing decided" as the ABSENCE of an answer, never one of them', () => {
-    expect(verdictIsAnswer('NONE')).toBe(false);
-  });
-});
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// MOVED 2026-08-11 (code review) — the whole `describe('verdictIsAnswer')`, two cases: `counts a real
+// decision as an answer` and `counts "nothing decided" as the ABSENCE of an answer, never one of them`.
+//
+// They are not retracted and the behaviour they pinned is unchanged: the FUNCTION left this repo. It was
+// this file's own copy of a rule the API also owned, and the two now live once, in
+// `my-plants-species-schema/src/soil-reading.test.ts`, which pins those two cases plus two the fork never
+// had (the whole vocabulary derived from `READING_VERDICTS`, and an unrecognised verdict classified as an
+// ANSWER rather than as the absence of one).
+//
+// ⚠️ AND ONE CLAIM IN THE RETIRED COMMENT WAS SIMPLY FALSE, which is worth recording rather than deleting:
+// it said *"these three cases are the same three the API's `todays-reading.test.ts` pins, so a divergence
+// is a red suite on one side"*. There were two cases, not three, and the API's file never named that
+// function at all — nothing on either side would have gone red. A convention two suites are supposed to
+// hold each other to, asserted only in a comment, is the reason the hoist was worth doing.
+//
+// What still belongs to THIS file is the warning that survived the move: `verdictIsAnswer` is NOT
+// `todaysVerdictClosesSurvey` with the null arm removed. See `utils/waterSurvey.ts`' own note.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 
 describe('storedVerdictFor', () => {
   // The mapping the survey and the voluntary edit now SHARE. It has already moved once under its callers:

@@ -5,10 +5,10 @@
 // freshly watered", so supplying it means watering the plant, which is the decision the survey has not made
 // yet. See docs/superpowers/specs/2026-08-10-the-survey-stops-asking-design.md §1.
 //
-// `SoilReadingModal.vue` still carries the same calibration block and the same test cases at the moment this
-// file lands — a LATER task removes both together. Until then the coverage exists in two places on purpose:
-// removing it from the old host here, ahead of that task, would leave live code (the old modal's calibration
-// block) untested if that later task stalled.
+// That LATER task has landed (commit 338762e): `SoilReadingModal.vue` no longer carries a calibration block
+// and no longer carries these cases, so this file is now the ONLY host of the calibration coverage. The
+// double coverage the original version of this comment described — deliberate at the time, so the old
+// modal's still-live block could not go untested if the removal stalled — is gone with the duplication.
 //
 // Harness mirrors SoilReadingModal.test.ts: Vue's own reactivity primitives and the bare Nuxt auto-imports
 // (`useI18n`/`useApi`) are stubbed as globals, because outside Nuxt's build pipeline they don't exist.
@@ -96,6 +96,14 @@ function pickInstrument(w: ReturnType<typeof mount>, index: number) {
 }
 function findSaveButton(w: ReturnType<typeof mount>) {
   return w.findAll('button').find((b) => b.text().includes('reading.calibration.save'))!;
+}
+function saveButtonExists(w: ReturnType<typeof mount>) {
+  return w.findAll('button').some((b) => b.text().includes('reading.calibration.save'));
+}
+// The footer's blocked-reason paragraph — `ModalBlockedReason.vue`, rendered REAL (it is imported by the
+// component under test, not stubbed), so this reads the sentence the component actually chose.
+function blockedText(w: ReturnType<typeof mount>) {
+  return w.find('.mp-modal-blocked').exists() ? w.find('.mp-modal-blocked').text() : undefined;
 }
 
 // No real row other than the kitchen scale has `requiresCalibration: true` today — `INSTRUMENT_IDS` in the
@@ -224,7 +232,10 @@ describe('PlantCalibrationModal', () => {
     await saturatedInput!.setValue(1200);
     await dryInput!.setValue(1200);
     expect(findSaveButton(w).attributes('disabled')).toBeDefined();
-    expect(w.find('.mp-calib__err').exists()).toBe(true);
+    // Finding F7: this used to assert the error element merely EXISTS, which passes for any sentence at all
+    // — including the wrong one. `reading.calibration.spanInvalid` had no assertion anywhere in the repo,
+    // so the copy that tells the owner which of the two weights is wrong was unguarded.
+    expect(w.find('.mp-calib__err').text()).toBe('reading.calibration.spanInvalid');
 
     await saturatedInput!.setValue(1850);
     await dryInput!.setValue(1200);
@@ -309,6 +320,78 @@ describe('PlantCalibrationModal', () => {
     const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
     expect(w.text()).toContain('reading.calibration.how');
   });
+
+  // -----------------------------------------------------------------------------------------------------
+  // REINSTATED 2026-08-10 (review finding F1) — QA's UX-2, on the surface that inherited the fields.
+  //
+  // Two cases were deleted from `SoilReadingModal.test.ts` in commit 338762e — `says WHY the primary action
+  // is unavailable instead of dying silently` and `still says the weights are missing when they genuinely
+  // are` — on the stated grounds that the assertion had "moved to PlantCalibrationModal". It had not:
+  // nothing here rendered a reason, `reading.missingCalibration` had zero readers repo-wide, and an
+  // uncalibrated pot showed the owner four strings (title, explanation, Cancel, a dead Save). These are
+  // those two cases, plus the counter-case defect 5 was filed for and the bound case the ordering protects.
+  // -----------------------------------------------------------------------------------------------------
+
+  it('says WHY Save is unavailable instead of dying silently — both weights empty', () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    expect(blockedText(w)).toBe('reading.missingCalibration');
+  });
+
+  it('still says the weights are missing when only ONE of them is filled', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    const [saturatedInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(1850);
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    expect(blockedText(w)).toBe('reading.missingCalibration');
+  });
+
+  it('says the span is INVERTED, not that the weights are missing, when both are filled', async () => {
+    // QA round 3, defect 5: an inverted pair was stated correctly ON the field while the footer said "fill
+    // in both reference weights first" about two boxes the owner was looking at. A blocking reason
+    // describing a state the owner can see is false.
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(800);
+    await dryInput!.setValue(1500);
+    expect(blockedText(w)).toBe('reading.calibration.spanInvalid');
+    expect(blockedText(w)).not.toBe('reading.missingCalibration');
+  });
+
+  it('names the BOUND fault, not the span one, in the footer too — the same sentence the field shows',
+    async () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+      const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+      // BOTH faults are genuinely true for this pair — `-500` is below the scale's floor AND the span is
+      // inverted — which is what makes this a test of the ORDERING rather than of one condition wearing an
+      // ordering's name. A negative weight is the more basic fault and the one the owner can act on.
+      await saturatedInput!.setValue(-500);
+      await dryInput!.setValue(1200);
+      // One sentence in two places. Two DIFFERENT wordings for one fault is what reads as two faults, so
+      // this asserts they are identical rather than merely both present.
+      expect(w.find('.mp-calib__err').text()).toBe('reading.calibration.belowMin|0');
+      expect(blockedText(w)).toBe('reading.calibration.belowMin|0');
+    });
+
+  it('says nothing at all once the anchors are savable', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    const [saturatedInput, dryInput] = w.findAll('.mp-calib input');
+    await saturatedInput!.setValue(1850);
+    await dryInput!.setValue(1200);
+    expect(blockedText(w)).toBeUndefined();
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+  });
+
+  it('offers no Save at all in either empty state — a dead button beside an alert is the same mute end',
+    () => {
+      const noInstruments = mountModal(makeData({ instruments: [] }));
+      expect(saveButtonExists(noInstruments)).toBe(false);
+      expect(blockedText(noInstruments)).toBeUndefined();
+
+      const noneCalibratable = mountModal(makeData({ instruments: [galvanicProbe] }));
+      expect(saveButtonExists(noneCalibratable)).toBe(false);
+      expect(blockedText(noneCalibratable)).toBeUndefined();
+    });
 
   it('saving emits so the page can refresh', async () => {
     const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));

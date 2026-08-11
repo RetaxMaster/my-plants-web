@@ -88,9 +88,12 @@ const stubs = {
   AppIcon: true, // Alert.vue's own icon dependency; irrelevant to every assertion here.
   // The empty state's link to /settings (QA F11). `i18n-t` renders the keypath and its named slots; the
   // stub keeps both visible so a test can assert the sentence AND that the slot really is a NuxtLink.
+  // Renders the keypath AND every named slot the component uses, so a test can assert the sentence is one
+  // translatable unit AND that the slot really is a NuxtLink. `calibrate` joined `settings` on 2026-08-10
+  // (finding F5), when the "not calibrated yet" sentence stopped being three concatenated fragments.
   'i18n-t': {
     props: ['keypath', 'tag'],
-    template: '<span class="i18n-t">{{ keypath }}<slot name="settings" /></span>',
+    template: '<span class="i18n-t">{{ keypath }}<slot name="settings" /><slot name="calibrate" /></span>',
   },
   NuxtLink: { props: ['to'], template: '<a class="nuxt-link" :href="to"><slot /></a>' },
 };
@@ -1111,7 +1114,7 @@ describe('the WATER_NOW verdict is actionable', () => {
 // ---------------------------------------------------------------------------------------------------
 describe('the reading field enforces the instrument\'s declared granularity', () => {
   function blockedText(w: ReturnType<typeof mount>) {
-    return w.find('.mp-reading__blocked').exists() ? w.find('.mp-reading__blocked').text() : undefined;
+    return w.find('.mp-modal-blocked').exists() ? w.find('.mp-modal-blocked').text() : undefined;
   }
 
   it('refuses a fraction on the CLOSED probe scale', async () => {
@@ -1137,17 +1140,20 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
     expect(rawValueError(w)).toBe('reading.valueOutOfRange|1|10');
   });
 
-  // RETRACTED 2026-08-10 — `says WHY the primary action is unavailable instead of dying silently`.
+  // MOVED 2026-08-10 — `says WHY the primary action is unavailable instead of dying silently`.
   // Written for QA UX-2: an uncalibrated scale left the primary button dead and mute, so the owner had no
   // way out of the dialog but to guess. Its ONLY vehicle was the calibration block, and that block left
-  // this modal — an instrument still missing its anchors is no longer OFFERED (the owner is routed to
-  // `PlantCalibrationModal` instead), so `reading.missingCalibration` has no path to the footer any more.
-  // The UX-2 property itself is NOT retracted: the cases below still assert the footer states the value
-  // bound, the off-step fault, and the unanswered same-day question.
+  // this modal — an instrument still missing its anchors is no longer offered IN A SURVEY (the owner is
+  // routed to `PlantCalibrationModal` instead), so `reading.missingCalibration` has no path to THIS
+  // footer any more. The UX-2 property itself is NOT retracted: the cases below still assert the footer
+  // states the value bound, the off-step fault, and the unanswered same-day question.
   //
-  // ⚠️ NOT LISTED IN THE SPEC'S §5 INVENTORY, unlike the eight MOVED calibration cases. Recorded here so
-  // the next reader knows this deletion was a deliberate consequence of the same ruling and not a test
-  // quietly dropped because it went red.
+  // ⚠️ CORRECTED 2026-08-10 (review finding F1). This comment used to say the case was RETRACTED and that
+  // its assertion had "moved to `PlantCalibrationModal`". The first half was fine; the second was FALSE
+  // when it was written — that surface rendered no blocking reason at all, and `reading.missingCalibration`
+  // had zero readers in the entire repo. The destination has since been given the affordance for real, and
+  // the case now lives there as `says WHY Save is unavailable instead of dying silently — both weights
+  // empty`. A justification nobody measured is how a deletion becomes a regression with a paper trail.
 
   // REWRITTEN 2026-08-10: was `mountSurvey`. Survey mode does not ask the question any more, so this case
   // would have been asserting a blocking reason that can never appear — it is re-pointed at VOLUNTARY
@@ -1182,9 +1188,9 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
     expect(blockedText(w)).toBe('reading.valueOffStep|1|1');
   });
 
-  // RETRACTED 2026-08-10 — two more calibration blocking-reason cases, with the defects they were written
-  // for, and both for the same reason as `says WHY the primary action is unavailable` above: the footer
-  // can no longer be blocked by a calibration, because an instrument missing one is not offered.
+  // MOVED 2026-08-10 — two more calibration blocking-reason cases, with the defects they were written
+  // for, and both for the same reason as `says WHY the primary action is unavailable` above: THIS footer
+  // can no longer be blocked by a calibration, because a survey never offers an instrument missing one.
   //   • `says the span is INVERTED, not that the weights are missing, when both are filled`
   //       — QA round 3, defect 5: an inverted pair (800 watered / 1500 dry) was stated correctly ON the
   //         field while the footer said "fill in both reference weights first" about two boxes the owner
@@ -1193,9 +1199,14 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
   //   • `still says the weights are missing when they genuinely are`
   //       — defect 5's counter-case, so the correct message was not lost to the fix.
   //
-  // ⚠️ ALSO NOT IN THE SPEC'S §5 INVENTORY. The `spanInvalid` and `missingCalibration` copy still exists
-  // and still binds — `PlantCalibrationModal` disables its own Save on exactly these two states, and its
-  // `blocks submit until the calibration span is strictly positive` case asserts it there.
+  // ⚠️ CORRECTED 2026-08-10 (review finding F1). This comment claimed the `spanInvalid` and
+  // `missingCalibration` copy "still binds". `spanInvalid` did — as an inline field error — but no test
+  // asserted its TEXT anywhere (finding F7), and `missingCalibration` bound to nothing at all: it had zero
+  // code readers and sat orphaned in both locale files. Both are real again on the destination surface,
+  // and both are asserted there: `PlantCalibrationModal.test.ts` › `says the span is INVERTED, not that
+  // the weights are missing, when both are filled` and › `says WHY Save is unavailable ... both weights
+  // empty`, with the inline `spanInvalid` sentence pinned by name in `blocks submit until the calibration
+  // span is strictly positive`.
 
   it('says nothing at all once the form is submittable', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
@@ -1317,7 +1328,7 @@ describe('a measurement cannot be dated in the future', () => {
     return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
   }
   function blockedText(w: ReturnType<typeof mount>) {
-    return w.find('.mp-reading__blocked').exists() ? w.find('.mp-reading__blocked').text() : undefined;
+    return w.find('.mp-modal-blocked').exists() ? w.find('.mp-modal-blocked').text() : undefined;
   }
 
   it('blocks the save and says why — the `max` attribute does not stop a TYPED date', async () => {
@@ -1476,8 +1487,17 @@ describe('no verdict branch sends wateringRelation — the API derives it', () =
 // Filtering the instrument out closes that dead end and would open a fresh one — an empty picker — so the
 // third empty state is asserted here too, distinct from the "you own no instruments" one it must never
 // borrow: the owner already added an instrument, so sending him to Settings would be false AND a dead end.
+//
+// ⚠️ THE FILTER IS SURVEY-SCOPED, and the two cases below that mount `voluntary` were REWRITTEN on
+// 2026-08-10 (review finding F6) to mount `survey` instead. They were not wrong about the filter; they were
+// pointed at the wrong mode, and because they passed there, they made a filter that ran in BOTH modes look
+// deliberate. The spec says *"an uncalibrated scale is not offered IN THE SURVEY"* (§3.4) and the API says
+// *"a missing calibration yields a NULL wetness — the reading is still RECORDED (it is the owner's data)"*
+// (`soil-reading.write-core.ts`), so the voluntary path must keep offering it: back-dating a raw weight is
+// a capability, and calibrating the pot later makes every stored raw reading interpretable retroactively.
+// The mode difference is now pinned in BOTH directions — hidden in the survey, offered in voluntary.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-describe('an uncalibrated instrument is not offered', () => {
+describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
   // The preceding suite leaves `recordSoilReading` reset to a bare `mockResolvedValue` with its calls
   // still recorded; the last case here counts calls, so start from a clean, working default.
   beforeEach(() => {
@@ -1486,31 +1506,67 @@ describe('an uncalibrated instrument is not offered', () => {
     recordSoilReading.mockResolvedValue({ readingId: 'r1' });
   });
 
-  it('filters an uncalibrated scale out of the picker but keeps a calibrated one', () => {
-    const withUncalibrated = mountModal(
-      makeData({ instruments: [galvanicProbe, kitchenScaleNoCalibration] }), { mode: 'voluntary' },
+  // REWRITTEN 2026-08-10 (finding F6) — was `mode: 'voluntary'`. See the describe header.
+  it('filters an uncalibrated scale out of the SURVEY picker but keeps a calibrated one', () => {
+    const withUncalibrated = mountSurvey(
+      makeData({ instruments: [galvanicProbe, kitchenScaleNoCalibration] }),
     );
     expect(instrumentSegButtons(withUncalibrated)).toHaveLength(1);
     expect(withUncalibrated.text()).not.toContain('settings.instruments.name.kitchen-scale');
 
     // Same pot, same instruments, one calibration: the scale is a perfectly good choice again. Without
     // this half the filter could be "never offer a scale" and the case above would not notice.
-    const withCalibrated = mountModal(
-      makeData({ instruments: [galvanicProbe, kitchenScaleCalibrated] }), { mode: 'voluntary' },
+    const withCalibrated = mountSurvey(
+      makeData({ instruments: [galvanicProbe, kitchenScaleCalibrated] }),
     );
     expect(instrumentSegButtons(withCalibrated)).toHaveLength(2);
     expect(withCalibrated.text()).toContain('settings.instruments.name.kitchen-scale');
   });
 
-  it('never defaults the selection to an instrument it refuses to offer', () => {
+  // REWRITTEN 2026-08-10 (finding F6) — was `mode: 'voluntary'`. See the describe header.
+  it('never defaults the SURVEY selection to an instrument it refuses to offer', () => {
     // The uncalibrated scale is FIRST in the list, which is the slot `instrumentId`'s default reads.
-    const w = mountModal(
-      makeData({ instruments: [kitchenScaleNoCalibration, galvanicProbe] }), { mode: 'voluntary' },
-    );
+    const w = mountSurvey(makeData({ instruments: [kitchenScaleNoCalibration, galvanicProbe] }));
     const buttons = instrumentSegButtons(w);
     expect(buttons).toHaveLength(1);
     expect(buttons[0]!.attributes('aria-pressed')).toBe('true');
     expect(buttons[0]!.text()).toBe('settings.instruments.name.galvanic-probe');
+  });
+
+  // ---------------------------------------------------------------------------------------------------
+  // THE OTHER DIRECTION (review finding F6). The commit that introduced the filter ran it in both modes,
+  // which removed a capability the backend preserves on purpose: in voluntary mode a pot whose only
+  // instrument was an uncalibrated scale rendered no number field and no date field, so the owner could
+  // not record a back-dated raw weight at all. Nothing is computed on this path — the row is stored with a
+  // null wetness, honestly — and calibrating the pot later makes those stored weights interpretable.
+  // ---------------------------------------------------------------------------------------------------
+
+  it('STILL OFFERS an uncalibrated scale in voluntary mode — a raw reading is the owner\'s data', () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
+    // Not the survey's empty state: there is a real control here.
+    expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
+    const buttons = instrumentSegButtons(w);
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.text()).toBe('settings.instruments.name.kitchen-scale');
+    // The two fields the filter used to remove: the number and the date.
+    expect(w.find('input[type="number"]').exists()).toBe(true);
+    expect(w.find('input[type="date"]').exists()).toBe(true);
+  });
+
+  it('records that back-dated raw reading, uncalibrated instrument and all', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
+    await readingInput(w).setValue(1500);
+    await w.find('input[type="date"]').setValue('2026-08-01');
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    expect(recordSoilReading).toHaveBeenCalledTimes(1);
+    const [, body] = recordSoilReading.mock.calls.at(-1)!;
+    expect(body.instrumentId).toBe('kitchen-scale');
+    expect(body.rawValue).toBe(1500);
+    expect(body.measuredOn).toBe('2026-08-01');
+    // And no calibration is written on the way — this modal never collects anchors, in either mode.
+    expect(setInstrumentCalibration).not.toHaveBeenCalled();
   });
 
   it('shows the CALIBRATE-THIS-POT state — never the "you own no instruments" one — when the only ' +
@@ -1530,6 +1586,14 @@ describe('an uncalibrated instrument is not offered', () => {
     const link = w.find('a.nuxt-link');
     expect(link.exists()).toBe(true);
     expect(link.text()).toBe('reading.calibration.calibrateAction');
+    // FINDING F5 — ONE TRANSLATABLE UNIT, not three concatenated fragments. The sentence used to be
+    // `<span>{{ t(...) }}</span>{{ ' ' }}<NuxtLink>`, which keys both halves but hard-codes English word
+    // order in the template, so no translator could move the link. Asserting the link is INSIDE the
+    // `i18n-t` element is what distinguishes the two renderings — both produce the same visible text.
+    const sentence = w.find('.i18n-t');
+    expect(sentence.exists()).toBe(true);
+    expect(sentence.text()).toContain('reading.calibration.notCalibratedYet');
+    expect(sentence.find('a.nuxt-link').exists()).toBe(true);
     // The plant page, not /settings: calibration is per (pot, instrument), so it can only be done from a
     // plant. `plantId` comes from this modal's own props.
     expect(link.attributes('href')).toBe('/plants/plant-1');
@@ -1554,5 +1618,122 @@ describe('an uncalibrated instrument is not offered', () => {
     await flushPromises();
     expect(setInstrumentCalibration).not.toHaveBeenCalled();
     expect(recordSoilReading).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// A SELECTION MUST NOT OUTLIVE THE INSTRUMENT IT NAMES (review finding F4, 2026-08-10).
+//
+// `usableInstruments` is derived from a PROP. It changes under the owner — the plant page refetches after a
+// save, /settings is edited in another tab, a calibration is retracted — and `instrumentId` was only ever
+// (re)defaulted at setup and on open. MEASURED: with the probe removed from `data` while a survey was open,
+// the owner saw the "not calibrated yet" alert AND a footer reading "enter a reading first", pointing at a
+// field that was not on screen. A blocking reason describing a state the owner can see is false is exactly
+// the class QA round 3's defect 5 was filed for.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('a stale instrument selection never survives the list it came from', () => {
+  function blockedText(w: ReturnType<typeof mount>) {
+    return w.find('.mp-modal-blocked').exists() ? w.find('.mp-modal-blocked').text() : undefined;
+  }
+  function calculateButtonExists(w: ReturnType<typeof mount>) {
+    return w.findAll('button').some((b) => b.text().includes('reading.calculate'));
+  }
+
+  it('leaks no blocking reason when the selected instrument leaves the list mid-survey', async () => {
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe, kitchenScaleNoCalibration] }));
+    expect(instrumentSegButtons(w)).toHaveLength(1);
+
+    // The probe is withdrawn; the uncalibrated scale is all that is left, and a survey does not offer it.
+    await w.setProps({ data: makeData({ instruments: [kitchenScaleNoCalibration] }) });
+
+    expect(w.text()).toContain('reading.calibration.notCalibratedYet');
+    // The measured symptom: `reading.missingValue`, an instruction to fill a field that is not rendered.
+    expect(blockedText(w)).toBeUndefined();
+  });
+
+  it('offers no primary button in EITHER empty state — a dead control is not an explanation', async () => {
+    const noneUsable = mountSurvey(makeData({ instruments: [kitchenScaleNoCalibration] }));
+    expect(noneUsable.text()).toContain('reading.calibration.notCalibratedYet');
+    expect(calculateButtonExists(noneUsable)).toBe(false);
+    expect(blockedText(noneUsable)).toBeUndefined();
+
+    const noInstruments = mountSurvey(makeData({ instruments: [] }));
+    expect(noInstruments.text()).toContain('reading.noInstruments');
+    expect(calculateButtonExists(noInstruments)).toBe(false);
+    expect(blockedText(noInstruments)).toBeUndefined();
+  });
+
+  it('falls back to a still-usable instrument rather than to nothing', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe, woodenStick] as never }),
+      { mode: 'voluntary' });
+    await instrumentSegButtons(w)[1]!.trigger('click');
+    expect(instrumentSegButtons(w)[1]!.attributes('aria-pressed')).toBe('true');
+
+    // The stick is withdrawn. The probe is still perfectly usable, so the owner lands on it — the same
+    // thing the open watcher would have done — instead of on an empty picker.
+    await w.setProps({ data: makeData({ instruments: [galvanicProbe] }) });
+
+    const buttons = instrumentSegButtons(w);
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.text()).toBe('settings.instruments.name.galvanic-probe');
+    expect(buttons[0]!.attributes('aria-pressed')).toBe('true');
+    // And the reading taken on the withdrawn instrument goes with it — a number on a scale that is gone.
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// THE DEFERRED SAVE ACROSS THE PLANT'S MIDNIGHT (review finding F2, 2026-08-10).
+//
+// `pending.measuredOn` is frozen at PREVIEW time. "Guardar lectura" is tapped at an arbitrary later moment
+// — the component's own comment says "much later" — so if the plant's local day advances in between, the
+// write is BACK-DATED, and a `WATER DONE` on that day makes it a 400 naming `wateringRelation`: a
+// back-dated reading's side of the watering is genuinely underivable, because care events store a date and
+// no time. The removed branch was argued away as "unreachable by construction"; it is narrow, not absent.
+//
+// The recovery is NOT a reveal (this step renders no measure form, and `showWateringRelation` is
+// voluntary-only, so there would be no control to answer through) and NOT a re-date (nobody here knows the
+// plant's current day — that is why the preview supplies it — and inventing one would fabricate the
+// measurement's date). It is: say the day ended, and ask for a fresh measurement.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('the deferred UNAVAILABLE save survives the plant rolling over midnight', () => {
+  beforeEach(() => {
+    recordSoilReading.mockReset();
+    recordSoilReading.mockResolvedValue({ readingId: 'r1' });
+  });
+
+  /** Reach the UNAVAILABLE verdict, where the deferred save is offered. */
+  async function reachDeferredSave() {
+    previewSoilReading.mockResolvedValueOnce(unavailablePreview);
+    const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+    await readingInput(w).setValue(9);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+    expect(recordSoilReading).not.toHaveBeenCalled();
+    return w;
+  }
+
+  it('says the day ended and asks for a fresh measurement — never "please try again"', async () => {
+    const w = await reachDeferredSave();
+    recordSoilReading.mockRejectedValueOnce(proxiedError(
+      400, 'wateringRelation is required when a WATER DONE exists on measuredOn',
+    ));
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    expect(w.text()).toContain('reading.dayRolledOver');
+    // The old handling. A retry sends a byte-identical body and is refused identically, forever, so
+    // "please try again" is advice that can never work.
+    expect(w.text()).not.toContain('reading.saveFailed');
+  });
+
+  it('still falls back to the generic message for any OTHER failure', async () => {
+    const w = await reachDeferredSave();
+    recordSoilReading.mockRejectedValueOnce(proxiedError(500, 'upstream exploded'));
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    expect(w.text()).toContain('reading.saveFailed');
+    expect(w.text()).not.toContain('reading.dayRolledOver');
   });
 });

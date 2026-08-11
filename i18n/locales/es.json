@@ -1378,6 +1378,7 @@
     "measuredOnFuture": "Ese día todavía no ocurre — elige hoy o antes.",
     "save": "Guardar lectura",
     "saveFailed": "No pudimos guardar esa lectura. Inténtalo de nuevo.",
+    "dayRolledOver": "Esa lectura pertenece a un día que ya terminó, así que no podemos guardarla tal cual. Vuelve a tomar la medición.",
     "alreadyRecorded": "Esa lectura ya había quedado registrada.",
     "valueOutOfRange": "Ingresa un valor entre {min} y {max}.",
     "valueBelowMin": "Ingresa un valor de {min} o más.",
@@ -1437,8 +1438,8 @@
       "once": "Esto se hace una sola vez por maceta.",
       "how": "Pesa la maceta con la tierra seca, justo antes de cuando normalmente la regarías. Luego riégala, deja que escurra y vuelve a pesarla. Puedes hacer las dos el mismo día.",
       "save": "Guardar calibración",
-      "notCalibratedYet": "La báscula de esta maceta todavía no está calibrada.",
-      "calibrateAction": "Calibrarla",
+      "notCalibratedYet": "La báscula de esta maceta todavía no está calibrada — {calibrate} para poder medir con ella.",
+      "calibrateAction": "calíbrala",
       "noneCalibratable": "Ninguno de tus instrumentos necesita calibración, así que aquí no hay nada que configurar."
     },
     "measureAction": "Medir",

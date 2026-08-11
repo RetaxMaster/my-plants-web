@@ -1378,6 +1378,7 @@
     "measuredOnFuture": "That day hasn't happened yet — pick today or earlier.",
     "save": "Save reading",
     "saveFailed": "We couldn't save that reading. Please try again.",
+    "dayRolledOver": "That reading belongs to a day that has already ended, so we can't save it as it stands. Take the measurement again.",
     "alreadyRecorded": "This reading was already recorded.",
     "valueOutOfRange": "Enter a value between {min} and {max}.",
     "valueBelowMin": "Enter a value of {min} or more.",
@@ -1437,8 +1438,8 @@
       "once": "You only do this once per pot.",
       "how": "Weigh the pot when the soil is dry — right before you'd normally water it. Then water it, let it drain, and weigh it again. You can do both on the same day.",
       "save": "Save calibration",
-      "notCalibratedYet": "This pot's scale isn't calibrated yet.",
-      "calibrateAction": "Calibrate it",
+      "notCalibratedYet": "This pot's scale isn't calibrated yet — {calibrate} before you can measure with it.",
+      "calibrateAction": "calibrate it",
       "noneCalibratable": "None of your instruments need calibration, so there's nothing to set up here."
     },
     "measureAction": "Measure",

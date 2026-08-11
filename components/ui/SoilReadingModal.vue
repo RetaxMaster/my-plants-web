@@ -42,8 +42,9 @@
 // ⚠️ CALIBRATION IS NOT COLLECTED HERE, IN EITHER MODE (owner-ruled 2026-08-10). The kitchen scale's two
 // per-pot anchors moved to `PlantCalibrationModal.vue`, reached from the plant page, because asking for
 // them mid-survey is CIRCULAR: one anchor is "the pot freshly watered", and supplying it means watering the
-// plant — the very decision the survey has not made yet. An uncalibrated scale is therefore not OFFERED
-// here at all (see `usableInstruments`); the owner is routed to calibrate it instead.
+// plant — the very decision the survey has not made yet. An uncalibrated scale is therefore not OFFERED in
+// SURVEY MODE (see `usableInstruments`); the owner is routed to calibrate it instead. VOLUNTARY MODE STILL
+// OFFERS IT — that is not an oversight, see `usableInstruments`' own comment.
 //
 // ⚠️ THE VERDICT PICKER AND THE POSTPONE-DATE FIELD ARE GONE, not hidden. The engine now chooses (via
 // `previewSoilReading`), so nothing in this component asks "what are you doing about it?" any more — that
@@ -56,6 +57,7 @@ import Input from './Input.vue';
 import FormGroup from './FormGroup.vue';
 import SegmentedControl from './SegmentedControl.vue';
 import Alert from './Alert.vue';
+import ModalBlockedReason from './ModalBlockedReason.vue';
 import OrdinalReadingPicker from './OrdinalReadingPicker.vue';
 // `InstrumentId` has a Zod-free subpath in the shared contract; `WateringRelation` is the shared contract's
 // Zod-module type, re-exported from `~/types/api` (see that file's own comment) — so it comes from there,
@@ -90,12 +92,29 @@ const open = defineModel<boolean>('open', { default: false });
 const { t, d } = useI18n();
 const api = useApi();
 
-// An instrument that NEEDS a calibration this pot does not have cannot produce a reading — the normaliser
-// has no scale to map onto. Offering it would put the owner in front of a control that can only fail.
-// Calibration is setup now (PlantCalibrationModal), so the honest move is to route him there rather than
-// to collect two weights mid-decision — which was circular anyway: one anchor is the pot freshly watered.
+/**
+ * ⚠️ SURVEY MODE ONLY — the filter is SCOPED, and the scope is the whole point (review finding F6).
+ *
+ * In a SURVEY the owner is asking "should I water this pot today?", and an instrument with no calibration
+ * cannot answer: the normaliser has no scale to map the raw number onto, so the preview can only come back
+ * `UNAVAILABLE / NEEDS_CALIBRATION`. Offering it there is a control that can only fail, so it is withheld
+ * and the owner is routed to `PlantCalibrationModal` instead — never asked for two weights mid-decision,
+ * which was circular anyway: one anchor is the pot freshly watered. That is the spec's §3.4, verbatim:
+ * *"An uncalibrated scale is not offered IN THE SURVEY."*
+ *
+ * In VOLUNTARY mode the same filter would delete a capability the backend preserves on purpose. There the
+ * owner is RECORDING a measurement he already took, usually back-dated, and `soil-reading.write-core.ts`
+ * says outright: *"A missing calibration yields a NULL wetness — the reading is still RECORDED (it is the
+ * owner's data)."* The raw weights are not wasted either: calibrate the pot later and every stored raw
+ * reading becomes interpretable, because the anchors are what turn a weight into a fraction, and they
+ * apply retroactively. Filtering in both modes (the state commit 338762e shipped) meant a pot whose only
+ * instrument was an uncalibrated scale rendered no number field and no date field in voluntary mode — the
+ * owner simply could not record his own reading. There is no verdict to protect in that mode: nothing is
+ * computed, nothing is recommended, and the row is stored honestly with a null wetness.
+ */
 const usableInstruments = computed(() =>
-  props.data.instruments.filter((i) => !(i.requiresCalibration && i.calibration == null)));
+  props.data.instruments.filter(
+    (i) => props.mode !== 'survey' || !(i.requiresCalibration && i.calibration == null)));
 
 // SegmentedControl's own model is a plain, non-nullable `string` (`defineModel<string>({ required: true
 // })`) — '' is the "nothing chosen yet" sentinel, the same convention RepotDoneForm.vue/PlaceEditModal.vue
@@ -202,6 +221,28 @@ watch(instrumentId, () => {
   error.value = null;
 });
 
+/**
+ * A SELECTION MUST NEVER OUTLIVE THE INSTRUMENT IT NAMES (review finding F4).
+ *
+ * `usableInstruments` is derived from a PROP, so it can change under a selection the owner already made —
+ * the plant page refetches its readings after a save, an instrument is disabled in /settings in another
+ * tab, a calibration is retracted. `instrumentId` was only ever (re)defaulted at setup and on open, so a
+ * selection whose instrument had left the list simply stayed. Measured: with the probe removed from `data`
+ * while the survey was open, the owner saw the "not calibrated yet" alert AND a footer reading "enter a
+ * reading first" — a blocking reason naming a field that is not on screen, which is the same class of lie
+ * as QA round 3's defect 5 and just as corrosive to the next message's credibility.
+ *
+ * Re-default rather than merely clear: when other usable instruments remain, landing on the first one is
+ * what the open watcher would have done anyway (and the watcher above then clears the reading, which is
+ * right — that number was taken on a scale that is gone). '' is reached only when NOTHING is usable, and
+ * that is exactly the two empty states — which is what lets the footer drop the primary button instead of
+ * inventing a reason for it.
+ */
+watch(usableInstruments, (rows) => {
+  if (instrumentId.value !== '' && rows.some((i) => i.id === instrumentId.value)) return;
+  instrumentId.value = rows[0]?.id ?? '';
+});
+
 // Both built off `usableInstruments`, never off `props.data.instruments` directly — an instrument the picker
 // refuses to offer must also be un-resolvable, or a stale `instrumentId` would silently reach the fields.
 const options = computed(() =>
@@ -226,9 +267,24 @@ const protocolKind = computed(() => instrument.value?.protocolKind ?? 'insertion
  *   • otherwise                      → the picker
  * The middle one must never borrow the first one's copy: the owner already added an instrument, so sending
  * him to Settings would be a false statement AND a dead end.
+ *
+ * ⚠️ SURVEY MODE ONLY IN PRACTICE, since the filter above became survey-scoped (finding F6): voluntary mode
+ * offers every enabled instrument, so `usableInstruments` can only be empty there when the owner owns none
+ * — the FIRST state, not this one. Written as a derived condition rather than as `mode === 'survey' && …`
+ * so it stays true by construction if the filter's scope ever changes again.
  */
 const needsCalibrationSetup = computed(() =>
   props.data.instruments.length > 0 && usableInstruments.value.length === 0);
+
+/**
+ * Is there anything to measure WITH? False in both empty states, and in no other case (finding F4).
+ *
+ * This is what the footer branches on. A primary button that cannot ever be pressed, beside an alert
+ * explaining that the owner has nothing to measure with, is the same mute dead end QA's UX-2 was filed for
+ * — and it cannot be fixed by giving it a reason, because the reason is already on screen in the alert and
+ * the honest number of available actions is zero. So the button is not rendered at all there.
+ */
+const hasUsableInstrument = computed(() => usableInstruments.value.length > 0);
 
 // An ORDINAL instrument (the wooden stick, the finger) has no physical unit to name — `OrdinalReadingPicker`
 // renders a choice of named states, not a number, so "Reading (índice 1–10)"-shaped copy would be
@@ -373,6 +429,10 @@ const rawValueErrorMessage = computed(() => {
  * and QA verified it as the good case; this is the same treatment for the number.
  */
 const blockedReason = computed(() => {
+  // `instrumentId === ''` means NOTHING is usable (see the `usableInstruments` watcher — a selection can no
+  // longer outlive its instrument), so the modal is showing one of the two empty-state alerts and there is
+  // no primary button in the footer to explain. Returning a reason here would print a second, quieter
+  // sentence under an alert that already said the whole thing.
   if (submitting.value || instrumentId.value === '') return undefined;
   // Ahead of the value: a date the owner has to correct anyway makes every other complaint noise.
   if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
@@ -658,22 +718,36 @@ async function saveUnavailableReading() {
     // `utils/upstreamError.ts` lookup, for the same reason: the BFF envelope has no `message` of its own,
     // so a direct `e.data.message` read is `undefined` and matches nothing.
     const status = upstreamErrorCode(e);
+    const upstreamMessage = upstreamErrorMessage(e);
     if (status === 409 || status === 422) {
       error.value = t('reading.alreadyRecorded');
       pendingUnavailableReading.value = null;
       open.value = false;
       emit('saved');
-      // ⚠️ THERE IS NO `wateringRelation`-REVEAL BRANCH HERE ANY MORE, and this is the second time that
-      // absence has had to be justified, so both arguments are recorded. It was first ruled out with
-      // *"this button never sends that field"* — true and beside the point at the time: the field was
-      // missing because the PENDING RECORD had been frozen while `showWateringRelation` was false, so the
-      // deferred save was refused permanently and a reveal was the right recovery.
+    } else if (status === 400 && upstreamMessage.includes('wateringRelation')) {
+      // ⚠️ THE PLANT'S DAY ENDED WHILE THIS SAVE WAS STILL BEING OFFERED — narrow, real, and previously
+      // argued away. Read this before "simplifying" the branch out again (review finding F2).
       //
-      // It is ruled out again, for a reason that actually holds: this save is survey-only (a pending record
-      // exists in no other mode), the survey sends no relation at all, and the API derives one for a
-      // today-dated reading. A refusal naming the field is therefore unreachable — and a reveal would be
-      // strictly harmful now, since `showWateringRelation` is voluntary-only and would render no control to
-      // answer through. A generic, retryable failure is the honest handling of an impossible refusal.
+      // The old comment here claimed a refusal naming `wateringRelation` was "unreachable by construction":
+      // the survey sends no relation, and the API derives one for a TODAY-dated reading. The second half is
+      // the hole. `pending.measuredOn` is frozen at PREVIEW time — the plant's local day as it was then —
+      // and this button is tapped at an arbitrary later moment, possibly much later. Cross the plant's
+      // local midnight in between and the write is BACK-DATED; if a `WATER DONE` also lands on that day
+      // (from Today, a second device, a second tab), the API refuses it with a 400 naming the field,
+      // because a back-dated reading's side of the watering is genuinely underivable — care events store a
+      // date and no time.
+      //
+      // ⚠️ AND THE ONE RECOVERY THAT LOOKS OBVIOUS IS WRONG: do NOT reveal the question. This save is
+      // survey-only, `showWateringRelation` is voluntary-only, and the verdict step renders no measure
+      // form at all — so a "reveal" would render no control to answer through, which is a worse dead end
+      // than the one it replaces. Re-dating the write to the plant's current day is equally wrong: nobody
+      // here knows that day (that is why the preview supplies it), and inventing one would fabricate the
+      // reading's date, which is the single thing a measurement may not have wrong.
+      //
+      // So the window is closed the honest way — the owner is told the day rolled over and that the
+      // measurement has to be retaken. That is not a "try again": the retry the old generic message invited
+      // sent a byte-identical body and was refused identically, forever.
+      error.value = t('reading.dayRolledOver');
     } else {
       error.value = t('reading.saveFailed');
     }
@@ -720,13 +794,21 @@ const holdDateLabel = computed(() => {
          instrument; it is a scale this pot has never been calibrated for, so it is not offered above and
          there is nothing to pick. Never the "add one in Settings" copy: he already added one, and that
          sentence would be both false and a dead end. The link goes to the plant's own page, where the
-         calibration modal lives — calibration is setup, done ahead of time, not collected mid-decision. -->
+         calibration modal lives — calibration is setup, done ahead of time, not collected mid-decision.
+         ⚠️ ONE `i18n-t` UNIT, exactly like the sibling above (review finding F5). This used to render
+         `<span>{{ t('…notCalibratedYet') }}</span>{{ ' ' }}<NuxtLink>…</NuxtLink>` — three fragments with
+         the word order hard-coded in the template, four lines under the comment that forbids it. No literal
+         leaked (both halves were keyed), but a translator could not move the link, and Spanish word order
+         is not English's. The sentence carries its own `{calibrate}` slot now, so the whole thing is one
+         translatable string in both locales. -->
     <Alert v-else-if="needsCalibrationSetup" color="amber">
-      <span>{{ t('reading.calibration.notCalibratedYet') }}</span>
-      {{ ' ' }}
-      <NuxtLink :to="`/plants/${plantId}`" class="mp-reading__link" @click="open = false">
-        {{ t('reading.calibration.calibrateAction') }}
-      </NuxtLink>
+      <i18n-t keypath="reading.calibration.notCalibratedYet" tag="span">
+        <template #calibrate>
+          <NuxtLink :to="`/plants/${plantId}`" class="mp-reading__link" @click="open = false">
+            {{ t('reading.calibration.calibrateAction') }}
+          </NuxtLink>
+        </template>
+      </i18n-t>
     </Alert>
 
     <template v-else-if="step === 'measure'">
@@ -862,10 +944,14 @@ const holdDateLabel = computed(() => {
       <template v-if="step === 'measure'">
         <!-- QA UX-2: the primary button used to go dead with nothing said. Rendered in the footer beside
              it, and `aria-live` so a screen reader hears the reason appear rather than only sighted users
-             noticing a button that will not press. -->
-        <p v-if="blockedReason" class="mp-reading__blocked" aria-live="polite">{{ blockedReason }}</p>
+             noticing a button that will not press. Shared with `PlantCalibrationModal.vue` through ONE
+             component since 2026-08-10 (finding F1) — see `ModalBlockedReason.vue`. -->
+        <ModalBlockedReason :reason="blockedReason" />
         <Button variant="ghost" @click="open = false">{{ t('common.cancel') }}</Button>
-        <Button :disabled="!canSubmit" :loading="submitting" @click="submit">
+        <!-- Nothing to measure with (either empty state) means there is no action to offer — see
+             `hasUsableInstrument`. The alert above is the whole answer; a permanently dead button under it
+             is the mute dead end UX-2 is about, wearing an explanation that is not attached to it. -->
+        <Button v-if="hasUsableInstrument" :disabled="!canSubmit" :loading="submitting" @click="submit">
           {{ primaryLabel }}
         </Button>
       </template>
@@ -910,31 +996,7 @@ const holdDateLabel = computed(() => {
    `.mp-repotverdict__body`. */
 .mp-reading__verdict-title { margin: 0 0 var(--space-2); font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--text-strong); }
 .mp-reading__verdict-body { margin: 0; font-size: var(--text-sm); color: var(--text-body); }
-/* The reason the primary action is unavailable (QA UX-2). `margin-right: auto` pushes it to the far side
-   of the footer so the two buttons keep their existing right-aligned position rather than shifting. */
-/* The blocking reason shares the modal's `display: flex` footer with Cancel/Save. `auto` on the right
-   margin pushes the buttons to the far edge, which is what we want on a wide panel.
-   ⚠️ IT NEEDS A FLOOR (QA round 4, 2026-08-10). With no `min-width`, a flex item shrinks to whatever the
-   two buttons leave over — and these sentences got LONGER in the same fix round that put them here (the
-   bound, step and calibration reasons all render in this slot now). QA measured 75 px of column wrapping
-   over NINE lines at 390 px wide, a footer 160 px tall, pushing the form out of view. `12ch` is a floor on
-   the text, not a width: it simply stops the column collapsing before the wrap-to-own-row rule below
-   takes over. */
-.mp-reading__blocked {
-  margin: 0 auto 0 0;
-  min-width: 12ch;
-  font-size: var(--text-sm);
-  color: var(--text-faint);
-}
-
-/* On a phone the reason takes its OWN ROW, above the buttons, at full width — a sentence is not a third
-   button and should not compete with two for one line. `order: -1` puts it first without reordering the
-   markup, so the reading order a screen reader gets is unchanged (it is `aria-live` and announces on
-   appearance regardless). The footer itself has to be told to wrap: it is `display: flex` with no
-   `flex-wrap` in Modal.vue, which is correct for every OTHER modal's footer — none of them puts prose in
-   it — so the exception is declared here rather than changed for all of them. */
-@media (max-width: 480px) {
-  :global(.mp-modal__footer:has(.mp-reading__blocked)) { flex-wrap: wrap; }
-  .mp-reading__blocked { order: -1; flex-basis: 100%; min-width: 0; margin: 0; }
-}
+/* The blocking reason's own layout (QA UX-2, and the phone-footer wrap QA round 4 added) moved to
+   `ModalBlockedReason.vue` on 2026-08-10, together with the markup, when a second modal needed the same
+   affordance (finding F1). It is not duplicated here. */
 </style>

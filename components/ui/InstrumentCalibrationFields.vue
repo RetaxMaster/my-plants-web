@@ -6,10 +6,11 @@ import FormGroup from './FormGroup.vue';
 import { toNullableNumber } from '~/utils/nullableNumber';
 
 const model = defineModel<{ saturatedValue: number | null; dryValue: number | null }>({ required: true });
-// `offScaleError` is computed by the OWNER of the instrument row (SoilReadingModal.vue), not here: this
-// component is deliberately given two numbers and a unit label and knows nothing about which instrument it
-// is editing. Passing the resolved sentence in keeps the instrument's bounds read in exactly one place —
-// the same reason the unit label arrives as a prop rather than being looked up here.
+// `offScaleError` is computed by the OWNER of the instrument row (PlantCalibrationModal.vue — it was
+// SoilReadingModal.vue until 2026-08-10, when calibration became setup and left the measuring modal), not
+// here: this component is deliberately given two numbers and a unit label and knows nothing about which
+// instrument it is editing. Passing the resolved sentence in keeps the instrument's bounds read in exactly
+// one place — the same reason the unit label arrives as a prop rather than being looked up here.
 defineProps<{ unitLabel: string; offScaleError?: string }>();
 const { t } = useI18n();
 

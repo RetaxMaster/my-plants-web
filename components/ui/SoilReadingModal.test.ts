@@ -18,6 +18,10 @@ import { flushPromises, mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
 import type { CreateSoilReading, PlantSoilReadings, SoilReadingPreview } from '~/types/api';
 import { addDaysYmd, todayYmd, ymdFromLocalDate } from '../../utils/localDate.js';
+// QA round 5, F2: the shared contract's OWN plausibility predicate, imported here so the band the component
+// prints can be checked against the band the contract enforces rather than against a second hand-written
+// copy of the same arithmetic — which is exactly what such a check is for.
+import { implausibleForPotReason } from '@retaxmaster/my-plants-species-schema';
 
 // A WATERING DAY THAT IS NOT TODAY — the ONLY shape that still asks the before/after question (QA
 // 2026-08-11, finding 4; docs/care-engine.md §7.20.4). A today-dated reading's side of that day's watering
@@ -437,12 +441,59 @@ describe('SoilReadingModal', () => {
     });
 
     // DEF-4's own half of that same sentence: once the pot HAS anchors, they are the ruler.
+    // ⚠️ REWRITTEN 2026-08-11 (QA round 5, F2). The claim is unchanged — a calibrated pot refuses an absurd
+    // weight — but the SENTENCE now has to carry the accepted band as well as the two anchors, and this
+    // assertion is what would otherwise have gone on passing while the message stayed misleading. Anchors
+    // 1200/1850 => span 650 => band [550, 3150].
     it('DEF-4: refuses an implausible weight once the pot IS calibrated', async () => {
       const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
       await readingInput(w).setValue(1_000_000);
       expect(findSaveButton(w).attributes('disabled')).toBeDefined();
-      // Both anchors are named, so the owner can tell a typo from a pot that genuinely changed.
-      expect(rawValueError(w)).toBe('reading.valueImplausibleForPot|1200|1850');
+      // Both anchors are named, so the owner can tell a typo from a pot that genuinely changed — and, since
+      // F2, so is the band, so he can tell which of the two he is looking at.
+      expect(rawValueError(w)).toBe('reading.valueImplausibleForPot|1200|1850|550|3150');
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+    // QA round 5, F2 (LOW) — the refusal never stated what it WOULD accept.
+    //
+    // The server's own 400 says *"expected something between 1000 and 3000"*; the client repeated only the
+    // two anchors — *"it's calibrated 1500 (dry) to 2000 (watered)"* — so an owner typing `2900` (legal,
+    // and accepted) and one typing `3500` (refused) read the identical sentence and both concluded that
+    // only 1500–2000 was allowed. A refusal that misstates what it would accept sends the owner off to
+    // re-calibrate a pot that never changed.
+    //
+    // ⚠️ AND THIS CASE IS ALSO THE FORK GUARD. The component re-derives the band from the contract's two
+    // exported span constants rather than importing a helper that does not exist (adding one would mean a
+    // version bump and a re-pack into five consumers for one sentence — see the ledger). What keeps that
+    // safe is measured here, not promised: the numbers the message prints are fed straight back into
+    // `implausibleForPotReason` and must be exactly its accept/refuse boundary on BOTH sides. Change the
+    // band's shape in the shared contract and this goes red in the web.
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+    it('F2: states a band that is EXACTLY the contract\'s own accept/refuse boundary', async () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+      await readingInput(w).setValue(1_000_000);
+
+      const [key, dry, watered, min, max] = rawValueError(w)!.split('|');
+      expect(key).toBe('reading.valueImplausibleForPot');
+      expect([dry, watered]).toEqual(['1200', '1850']);
+
+      const pot = { dryValue: 1200, saturatedValue: 1850 };
+      // Inside, at both ends: the printed band is genuinely accepted.
+      expect(implausibleForPotReason(Number(min), pot)).toBeNull();
+      expect(implausibleForPotReason(Number(max), pot)).toBeNull();
+      // And a hair outside either end is genuinely refused, so the message cannot be quietly generous.
+      expect(implausibleForPotReason(Number(min) - 0.1, pot)).not.toBeNull();
+      expect(implausibleForPotReason(Number(max) + 0.1, pot)).not.toBeNull();
+    });
+
+    // The owner's own confusion, reproduced: a value inside the band but outside the anchors is ACCEPTED,
+    // which is precisely what the old message denied. QA's numbers, on this file's pot.
+    it('F2: a reading between the anchors and the band edge is accepted, as the message now says', async () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+      await readingInput(w).setValue(2900);
+      expect(rawValueError(w)).toBeUndefined();
+      expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
     });
 
     // ⚠️ THE OTHER DIRECTION, AND THE ONE A CARELESS BAND BREAKS. A real pot leaves its anchors: heavier
@@ -1698,6 +1749,57 @@ describe('a measurement cannot be dated before the plant existed (QA round 4, DE
 
     expect(findSaveButton(w).attributes('disabled')).toBeDefined();
     expect(blockedText(w)).toBe('reading.measuredOnBeforeAcquired|2026-06-01');
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════════
+  // QA round 5, F3 (LOW) — that refusal printed a RAW ISO date.
+  //
+  // *"You got this plant on 2026-05-13 — pick that day or later."* — in a dialog where every other date is
+  // formatted (`Aug 11, 2026` in the picker, `1 jun 2026` in the hint two lines above). One dialog, three
+  // date formats, and the raw one is the only date in it the owner did not type.
+  //
+  // ⚠️ THIS CASE HAD TO BUILD ITS OWN FORMATTER TO BE ABLE TO FAIL AT ALL, and that is worth reading before
+  // touching it. This file's `d` stub renders `YYYY-MM-DD`, which is byte-identical to the raw string it is
+  // meant to replace — so every assertion above, including the one directly overhead, passes whether the
+  // value goes through the formatter or not. A test that cannot tell the fix from the defect is not
+  // coverage. So `d` is re-stubbed here to MARK what it touched; reverting the component to
+  // `props.data!.acquiredOn` turns this red, and nothing else in the file.
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════════
+  describe('F3: the acquisition day is FORMATTED, like every other date in this dialog', () => {
+    // Captured off `globalThis` through an untyped view: `useI18n` is a Nuxt auto-import, so it exists at
+    // runtime here only because this file stubs it, and TypeScript has no declaration for it on the global
+    // object. Restoring the file-wide stub afterwards is what keeps this describe's marker from leaking
+    // into the 140-odd cases around it.
+    const realUseI18n = (globalThis as Record<string, unknown>).useI18n;
+    beforeEach(() => {
+      vi.stubGlobal('useI18n', () => ({
+        t: (k: string, params?: Record<string, unknown>) =>
+          (params ? `${k}|${Object.values(params).join('|')}` : k),
+        // The marker is the whole point: it proves the value passed THROUGH `d()` rather than merely
+        // matching what `d()` would have produced.
+        d: (date: Date) => `formatted<${ymdFromLocalDate(date)}>`,
+      }));
+    });
+    afterEach(() => { vi.stubGlobal('useI18n', realUseI18n); });
+
+    it('formats it in the footer reason', async () => {
+      const w = mountModal(makeData(owned), { mode: 'voluntary' });
+      await w.find('input[type="number"]').setValue(5);
+      await w.find('input[type="date"]').setValue('2020-01-01');
+      expect(blockedText(w)).toBe('reading.measuredOnBeforeAcquired|formatted<2026-06-01>');
+    });
+
+    // The SAME sentence renders twice — footer and inline field error — and the two must never disagree
+    // about how a date is spelled. Formatting one and not the other is the defect wearing half a fix.
+    it('formats it in the field\'s own inline error too', async () => {
+      const w = mountModal(makeData(owned), { mode: 'voluntary' });
+      await w.find('input[type="number"]').setValue(5);
+      await w.find('input[type="date"]').setValue('2020-01-01');
+      // Read as the FormGroup's `error` PROP, this file's own convention for field-level messages.
+      const dateGroup = w.findAllComponents({ name: 'FormGroup' })
+        .find((g) => g.props('label') === 'reading.measuredOn');
+      expect(dateGroup!.props('error')).toBe('reading.measuredOnBeforeAcquired|formatted<2026-06-01>');
+    });
   });
 
   // The browser half, which is what stops the picker's arrows before anything is typed at all — the exact

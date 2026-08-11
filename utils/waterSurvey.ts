@@ -202,6 +202,53 @@ export function canOfferWaterSurvey(facts: {
   );
 }
 
+/**
+ * ⚠️ WOULD THIS **Hecho** BE THROWN AWAY? THE ONE PLACE THAT QUESTION IS ANSWERED (QA round 5, F1 — the
+ * THIRD door onto one defect; the first two were the Today card and the reading modal's verdict step).
+ *
+ * THE DEFECT, measured 3/3 on Nina: the plant is watered today, so the survey has closed
+ * (`canOfferWaterSurvey`'s fourth condition) and the WATER row falls back to its classic shape — a date box
+ * and **Hecho**. Pressing Hecho with the box empty opens *"¿Por qué riegas antes de tiempo?"*, and the
+ * answer is posted to `POST /plants/:id/feedback` as `{task:'WATER',type:'DONE',occurredOn:<today>}` — which
+ * the API's one-`WATER DONE`-per-day dedup (`feedback.write-core.ts`) declines to write, returning an
+ * ordinary `200 {"ok":true}`. No care event, no date movement, no toast, no visual change at all. **The app
+ * asked the owner a question and threw the answer away.** QA's control proves it is WATER-specific: two
+ * Hechos on the ROTAR row wrote two events.
+ *
+ * ⚠️ AND IT IS **NOT** `wateredToday` ON ITS OWN. Withholding Hecho whenever the pot was watered today
+ * would destroy a legitimate flow QA verified end to end in this same round: an owner who watered TWO DAYS
+ * AGO types `2026-08-09` into that same date box, presses Hecho, and it works correctly (History gains
+ * *"Regada · hace 2 días"*, the schedule advances). Watering today does not make a PAST watering
+ * unrecordable, and with the survey on offer that box is the only way to record one. The no-op is specific
+ * to the date resolving to **today** on a pot **already watered today**, so that — and only that — is what
+ * this refuses.
+ *
+ * `occurredOn` is the row's date box as the owner left it: empty/nullish means "no date chosen", which is
+ * exactly what `TaskRow`'s own `onDone` turns into `occurredOn: undefined` and what both pages' `sendDone`
+ * then fills with today. Resolving the same fallback here is what makes an EMPTY box and a box reading
+ * today's date the same answer, which is what they are.
+ *
+ * ⚠️ ITS REACH IS BOUNDED BY THE FACT IT IS GIVEN, AND THAT RESIDUAL IS NAMED RATHER THAN HIDDEN. The care
+ * payload carries `watering.wateredToday` — one boolean about TODAY — and no set of the days this plant was
+ * watered on. So a back-dated Hecho onto a PAST day that already carries a watering is still swallowed by
+ * the same dedup, silently. That case needs a fact the API does not publish yet; closing it is a payload
+ * change, not a client one, and inventing a client-side guess for it would be worse than the gap.
+ *
+ * ⚠️ IT DOES NOT MOVE `canOfferWaterSurvey`'s FOURTH CONDITION. That one withdraws the MEASURE affordance;
+ * this one withdraws the DONE. They read the same boolean and answer different questions, and both are
+ * needed: the survey closes first, which is precisely what UNCOVERS the classic row this rule then has to
+ * govern.
+ */
+export function waterDoneWouldBeDiscarded(facts: {
+  task: TaskCode;
+  wateredToday: boolean;
+  occurredOn: string | null | undefined;
+  today: string;
+}): boolean {
+  if (facts.task !== 'WATER' || !facts.wateredToday) return false;
+  return (facts.occurredOn || facts.today) === facts.today;
+}
+
 /** The three urgency states every task row is rendered in. Named here because `effectiveTaskStatus` below
  *  both takes and returns one, and both renderers already speak this vocabulary. */
 export type TaskDueStatus = 'overdue' | 'today' | 'upcoming';

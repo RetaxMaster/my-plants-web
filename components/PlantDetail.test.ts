@@ -2000,17 +2000,26 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // defect. It deliberately does NOT model the real component's second clause (`effectiveStatus !==
   // 'upcoming'`), which is pinned where it belongs, in `TaskRow.test.ts` — this file's concern is which
   // PROPS this page sends, not TaskRow's internal state machine.
+  //
+  // ⚠️ UPDATED AGAIN 2026-08-11 (QA round 5, F1): a WATER row on a pot already watered today withholds
+  // **Hecho** as well, because the date box is empty by default and an empty box means TODAY — which is
+  // the Done the API's one-`WATER DONE`-per-day dedup throws away. Without this the stub would re-offer a
+  // button the real component withholds, which is precisely the shape that let DEF-3 ship green (see
+  // pages/index.test.ts's own warning). This stub has NO date box, so it can only ever describe the
+  // empty-box case; the back-dating half of the rule — type an earlier day and Hecho comes back — is
+  // TaskRow.test.ts's, where a real input exists to type into.
   const UiTaskRowStub = {
     props: {
       task: null,
       canSurvey: { type: Boolean, default: false },
       allowStandaloneDone: { type: Boolean, default: false },
+      wateredToday: { type: Boolean, default: false },
     },
     emits: ['evaluate', 'done', 'postpone'],
     template:
       '<div :data-task="task" :data-can-survey="String(!!canSurvey)" :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
       '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">¿Necesitas regar?</button>' +
-      '<button v-if="task !== \'WATER\' || !canSurvey || allowStandaloneDone" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
+      '<button v-if="(task !== \'WATER\' || !canSurvey || allowStandaloneDone) && !(task === \'WATER\' && wateredToday)" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
       '<button v-if="task !== \'WATER\' || !canSurvey || task === \'WATER\'" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
       '</div>',
   };
@@ -2138,8 +2147,12 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     const row = w.find('[data-task=WATER]');
     expect(row.attributes('data-can-survey')).toBe('false');
     expect(row.find('.evaluate-btn').exists()).toBe(false);
-    // …and the ordinary pair is what the row falls back to, exactly as a no-instrument owner sees.
-    expect(row.find('.done-btn').exists()).toBe(true);
+    // ⚠️ REWRITTEN 2026-08-11 (QA round 5, F1). This used to assert that "the ordinary pair is what the row
+    // falls back to" — and that fallback WAS the third door onto the discarded-Done defect: with the pot
+    // already watered, the Hecho it restored posts an `occurredOn` of today, which the API's
+    // one-`WATER DONE`-per-day dedup swallows for a `200` and no change anywhere. Posponer is untouched
+    // (DEF-3: "no tengo tiempo ahorita" is an answer about the owner, not the pot, and it is not deduped).
+    expect(row.find('.done-btn').exists()).toBe(false);
     expect(row.find('.postpone-btn').exists()).toBe(true);
   });
 
@@ -2371,7 +2384,9 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       ':data-prompt-answered="String(!!promptAnsweredToday)" ' +
       ':data-watered-today="String(!!wateredToday)">' +
       '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">survey</button>' +
-      '<button v-if="task !== \'WATER\' || !canSurvey || allowStandaloneDone" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
+      // QA round 5, F1 — mirrors the real component: on a pot already watered today a WATER Hecho would be
+      // dated TODAY (this stub has no date box) and the API's dedup would discard it, so it is withheld.
+      '<button v-if="(task !== \'WATER\' || !canSurvey || allowStandaloneDone) && !(task === \'WATER\' && wateredToday)" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
       '<button v-if="task !== \'WATER\' || !canSurvey" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
       '</div>',
   };
@@ -2538,15 +2553,30 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // retired promotion means an extra watering on a not-yet-due task is once again an EARLY watering and
   // asks why. Applying the exit to the badge alone would leave the two disagreeing.
   // ═════════════════════════════════════════════════════════════════════════════════════════════════
-  it('the promotion retires once the card was answered with Hecho — an extra watering is early again',
+  //
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 5, F1) — IT NOW PINS TWO LAYERS, because the outer one moved. A card
+  // "answered with Hecho" is by definition a pot watered today, and F1 withholds a second Hecho on such a
+  // row entirely: the discarded post is no longer reachable through this surface at all. That is asserted
+  // FIRST. The handler's own retirement is then exercised by emitting `done` DIRECTLY on the row — not by
+  // clicking a button the real component no longer renders. That is deliberate, and it is not testing
+  // fiction: `onDone` is a separate layer from the row's rendering, this page has a second caller into it
+  // (the reading modal's WATER_NOW branch), and the round-3 defect this case was written for lived in the
+  // handler, not in the button. Deleting the emit-based half would silently retire the only proof that
+  // `careEffectiveStatus` still consults `promptAnsweredToday`/`wateredToday`.
+  it('withholds a SECOND Hecho once the card was answered — and the handler still retires the promotion',
     async () => {
       const w = await mountWater({
         todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9,
         wateredToday: true, promptAnswered: true,
       });
-      await w.find('.done-btn').trigger('click');
+      // F1: there is nothing to press. The row is the pot's own, and the pot is watered.
+      expect(w.find('.done-btn').exists()).toBe(false);
+
+      w.findComponent(UiTaskRowStub).vm.$emit('done', { task: 'WATER' });
       await flushPromises();
 
+      // Retired: the row is `upcoming` again, so the handler treats an extra watering as an EARLY one and
+      // asks why, instead of sending it through as the app's own prescription.
       expect(sendFeedbackMock).not.toHaveBeenCalled();
       expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
     });
@@ -2598,12 +2628,18 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // not a widening of the second, and what makes these cases invisible to any fixture where the pot was not
   // watered today. Dropping `wateredToday` from `careEffectiveStatus` turns them RED.
   // ═════════════════════════════════════════════════════════════════════════════════════════════════
-  it('DEF-2: the promotion retires on a pot watered BEFORE the measurement — the handler half', async () => {
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 5, F1), exactly like its sibling above and for the same reason: the
+  // page no longer RENDERS a Hecho on a pot watered today, so the handler is reached by emitting `done` on
+  // the row rather than by clicking. Both layers are asserted — the button that is not offered, and the
+  // handler that would still be right if some future caller emitted it anyway.
+  it('DEF-2: withholds Hecho on a pot watered BEFORE the measurement, and the handler still retires', async () => {
     const w = await mountWater({
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9,
       wateredToday: true, promptAnswered: false,
     });
-    await w.find('.done-btn').trigger('click');
+    expect(w.find('.done-btn').exists()).toBe(false);
+
+    w.findComponent(UiTaskRowStub).vm.$emit('done', { task: 'WATER' });
     await flushPromises();
     // Retired: the row is `upcoming` again, so an extra watering is an EARLY watering and asks why,
     // instead of being sent straight through as the app's own prescription.

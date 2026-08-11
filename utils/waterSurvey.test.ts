@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canOfferWaterSurvey, effectiveTaskStatus, postponeReasonWithoutAsking, todaysVerdictClosesSurvey,
+  waterDoneWouldBeDiscarded,
   NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, storedVerdictFor,
   type TodaysVerdict,
 } from './waterSurvey.js';
@@ -305,5 +306,60 @@ describe('storedVerdictFor', () => {
   // uninterpretable reading silently supersede the answer already on the row.
   it('stores an UNAVAILABLE recommendation as the non-answer NONE', () => {
     expect(storedVerdictFor('UNAVAILABLE')).toBe('NONE');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// WOULD THIS **Hecho** BE THROWN AWAY? (QA round 5, F1 — the THIRD door onto one defect.)
+//
+// The measured repro, 3/3 on Nina: the plant is watered today, the survey has therefore closed, the WATER
+// row falls back to a date box + Hecho, and pressing Hecho with the box empty asks the owner WHY he is
+// watering early and then posts an answer the API's one-`WATER DONE`-per-day dedup discards — `200`, no
+// care event, no date movement, no toast, nothing.
+//
+// ⚠️ BOTH DIRECTIONS ARE PINNED HERE, and the second one is the half a careless fix removes. Withholding
+// Hecho on `wateredToday` ALONE would also destroy back-dating, which QA verified WORKING in the same
+// round: an owner who watered two days ago types that day into the box and records it correctly.
+//   • collapse the rule to `wateredToday` (drop the date comparison)  -> the back-dating cases go RED
+//   • delete the rule (always return false)                          -> the today cases go RED
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('waterDoneWouldBeDiscarded (QA round 5, F1)', () => {
+  const TODAY = '2026-08-11';
+  const base = { task: 'WATER' as TaskCode, wateredToday: true, occurredOn: '', today: TODAY };
+
+  it('refuses a Done dated TODAY on a pot already watered today — the empty box IS today', () => {
+    expect(waterDoneWouldBeDiscarded({ ...base, occurredOn: '' })).toBe(true);
+    expect(waterDoneWouldBeDiscarded({ ...base, occurredOn: null })).toBe(true);
+    expect(waterDoneWouldBeDiscarded({ ...base, occurredOn: undefined })).toBe(true);
+    expect(waterDoneWouldBeDiscarded({ ...base, occurredOn: TODAY })).toBe(true);
+  });
+
+  // ⚠️ THE HALF A CARELESS FIX SILENTLY REMOVES. QA measured this flow WORKING end to end — History gained
+  // "Regada · hace 2 días" and the schedule advanced — so a fix that took it away would trade one silent
+  // discard for one lost capability.
+  it('ALLOWS a back-dated Done on that same pot — a past watering stays recordable', () => {
+    expect(waterDoneWouldBeDiscarded({ ...base, occurredOn: '2026-08-09' })).toBe(false);
+    expect(waterDoneWouldBeDiscarded({ ...base, occurredOn: '2020-01-01' })).toBe(false);
+  });
+
+  it('allows everything on a pot that has NOT been watered today', () => {
+    expect(waterDoneWouldBeDiscarded({ ...base, wateredToday: false, occurredOn: '' })).toBe(false);
+    expect(waterDoneWouldBeDiscarded({ ...base, wateredToday: false, occurredOn: TODAY })).toBe(false);
+  });
+
+  // The control QA ran and reported: pressing Hecho twice on the ROTAR row wrote BOTH events, because the
+  // dedup is WATER-only. A rule that fired on every task would remove a legitimate action from five of the
+  // six.
+  it('is WATER-only — no other task has a one-per-day dedup to fall foul of', () => {
+    for (const task of ['ROTATE', 'FERTILIZE', 'REPOT', 'CLEAN_LEAVES', 'MIST'] as TaskCode[]) {
+      expect(waterDoneWouldBeDiscarded({ ...base, task })).toBe(false);
+    }
+  });
+
+  // A future date cannot be typed into the row (the input carries `max="today"`), but data is data: it is
+  // not today, so it is not the discarded case, and the server's own past-event rule stays the authority.
+  it('says nothing about a FUTURE date — that is A4\'s refusal, not this one', () => {
+    expect(waterDoneWouldBeDiscarded({ ...base, occurredOn: '2026-08-12' })).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import type { TaskCode } from '~/utils/tasks';
 import { dueState } from '~/utils/tasks';
 // The WATER row's shared rules — the ONE place a measured verdict decides anything, applied identically by
 // this component and by both pages. See `effectiveTaskStatus`'s own comment.
-import { effectiveTaskStatus, type TodaysVerdict } from '~/utils/waterSurvey';
+import { effectiveTaskStatus, waterDoneWouldBeDiscarded, type TodaysVerdict } from '~/utils/waterSurvey';
 import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
 import { useTaskMeta } from '~/composables/useTaskMeta';
 
@@ -288,10 +288,34 @@ const reevaluateNoticeDate = computed(() =>
 // about which states those are.
 const verdictWithholdsDone = computed(() => showEvaluate.value || reevaluatePending.value);
 
-// Done renders whenever the survey shape is not withholding it — i.e. REPOT with a decided verdict, a WATER
-// row with no way to survey (`canSurvey: false`, the default), and every task the shape doesn't touch at all
-// — PLUS the surface that has explicitly opted into a standalone Done.
-const showDone = computed(() => !verdictWithholdsDone.value || props.allowStandaloneDone);
+// The Done SLOT — whether this row's completion affordance is on screen at all. It opens whenever the
+// survey shape is not withholding it — i.e. REPOT with a decided verdict, a WATER row with no way to survey
+// (`canSurvey: false`, the default), and every task the shape doesn't touch at all — PLUS the surface that
+// has explicitly opted into a standalone Done.
+//
+// ⚠️ THE SLOT AND THE BUTTON ARE TWO DIFFERENT THINGS SINCE QA ROUND 5 (F1), AND SPLITTING THEM IS THE FIX.
+// The back-date input lives in this slot too, and it is the ONE control that can turn a refused Done into an
+// accepted one (see `doneWouldBeDiscarded` below) — so hiding the whole slot to hide the button would take
+// the owner's only way out with it.
+const doneSlotOpen = computed(() => !verdictWithholdsDone.value || props.allowStandaloneDone);
+
+// ⚠️ WOULD THIS Hecho BE THROWN AWAY (QA round 5, F1)? The RULE lives in `utils/waterSurvey.ts` — this is
+// the THIRD renderer to need it (Today's card, the reading modal's verdict step, and now this row), which
+// is exactly why it is a shared predicate and not a fourth local condition. See its own doc for the
+// measured defect and for why `wateredToday` alone is the WRONG test.
+//
+// It reads `doneDate` — the row's own date box — so it is LIVE: typing an earlier day into that box brings
+// Hecho straight back, which is the legitimate back-dating flow QA verified in this same round and the half
+// a careless fix silently removes.
+const doneWouldBeDiscarded = computed(() =>
+  waterDoneWouldBeDiscarded({
+    task: props.task,
+    wateredToday: props.wateredToday,
+    occurredOn: doneDate.value,
+    today: todayYmd(),
+  }));
+
+const showDone = computed(() => doneSlotOpen.value && !doneWouldBeDiscarded.value);
 
 // ⚠️ A WATER SURVEY WITHHOLDS **HECHO** AND NOT **POSPONER**, AND THE ASYMMETRY IS THE WHOLE RULE (QA round
 // 4, DEF-3; owner-ruled 2026-08-11). Until this change, an owner who had selected an instrument could not
@@ -367,7 +391,7 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
         <span v-else-if="reevaluatePending" class="mp-taskrow__pending-note">
           {{ t('repotEval.pendingReevaluateNote', { date: reevaluateNoticeDate }) }}
         </span>
-        <template v-if="showDone">
+        <template v-if="doneSlotOpen">
           <!-- A4 (spec §2.4): a PAST-EVENT date, so the browser refuses a future day with no round trip.
                `pages/moving.vue`'s moveOn deliberately carries NO max — it is future-by-design. -->
           <!-- Spec §2.3: on REPOT this input SEEDS the completion form's own date field and then stops
@@ -387,6 +411,7 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
                still what the card is asking for. It becomes primary again once nothing is withholding it,
                which is every case that existed before. -->
           <Button
+            v-if="showDone"
             size="xs"
             :color="verdictWithholdsDone ? 'neutral' : 'primary'"
             :variant="verdictWithholdsDone ? 'soft' : 'solid'"
@@ -395,6 +420,19 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
           >
             {{ t('common.done') }}
           </Button>
+          <!-- ⚠️ WITHHELD AND REPLACED BY THE FACT, NEVER RENDERED DEAD OR SILENTLY DROPPED (QA round 5,
+               F1). The app must not offer — and must certainly not interrogate the owner about — a Done the
+               server will discard, but it must not go quiet either: a button that simply vanishes reads as
+               a bug. So the row states what is true about the plant, and, wherever the date box exists, the
+               one action that still works. The date box above stays rendered and live: an earlier day
+               brings Hecho back on the very next keystroke.
+               Two independent sentences rather than one composed key, deliberately — the second is a
+               statement about a control that only exists when `withDoneDate` is passed, and printing "set
+               an earlier date" on a row with no date field would be advice the owner cannot follow. -->
+          <span v-else class="mp-taskrow__discarded-note">
+            {{ t('tasks.wateredTodayNote') }}<template v-if="withDoneDate">
+              {{ t('tasks.wateredTodayBackdate') }}</template>
+          </span>
         </template>
         <!-- ⚠️ POSPONER SITS OUTSIDE THE `showDone` BLOCK (QA round 4, DEF-3). It used to be nested inside
              it, which silently tied "may I postpone?" to "may I mark it done?" — and for a WATER row with
@@ -464,6 +502,15 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
 }
 
 .mp-taskrow__pending-note {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* QA round 5, F1 — the sentence that replaces a Done the server would discard. Same treatment as the
+   pending-reevaluate note directly above: muted, small, and part of the action row rather than an alert,
+   because it states a fact about the plant and not a failure. */
+.mp-taskrow__discarded-note {
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   color: var(--text-muted);

@@ -64,7 +64,9 @@
       "ROTATE": "Rotated",
       "CLEAN_LEAVES": "Cleaned leaves",
       "MIST": "Misted"
-    }
+    },
+    "wateredTodayNote": "Already watered today.",
+    "wateredTodayBackdate": "Set an earlier date to record a past watering."
   },
   "taskInfo": {
     "aria": "About this task",
@@ -1387,7 +1389,7 @@
     "valueOutOfRange": "Enter a value between {min} and {max}.",
     "valueBelowMin": "Enter a value of {min} or more.",
     "valueOffStep": "This reading takes whole numbers from {min}, in steps of {step}.",
-    "valueImplausibleForPot": "That doesn't look like a weight for this pot — it's calibrated {dry} (dry) to {watered} (watered). Check the number, or re-calibrate the pot if it has really changed.",
+    "valueImplausibleForPot": "That doesn't look like a weight for this pot — it's calibrated {dry} (dry) to {watered} (watered), so a reading between {min} and {max} is what we'd expect. Check the number, or re-calibrate the pot if it has really changed.",
     "missingWateringRelation": "Tell us whether you measured before or after watering.",
     "missingCalibration": "Fill in both reference weights first.",
     "missingValue": "Enter your reading first.",

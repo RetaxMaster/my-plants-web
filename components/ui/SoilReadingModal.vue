@@ -94,11 +94,16 @@ import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
 // and not hand-written here as a `!== 'NONE'`. It is the same predicate the API applies when it decides
 // which of a day's readings speaks for that day and when it refuses to let an edit erase a stored answer;
 // it lived in both repos until 2026-08-11 and now lives once, beside the verdict vocabulary itself.
-import { implausibleForPotReason, verdictIsAnswer } from '@retaxmaster/my-plants-species-schema';
+import {
+  implausibleForPotReason,
+  verdictIsAnswer,
+  READING_PLAUSIBLE_SPANS_ABOVE_SATURATED,
+  READING_PLAUSIBLE_SPANS_BELOW_DRY,
+} from '@retaxmaster/my-plants-species-schema';
 // The WATER survey's own shared rules. `storedVerdictFor` is the ONE translation from a preview's
 // recommendation into the verdict a reading row stores, used by BOTH the survey's branches below and the
 // voluntary edit that re-derives one.
-import { storedVerdictFor } from '~/utils/waterSurvey';
+import { storedVerdictFor, waterDoneWouldBeDiscarded } from '~/utils/waterSurvey';
 // The ONE module that knows the Nuxt BFF's error envelope. Read its header before touching the catch
 // blocks below: the envelope carries no `message` of its own, so a hand-rolled `e.data.message` read here
 // does not merely duplicate this module — it silently never matches, on every proxied failure.
@@ -830,6 +835,34 @@ const rawValueImplausibleForPot = computed(() => {
   return implausibleForPotReason(rawValue.value, instrument.value?.calibration ?? null) !== null;
 });
 
+/**
+ * THE BAND THE MESSAGE HAS TO STATE (QA round 5, F2) — the two numbers `implausibleForPotReason` itself
+ * compares against, derived from the SAME two exported constants it derives them from.
+ *
+ * WHY IT EXISTS. The refusal used to name only the two anchors — *"it's calibrated 1500 (dry) to 2000
+ * (watered)"* — while the server's own 400 named the band: *"expected something between 1000 and 3000"*. An
+ * owner typing `2900` (legal, and accepted) and one typing `3500` (refused) read the same sentence and both
+ * concluded that only 1500–2000 was allowed. A refusal that misstates what it would accept sends the owner
+ * to re-calibrate a pot that never changed.
+ *
+ * ⚠️ THE ARITHMETIC IS RE-DERIVED HERE AND THAT IS A DELIBERATE, TESTED CHOICE. The alternative was to
+ * export a `plausibleBandForPot` from the shared contract, which means a version bump and a re-pack into
+ * FIVE consumers for one sentence — see the ledger. What makes the re-derivation safe is not care, it is
+ * `SoilReadingModal.test.ts`'s boundary-parity case: it asserts that the numbers this computed prints are
+ * exactly the numbers `implausibleForPotReason` accepts and refuses on either side. Change the band's shape
+ * in the contract and that test goes red here, which is the only kind of parity worth having.
+ */
+const plausibleBandForPot = computed<{ min: number; max: number } | null>(() => {
+  const cal = instrument.value?.calibration;
+  if (cal == null) return null;
+  const span = cal.saturatedValue - cal.dryValue;
+  if (!(span > 0) || !Number.isFinite(span)) return null;
+  return {
+    min: cal.dryValue - READING_PLAUSIBLE_SPANS_BELOW_DRY * span,
+    max: cal.saturatedValue + READING_PLAUSIBLE_SPANS_ABOVE_SATURATED * span,
+  };
+});
+
 // Shown only once the owner has typed SOMETHING — an empty field is simply "not filled in yet" (canSubmit
 // already gates on that), never an inline error of its own. Same shape as RepotDoneForm.vue's own
 // `potSizeErrorMessage`.
@@ -851,7 +884,16 @@ const rawValueErrorMessage = computed(() => {
   // owner can tell a typo from a pot that has genuinely changed and needs re-calibrating.
   if (rawValueImplausibleForPot.value) {
     const cal = instrument.value!.calibration!;
-    return t('reading.valueImplausibleForPot', { dry: cal.dryValue, watered: cal.saturatedValue });
+    // QA round 5, F2: the ACCEPTED BAND, not only the two anchors. A pot reads honestly outside its own
+    // anchors in both directions (that asymmetry is the whole of DEF-4's argument), so a message that names
+    // only the anchors describes a rule the app does not enforce.
+    const band = plausibleBandForPot.value!;
+    return t('reading.valueImplausibleForPot', {
+      dry: cal.dryValue,
+      watered: cal.saturatedValue,
+      min: band.min,
+      max: band.max,
+    });
   }
   return undefined;
 });
@@ -881,7 +923,7 @@ const blockedReason = computed(() => {
   // Ahead of the value: a date the owner has to correct anyway makes every other complaint noise.
   if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
   if (measuredOnBeforeAcquired.value) {
-    return t('reading.measuredOnBeforeAcquired', { acquired: props.data!.acquiredOn });
+    return t('reading.measuredOnBeforeAcquired', { acquired: acquiredOnLabel.value });
   }
   if (rawValue.value == null) return t('reading.missingValue');
   // The SAME sentence the field shows, not a second phrasing of it — two wordings for one fault is what
@@ -920,13 +962,28 @@ const primaryLabel = computed(() => (props.mode === 'survey' ? t('reading.calcul
 const measuredOnHint = computed(() =>
   (measuredOn.value ? d(ymdToLocalDate(measuredOn.value), 'short') : undefined));
 
+/**
+ * THE ACQUISITION DAY, SPELLED THE WAY EVERY OTHER DATE IN THIS DIALOG IS (QA round 5, F3).
+ *
+ * The refusal printed the raw stored string — *"You got this plant on 2026-05-13 — pick that day or
+ * later."* — three lines under a hint reading *"1 jun 2026"* and beside a picker rendering `Aug 11, 2026`.
+ * One dialog, three date formats, and the raw one is the only date in it the owner did not choose.
+ *
+ * Built through `ymdToLocalDate` and the same `d(…, 'short')` formatter `measuredOnHint` above uses — never
+ * `new Date(ymd)`, which parses as UTC midnight and renders one day early west of Greenwich. Naming the
+ * acquisition day one day early, in a message whose whole job is to tell the owner which day is the
+ * earliest legal one, would be a worse bug than the formatting it fixes.
+ */
+const acquiredOnLabel = computed(() =>
+  (props.data?.acquiredOn ? d(ymdToLocalDate(props.data.acquiredOn), 'short') : ''));
+
 // The date field's own inline error — ONE computed rather than a ternary chain in the template, so the two
 // refusals (future / before the plant existed) cannot come to disagree with `blockedReason`'s ordering.
 // Future first, matching that footer exactly: the two must never name different faults for one date.
 const measuredOnError = computed(() => {
   if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
   if (measuredOnBeforeAcquired.value) {
-    return t('reading.measuredOnBeforeAcquired', { acquired: props.data!.acquiredOn });
+    return t('reading.measuredOnBeforeAcquired', { acquired: acquiredOnLabel.value });
   }
   return undefined;
 });
@@ -1263,7 +1320,22 @@ async function submit() {
  * it renders in the verdict body beside the verdict rather than through `ModalBlockedReason`, which means
  * *"the primary action is blocked"* and belongs to the measure step's own footer.
  */
-const canMarkWaterDone = computed(() => !props.wateredToday);
+// ⚠️ ROUTED THROUGH THE SHARED PREDICATE SINCE QA ROUND 5 (F1), AND THAT IS THE POINT OF THE CHANGE, NOT A
+// STYLISTIC ONE. This was `!props.wateredToday` — correct, and a SECOND implementation of a rule the task
+// row was missing entirely, which is how the same defect was found three times on three surfaces. Both
+// renderers of a WATER Done now ask `waterDoneWouldBeDiscarded`, so a change to what the API discards is a
+// change to one function.
+//
+// `occurredOn: null` is a statement, not a placeholder: this footer's Hecho carries no date of its own — it
+// records TODAY's watering, off the back of today's reading — so the predicate's own empty-means-today
+// fallback is exactly right here, and there is deliberately no date box to make it anything else.
+const canMarkWaterDone = computed(() =>
+  !waterDoneWouldBeDiscarded({
+    task: 'WATER',
+    wateredToday: props.wateredToday,
+    occurredOn: null,
+    today: todayYmd(),
+  }));
 
 /**
  * The WATER_NOW verdict's two actions (QA 2026-08-10). CLOSES FIRST, then emits.

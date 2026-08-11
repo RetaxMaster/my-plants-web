@@ -688,3 +688,99 @@ describe('UiTaskRow — DEF-2: a pot watered today is not promoted by a measurem
     expect(w.text()).toContain('reading.verdictNowBadge');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// QA round 5, F1 (MEDIUM) — the THIRD door onto one defect: a Hecho the server throws away.
+//
+// The measured repro, 3/3 on Nina (UI in ES, UI in EN, direct API): the plant is watered today, so the
+// survey has closed (`canOfferWaterSurvey`'s fourth condition) and this row falls back to its classic shape
+// — date box + Hecho. Pressing Hecho with the box empty opened "¿Por qué riegas antes de tiempo?", and the
+// answer was posted as `occurredOn: <today>` — which the API's one-`WATER DONE`-per-day dedup declines to
+// write, returning an ordinary `200 {"ok":true}`. No care event, no date movement, no toast, no visual
+// change at all. The app asked the owner a question and threw the answer away.
+//
+// ⚠️ THE TWO DIRECTIONS THIS BLOCK PINS, because pinning only the first is pinning half the rule:
+//   • restore the offered Done (drop `&& !doneWouldBeDiscarded` from `showDone`) -> the withholding cases RED
+//   • withhold Done from a BACK-DATED watering (collapse the rule to bare `wateredToday`, i.e. stop reading
+//     the date box) -> the back-dating case RED
+// The second is the flow QA verified WORKING in this same round: an owner who watered two days ago types
+// that day into this very box and records it correctly (History gained "Regada · hace 2 días", the schedule
+// advanced). With the survey on offer that box is the only route to a past watering, so a fix that closes
+// it trades one silent discard for one lost capability.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('UiTaskRow — F1: a WATER Done the API would discard is never offered', () => {
+  const wateredWaterRow = {
+    task: 'WATER' as const, status: 'today' as const, dueLabel: 'Today', canSurvey: false,
+    withDoneDate: true, wateredToday: true,
+  };
+  const doneButton = (w: ReturnType<typeof mountRow>) =>
+    w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check');
+
+  it('withholds Hecho on a pot already watered today, and says so instead of going silent', () => {
+    const w = mountRow(wateredWaterRow);
+    expect(doneButton(w)).toBeUndefined();
+    expect(w.text()).toContain('tasks.wateredTodayNote');
+    // The route that still works is named, because a control that merely vanishes reads as a bug.
+    expect(w.text()).toContain('tasks.wateredTodayBackdate');
+  });
+
+  // ⚠️ THE DATE BOX SURVIVES THE WITHHOLDING. Hiding the whole Done slot would have hidden the one control
+  // that can turn the refusal back into an acceptance — the fix eating its own escape hatch.
+  it('keeps the back-date input rendered while Hecho is withheld', () => {
+    const w = mountRow(wateredWaterRow);
+    expect(w.find('input[type="date"]').exists()).toBe(true);
+  });
+
+  it('BRINGS Hecho BACK the moment an earlier day is typed, and emits that day', async () => {
+    const w = mountRow(wateredWaterRow);
+    await w.find('input[type="date"]').setValue('2026-08-09');
+
+    const done = doneButton(w);
+    expect(done).toBeDefined();
+    expect(w.text()).not.toContain('tasks.wateredTodayNote');
+
+    await done!.trigger('click');
+    expect(w.emitted('done')![0]).toEqual([{ task: 'WATER', occurredOn: '2026-08-09' }]);
+  });
+
+  // Typing TODAY's own date is the same answer as leaving the box empty, and it must be refused the same
+  // way — the defect's exact shape, reached through the box instead of past it.
+  it('refuses again when the owner types today back into the box', async () => {
+    const w = mountRow(wateredWaterRow);
+    await w.find('input[type="date"]').setValue('2026-08-09');
+    expect(doneButton(w)).toBeDefined();
+    await w.find('input[type="date"]').setValue(todayYmd());
+    expect(doneButton(w)).toBeUndefined();
+  });
+
+  // The other direction of the same rule: nothing was watered today, so nothing is discarded and the row is
+  // byte-identical to what it has always been. Inverting the predicate turns this RED.
+  it('leaves an unwatered pot\'s Hecho exactly where it was', () => {
+    const w = mountRow({ ...wateredWaterRow, wateredToday: false });
+    expect(doneButton(w)).toBeDefined();
+    expect(w.text()).not.toContain('tasks.wateredTodayNote');
+  });
+
+  // QA's own control: pressing Hecho twice on the ROTAR row wrote BOTH events, because the dedup is
+  // WATER-only. A rule that fired on every task would delete a legitimate action from five of the six.
+  it('never touches a non-WATER row, whatever `wateredToday` says', () => {
+    const w = mountRow({ ...wateredWaterRow, task: 'ROTATE' });
+    expect(doneButton(w)).toBeDefined();
+    expect(w.text()).not.toContain('tasks.wateredTodayNote');
+  });
+
+  // DEF-3's asymmetry is untouched: "no tengo tiempo ahorita" is an answer about the owner's availability,
+  // and it is not the thing the dedup discards. Withholding it here would leave a due row with no action.
+  it('leaves Posponer alone — only the discarded action is withheld', () => {
+    const w = mountRow(wateredWaterRow);
+    expect(w.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).toContain('clock');
+  });
+
+  // A caller with no date box gets the FACT and not the advice: "set an earlier date" would name a control
+  // that does not exist on that row.
+  it('omits the back-dating sentence when there is no date box to follow it with', () => {
+    const w = mountRow({ ...wateredWaterRow, withDoneDate: false });
+    expect(w.text()).toContain('tasks.wateredTodayNote');
+    expect(w.text()).not.toContain('tasks.wateredTodayBackdate');
+  });
+});

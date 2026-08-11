@@ -64,7 +64,9 @@
       "ROTATE": "Rotada",
       "CLEAN_LEAVES": "Hojas limpiadas",
       "MIST": "Rociada"
-    }
+    },
+    "wateredTodayNote": "Ya la regaste hoy.",
+    "wateredTodayBackdate": "Pon una fecha anterior para registrar un riego pasado."
   },
   "taskInfo": {
     "aria": "Acerca de esta tarea",
@@ -1387,7 +1389,7 @@
     "valueOutOfRange": "Ingresa un valor entre {min} y {max}.",
     "valueBelowMin": "Ingresa un valor de {min} o más.",
     "valueOffStep": "Esta lectura toma números enteros desde {min}, de {step} en {step}.",
-    "valueImplausibleForPot": "Ese peso no parece de esta maceta: está calibrada de {dry} (seca) a {watered} (regada). Revisa el número, o vuelve a calibrar la maceta si de verdad cambió.",
+    "valueImplausibleForPot": "Ese peso no parece de esta maceta: está calibrada de {dry} (seca) a {watered} (regada), así que esperaríamos una lectura entre {min} y {max}. Revisa el número, o vuelve a calibrar la maceta si de verdad cambió.",
     "missingWateringRelation": "Dinos si mediste antes o después de regar.",
     "missingCalibration": "Primero llena los dos pesos de referencia.",
     "missingValue": "Primero ingresa tu lectura.",

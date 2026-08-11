@@ -209,6 +209,13 @@ const stubs = {
       // avoid: an undeclared prop makes `data-todays-verdict` true of the DOM without being true of the
       // component contract.
       todaysVerdict: { type: String, default: null },
+      // QA round 5, F1 — declared, defaulted `false`, and READ by the Done gate below even though this
+      // page never passes it. That is the point: the stub must not be able to offer a Done the real
+      // component withholds, and the day pages/index.vue starts binding `:watered-today` (the day the
+      // Today payload carries it — see `WATERED_TODAY_NOT_ON_THE_TODAY_ROW`) this stub is already honest.
+      // A stub that re-derives a component's rule is a second implementation of it, and DEF-3 shipped
+      // green precisely because one of them was wrong.
+      wateredToday: { type: Boolean, default: false },
     },
     // Plan 3 T5: `evaluate` now carries a payload ({ task }), mirroring the REAL TaskRow.vue's own
     // `emit('evaluate', { task: props.task })` — pages/index.vue routes on it to tell a REPOT evaluate from
@@ -230,7 +237,10 @@ const stubs = {
       // so the whole surface stayed green while the real component shipped the bug. Mirrors TaskRow.vue's
       // rule now, minus its `effectiveStatus !== 'upcoming'` clause, which is TaskRow.test.ts's own concern
       // (this file is about which PROPS the page sends).
-      '<button v-if="task !== \'WATER\' || !canSurvey" class="done-btn" @click="$emit(\'done\', { task })">done</button>' +
+      // ⚠️ AND UPDATED AGAIN 2026-08-11 (QA round 5, F1): a WATER row on a pot already watered today
+      // withholds Hecho too — this stub has no date box, so its Done can only ever be dated TODAY, which
+      // is the exact post the API's one-`WATER DONE`-per-day dedup discards.
+      '<button v-if="(task !== \'WATER\' || !canSurvey) && !(task === \'WATER\' && wateredToday)" class="done-btn" @click="$emit(\'done\', { task })">done</button>' +
       '<button class="postpone-btn" @click="$emit(\'postpone\', { task })">postpone</button>' +
       '</div>',
   },

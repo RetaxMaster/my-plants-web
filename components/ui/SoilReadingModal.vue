@@ -30,6 +30,15 @@
 // any of the three verdict branches. The owner's ruling: *"que la pestaña de hoy me haga una encuesta si
 // debo regar o no. Y ya, es todo, no quiero marcar ni antes ni después ni nada."*
 //
+// ⚠️ "THE OWNER IS MEASURING NOW" IS TRUE OF TWO OF THE THREE BRANCHES, AND THE THIRD IS WHY
+// `measurementTakenAt` EXISTS (2026-08-10; docs/care-engine.md §7.20.4). HOLD and WATER_NOW write the
+// instant the verdict lands, so for them write time IS measurement time and the API's own "absent means
+// taken now" fallback is exactly right — neither sends the field, and neither changed. UNAVAILABLE is
+// OFFERED: the owner may tap "Guardar lectura" much later, and a watering recorded in between would make
+// the API read a pre-watering reading as the saturated anchor that OPENS the new cycle. So that ONE branch
+// freezes the measurement instant at preview time and carries it on the save. Do not "unify" the three
+// bodies by sending it everywhere or nowhere: the difference between them is real.
+//
 // The question survives only in `voluntary` mode, and that is not a leftover — it is the one place the
 // ambiguity is genuinely UNRESOLVABLE. Care events store a DATE and no time, so a back-dated reading and a
 // watering on that same past day have no order between them. Nobody can derive it; only the owner knows.
@@ -144,8 +153,19 @@ const previewResult = ref<SoilReadingPreview | null>(null);
 // true forever.
 // (It used to carry an optional `wateringRelation` too, frozen at verdict time. Removed 2026-08-10 with
 // the question itself — a survey sends no relation, so there is nothing to freeze.)
+//
+// ⚠️ `measurementTakenAt` IS FROZEN HERE FOR THE SAME REASON `measuredOn` IS, AND IT IS THE ONE THAT
+// CLOSES THE DEFERRED-SAVE GAP (2026-08-10; docs/care-engine.md §7.20.4). This save is OFFERED, not
+// performed: the owner may tap "Guardar lectura" minutes or hours after measuring. On a day that already
+// carries a watering, the API decides which side of that watering the reading sits on — and until this
+// field existed it decided that from WRITE time, so a watering recorded by another device IN BETWEEN made
+// a reading genuinely taken BEFORE it look like the saturated anchor that OPENS the new drying cycle,
+// flattening the fitted slope and under-watering the plant. Carrying the instant makes the API compare
+// against WHEN THE MEASUREMENT WAS TAKEN instead. It is frozen at PREVIEW time, alongside `measuredOn`,
+// and never re-read at save time — reading `new Date()` in `saveUnavailableReading()` would reproduce
+// exactly the bug this closes, since save time IS write time.
 const pendingUnavailableReading = ref<{
-  instrumentId: InstrumentId; rawValue: number; measuredOn: string;
+  instrumentId: InstrumentId; rawValue: number; measuredOn: string; measurementTakenAt: string;
 } | null>(null);
 
 // Bridge between Input.vue's `v-model` (`string | number`) and `rawValue`'s `number | null` — same pattern
@@ -547,6 +567,14 @@ async function submit() {
         // it fires ONLY if the owner presses "Guardar lectura" on the verdict step.
         pendingUnavailableReading.value = {
           instrumentId: chosenInstrumentId, rawValue: chosenRawValue, measuredOn: verdictMeasuredOn,
+          // WHEN THE MEASUREMENT WAS TAKEN — frozen HERE, at preview time, exactly like `measuredOn` beside
+          // it, and for the same reason: this save may be tapped much later, and the API must not mistake
+          // the tap for the measurement. See the ref's own declaration for the full reasoning.
+          //
+          // ⚠️ Struck at preview time and NEVER at save time. The whole defect is that write time drifts
+          // away from measurement time on this one path; a `new Date()` inside `saveUnavailableReading()`
+          // would BE write time and would close nothing.
+          measurementTakenAt: new Date().toISOString(),
           // NO `wateringRelation` — see the file header. This record used to freeze the owner's answer at
           // verdict time so a much-later "Guardar lectura" carried the day's real answer; there is no
           // answer to freeze any more, because the survey does not ask and the API derives it.
@@ -705,6 +733,10 @@ async function saveUnavailableReading() {
       instrumentId: pending.instrumentId,
       rawValue: pending.rawValue,
       measuredOn: pending.measuredOn,
+      // The instant frozen at PREVIEW time — never re-struck here. This tap can be hours after the
+      // measurement, and it is the only survey write where that is true; the API derives which side of
+      // the day's watering the reading sits on from THIS instant instead of from its own write time.
+      measurementTakenAt: pending.measurementTakenAt,
       verdict: 'NONE',
       // No `wateringRelation`: the pending record no longer carries one (see where it is built) — the
       // survey does not ask, and the API derives the relation for a today-dated reading itself.

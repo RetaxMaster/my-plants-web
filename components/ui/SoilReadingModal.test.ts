@@ -1442,6 +1442,54 @@ describe('no verdict branch sends wateringRelation — the API derives it', () =
     expect(body).not.toHaveProperty('wateringRelation');
   });
 
+  // ══ …AND IT DOES SEND `measurementTakenAt`, FROZEN AT PREVIEW TIME (2026-08-10) ═══════════════════════
+  //
+  // The relation is derived by the API, and until this field existed it was derived from WRITE time. On this
+  // one branch write time is NOT measurement time: UNAVAILABLE is OFFERED, so the owner may tap "Guardar
+  // lectura" hours later, and a watering recorded in between made a pre-watering reading look like the
+  // saturated anchor that OPENS the new drying cycle — flattening the fitted slope and under-watering the
+  // plant. See docs/care-engine.md §7.20.4.
+  //
+  // ⚠️ THE ASSERTION IS ON THE REQUEST BODY, AND ON THE VALUE — not on "the save was called". This suite's
+  // own header records why: three survey branches build three different bodies, and a silently-changed
+  // payload passed every test that only checked the response. Here it must go further still, because the
+  // ONLY thing that distinguishes the fix from the bug is WHICH instant is sent. Time is advanced by an hour
+  // between the preview and the tap, so a `new Date()` re-struck inside `saveUnavailableReading()` — i.e.
+  // write time, i.e. the bug — sends the LATER instant and reddens this case. Only Date is faked
+  // (`toFake: ['Date']`), so `flushPromises`' real timers keep working; restored in a `finally`.
+  it('UNAVAILABLE carries measurementTakenAt, FROZEN at preview time — not re-struck at save time', async () => {
+    const measuredAt = new Date('2026-08-10T08:00:00.000Z');
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(measuredAt);
+      const { w } = await surveyBodyOnAWateringDay(unavailablePreview);
+      expect(recordSoilReading).not.toHaveBeenCalled();
+
+      // The owner walks away and comes back an hour later.
+      vi.setSystemTime(new Date('2026-08-10T09:00:00.000Z'));
+      await findSaveButton(w).trigger('click');
+      await flushPromises();
+
+      const body = recordSoilReading.mock.calls.at(-1)![1];
+      expect(body.measurementTakenAt).toBe(measuredAt.toISOString());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // The counter-half, and it is what keeps the immediate path honest: for HOLD and WATER_NOW the write
+  // follows the measurement immediately, so write time IS measurement time and the API's own "absent means
+  // taken now" fallback is exactly right. Sending the field there would be noise, and — more to the point —
+  // this case is what fails if someone "unifies" the three bodies by adding the field everywhere.
+  it('but the IMMEDIATE branches send no instant — their write time IS their measurement time', async () => {
+    for (const preview of [waterNowPreview, holdPreview]) {
+      recordSoilReading.mockClear();
+      const { body } = await surveyBodyOnAWateringDay(preview);
+      expect(body).toBeDefined();
+      expect(body).not.toHaveProperty('measurementTakenAt');
+    }
+  });
+
   it('and none of them sends it on an ordinary day either', async () => {
     for (const preview of [waterNowPreview, holdPreview]) {
       recordSoilReading.mockClear();

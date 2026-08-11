@@ -907,6 +907,19 @@ export interface CreateSoilReading {
    *  `PlantSoilReadings.wateringDays`; absent otherwise. No default: the owner ruled the ambiguity is
    *  resolved by asking, never by assuming. */
   wateringRelation?: WateringRelation;
+  /** WHEN THE MEASUREMENT WAS TAKEN — an ISO-8601 instant (`new Date().toISOString()`), and NOT the same
+   *  thing as `measuredOn`, which is the calendar day the reading belongs to.
+   *
+   *  Sent ONLY by a write whose save can happen materially later than the measurement: today that is the
+   *  survey's DEFERRED `UNAVAILABLE` save, where the owner is OFFERED a save and may tap it much later.
+   *  Everywhere else the write follows the measurement immediately, so the API's own fallback ("absent
+   *  means taken now") is exactly right and sending the field would add nothing.
+   *
+   *  Why it matters: on a day that already carries a watering, the API derives which side of that watering
+   *  a reading sits on. Deriving that from WRITE time files a reading genuinely taken BEFORE a watering as
+   *  the saturated anchor that OPENS the new drying cycle, which flattens the fitted slope. See
+   *  `docs/care-engine.md` §7.20.4. */
+  measurementTakenAt?: string;
 }
 
 // `Recommendation`/`HoldBasis`/`UnavailableReason` are DERIVED from the shared contract's own

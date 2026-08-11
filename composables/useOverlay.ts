@@ -53,28 +53,60 @@ export interface UseOverlayOptions {
 // contributes at most one to the count (its `holdsLock` guard), so open/close/unmount can't double-count.
 let overlayLockCount = 0;
 
-// THE LAST ELEMENT THAT HELD FOCUS OUTSIDE ANY OVERLAY — module-level, for the same reason the lock count
-// is: it is a fact about the PAGE, not about one overlay (QA, 2026-08-11).
+// WHAT AN OVERLAY GIVES FOCUS BACK TO — the element that opened THIS overlay, and nothing else's opener
+// (QA, 2026-08-11, second pass).
 //
-// An overlay saves what to give focus back to when it closes. Saving `document.activeElement` is right when
-// an overlay opens from the page, and WRONG when one overlay opens another: the active element is then a
-// control inside the OUTGOING panel — the survey's "calíbrala" link — which is unmounted moments later. The
-// incoming dialog is left holding a reference to a detached node, so closing it focused nothing and dumped
-// a keyboard user on `<body>` at the top of the document, with the whole header to Tab through again.
-// Measured on the calibration dialog: `document.activeElement.tagName === 'BODY'` after Escape, after
-// Cancelar, after the × and after a successful save, while the measuring modal it was opened from restored
-// correctly — which is exactly the asymmetry that gives the cause away.
+// ⚠️ READ THE WHOLE HISTORY BEFORE CHANGING THIS. It has now been wrong in two different directions, and
+// both failures were measured on the same pair of dialogs — the measuring survey's "calíbrala" link, which
+// closes the survey and opens the calibration dialog in the same interaction.
 //
-// So an overlay opened from INSIDE another overlay inherits the page-level opener instead of pointing at a
-// doomed node. The whole hand-off chain then returns focus where the owner actually started.
-let lastFocusOutsideOverlay: HTMLElement | null = null;
-
+// FAILURE 1 (fixed): the opener was saved as a bare `document.activeElement`. In the hand-off that is a
+// control INSIDE the outgoing panel — the link itself — which is unmounted moments later. `.focus()` on a
+// detached node is a silent no-op, so closing the calibration dialog focused nothing and dumped a keyboard
+// user on `<body>` at the top of the document, with the whole header to Tab through again. Measured:
+// `document.activeElement.tagName === 'BODY'` after Escape, after Cancelar, after the × and after a
+// successful save.
+//
+// FAILURE 2 (this fix): that was patched by having a handed-off overlay INHERIT a module-level "last focus
+// outside any overlay", which for this chain is the "¿Necesitas regar?" button. Focus did leave `<body>` —
+// and landed on the trigger of the dialog the owner had just deliberately LEFT. Measured, 2/2: Escape out
+// of calibration, press Enter, and the survey re-opens. Escaping a dialog must not be a route back into it.
+//
+// THE RULE NOW, and it distinguishes the two cases that were previously conflated:
+//   • NESTED — the opener's own overlay is still on screen (a lightbox opened from a thumbnail inside a
+//     modal). The opener node is STILL CONNECTED, and focusing it is exactly right: the owner goes back to
+//     the control he used, inside the dialog he is still in.
+//   • HANDED-OFF / DEEP-LINKED — the opener is gone (the survey unmounted with its link), or there never
+//     was one (a `?calibrate=1` arrival opens the dialog from a NAVIGATION, not from a control). There is
+//     no honest opener, so focus goes to the page's MAIN LANDMARK — inside the content, past the header,
+//     and not a button that re-opens anything.
+//
+// The two are indistinguishable at OPEN time and trivially distinguishable at RESTORE time, which is why
+// the check lives there (`isConnected`) rather than here. That also retires the module-level
+// `lastFocusOutsideOverlay` entirely: no overlay inherits another's opener any more, so there is nothing
+// for it to hold.
 function captureOpener(): HTMLElement | null {
   const active = document.activeElement as HTMLElement | null;
-  if (active == null || active === document.body) return lastFocusOutsideOverlay;
-  if (active.closest('[role="dialog"]') != null) return lastFocusOutsideOverlay;
-  lastFocusOutsideOverlay = active;
+  // `<body>` is "nothing was focused" — a programmatic open. Recorded as no opener, which `restoreFocus`
+  // resolves to the page anchor rather than to some earlier, unrelated control.
+  if (active == null || active === document.body) return null;
   return active;
+}
+
+// Where focus goes when this overlay has no opener left to return it to. The app's shell renders exactly
+// one `<main>` (`layouts/default.vue`), and it is the standard target for a dialog that was not opened by a
+// focusable control: it keeps a keyboard user inside the page's content instead of at the very top of the
+// document. `tabindex="-1"` makes it programmatically focusable WITHOUT adding it to the Tab order.
+//
+// `preventScroll` deliberately: the owner's scroll position is where he was reading, and yanking the page
+// to the top of `<main>` would be its own small defect. With no `<main>` at all (a bare test DOM, a future
+// layout) this is a no-op and focus stays wherever the browser left it — the pre-2026-08-11 behaviour, and
+// the honest floor.
+function focusPageAnchor(): void {
+  const main = document.querySelector('main');
+  if (main == null) return;
+  if (!main.hasAttribute('tabindex')) main.setAttribute('tabindex', '-1');
+  main.focus({ preventScroll: true });
 }
 
 export function useOverlay(isOpen: Ref<boolean>, panelRef: Ref<HTMLElement | null>, options: UseOverlayOptions) {
@@ -146,10 +178,21 @@ export function useOverlay(isOpen: Ref<boolean>, panelRef: Ref<HTMLElement | nul
     const active = document.activeElement as HTMLElement | null;
     const claimedElsewhere =
       active != null && active !== document.body && !(panelRef.value?.contains(active) ?? false);
-    // No `isConnected` guard here, deliberately: `.focus()` on a detached node is a silent no-op, so the
-    // guard would be a branch with no observable behaviour and therefore no test that could ever fail on
-    // it. `captureOpener` is what actually prevents a detached opener being stored in the first place.
-    if (!claimedElsewhere) previouslyFocused?.focus?.();
+    if (!claimedElsewhere) {
+      // ⚠️ `isConnected` IS THE WHOLE HAND-OFF FIX, AND IT IS NOT A DEFENSIVE GUARD (QA, 2026-08-11, second
+      // pass — see `captureOpener`'s history). This comment used to say the opposite: that a guard here
+      // would be "a branch with no observable behaviour", because `.focus()` on a detached node is a silent
+      // no-op. That was true only while the alternative was doing nothing. It now HAS an alternative — the
+      // page anchor — so the branch is observable, and a test fails on each side of it.
+      //
+      // Connected opener  → the overlay was opened from a control that is still there (including one
+      //                     inside a still-open parent dialog): give focus back to it, unchanged behaviour.
+      // Detached / absent → the chain handed off, or there was never an opener at all. Returning focus to
+      //                     the trigger of an abandoned dialog is what threw the owner back into the dialog
+      //                     he had just escaped; the page anchor is the honest destination.
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      else focusPageAnchor();
+    }
     previouslyFocused = null;
   }
 

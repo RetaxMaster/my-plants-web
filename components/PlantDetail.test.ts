@@ -2202,9 +2202,12 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
 // seams.
 describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that stops asking', () => {
   // Same derived shape as the Task 6 block above, and for the same reason — see its own comment.
-  const waterCare = (todaysVerdict: TodaysVerdict = null) => ({
+  // `status`/`daysUntilDue` are parameters since 2026-08-11 (QA finding 3): every case in this block used
+  // to be `today`, which is precisely the shape that CANNOT exhibit the finding — the measurement override
+  // only ever applies to a not-yet-due row.
+  const waterCare = (todaysVerdict: TodaysVerdict = null, status = 'today', daysUntilDue = 0) => ({
     plantId: 'p1',
-    tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+    tasks: [{ task: 'WATER', status, daysUntilDue, pendingEvaluation: null }],
     measurement: {
       dryingRate: null, reason: null, tooSlowDrying: false, flatSeries: false, suggestMeasuring: false,
       measuredToday: todaysVerdict != null,
@@ -2259,7 +2262,8 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // fetcher — the error is captured, `data` stays null — rather than letting the rejection escape and
   // fail the mount, which is precisely the state the component has to survive.
   async function mountWater(
-    { todaysVerdict = null, readingsFails = false }: { todaysVerdict?: TodaysVerdict; readingsFails?: boolean } = {},
+    { todaysVerdict = null, readingsFails = false, status = 'today', daysUntilDue = 0 }:
+      { todaysVerdict?: TodaysVerdict; readingsFails?: boolean; status?: string; daysUntilDue?: number } = {},
   ) {
     sendFeedbackMock.mockClear();
     vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
@@ -2269,7 +2273,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     });
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
-      getPlantCare: async () => waterCare(todaysVerdict),
+      getPlantCare: async () => waterCare(todaysVerdict, status, daysUntilDue),
       listPlaces: async () => [],
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
@@ -2340,6 +2344,36 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       task: 'WATER', type: 'POSTPONED', reason: 'no-time',
     });
     expect(w.findAll('.reason-picker').every((p) => p.attributes('data-open') === 'false')).toBe(true);
+  });
+
+  // ---- QA 2026-08-11, finding 3: the plant page's own half (docs/care-engine.md §7.20.15) -------------
+  //
+  // The rule lives in `utils/waterSurvey.ts`; the badge/Posponer half is pinned in TaskRow.test.ts. What
+  // only THIS file can pin is that the page applies the same rule to the status it hands `onDone`, because
+  // that status is what decides whether the early-watering reason picker opens. QA measured the whole
+  // failure here: the row read "faltan 9 días", Posponer did not render, and the verdict left no trace.
+  it('finding 3: a measured WATER_NOW sends the Done straight through on a not-yet-due watering', async () => {
+    const w = await mountWater({ todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9 });
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
+    expect(sendFeedbackMock.mock.calls[0][1]).toMatchObject({ task: 'WATER', type: 'DONE' });
+    // No "why are you watering early?" about a watering the app itself just prescribed.
+    expect(w.findAll('.reason-picker').every((p) => p.attributes('data-open') === 'false')).toBe(true);
+  });
+
+  // THE BEFORE HALF — without it the case above would pass against a page that never asked the
+  // early-watering question at all, which would silently delete the one signal the engine has about an
+  // unmeasured early watering. `readingsFails` is how an un-measured row still offers a Done here at all
+  // (with the catalogue held, the survey withholds it — see the W2 case below).
+  it('finding 3: still asks on an UNMEASURED not-yet-due watering', async () => {
+    const w = await mountWater({ readingsFails: true, status: 'upcoming', daysUntilDue: 9 });
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).not.toHaveBeenCalled();
+    expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
   });
 
   it('W2: the un-measured row still asks — but through the standalone Done path, since the survey is on ' +

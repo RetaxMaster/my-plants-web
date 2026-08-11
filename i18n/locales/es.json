@@ -1460,9 +1460,10 @@
     "wetnessPct": "{pct}% de humedad",
     "wetnessUnknown": "Sin lectura de humedad",
     "verdictBadge": {
-      "WATER_NOW": "Regada",
-      "POSTPONE": "Aplazada"
-    }
+      "WATER_NOW": "Regar ahora",
+      "POSTPONE": "No regar todavía"
+    },
+    "verdictNowBadge": "Riega ahora"
   },
   "settings": {
     "title": "Ajustes",

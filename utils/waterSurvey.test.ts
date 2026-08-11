@@ -3,7 +3,7 @@
 // different rule. The per-surface wiring is pinned in pages/index.test.ts and components/PlantDetail.test.ts.
 import { describe, it, expect } from 'vitest';
 import {
-  canOfferWaterSurvey, postponeReasonWithoutAsking, todaysVerdictClosesSurvey,
+  canOfferWaterSurvey, effectiveTaskStatus, postponeReasonWithoutAsking, todaysVerdictClosesSurvey,
   NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, type TodaysVerdict,
 } from './waterSurvey.js';
 import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
@@ -124,5 +124,42 @@ describe('postponeReasonWithoutAsking', () => {
   // postpone reason (it shortens/lengthens the watering interval); a measured postpone must never claim it.
   it('never sends the cadence-moving reason', () => {
     expect(SURVEYED_POSTPONE_REASON).not.toBe('soil-still-moist');
+  });
+});
+
+// ---- QA 2026-08-11, finding 3 (owner-ruled; docs/care-engine.md §7.20.15) -----------------------------
+//
+// "The schedule was a prediction, the measurement is the observation. Measuring so that the prediction
+// still wins defeats the point of measuring." A `WATER_NOW` verdict makes the watering read as due TODAY.
+//
+// Pinned HERE, at the rule, because three consumers apply it: TaskRow (badge + Posponer), and both pages
+// (the status they hand `onDone`, which decides whether the early-watering reason picker opens). A local
+// copy in any of the three is how the app would tell the owner to water now and then ask him, one tap
+// later, why he is watering early.
+describe('effectiveTaskStatus', () => {
+  it('promotes an upcoming WATER row to today when the measurement says WATER_NOW', () => {
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'upcoming')).toBe('today');
+  });
+
+  // The two verdicts that must change nothing, wrong in opposite directions: POSTPONE is the instruction to
+  // leave the task alone (it already moved its own date), NONE decided nothing, and null means nothing was
+  // measured at all.
+  it.each([['POSTPONE'], ['NONE'], [null]] as [TodaysVerdict][])(
+    'leaves an upcoming row alone on a %s verdict', (verdict) => {
+      expect(effectiveTaskStatus('WATER', verdict, 'upcoming')).toBe('upcoming');
+    });
+
+  // Scoped to `upcoming`: an already-due or overdue row is not "promoted" — its own status is at least as
+  // urgent and strictly more accurate, and rewriting `overdue` to `today` would LOSE information.
+  it('never rewrites a row that is already due or overdue', () => {
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'today')).toBe('today');
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'overdue')).toBe('overdue');
+  });
+
+  // A soil verdict speaks for the WATER task and for nothing else. Passing it alongside another task is not
+  // a shape the app produces, but the rule must be inert on it rather than incidentally correct.
+  it('never touches a non-WATER task, whatever verdict travels with it', () => {
+    expect(effectiveTaskStatus('REPOT', 'WATER_NOW', 'upcoming')).toBe('upcoming');
+    expect(effectiveTaskStatus('FERTILIZE', 'WATER_NOW', 'upcoming')).toBe('upcoming');
   });
 });

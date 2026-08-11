@@ -249,11 +249,23 @@ describe('ImageLightbox', () => {
     expect(document.activeElement).toBe(opener);
   });
 
-  // THE OTHER END OF THE HAND-OFF (QA, 2026-08-11). The dialog the chain ended on must give focus back to
-  // where the owner actually started — the control on the PAGE — not to the link inside the panel that
-  // opened it, which is unmounted by then. Focusing a detached node silently lands on `<body>`, so a
-  // keyboard user closing the second dialog was dumped at the top of the document.
-  it('HAND-OFF: the second overlay returns focus to the PAGE control that began the chain', async () => {
+  // THE OTHER END OF THE HAND-OFF.
+  //
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 2, finding 1). The previous version of this case asserted
+  // `document.activeElement).toBe(opener)` — that the dialog the chain ended on returns focus to the PAGE
+  // control that BEGAN the chain. It was written for a real defect (focus landing on `<body>` because the
+  // stored opener was the unmounted link inside the outgoing panel) and it fixed that defect, but the
+  // destination it chose was wrong and QA measured the consequence 2/2: escaping the calibration dialog put
+  // focus on the "¿Necesitas regar?" button, and one Enter re-opened the survey the owner had just
+  // deliberately left. Escaping a dialog must not be a route back into it.
+  //
+  // So the assertion is INVERTED rather than deleted — the old one records a judgement that was made on
+  // purpose and turned out to be wrong in front of a user — and the case now pins the third destination:
+  // the page's `<main>` landmark. Not the abandoned trigger, and not `<body>` at the top of the document,
+  // which is the regression the earlier round closed and which must stay closed.
+  it('HAND-OFF: the second overlay returns focus to the page CONTENT, not to the abandoned trigger', async () => {
+    const main = document.createElement('main');
+    document.body.appendChild(main);
     const opener = document.createElement('button');
     document.body.appendChild(opener);
     opener.focus();
@@ -271,8 +283,32 @@ describe('ImageLightbox', () => {
     first.unmount();  // the outgoing panel goes away, taking its controls with it
     second.unmount(); // the remaining dialog closes and restores
 
-    expect(document.activeElement).toBe(opener);
-    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(main);
+    expect(document.activeElement).not.toBe(opener);      // pressing Enter must not re-open the first dialog
+    expect(document.activeElement).not.toBe(document.body); // and the old `<body>` regression stays closed
+  });
+
+  // The NESTED case, and it is what stops the fix above from being "never return focus to a control inside
+  // a dialog". A lightbox opened from a thumbnail inside a still-open modal must give focus back to that
+  // thumbnail — the opener is still on screen, so there is nothing handed off and nothing abandoned.
+  // Distinguished at restore time by `isConnected`, which is the whole of the rule.
+  it('NESTED: an overlay opened from a control inside a STILL-OPEN overlay restores to that control', async () => {
+    const main = document.createElement('main');
+    document.body.appendChild(main);
+
+    const outer = mountLightbox({ modelValue: false, index: 0, images: THREE });
+    await outer.setProps({ modelValue: true });
+    await outer.vm.$nextTick();
+    const thumb = panels()[0]!.querySelector('button:not([disabled])') as HTMLElement;
+    thumb.focus();
+
+    const inner = mountLightbox({ modelValue: false, index: 0, images: THREE });
+    await inner.setProps({ modelValue: true });
+    await inner.vm.$nextTick();
+
+    inner.unmount();            // only the INNER one closes — the outer panel is still mounted
+    expect(document.activeElement).toBe(thumb);
+    expect(document.activeElement).not.toBe(main);
   });
 
   // An overlay whose flag is ALREADY true when it mounts (a deep link that opens a dialog on arrival) must

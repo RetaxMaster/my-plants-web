@@ -1460,9 +1460,10 @@
     "wetnessPct": "{pct}% moisture",
     "wetnessUnknown": "No moisture reading",
     "verdictBadge": {
-      "WATER_NOW": "Watered",
-      "POSTPONE": "Held off"
-    }
+      "WATER_NOW": "Water now",
+      "POSTPONE": "Don't water yet"
+    },
+    "verdictNowBadge": "Water now"
   },
   "settings": {
     "title": "Settings",

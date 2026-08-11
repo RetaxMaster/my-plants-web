@@ -78,6 +78,35 @@ describe('vue-i18n message resolution', () => {
     expect(g.t('taskInfo.speciesTitle')).toBe('Para esta planta');
   });
 
+  // ---- QA 2026-08-11, finding 2: a reading badge states the ANSWER, never a completed action ----------
+  //
+  // THE MEASURED DEFECT. `reading.verdictBadge.WATER_NOW` read "Watered" / **"Regada"**. It badges the
+  // VERDICT of a reading, so an owner who measured a pot last watered 60 days ago, was told *time to
+  // water*, and closed the dialog WITHOUT watering saw his reading row labelled "Regada" — on the same
+  // screen as "Regada hace 60 días" in the history and a still-pending water task. The app claiming an act
+  // the owner did not perform is the same class of dishonesty the 2026-08-09 fabricated-`WATER DONE`
+  // ruling deleted from the write path (docs/care-engine.md §7.20.14), surviving in a label. It was OUR
+  // regression: until the survey started storing the honest `WATER_NOW` verdict this badge never rendered.
+  //
+  // ⚠️ ASSERTED ON THE PROSE, DELIBERATELY, and this is the ONE place in this file where that is right:
+  // the wording IS the defect. Every other case here pins a key. A copy edit that revisits these four
+  // strings is expected to update this case with them; a revert to a past participle goes red.
+  //
+  // The two labels are checked TOGETHER because the sibling is what makes the pair legible: both now
+  // describe what the reading ANSWERED ("water now" / "don't water yet"), and Spanish uses the infinitive
+  // so neither can be read as a report of something that already happened to the plant.
+  it('badges a reading with the ANSWER it reached, never with an action nobody performed', () => {
+    const g = make();
+    expect(g.t('reading.verdictBadge.WATER_NOW')).toBe('Water now');
+    expect(g.t('reading.verdictBadge.POSTPONE')).toBe("Don't water yet");
+    g.locale.value = 'es';
+    expect(g.t('reading.verdictBadge.WATER_NOW')).toBe('Regar ahora');
+    expect(g.t('reading.verdictBadge.POSTPONE')).toBe('No regar todavía');
+    // The specific words that were on screen, named so a revert cannot pass by looking plausible.
+    expect(g.t('reading.verdictBadge.WATER_NOW')).not.toBe('Regada');
+    expect(g.t('reading.verdictBadge.POSTPONE')).not.toBe('Aplazada');
+  });
+
   it('en and es have identical key trees', () => {
     const paths = (o: Record<string, unknown>, prefix = ''): string[] =>
       Object.entries(o).flatMap(([k, v]) => {

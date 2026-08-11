@@ -506,3 +506,77 @@ describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
     expect(omittedIcons).not.toContain('magnifying-glass');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// QA 2026-08-11, finding 3 — A MEASURED "WATER NOW" READS AS DUE TODAY (owner-ruled;
+// docs/care-engine.md §7.20.15).
+//
+// The owner's words: the schedule was a *prediction*, the measurement is the *observation*, and measuring
+// so that the prediction still wins defeats the point of measuring. MEASURED before the fix: a survey
+// answering "riega ahora" on a task the calendar put nine days out left the row saying "faltan 9 días",
+// rendered NO Posponer (it is withheld on an `upcoming` row), consumed the survey for the day, and put the
+// plant in Today not at all. The app said water it now and left no trace anywhere the owner would look.
+//
+// The API's half SURFACES the row (`nextDueOn` reported unchanged, nothing written); this component's half
+// is what turns it into a card the owner can act on. The RULE itself lives in `utils/waterSurvey.ts` and is
+// applied identically by both pages to the status they hand `onDone` — a local copy here is how the badge
+// and the handler would come to disagree.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('UiTaskRow — a measured WATER_NOW overrides an upcoming due date', () => {
+  const upcomingWater = { task: 'WATER', status: 'upcoming', dueLabel: 'in 9 days' } as const;
+
+  // THE BEFORE HALF. Without it every assertion below would pass just as well against a component that
+  // ignored `status` entirely and always rendered "today".
+  it('leaves an upcoming WATER row alone when nothing was measured today', () => {
+    const w = mountRow({ ...upcomingWater, todaysVerdict: null, canSurvey: false });
+    expect(w.text()).toContain('in 9 days');
+    expect(w.text()).not.toContain('reading.verdictNowBadge');
+    expect(w.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).not.toContain('clock');
+  });
+
+  it('renders POSPONER — the control the whole finding is about — once today\'s reading says WATER_NOW', () => {
+    const w = mountRow({ ...upcomingWater, todaysVerdict: 'WATER_NOW', canSurvey: false });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('check'); // Hecho
+    expect(icons).toContain('clock'); // Posponer — withheld on `upcoming`, restored by the measurement
+  });
+
+  it('replaces the contradictory "in 9 days" label with the verdict\'s own badge', () => {
+    const w = mountRow({ ...upcomingWater, todaysVerdict: 'WATER_NOW', canSurvey: false });
+    expect(w.text()).toContain('reading.verdictNowBadge');
+    expect(w.text()).not.toContain('in 9 days');
+    // WATER's own key, never REPOT's — branching the badge on the task must not let one row borrow the
+    // other's wording ("Trasplantar ya" on a watering).
+    expect(w.text()).not.toContain('repotEval.verdictNowBadge');
+  });
+
+  // The two verdicts that must change nothing, and they are wrong in opposite directions: POSTPONE is the
+  // instruction to leave the task alone (it moved its own date), and NONE decided nothing at all.
+  it.each(['POSTPONE', 'NONE'] as const)('does NOT override on a %s verdict', (verdict) => {
+    const w = mountRow({ ...upcomingWater, todaysVerdict: verdict, canSurvey: false });
+    expect(w.text()).toContain('in 9 days');
+    expect(w.text()).not.toContain('reading.verdictNowBadge');
+  });
+
+  it('never touches a NON-WATER row, whatever verdict is passed alongside it', () => {
+    const w = mountRow({ task: 'FERTILIZE', status: 'upcoming', dueLabel: 'in 9 days', todaysVerdict: 'WATER_NOW' });
+    expect(w.text()).toContain('in 9 days');
+    expect(w.text()).not.toContain('reading.verdictNowBadge');
+  });
+
+  // Scoped to `upcoming`, exactly like the REPOT sibling: an already-overdue watering keeps its overdue
+  // reading, which is both more urgent and more accurate than "water now".
+  it('leaves an OVERDUE row alone — overdue outranks "water now"', () => {
+    const w = mountRow({ task: 'WATER', status: 'overdue', dueLabel: '3 days late', todaysVerdict: 'WATER_NOW' });
+    expect(w.text()).toContain('3 days late');
+    expect(w.text()).not.toContain('reading.verdictNowBadge');
+  });
+
+  // A caller that has not opted in renders exactly as before — the prop defaults to `null`, and this is the
+  // shape every non-WATER consumer of this component has.
+  it('a caller that OMITS todaysVerdict renders unchanged', () => {
+    const w = mountRow({ ...upcomingWater });
+    expect(w.text()).toContain('in 9 days');
+    expect(w.text()).not.toContain('reading.verdictNowBadge');
+  });
+});

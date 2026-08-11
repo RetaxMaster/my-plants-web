@@ -140,9 +140,16 @@ const api = useApi();
  * owner simply could not record his own reading. There is no verdict to protect in that mode: nothing is
  * computed, nothing is recommended, and the row is stored honestly with a null wetness.
  */
+// "This instrument cannot interpret a reading for THIS pot yet" — the one definition, used by the picker
+// filter, by the notice that explains a withheld instrument, and (since 2026-08-11) by the notice that
+// explains an UNINTERPRETABLE one in voluntary mode. Three readers, one predicate: a second hand-written
+// `requiresCalibration && calibration == null` is exactly how the picker and its explanation would come to
+// disagree about which instruments are affected.
+const needsCalibration = (i: PlantSoilReadings['instruments'][number]) =>
+  i.requiresCalibration && i.calibration == null;
+
 const usableInstruments = computed(() =>
-  props.data.instruments.filter(
-    (i) => props.mode !== 'survey' || !(i.requiresCalibration && i.calibration == null)));
+  props.data.instruments.filter((i) => props.mode !== 'survey' || !needsCalibration(i)));
 
 // SegmentedControl's own model is a plain, non-nullable `string` (`defineModel<string>({ required: true
 // })`) — '' is the "nothing chosen yet" sentinel, the same convention RepotDoneForm.vue/PlaceEditModal.vue
@@ -338,13 +345,29 @@ const needsCalibrationSetup = computed(() =>
  * none do. Both cases are the same sentence about the same instrument, so they are the same alert, rendered
  * once (see the template) rather than forked into two copies that could drift.
  *
- * Derived from the SAME filter `usableInstruments` applies, negated — never a second, hand-written copy of
+ * Derived from the SAME predicate `usableInstruments` applies — never a second, hand-written copy of
  * "requires calibration and has none", which is exactly how the picker and the explanation would come to
  * disagree about which instruments are usable.
+ *
+ * ⚠️ AND THE FIFTH STATE: VOLUNTARY MODE, WHERE THE INSTRUMENT IS OFFERED AND STILL CANNOT BE INTERPRETED
+ * (QA 2026-08-11, finding 5). Voluntary mode deliberately DOES offer an uncalibrated scale — the reading is
+ * the owner's data, it is stored honestly with a null wetness, and the calibration backfill depends on it
+ * existing (§7.20.13). But nothing on screen said so: the owner typed `2400`, saved, and the row read
+ * `2400 grams · Sin lectura de humedad` with no explanation anywhere and no route to fixing it. The survey
+ * already explains this exact gap well, so the SAME alert and the SAME "calíbrala" link are shown here —
+ * one implementation, widened, never a second copy written for the log dialog.
+ *
+ * The two modes ask a different question of the same predicate, and the difference is real rather than
+ * incidental. SURVEY: *"is any enabled instrument being WITHHELD?"* — the notice explains an absence, so it
+ * must speak for instruments that are not in the picker at all. VOLUNTARY: *"can the instrument the owner
+ * has CHOSEN produce a moisture number?"* — nothing is withheld there, so a notice about some other,
+ * unselected instrument would be noise attached to a reading it does not describe.
  */
-const uncalibratedInstruments = computed(() =>
-  props.data.instruments.filter((i) => !usableInstruments.value.some((u) => u.id === i.id)));
-const showCalibrationNotice = computed(() => uncalibratedInstruments.value.length > 0);
+const uncalibratedInstruments = computed(() => props.data.instruments.filter(needsCalibration));
+const showCalibrationNotice = computed(() =>
+  props.mode === 'survey'
+    ? uncalibratedInstruments.value.length > 0
+    : instrument.value != null && needsCalibration(instrument.value));
 
 /**
  * SAY IT PLAINLY: THIS SAVE REPLACES A READING (owner-ruled 2026-08-11).
@@ -471,6 +494,13 @@ const measuredOn = ref(todayYmd());
 const isWateringDay = computed(() =>
   serverSaysWateringDay.value || props.data.wateringDays.includes(measuredOn.value));
 
+// Is the reading dated the day the owner is living in RIGHT NOW? Declared here, beside `isWateringDay`,
+// because since 2026-08-11 it is half of the gate below and not merely a wording choice — see
+// `showWateringRelation`. (Its consumer `wateringRelationLabel` still lives further down, with the rest of
+// the copy.) The browser's day is all a client can know; the API judges on the PLANT's, and where the two
+// disagree the server-reveal branch is what closes the gap.
+const wateringRelationIsToday = computed(() => measuredOn.value === todayYmd());
+
 // The answer describes ONE specific day. If the owner changes `measuredOn` — to a non-watering day, where
 // the control disappears entirely, or to a DIFFERENT watering day — a previously-given answer no longer
 // describes the new day and must never survive: not into a submission for a day it doesn't describe, and
@@ -537,10 +567,23 @@ function loadExistingIntoForm() {
   const existing = existingReading.value;
   if (existing) {
     rawValue.value = existing.rawValue;
-    // `null` on the row means "unknown / never asked" and must land as the unanswered sentinel, never as a
-    // pre-selection — the owner's 2026-08-08 ruling that this question is answered, never defaulted, holds
-    // just as firmly when the form is an edit.
-    wateringRelation.value = existing.wateringRelation ?? '';
+    // ⚠️ THE STORED RELATION IS DELIBERATELY **NOT** LOADED (QA 2026-08-11, finding 4). It used to be
+    // (`existing.wateringRelation ?? ''`), and that was written on the reasonable-looking premise that the
+    // value on the row is the owner's own answer. For a majority of rows it is not: since 2026-08-10 the
+    // API DERIVES the relation for any today-dated reading on a watering day (§7.20.4), so the column mixes
+    // two provenances — what the owner stated, and what the API worked out — and the row carries nothing
+    // that tells them apart. Re-opening the log then showed "Después de regar" ALREADY PRESSED, which
+    // presents a derivation as a choice the owner made. That is the same class of dishonesty as the
+    // fabricated `WATER DONE` this feature deleted: the app putting words in the owner's mouth.
+    //
+    // Since the two cases are indistinguishable from the data, the honest treatment is the one the owner
+    // already ruled for this question on 2026-08-08 — it is ANSWERED, never defaulted and never
+    // pre-selected. So an edit starts it unanswered whenever it is asked at all, and `canSubmit` blocks
+    // until the owner answers: one tap, on a control that is only rendered for a genuinely back-dated
+    // reading in the first place (see `showWateringRelation`). Closing this properly instead — prefilling
+    // only a genuinely owner-supplied answer — would need the row to record which of the two it holds, and
+    // that is a schema change nobody has ruled on.
+    wateringRelation.value = '';
     prefilledFromId.value = existing.id;
   } else if (prefilledFromId.value !== null) {
     rawValue.value = null;
@@ -562,12 +605,32 @@ if (open.value) loadExistingIntoForm();
 
 // Single source of truth for "ask the same-day-watering question at all".
 //
-// ⚠️ VOLUNTARY MODE ONLY, AND THIS IS THE THIRD TIME THIS LINE HAS MOVED — read the history before
-// touching it. It was `mode === 'voluntary' && isWateringDay`; QA round 3 widened it to `isWateringDay`
-// because a survey on a plant watered earlier that day dead-ended; the owner then ruled (2026-08-10) that
-// the survey must not ask AT ALL, because the answer is derivable there and the API now derives it.
-// So the gate is narrow again — but for a different reason, and with the server side that makes it true.
-const showWateringRelation = computed(() => props.mode === 'voluntary' && isWateringDay.value);
+// ⚠️ FOURTH REVISION — read the whole history before touching it. It was `mode === 'voluntary' &&
+// isWateringDay`; QA round 3 widened it to `isWateringDay` because a survey on a plant watered earlier that
+// day dead-ended; the owner then ruled (2026-08-10) that the survey must not ask AT ALL, because the answer
+// is derivable there and the API derives it — so it went back to `mode === 'voluntary' && isWateringDay`.
+//
+// ⚠️ AND THAT VERSION STOPPED HALFWAY (QA 2026-08-11, finding 4). It was written as "voluntary mode still
+// asks", when the owner's ruling was narrower and the API implements the narrower one: **the question is
+// asked only for a BACK-DATED reading.** §7.20.4 is explicit — a reading dated the plant's own today is
+// DERIVED (a watering already recorded today was recorded before the owner measured, so the order is read
+// off events already stored), and only a back-dated day is genuinely unrecoverable, because care events
+// store a date with no time. The mode was never the real axis; the DATE is.
+//
+// The measured consequence of the mismatch: on a plant watered today, the same fact was MANDATORY on one
+// path (asterisk, Save disabled until answered) and DERIVED SILENTLY on the other — and re-opening the log
+// afterwards showed "Después de regar" already pressed, an answer the owner never gave. Two paths, one
+// derivable fact, one of them deriving it.
+//
+// ⚠️ THE `serverSaysWateringDay` ARM IS NOT REDUNDANT WITH `isWateringDay`, and removing it re-opens a real
+// dead end. Across the plant-city midnight gap the browser's today is the plant's YESTERDAY, so the API
+// treats the reading as back-dated and refuses it with a 400 naming the field — while `wateringRelationIsToday`
+// (which can only read the browser's clock) says "today" and would hide the very control the owner needs to
+// answer through. When the server has said outright that the answer is required, it is required.
+const showWateringRelation = computed(() =>
+  props.mode === 'voluntary'
+  && isWateringDay.value
+  && (serverSaysWateringDay.value || !wateringRelationIsToday.value));
 
 /**
  * THE SAME QUESTION, WORDED FOR THE DAY IT IS ABOUT (QA finding F4, 2026-08-10).
@@ -584,8 +647,13 @@ const showWateringRelation = computed(() => props.mode === 'voluntary' && isWate
  * Keyed off `measuredOn`, the date THE READING IS FOR — never the browser's clock on its own, and never
  * the modal's open time. The owner can change that field mid-session (it is a date input), and the label
  * must follow it, or picking yesterday leaves "today" on screen.
+ *
+ * ⚠️ THE "today" VARIANT IS NARROW NOW, AND IT IS NOT DEAD (2026-08-11, finding 4). A today-dated reading
+ * no longer asks the question at all — the API derives it — so the only way this wording renders is the
+ * server-reveal branch: the plant's day has already rolled over while the browser's has not, so the reading
+ * is back-dated from the API's point of view and today-dated from the owner's. He is being asked about the
+ * day he is living in, so "today" is the honest word for it.
  */
-const wateringRelationIsToday = computed(() => measuredOn.value === todayYmd());
 const wateringRelationLabel = computed(() =>
   t(wateringRelationIsToday.value ? 'reading.wateringRelationLabelToday' : 'reading.wateringRelationLabel'));
 

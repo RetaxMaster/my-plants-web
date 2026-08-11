@@ -7,7 +7,9 @@ import { plantTitle } from '../utils/displayName.js';
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
 // The WATER row's two survey rules — "may this row offer the survey at all" and "does a Posponer still have
 // anything to ask" — live once and are shared with PlantDetail.vue, never restated per renderer.
-import { canOfferWaterSurvey, postponeReasonWithoutAsking, type TodaysVerdict } from '../utils/waterSurvey.js';
+import {
+  canOfferWaterSurvey, effectiveTaskStatus, postponeReasonWithoutAsking, type TodaysVerdict,
+} from '../utils/waterSurvey.js';
 // Explicit import (like PlantDetail.vue's `onUnmounted`, and for the same reason): the composable's own
 // `shallowRef` import from 'vue' makes it test-environment-agnostic, and this ONE implementation is now
 // shared with PlantDetail.vue (round-5 finding V1) — never a second copy of the attempt-tracking logic.
@@ -249,6 +251,20 @@ function measuredTodayFor(plantId: string): boolean {
 // still OFFERS the survey rather than silently hiding it.
 function todaysVerdictFor(plantId: string): TodaysVerdict {
   return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER')?.todaysVerdict ?? null;
+}
+
+// QA 2026-08-11, finding 3 — the status this row is ACTUALLY in, once today's measurement has had its say.
+// A `WATER_NOW` verdict makes a not-yet-due watering read as due today (the owner's ruling: the schedule is
+// a prediction, the measurement is the observation), which is what surfaces the card here at all and what
+// puts Posponer back on it.
+//
+// ⚠️ IT IS THE HANDLERS' STATUS TOO, NOT ONLY THE BADGE'S, and that is why this helper exists rather than
+// the rule being applied inside `TaskRow` alone. `onDone` opens the early-watering reason picker for an
+// `upcoming` WATER row; feeding it the raw calendar status would have the app tell the owner to water now
+// and then ask him why he is watering early — second-guessing its own verdict, one tap after issuing it.
+// The RULE itself lives in `utils/waterSurvey.ts` and is shared with TaskRow.vue and PlantDetail.vue.
+function rowEffectiveStatus(plantId: string, task: DueTask['task'], due: string): 'overdue' | 'today' | 'upcoming' {
+  return effectiveTaskStatus(task, todaysVerdictFor(plantId), rowStatus(due));
 }
 
 // Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey. The RULE (all three conditions,
@@ -728,7 +744,7 @@ function onWaterVerdictDone() {
   // Today payload carries no `status` field of its own; it is a view-level reading of `nextDueOn` against
   // the local calendar, and that reading lives here in exactly one place.
   const row = (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER');
-  return onDone(plantId, 'WATER', row ? rowStatus(row.nextDueOn) : 'today');
+  return onDone(plantId, 'WATER', row ? rowEffectiveStatus(plantId, 'WATER', row.nextDueOn) : 'today');
 }
 
 function onWaterVerdictPostpone() {
@@ -856,7 +872,8 @@ function openProgress(plantId: string) {
             :pending-verdict="pendingEvaluationFor(plantId)?.verdict ?? null"
             :pending-reevaluate-on="pendingEvaluationFor(plantId)?.reevaluateOn ?? null"
             :can-survey="t2.task === 'WATER' && canSurveyWaterFor(plantId)"
-            @done="e => onDone(plantId, e.task, rowStatus(t2.nextDueOn), e.occurredOn)"
+            :todays-verdict="t2.task === 'WATER' ? todaysVerdictFor(plantId) : null"
+            @done="e => onDone(plantId, e.task, rowEffectiveStatus(plantId, e.task, t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"
             @evaluate="e => e.task === 'WATER' ? onWaterEvaluate(plantId) : onEvaluate(plantId)"

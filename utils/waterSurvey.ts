@@ -122,6 +122,50 @@ export function canOfferWaterSurvey(facts: {
   );
 }
 
+/** The three urgency states every task row is rendered in. Named here because `effectiveTaskStatus` below
+ *  both takes and returns one, and both renderers already speak this vocabulary. */
+export type TaskDueStatus = 'overdue' | 'today' | 'upcoming';
+
+/**
+ * ⚠️ THE ONE PLACE A MEASURED "WATER NOW" OVERRIDES THE CALENDAR (QA 2026-08-11, finding 3; owner-ruled;
+ * docs/care-engine.md §7.20.15).
+ *
+ * The owner's words: the schedule was a *prediction*, the measurement is the *observation*, and measuring
+ * so that the prediction still wins defeats the point of measuring. So a `WATER_NOW` verdict on today's
+ * reading makes that watering task read as **due today**, wherever it is rendered.
+ *
+ * THE DEFECT IT CLOSES. The verdict used to evaporate the moment the dialog shut: the row still said
+ * "faltan 9 días", **Posponer** did not render (it is withheld on an `upcoming` task), the survey was spent
+ * for the day, and the plant reached the Today list not at all. The app said *water it now* and left no
+ * trace anywhere the owner would look.
+ *
+ * ⚠️ IT IS A **PRESENTATION** RULE OVER A FIELD THAT ALREADY TRAVELS, NOT A RESCHEDULE. Nothing is written:
+ * no care event, no feedback row, no override, no fabricated anything — the owner overturned exactly that
+ * shape of fix on 2026-08-09, when a stored `WATER_NOW` used to record a watering he had not performed. The
+ * API's own half is the mirror image and equally read-only (`care-plan.service.ts` SURFACES the row with
+ * `nextDueOn` reported UNCHANGED); this function is what turns that surfaced row into a card the owner can
+ * act on.
+ *
+ * ⚠️ AND IT MUST BE APPLIED TO THE HANDLERS, NOT ONLY TO THE BADGE. `TaskRow` uses it to pick the badge and
+ * to un-withhold Posponer; the two pages use it for the status they hand `onDone`, which is what decides
+ * whether the early-watering reason picker opens. Deriving those two from different readings of the same
+ * fact is how the app would end up telling the owner to water now and then asking him why he is watering
+ * early — the app second-guessing its own verdict, one tap after issuing it.
+ *
+ * SCOPED TO `upcoming`, exactly like `TaskRow`'s REPOT sibling: a task that is already overdue keeps its
+ * overdue reading, which is the more urgent AND the more accurate of the two statements. And scoped to
+ * `WATER_NOW`: `POSTPONE` is the opposite instruction (it moved its own date), `'NONE'` decided nothing,
+ * and `null` means nothing was measured.
+ */
+export function effectiveTaskStatus(
+  task: TaskCode,
+  todaysVerdict: TodaysVerdict,
+  status: TaskDueStatus,
+): TaskDueStatus {
+  const measurementSaysNow = task === 'WATER' && todaysVerdict === 'WATER_NOW' && status === 'upcoming';
+  return measurementSaysNow ? 'today' : status;
+}
+
 /**
  * The reason a Posponer sends WITHOUT asking, or `null` when the owner must still be asked (spec §5.4:
  * "Postpone stops asking the owner for a reason. After a survey there is nothing to ask … The reason picker

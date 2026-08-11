@@ -17,7 +17,19 @@ import { ref, reactive, computed, watch, inject } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import SoilReadingModal from './SoilReadingModal.vue';
 import type { CreateSoilReading, PlantSoilReadings, SoilReadingPreview } from '~/types/api';
-import { todayYmd, ymdFromLocalDate } from '../../utils/localDate.js';
+import { addDaysYmd, todayYmd, ymdFromLocalDate } from '../../utils/localDate.js';
+
+// A WATERING DAY THAT IS NOT TODAY — the ONLY shape that still asks the before/after question (QA
+// 2026-08-11, finding 4; docs/care-engine.md §7.20.4). A today-dated reading's side of that day's watering
+// is DERIVED by the API from events it already stores, so neither path asks about it any more; only a
+// back-dated day is genuinely unrecoverable, because care events store a date with no time.
+//
+// Built relative to the real today rather than hard-coded, so this file does not quietly become a
+// today-dated fixture again the day the calendar passes some literal — which is precisely how the defect
+// survived: every case below named `todayYmd()` as its watering day and therefore exercised the one shape
+// the question must NOT be asked about.
+const BACK_DATED = addDaysYmd(-3);
+const OTHER_BACK_DATED = addDaysYmd(-5);
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('reactive', reactive);
@@ -524,19 +536,57 @@ describe('SoilReadingModal', () => {
 // below is unchanged in substance from the pre-redesign version; only the explicit `mode: 'voluntary'` is
 // new.
 describe('SoilReadingModal — the same-day-watering question, voluntary mode (owner-ruled 2026-08-08)', () => {
-  // REWRITTEN 2026-08-10 (spec §5): a third clause, because the gate is now `mode === 'voluntary' &&
+  // REWRITTEN 2026-08-10 (spec §5): a third clause, because the gate was `mode === 'voluntary' &&
   // isWateringDay` and the first two clauses alone cannot tell that apart from the bare `isWateringDay`
   // the code carried between QA round 3 and the owner's ruling.
-  it('shows the question ONLY when measuredOn is a watering day — and only in VOLUNTARY mode', () => {
-    const onWateringDay = mountModal(makeData({ wateringDays: [todayYmd()] }), { mode: 'voluntary' });
-    expect(wateringRelationSeg(onWateringDay)).toBeTruthy();
+  //
+  // ⚠️ REWRITTEN AGAIN 2026-08-11 (QA finding 4) — a FOURTH clause, and the previous version of this case
+  // is what let the defect through. It asserted the question IS shown for a watering day dated TODAY, which
+  // is exactly the shape §7.20.4 says must not be asked: the API derives a today-dated reading's side of
+  // that day's watering, and the survey has derived it since 2026-08-10. So the log demanded (asterisk,
+  // Save disabled) an answer its sibling path worked out silently, and re-opening it showed a derived
+  // "Después de regar" as though the owner had pressed it. The date, not the mode, is the real axis.
+  it('shows the question ONLY for a BACK-DATED watering day, and only in VOLUNTARY mode', async () => {
+    const backDated = mountModal(makeData({ wateringDays: [BACK_DATED] }), { mode: 'voluntary' });
+    await backDated.find('input[type="date"]').setValue(BACK_DATED);
+    expect(wateringRelationSeg(backDated)).toBeTruthy();
+
+    // ⚠️ THE CLAUSE THE OLD CASE HAD BACKWARDS. Same mode, same watering day, dated TODAY: silent.
+    const today = mountModal(makeData({ wateringDays: [todayYmd()] }), { mode: 'voluntary' });
+    expect(wateringRelationSeg(today)).toBeUndefined();
 
     const notWateringDay = mountModal(makeData({ wateringDays: [] }), { mode: 'voluntary' });
     expect(wateringRelationSeg(notWateringDay)).toBeUndefined();
 
-    // Same day, same data, survey mode: silent. The mode is the whole difference.
-    const survey = mountSurvey(makeData({ wateringDays: [todayYmd()] }));
+    // Survey mode is silent on a back-dated day too — it never renders a date field at all.
+    const survey = mountSurvey(makeData({ wateringDays: [BACK_DATED, todayYmd()] }));
     expect(wateringRelationSeg(survey)).toBeUndefined();
+  });
+
+  // ⚠️ THE DEFECT ITSELF, END TO END (QA 2026-08-11, finding 4). On a plant watered TODAY the log made the
+  // before/after question MANDATORY — asterisk, Save disabled until answered — while the survey never
+  // showed it and stored a value anyway. Same plant, same day, same derivable fact, two different
+  // behaviours. The log now derives it too, by staying silent and letting the API answer it (§7.20.4).
+  //
+  // Asserted on the SAVED BODY, not merely on the control's absence: "the question is not shown" and "the
+  // client sends no relation" are two different claims, and only the second is what makes the API's
+  // derivation the single authority. A modal that hid the control and then posted a stale `wateringRelation`
+  // would pass an absence-only assertion.
+  it('asks NOTHING on a plant watered TODAY, and saves with no relation for the API to derive', async () => {
+    recordSoilReading.mockClear();
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+    );
+    expect(wateringRelationSeg(w)).toBeUndefined();
+    await readingInput(w).setValue(5);
+    // Not merely un-asked — UNBLOCKED. The measured symptom was a Save the owner could not press.
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    const body = recordSoilReading.mock.calls.at(-1)![1];
+    expect(body.measuredOn).toBe(todayYmd());
+    expect(body).not.toHaveProperty('wateringRelation');
   });
 
   // ---- QA finding F4 (2026-08-10): "that day", when the day is today -----------------------------------
@@ -557,31 +607,42 @@ describe('SoilReadingModal — the same-day-watering question, voluntary mode (o
         .find((g) => g.props('hint') === 'reading.wateringRelationHint')
         ?.props('label');
 
-    it('says TODAY for a today-dated reading', () => {
-      const w = mountModal(makeData({ wateringDays: [todayYmd()] }), { mode: 'voluntary' });
+    // ⚠️ REWRITTEN 2026-08-11 (QA finding 4). The old version reached the "today" wording the ordinary way
+    // — a today-dated reading on a watering day — and that path no longer asks the question at all. The
+    // wording is NOT dead, though, and this is the one door left to it: across the plant-city midnight gap
+    // the API judges the reading BACK-DATED (the plant's day has rolled over) while the browser still calls
+    // it today, so the server refuses with a 400 and the modal reveals the control. The owner is being
+    // asked about the day HE is living in, so "today" is the honest word.
+    it('says TODAY when the SERVER reveals the question on a browser-today reading', async () => {
+      recordSoilReading.mockRejectedValueOnce(proxiedError(
+        400, 'wateringRelation is required: this plant was already watered on measuredOn',
+      ));
+      const w = mountModal(makeData({ instruments: [galvanicProbe], wateringDays: [] }), { mode: 'voluntary' });
+      await readingInput(w).setValue(5);
+      await findSaveButton(w).trigger('click');
+      await flushPromises();
       expect(relationLabel(w)).toBe('reading.wateringRelationLabelToday');
     });
 
     // The other direction, and it is what stops "always say today" from passing: a BACK-DATED reading is
-    // genuinely about another day, and must keep the original wording.
+    // genuinely about another day, and must keep the original wording. This is now also the ORDINARY path.
     it('says THAT DAY once the owner back-dates the reading', async () => {
-      const backDated = '2026-08-01';
       const w = mountModal(
-        makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd(), backDated] }),
+        makeData({ instruments: [galvanicProbe], wateringDays: [BACK_DATED] }),
         { mode: 'voluntary' },
       );
-      // Starts on today, so it starts on the today wording — then FOLLOWS the field, which is the whole
-      // reason the label is derived from `measuredOn` rather than struck once when the modal opened.
-      expect(relationLabel(w)).toBe('reading.wateringRelationLabelToday');
-      await w.find('input[type="date"]').setValue(backDated);
+      // Nothing is asked while the field still says today — the API derives that case.
+      expect(wateringRelationSeg(w)).toBeUndefined();
+      await w.find('input[type="date"]').setValue(BACK_DATED);
       expect(relationLabel(w)).toBe('reading.wateringRelationLabel');
     });
   });
 
   it('blocks submit until the question is answered, and never pre-selects either option', async () => {
     const w = mountModal(
-      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+      makeData({ instruments: [galvanicProbe], wateringDays: [BACK_DATED] }), { mode: 'voluntary' },
     );
+    await w.find('input[type="date"]').setValue(BACK_DATED); // REWRITTEN 2026-08-11 — see finding 4 above
     await w.find('input[type="number"]').setValue(5); // a valid raw reading, so only the question gates it
 
     const buttons = wateringRelationSeg(w)!.findAll('button');
@@ -594,8 +655,9 @@ describe('SoilReadingModal — the same-day-watering question, voluntary mode (o
 
   it('sends the chosen answer to the API only when the question was asked', async () => {
     const w = mountModal(
-      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+      makeData({ instruments: [galvanicProbe], wateringDays: [BACK_DATED] }), { mode: 'voluntary' },
     );
+    await w.find('input[type="date"]').setValue(BACK_DATED); // REWRITTEN 2026-08-11 — see finding 4 above
     await w.find('input[type="number"]').setValue(5);
     const buttons = wateringRelationSeg(w)!.findAll('button');
     await buttons[1]!.trigger('click'); // AFTER
@@ -637,11 +699,14 @@ describe('SoilReadingModal — the same-day-watering question, voluntary mode (o
 
   it('changing measuredOn away from a watering day clears the answer and re-enables submit — never ' +
     'silently submitted for a day it does not describe', async () => {
-    const wateringDay = todayYmd();
-    const otherDay = '2026-08-01';
+    // REWRITTEN 2026-08-11 (finding 4): both days are BACK-DATED now — a today-dated watering day is no
+    // longer asked about at all, so the old fixture could not reach the control it is about.
+    const wateringDay = BACK_DATED;
+    const otherDay = OTHER_BACK_DATED;
     const w = mountModal(
       makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }), { mode: 'voluntary' },
     );
+    await w.find('input[type="date"]').setValue(wateringDay);
     await w.find('input[type="number"]').setValue(5);
     expect(findSaveButton(w).attributes('disabled')).toBeDefined(); // watering day, unanswered
 
@@ -664,18 +729,23 @@ describe('SoilReadingModal — the same-day-watering question, voluntary mode (o
   });
 
   it('resets the answer on close/reopen', async () => {
-    const wateringDay = todayYmd();
+    // REWRITTEN 2026-08-11 (finding 4): the watering day is BACK-DATED, so reaching the control means
+    // moving the date field — which also makes the reopen assertion sharper than it was. Reopen resets
+    // `measuredOn` to today, so the control is GONE; re-picking the same back-dated day must bring it back
+    // UNANSWERED, never carrying the previous session's answer.
     const w = mountModal(
-      makeData({ instruments: [galvanicProbe], wateringDays: [wateringDay] }), { mode: 'voluntary' },
+      makeData({ instruments: [galvanicProbe], wateringDays: [BACK_DATED] }), { mode: 'voluntary' },
     );
+    await w.find('input[type="date"]').setValue(BACK_DATED);
     await wateringRelationSeg(w)!.findAll('button')[1]!.trigger('click'); // AFTER
     expect(wateringRelationSeg(w)!.findAll('button')[1]!.attributes('aria-pressed')).toBe('true');
 
-    // Close, then reopen — the same modal instance a page reuse never re-mounts. `measuredOn` resets to
-    // today too, which is still `wateringDay` here, so the control stays shown.
+    // Close, then reopen — the same modal instance a page reuse never re-mounts.
     await w.setProps({ open: false });
     await w.setProps({ open: true });
+    expect(wateringRelationSeg(w)).toBeUndefined();
 
+    await w.find('input[type="date"]').setValue(BACK_DATED);
     const buttonsAfter = wateringRelationSeg(w)!.findAll('button');
     expect(buttonsAfter.every((b) => b.attributes('aria-pressed') === 'false')).toBe(true);
   });
@@ -1217,10 +1287,13 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
   // REWRITTEN 2026-08-10: was `mountSurvey`. Survey mode does not ask the question any more, so this case
   // would have been asserting a blocking reason that can never appear — it is re-pointed at VOLUNTARY
   // mode, the one place the question (and therefore this blocking reason) still exists.
-  it('names the unanswered same-day question when that is what blocks (voluntary mode)', async () => {
+  // REWRITTEN AGAIN 2026-08-11 (finding 4): back-dated, because a today-dated reading is no longer asked
+  // the question and therefore can no longer be blocked by it.
+  it('names the unanswered same-day question when that is what blocks (voluntary, back-dated)', async () => {
     const w = mountModal(
-      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+      makeData({ instruments: [galvanicProbe], wateringDays: [BACK_DATED] }), { mode: 'voluntary' },
     );
+    await w.find('input[type="date"]').setValue(BACK_DATED);
     await w.find('input[type="number"]').setValue(5);
     expect(blockedText(w)).toBe('reading.missingWateringRelation');
   });
@@ -1573,10 +1646,14 @@ describe('no verdict branch sends wateringRelation — the API derives it', () =
   // genuinely UNDERIVABLE — care events store a date and no time, so a back-dated reading and a watering
   // on that same past day have no order between them and only the owner knows. A "the client never sends
   // it" fix that reached in here would silently discard the one answer nobody else can supply.
+  // ⚠️ REWRITTEN 2026-08-11 (finding 4). The case NAMED the back-dated reading and then mounted a
+  // today-dated one — the fixture contradicted the sentence above it, and that is exactly the shape the
+  // API derives rather than asks about. Now the fixture matches the claim.
   it('but VOLUNTARY mode still sends it — nobody can derive a back-dated reading\'s order', async () => {
     const w = mountModal(
-      makeData({ instruments: [galvanicProbe], wateringDays: [todayYmd()] }), { mode: 'voluntary' },
+      makeData({ instruments: [galvanicProbe], wateringDays: [BACK_DATED] }), { mode: 'voluntary' },
     );
+    await w.find('input[type="date"]').setValue(BACK_DATED);
     await readingInput(w).setValue(5);
     const seg = wateringRelationSeg(w);
     expect(seg, 'voluntary mode must still ask').toBeDefined();
@@ -1654,10 +1731,16 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
   // null wetness, honestly — and calibrating the pot later makes those stored weights interpretable.
   // ---------------------------------------------------------------------------------------------------
 
+  // ⚠️ REWRITTEN 2026-08-11 (QA finding 5). The `not.toContain('reading.calibration.notCalibratedYet')`
+  // clause is RETRACTED: it pinned the silence QA filed the finding about. Offering the instrument is still
+  // right (the reading is the owner's data, it is stored honestly with a null wetness, and the calibration
+  // backfill depends on the row existing) — but saying nothing left the owner with a row reading
+  // `2400 grams · Sin lectura de humedad` and no explanation anywhere and no route to fixing it. The
+  // instrument is offered AND the gap is explained, through the survey's own alert and link.
   it('STILL OFFERS an uncalibrated scale in voluntary mode — a raw reading is the owner\'s data', () => {
     const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
-    // Not the survey's empty state: there is a real control here.
-    expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
+    // Offered, AND explained — not the survey's dead-end empty state, which withholds the control entirely.
+    expect(w.text()).toContain('reading.calibration.notCalibratedYet');
     const buttons = instrumentSegButtons(w);
     expect(buttons).toHaveLength(1);
     expect(buttons[0]!.text()).toBe('settings.instruments.name.kitchen-scale');
@@ -1763,13 +1846,48 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
       expect(instrumentSegButtons(w)).toHaveLength(1);
     });
 
-    // VOLUNTARY MODE OFFERS AN UNCALIBRATED SCALE ON PURPOSE (the raw weight is still the owner's data, and
-    // a first calibration backfills it later), so nothing is being withheld there and there is nothing to
-    // explain. Derived from the same filter the picker uses, so this holds by construction.
-    it('says nothing in VOLUNTARY mode, where the uncalibrated scale is offered anyway', () => {
+    // ⚠️ REWRITTEN 2026-08-11 (QA finding 5) — the assertion survives, its REASON does not, and the old
+    // reason is what let the finding through. It read: "voluntary mode offers the uncalibrated scale on
+    // purpose, so nothing is withheld and there is nothing to explain", and it passed for BOTH instruments
+    // in this fixture. But something IS worth explaining there — just not the same thing: the survey's
+    // notice explains an instrument that is ABSENT, while in voluntary mode the instrument is present and
+    // cannot produce a moisture number, which is why the owner's row read `2400 grams · Sin lectura de
+    // humedad` with nothing anywhere saying why or how to fix it.
+    //
+    // So the rule is now scoped to the instrument the owner has CHOSEN, and this case pins the NEGATIVE
+    // half of that scoping: the probe is selected, the probe is fine, so a notice about the OTHER,
+    // unselected instrument would be noise attached to a reading it does not describe.
+    it('says nothing in VOLUNTARY mode while the SELECTED instrument is calibrated', () => {
       const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
+      expect(instrumentSegButtons(w)[0]!.attributes('aria-pressed')).toBe('true'); // the probe is selected
       expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
       expect(instrumentSegButtons(w)).toHaveLength(2);
+    });
+
+    // …and the POSITIVE half, which is the finding itself. Same fixture, same mode — the owner switches the
+    // picker to the uncalibrated scale, and the explanation appears WITH the form still fully usable.
+    it('EXPLAINS the gap in VOLUNTARY mode once the uncalibrated instrument is the selected one', async () => {
+      const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
+      await instrumentSegButtons(w)[1]!.trigger('click'); // the uncalibrated kitchen scale
+      expect(w.text()).toContain('reading.calibration.notCalibratedYet');
+      // ⚠️ AND THE INSTRUMENT IS STILL OFFERED. The survey WITHHOLDS an uncalibrated instrument; the log
+      // must not start doing the same, or the raw weight the calibration backfill depends on can never be
+      // recorded. Explaining is the whole change; withholding would be a regression wearing its clothes.
+      expect(w.find('input[type="number"]').exists()).toBe(true);
+      expect(w.find('input[type="date"]').exists()).toBe(true);
+    });
+
+    // ONE IMPLEMENTATION, NOT A SECOND COPY WRITTEN FOR THE LOG DIALOG: the same i18n unit and the same
+    // working link to this plant's calibration, asserted here exactly as the survey's own case asserts it.
+    it('reuses the survey\'s own sentence and calibrate link, not a second copy of them', async () => {
+      const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
+      await instrumentSegButtons(w)[1]!.trigger('click');
+      const sentence = w.find('.i18n-t');
+      expect(sentence.text()).toContain('reading.calibration.notCalibratedYet');
+      const link = sentence.find('a.nuxt-link');
+      expect(link.exists()).toBe(true);
+      expect(link.attributes('href')).toBe('/plants/plant-1');
+      expect(link.attributes('data-to-query')).toBe(JSON.stringify({ calibrate: '1' }));
     });
   });
 
@@ -2063,35 +2181,45 @@ describe('the modal loads and edits the reading already on file', () => {
     expect((readingInput(w).element as HTMLInputElement).value).toBe('4');
   });
 
-  // The watering-relation answer is part of "whatever else the owner set": an edit form that dropped it
-  // would silently re-ask a question he has already answered about that exact day.
-  it('prefills the watering-relation answer, and submits it without the owner touching the control', async () => {
-    recordSoilReading.mockClear();
-    const day = todayYmd();
+  // ⚠️ RETRACTED AND INVERTED 2026-08-11 (QA finding 4). This case used to be
+  // `prefills the watering-relation answer, and submits it without the owner touching the control`, and it
+  // asserted the stored relation renders as PRESSED. It was written for a real concern — an edit form that
+  // drops what the owner already answered re-asks a question about that exact day — and it turns out to be
+  // unsatisfiable honestly, because the column holds TWO provenances and the row does not say which: since
+  // 2026-08-10 the API DERIVES the relation for any today-dated reading on a watering day. So a loaded
+  // "AFTER" may be the owner's statement or the API's inference, and rendering it as pressed presents a
+  // derivation as a choice he made. QA measured exactly that: "Después de regar" already selected, an
+  // answer the owner never gave.
+  //
+  // The honest treatment is the one already ruled for this question on 2026-08-08 — it is ANSWERED, never
+  // defaulted — so an edit starts it unanswered. The cost is one tap, on a control that only renders for a
+  // genuinely back-dated reading at all. Closing it properly would need the row to record its provenance,
+  // which is a schema change nobody has ruled on.
+  it('never renders a LOADED relation as though the owner had chosen it', async () => {
     const w = mountModal(makeData({
-      wateringDays: [day],
-      readings: [{ ...existingProbeToday, wateringRelation: 'BEFORE' }],
+      wateringDays: [BACK_DATED],
+      readings: [{ ...existingProbeToday, measuredOn: BACK_DATED, wateringRelation: 'AFTER' }],
     }));
-    // Shown as SELECTED, not merely held in the model — the owner must be able to see what he answered.
-    const before = wateringRelationSeg(w)!.findAll('button')
-      .find((b) => b.text() === 'reading.wateringRelation.before')!;
-    expect(before.attributes('aria-pressed')).toBe('true');
-
-    await findSaveButton(w).trigger('click');
-    await flushPromises();
-    expect(recordSoilReading.mock.calls.at(-1)![1]).toMatchObject({
-      instrumentId: 'galvanic-probe', rawValue: 7, measuredOn: day, wateringRelation: 'BEFORE',
-    });
+    await w.find('input[type="date"]').setValue(BACK_DATED);
+    // The reading itself IS loaded — this is an edit form, and the number proves the load happened at all,
+    // so "unanswered" cannot pass by the form simply having failed to find the row.
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('7');
+    for (const b of wateringRelationSeg(w)!.findAll('button')) {
+      expect(b.attributes('aria-pressed')).toBe('false');
+    }
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
   });
 
   // ⚠️ A NULL RELATION IS "UNKNOWN / NEVER ASKED", NEVER A PRE-SELECTION. The owner's 2026-08-08 ruling —
   // this question is ANSWERED, never defaulted — binds an edit form exactly as it binds a fresh one, so a
   // loaded row holding `null` must leave both options unpressed and the save blocked until he answers.
-  it('never turns a NULL relation into a pre-selection', () => {
+  // (REWRITTEN 2026-08-11: back-dated, since a today-dated reading is no longer asked the question.)
+  it('never turns a NULL relation into a pre-selection', async () => {
     const w = mountModal(makeData({
-      wateringDays: [todayYmd()],
-      readings: [{ ...existingProbeToday, wateringRelation: null }],
+      wateringDays: [BACK_DATED],
+      readings: [{ ...existingProbeToday, measuredOn: BACK_DATED, wateringRelation: null }],
     }));
+    await w.find('input[type="date"]').setValue(BACK_DATED);
     for (const b of wateringRelationSeg(w)!.findAll('button')) {
       expect(b.attributes('aria-pressed')).toBe('false');
     }

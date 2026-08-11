@@ -4,6 +4,9 @@ import Badge from './Badge.vue';
 import Button from './Button.vue';
 import type { TaskCode } from '~/utils/tasks';
 import { dueState } from '~/utils/tasks';
+// The WATER row's shared rules — the ONE place a measured verdict decides anything, applied identically by
+// this component and by both pages. See `effectiveTaskStatus`'s own comment.
+import { effectiveTaskStatus, type TodaysVerdict } from '~/utils/waterSurvey';
 import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
 import { useTaskMeta } from '~/composables/useTaskMeta';
 
@@ -79,6 +82,17 @@ const props = withDefaults(
      * the app already shows.
      */
     suggestMeasuring?: boolean;
+    /**
+     * WATER only — what today's soil reading ANSWERED, straight off the payload both surfaces already
+     * carry (`todaysVerdict` on the Today WATER row, `measurement.todaysVerdict` on the plant care
+     * payload). `null` means nothing was measured today, and is the default, so a caller that omits the
+     * prop renders exactly as before.
+     *
+     * It exists because of QA 2026-08-11's finding 3: a `WATER_NOW` verdict must make the watering read as
+     * due TODAY even when the calendar still says nine days out — see `effectiveTaskStatus`, which owns
+     * that rule for every consumer, this component included.
+     */
+    todaysVerdict?: TodaysVerdict;
   }>(),
   {
     withDoneDate: false,
@@ -92,6 +106,7 @@ const props = withDefaults(
     // and leak the button onto every un-opted-in caller. Declaring the default HERE (even as `undefined`)
     // satisfies Vue's `hasDefault` check and keeps the prop genuinely tri-state.
     suggestMeasuring: undefined,
+    todaysVerdict: null,
   },
 );
 
@@ -161,10 +176,33 @@ watch(
 const verdictOverridesDue = computed(
   () => props.task === 'REPOT' && props.pendingVerdict === 'REPOT' && props.status === 'upcoming',
 );
-const effectiveStatus = computed(() => (verdictOverridesDue.value ? 'today' : props.status));
-const effectiveDueLabel = computed(() =>
-  verdictOverridesDue.value ? t('repotEval.verdictNowBadge') : props.dueLabel,
+
+// QA 2026-08-11, finding 3 — THE WATER SIBLING of the REPOT rule directly above, and the same argument in
+// the owner's own words: the schedule is a prediction, the measurement is the observation. A `WATER_NOW`
+// verdict on today's reading makes the watering read as due TODAY even where the calendar says "faltan 9
+// días", which is what puts the ordinary Hecho | Posponer pair back on the card (`showPostpone` withholds
+// Posponer on an `upcoming` row, so without this the app told the owner to water and offered him no way to
+// say he could not).
+//
+// ⚠️ THE RULE ITSELF LIVES IN `utils/waterSurvey.ts`, NOT HERE. This component is one of THREE consumers —
+// the two pages apply the identical rule to the status they hand `onDone`, which is what decides whether
+// the early-watering reason picker opens. A local copy of the condition here is exactly how the badge and
+// the handler would come to disagree, and the disagreement is visible to the owner: "water it now",
+// followed one tap later by "why are you watering early?".
+const effectiveStatus = computed<'overdue' | 'today' | 'upcoming'>(() =>
+  verdictOverridesDue.value
+    ? 'today'
+    : effectiveTaskStatus(props.task, props.todaysVerdict, props.status));
+const measurementOverridesDue = computed(
+  () => !verdictOverridesDue.value && effectiveStatus.value !== props.status,
 );
+const effectiveDueLabel = computed(() => {
+  if (verdictOverridesDue.value) return t('repotEval.verdictNowBadge');
+  // A row surfaced by a measurement must not go on reading "faltan 9 días" beside an urgent badge colour —
+  // the same self-contradiction the REPOT arm above exists to remove, with WATER's own wording.
+  if (measurementOverridesDue.value) return t('reading.verdictNowBadge');
+  return props.dueLabel;
+});
 
 const badgeColor = computed(() =>
   effectiveStatus.value === 'overdue' ? 'red' : effectiveStatus.value === 'today' ? 'amber' : 'neutral',

@@ -18,7 +18,7 @@ import { fertilizeExplanation } from '../utils/fertilizeExplanation.js';
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
 // The WATER row's two survey rules — "may this row offer the survey at all" and "does a Posponer still have
 // anything to ask" — live once and are shared with pages/index.vue, never restated per renderer.
-import { canOfferWaterSurvey, postponeReasonWithoutAsking } from '../utils/waterSurvey.js';
+import { canOfferWaterSurvey, effectiveTaskStatus, postponeReasonWithoutAsking } from '../utils/waterSurvey.js';
 // Explicit import, same reasoning as `onUnmounted` above: the composable's OWN `shallowRef` import makes
 // it test-environment-agnostic. Round-5 finding V1 — extracted so this file and pages/index.vue (the
 // FIRST renderer of the same REPOT flows) share ONE attempt-tracking implementation instead of two
@@ -1150,6 +1150,20 @@ async function onRepotPostpone() {
   }
 }
 
+// QA 2026-08-11, finding 3 — the status a task row is ACTUALLY in once today's measurement has had its
+// say. A `WATER_NOW` verdict makes a not-yet-due watering read as due today (the owner's ruling: the
+// schedule is a prediction, the measurement is the observation), which is what puts Posponer back on the
+// card and what keeps this page's row from going on saying "faltan 9 días" under an urgent answer.
+//
+// ⚠️ APPLIED TO THE HANDLERS TOO, NOT ONLY TO THE BADGE — `TaskRow` renders the override itself, but
+// `onDone` below opens the early-watering reason picker for an `upcoming` WATER task. Handing it the raw
+// calendar status would have the app tell the owner to water now and then ask why he is watering early:
+// second-guessing its own verdict, one tap after issuing it. The RULE lives in `utils/waterSurvey.ts` and
+// is applied identically by TaskRow.vue and pages/index.vue — never a second copy of the condition.
+function careEffectiveStatus(task: TaskCode, status: 'overdue' | 'today' | 'upcoming') {
+  return effectiveTaskStatus(task, care.value?.measurement?.todaysVerdict ?? null, status);
+}
+
 // A WATER done on a not-yet-due task (status 'upcoming') is an early watering → ask why. A REPOT done opens
 // the completion form — reachable EITHER once a 'REPOT' verdict is pending (both surfaces) OR standalone on
 // this page, where the card offers Done beside "time to evaluate" (`allow-standalone-done`, owner request
@@ -1203,7 +1217,7 @@ function onPostpone(task: TaskCode) {
  */
 function onWaterVerdictDone() {
   const status = care.value?.tasks.find((t) => t.task === 'WATER')?.status ?? 'today';
-  return onDone('WATER', status);
+  return onDone('WATER', careEffectiveStatus('WATER', status));
 }
 
 function confirmEarly(reason: string) {
@@ -1561,10 +1575,11 @@ async function confirmRevive() {
                 :pending-verdict="t3.pendingEvaluation?.verdict ?? null"
                 :pending-reevaluate-on="t3.pendingEvaluation?.reevaluateOn ?? null"
                 :can-survey="t3.task === 'WATER' && canSurveyWater"
+                :todays-verdict="t3.task === 'WATER' ? (care.measurement?.todaysVerdict ?? null) : null"
                 with-done-date
                 show-info
                 allow-standalone-done
-                @done="e => onDone(e.task, t3.status, e.occurredOn)"
+                @done="e => onDone(e.task, careEffectiveStatus(e.task, t3.status), e.occurredOn)"
                 @postpone="e => onPostpone(e.task)"
                 @info="openTaskInfo"
                 @log-progress="openProgress"

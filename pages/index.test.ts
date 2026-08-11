@@ -203,6 +203,12 @@ const stubs = {
       task: null,
       allowStandaloneDone: { type: Boolean, default: false },
       canSurvey: { type: Boolean, default: false },
+      // QA 2026-08-11, finding 3 — declared so the wiring test below can read what the page actually
+      // BOUND, not merely what it happened to compute internally. A stray attribute would render on the
+      // root div anyway, which is exactly the kind of accidental pass this file's stubs are written to
+      // avoid: an undeclared prop makes `data-todays-verdict` true of the DOM without being true of the
+      // component contract.
+      todaysVerdict: { type: String, default: null },
     },
     // Plan 3 T5: `evaluate` now carries a payload ({ task }), mirroring the REAL TaskRow.vue's own
     // `emit('evaluate', { task: props.task })` — pages/index.vue routes on it to tell a REPOT evaluate from
@@ -211,7 +217,8 @@ const stubs = {
     // binding, which routes to the unchanged `onEvaluate` branch.
     emits: ['evaluate', 'done', 'postpone'],
     template:
-      '<div :data-allow-standalone-done="String(!!allowStandaloneDone)" :data-can-survey="String(!!canSurvey)">' +
+      '<div :data-allow-standalone-done="String(!!allowStandaloneDone)" :data-can-survey="String(!!canSurvey)" ' +
+      ':data-todays-verdict="String(todaysVerdict)">' +
       // Mirrors TaskRow.vue's OWN `showEvaluate` gate for WATER (`canSurvey === true`) — never re-derives
       // REPOT's gate (that stays ungated here, exactly as before this row existed; REPOT's own state
       // machine is TaskRow.vue's job and is covered by TaskRow.test.ts, not this wiring-level file).
@@ -1553,5 +1560,53 @@ describe('pages/index.vue — W2: a postpone after today\'s measurement sends no
     expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
     expect(sendFeedbackMock.mock.calls[0][1].task).toBe('REPOT');
     expect(sendFeedbackMock.mock.calls[0][1].reason).not.toBe('no-time');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// QA 2026-08-11, finding 3 — THE WIRING HALF on Today (owner-ruled; docs/care-engine.md §7.20.15).
+//
+// The rule lives in `utils/waterSurvey.ts` and the badge/Posponer half is pinned in TaskRow.test.ts. What
+// only THIS file can pin is that the page applies the same rule to the status it hands `onDone` — because
+// that status is what decides whether the early-watering reason picker opens. Applying the override to the
+// badge alone would have the app tell the owner to water now and then ask him, one tap later, why he is
+// watering early: second-guessing its own verdict, and offering him `soil-still-moist`, a reason that MOVES
+// the watering cadence against the measurement he just took.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('pages/index.vue — finding 3: a measured WATER_NOW is acted on as a task due today', () => {
+  // A watering the calendar puts well in the future — the case the whole finding is about. (Every other
+  // WATER fixture in this file is long overdue, which is why none of them could have caught this.)
+  const FUTURE_WATER = { plantId: 'A', task: 'WATER' as const, nextDueOn: '2099-01-01', pendingEvaluation: null };
+
+  it('sends the Done straight through — no "why are you watering early?" after its own verdict', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
+    stubApiWithWaterTask([{ ...FUTURE_WATER, measuredToday: true, todaysVerdict: 'WATER_NOW' }]);
+
+    const w = await mountPage();
+    const row = w.find('[data-can-survey]');
+    // The verdict closed the survey affordance, so the ordinary pair is what is on the card.
+    expect(row.attributes('data-todays-verdict')).toBe('WATER_NOW');
+    await row.find('.done-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
+    expect(sendFeedbackMock.mock.calls[0][1]).toMatchObject({ task: 'WATER', type: 'DONE' });
+    // Neither picker was shown (template order: early-water first, postpone second).
+    expect(w.findAll('.reason-picker').map((p) => p.attributes('data-open'))).toEqual(['false', 'false']);
+  });
+
+  // THE BEFORE HALF, and without it the case above would pass just as well against a page that never asked
+  // the early-watering question at all — which would be a different regression, silently deleting the one
+  // signal the engine has about an unmeasured early watering.
+  it('still asks on a future-dated watering that was NOT measured today', async () => {
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: [] as string[] }));
+    stubApiWithWaterTask([{ ...FUTURE_WATER, measuredToday: false, todaysVerdict: null }]);
+
+    const w = await mountPage();
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).not.toHaveBeenCalled();
+    expect(w.findAll('.reason-picker')[0].attributes('data-open')).toBe('true');
   });
 });

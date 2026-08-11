@@ -2011,9 +2011,11 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // concern is that PlantDetail.vue opens it in the right MODE from the right entry point. Named explicitly
   // so `findComponent({ name: 'UiSoilReadingModal' })` can locate it, the same technique this file already
   // uses for `UiPlantPhoto` above.
+  // `wateredToday` joined the prop list on 2026-08-11 (F1b's second door): the modal withholds **Hecho** on
+  // its WATER_NOW verdict for a pot already watered today, and this page is where that fact comes from.
   const UiSoilReadingModalStub = {
     name: 'UiSoilReadingModal',
-    props: ['open', 'plantId', 'data', 'mode'],
+    props: ['open', 'plantId', 'data', 'mode', 'wateredToday'],
     emits: ['update:open', 'saved'],
     template: '<div class="soil-modal" :data-open="open" :data-mode="mode" />',
   };
@@ -2121,6 +2123,33 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   it('F1b: the voluntary "Agregar lectura" survives the watering — only Medir withdraws', async () => {
     const w = await mountWater(['galvanic-probe'], null, { wateredToday: true });
     expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(true);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  // …AND BECAUSE IT SURVIVES, THE MODAL HAS TO KNOW (F1b's SECOND DOOR, 2026-08-11).
+  //
+  // The two cases above are one ruling's two halves: Medir withdraws, the free log stays. The half that
+  // stays is a live route back to the very defect Medir's withdrawal closed — correcting a reading that
+  // carries an answer re-computes it, and the recompute can earn `WATER_NOW`, whose verdict step offers
+  // **Hecho**, whose write the API's one-WATER-DONE-per-day dedup discards. So the modal withholds Hecho
+  // itself, and this page is the only place that holds the fact it needs.
+  //
+  // ⚠️ ASSERTED AS THE PROP THE MODAL RECEIVES, not as a rendered button — the button belongs to
+  // `SoilReadingModal.test.ts`, which pins it against the real component. What can only be checked HERE is
+  // that the fact travels at all: wiring `:watered-today="canSurveyWater"` (an AND of four conditions) or
+  // forgetting the binding entirely turns these RED.
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  it('F1b: hands the reading dialog the watering fact, so it can withhold Hecho', async () => {
+    const w = await mountWater(['galvanic-probe'], null, { wateredToday: true });
+    expect(w.findComponent({ name: 'UiSoilReadingModal' }).props('wateredToday')).toBe(true);
+  });
+
+  // The other direction, and it is not symmetry for its own sake: a binding hard-coded to `true` — or one
+  // that read a always-truthy expression — would silently delete the payoff action of the whole redesign
+  // for every ordinary plant.
+  it('F1b: and hands it `false` on a pot nobody has watered today', async () => {
+    const w = await mountWater(['galvanic-probe'], null, { wateredToday: false });
+    expect(w.findComponent({ name: 'UiSoilReadingModal' }).props('wateredToday')).toBe(false);
   });
 
   // ⚠️ THE ANTI-ALIASING PIN, DIRECTION A: `wateredToday` must not be read off `promptAnsweredToday`.
@@ -2698,6 +2727,9 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
           plantId: 'p1',
           data: { instruments: [kitchenScaleNoCalibration], protocol: null, readings: [], wateringDays: [] } as never,
           mode: 'survey',
+          // Irrelevant to this seam (it is about the calibration link), stated because the prop is
+          // required — a caller that forgets the watering fact must not compile.
+          wateredToday: false,
         },
         global: {
           mocks: { $t: i18n.t },

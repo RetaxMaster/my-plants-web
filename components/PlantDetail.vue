@@ -1705,11 +1705,20 @@ async function confirmRevive() {
         <!-- Task 6: ONE modal instance, TWO entry points — the WATER row's survey (`onEvaluateTask`) and the
              measurement-history's voluntary "Add a reading" (`openVoluntaryReading`) — see `readingMode`'s
              own declaration for why a single dynamic `:mode` binding is correct here and a literal is not. -->
+        <!-- ⚠️ `:watered-today` IS THE SAME FACT `canSurveyWater` READS, AND IT IS NEEDED HERE TOO — the two
+             gates close two different doors onto one defect (F1b). That one withholds **Medir**, so the
+             survey never opens on an already-watered pot. This one withholds **Hecho** on the verdict step,
+             because the VOLUNTARY log stays reachable after a watering by the owner's own ruling (it is the
+             only way to correct today's reading) and an edit that carries an answer re-computes it — so a
+             corrected reading can earn `WATER_NOW` and reach the same verdict footer by a route the survey
+             gate never touches. Read straight off the care payload rather than through the survey gate:
+             `canSurveyWater` is an AND of four conditions, so a false there says nothing about which one. -->
         <UiSoilReadingModal
           v-model:open="readingModalOpen"
           :plant-id="id"
           :data="readings ?? { instruments: [], protocol: null, readings: [], wateringDays: [] }"
           :mode="readingMode"
+          :watered-today="care?.watering?.wateredToday === true"
           @saved="onReadingSaved"
           @water-done="onWaterVerdictDone"
           @water-postpone="onPostpone('WATER')"

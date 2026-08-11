@@ -233,11 +233,16 @@ const stubs = {
   // concern is that pages/index.vue opens it for the right plant, in the right MODE, and reconciles Today
   // through the SAME `refresh()` seam every other completion already uses (see `onReadingSaved` below and
   // the mutation-proof tests in the WATER describe block).
+  // `wateredToday` joined the prop list on 2026-08-11 (F1b's second door). On THIS surface it is the named
+  // constant `false` — a watering advances `nextDueOn`, so the API has already dropped the row and there is
+  // no Today card left to open this dialog from. `data-watered-today` exposes it so that conclusion is
+  // pinned rather than merely written in a comment.
   UiSoilReadingModal: {
-    props: ['open', 'plantId', 'data', 'mode'],
+    props: ['open', 'plantId', 'data', 'mode', 'wateredToday'],
     emits: ['update:open', 'saved'],
     template:
-      '<div class="soil-modal" :data-open="open" :data-mode="mode" :data-plant-id="plantId">' +
+      '<div class="soil-modal" :data-open="open" :data-mode="mode" :data-plant-id="plantId" '
+      + ':data-watered-today="String(wateredToday)">' +
       '<button class="soil-save-btn" @click="$emit(\'saved\')">save</button>' +
       '</div>',
   },
@@ -1406,6 +1411,11 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     expect(modal.attributes('data-open')).toBe('true');
     expect(modal.attributes('data-mode')).toBe('survey');
     expect(modal.attributes('data-plant-id')).toBe('A');
+    // F1b's second door: the modal withholds **Hecho** on a pot already watered today, and Today supplies
+    // that fact as the named constant `false` — a watering advances `nextDueOn`, so there is no Today card
+    // left to open this from. Pinned rather than left to the comment: the day this payload does start
+    // carrying the fact, this assertion is what says the constant was never replaced.
+    expect(modal.attributes('data-watered-today')).toBe('false');
   });
 
   // Mutation proof 3 (Step 4): a survey's HOLD verdict applies itself and writes a postpone, and WATER_NOW

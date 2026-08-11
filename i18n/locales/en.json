@@ -1380,6 +1380,7 @@
     "saveFailed": "We couldn't save that reading. Please try again.",
     "dayRolledOver": "That reading belongs to a day that has already ended, so we can't save it as it stands. Take the measurement again.",
     "alreadyRecorded": "This reading was already recorded.",
+    "alreadyWateredToday": "You already watered this plant today, so there's nothing left to mark as done. You can still postpone the next watering.",
     "answerKeptOnUnavailable": "We saved your reading, but we couldn't turn it into a new watering answer — so the answer this reading already carried still stands, and nothing about your watering schedule has moved.",
     "editingExisting": "You already have a {instrument} reading for this day. Saving updates that reading instead of adding a second one.",
     "valueOutOfRange": "Enter a value between {min} and {max}.",

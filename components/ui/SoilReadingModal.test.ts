@@ -170,9 +170,16 @@ function makeData(overrides: Partial<PlantSoilReadings> = {}): PlantSoilReadings
 // component's own prop default. This is what makes mutation proof 1 (see the spec) meaningful: if the
 // component ever stopped reading `props.mode` and hard-used one behavior regardless of what was passed,
 // every test that names a mode explicitly would still catch it, because the prop really is being set.
-function mountModal(data: PlantSoilReadings, extra: { mode?: 'survey' | 'voluntary' } = {}) {
+//
+// `wateredToday` defaults to `false` here — "nobody has watered this pot today", which is what every case
+// written before 2026-08-11 described implicitly and still describes. The cases that are ABOUT the watered
+// pot pass `true` explicitly; see `the WATER_NOW verdict does not offer Hecho on a pot already watered`.
+function mountModal(
+  data: PlantSoilReadings,
+  extra: { mode?: 'survey' | 'voluntary'; wateredToday?: boolean } = {},
+) {
   return mount(SoilReadingModal, {
-    props: { open: true, plantId: 'plant-1', data, mode: 'voluntary', ...extra },
+    props: { open: true, plantId: 'plant-1', data, mode: 'voluntary', wateredToday: false, ...extra },
     global: { mocks: { $t: (k: string) => k }, stubs },
   });
 }
@@ -471,7 +478,12 @@ describe('SoilReadingModal', () => {
   it('defaults the instrument to the first one on a first open, even with a late-arriving data prop, but ' +
     'never overwrites an explicit LATER choice on reopen (fix wave 1, item 1b)', async () => {
     const w = mount(SoilReadingModal, {
-      props: { open: false, plantId: 'plant-1', data: makeData({ instruments: [] }), mode: 'voluntary' },
+      props: {
+        open: false, plantId: 'plant-1', data: makeData({ instruments: [] }), mode: 'voluntary',
+        // Irrelevant to what this case is about (the instrument default), stated because the prop is
+        // required — a caller that forgets the watering fact must not compile.
+        wateredToday: false,
+      },
       global: { mocks: { $t: (k: string) => k }, stubs },
     });
 
@@ -1214,6 +1226,128 @@ describe('the WATER_NOW verdict is actionable', () => {
 
     expect(verdictButton(w, 'common.done')).toBeUndefined();
     expect(verdictButton(w, 'common.postpone')).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// A POT ALREADY WATERED TODAY IS NOT OFFERED **Hecho** — F1b, closed at the second door
+// (QA round 3; owner-ruled 2026-08-11)
+//
+// F1b was: on a pot already watered today, a `WATER_NOW` verdict offered Hecho, the API's
+// one-`WATER DONE`-per-day dedup swallowed the write, and the owner got a cheerful 200 that discarded his
+// action. It was closed by withholding **Medir** once the pot is watered (`canOfferWaterSurvey`).
+//
+// ⚠️ AND IT CAME BACK THROUGH THE DOOR THE OWNER DELIBERATELY LEFT OPEN. The voluntary "Agregar lectura"
+// stays reachable after a watering — his own ruling, because it is the only way to correct today's reading
+// — and since the recompute above, correcting a reading that carries an answer can EARN `WATER_NOW` and
+// land on this very footer. Same defect, different route, and the Medir gate cannot see it.
+//
+// The owner's rulings decide the shape: after a Riego is marked Done the app must not offer to water again,
+// and measuring an already-watered pot and finding it dry is *"a very edge case … something we don't
+// support"*. So Hecho is withheld; Posponer and Close stay.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('the WATER_NOW verdict does not offer Hecho on a pot already watered today', () => {
+  beforeEach(() => {
+    previewSoilReading.mockReset();
+    recordSoilReading.mockReset();
+    recordSoilReading.mockResolvedValue({ readingId: 'r1' });
+  });
+
+  const waterNow = {
+    measuredOn: PLANT_TODAY, wetness: 0.2, target: 0.4, recommendation: 'WATER_NOW' as const,
+    suggestedPostponeToOn: null, basis: null, unavailableReason: null,
+  };
+
+  function verdictButton(w: ReturnType<typeof mount>, label: string) {
+    return w.findAll('button').find((b) => b.text().includes(label));
+  }
+
+  /** Reach the WATER_NOW verdict through the SURVEY, on a pot in whatever watering state a case needs. */
+  async function surveyTo(wateredToday: boolean) {
+    previewSoilReading.mockResolvedValueOnce(waterNow);
+    const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'survey', wateredToday });
+    await w.find('input[type="number"]').setValue(3);
+    await findCalculateButton(w).trigger('click');
+    await flushPromises();
+    return w;
+  }
+
+  /** Reach the SAME verdict through the VOLUNTARY EDIT — the route the Medir gate cannot close, and the
+   *  one that makes this fix necessary rather than merely symmetric. A reading on file for today carrying
+   *  a real answer, corrected to a drier number. */
+  async function correctAnsweredReadingTo(wateredToday: boolean) {
+    previewSoilReading.mockResolvedValueOnce(waterNow);
+    const onFile = {
+      id: 'on-file', instrumentId: 'galvanic-probe' as const, rawValue: 7, wetness: 0.66,
+      measuredOn: todayYmd(), verdict: 'POSTPONE' as const, wateringRelation: null,
+    };
+    const w = mountModal(
+      makeData({ instruments: [galvanicProbe], readings: [onFile] }),
+      { mode: 'voluntary', wateredToday },
+    );
+    // The prefill really happened, so "the value changed" is genuinely satisfied.
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('7');
+    await readingInput(w).setValue(3);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    // The recompute really reached the verdict step — otherwise a missing Hecho would prove nothing.
+    expect(w.text()).toContain('reading.verdictWaterNowTitle');
+    return w;
+  }
+
+  // ⚠️ MUTATION THIS PINS (direction: the fix is PRESENT). Drop the `v-if="canMarkWaterDone"` from the
+  // footer's Done button — or make `canMarkWaterDone` a constant `true` — and this goes red. Without it the
+  // owner taps Hecho, the API's dedup discards the write, and he is answered with a 200 that changed
+  // nothing: F1b verbatim.
+  it('withholds Done — through the VOLUNTARY EDIT, the route Medir cannot gate', async () => {
+    const w = await correctAnsweredReadingTo(true);
+    expect(verdictButton(w, 'common.done')).toBeUndefined();
+  });
+
+  // Posponer is NOT collateral. It writes a real deferral, the WATER-DONE dedup does not touch it, and
+  // "water it later" is exactly what an owner in this state can still act on. ⚠️ MUTATION THIS PINS
+  // (direction: the fix is NOT OVER-BROAD): gate Posponer or Close on the same flag and this goes red,
+  // leaving a verdict screen with nothing to do on it.
+  it('keeps Postpone and Close, and Postpone still emits its own event', async () => {
+    const w = await correctAnsweredReadingTo(true);
+    expect(verdictButton(w, 'common.postpone')).toBeDefined();
+    expect(verdictButton(w, 'common.close')).toBeDefined();
+
+    await verdictButton(w, 'common.postpone')!.trigger('click');
+    expect(w.emitted('water-postpone')).toHaveLength(1);
+    expect(w.emitted('water-done')).toBeUndefined();
+  });
+
+  // A missing button with no explanation is the mute dead end this modal has been fixed for twice (QA
+  // UX-2). ⚠️ MUTATION THIS PINS (direction: the fix is PRESENT): delete the `<p v-if="!canMarkWaterDone">`
+  // and this goes red while the button assertions above stay green — which is the whole point of asserting
+  // it separately.
+  it('says WHY, rather than leaving a button silently missing', async () => {
+    const w = await correctAnsweredReadingTo(true);
+    expect(w.text()).toContain('reading.alreadyWateredToday');
+  });
+
+  // ⚠️ THE OPPOSITE DIRECTION, AND IT IS WHAT STOPS THE GATE FROM BEING A CONSTANT. Hard-code
+  // `canMarkWaterDone` to `false` — or forget the `!` in front of `props.wateredToday` — and this goes red:
+  // an ordinary un-watered pot would lose the payoff action of the whole redesign, and the sentence would
+  // claim a watering that never happened.
+  it('leaves Done exactly where it was on a pot nobody has watered today', async () => {
+    const w = await correctAnsweredReadingTo(false);
+    expect(verdictButton(w, 'common.done')).toBeDefined();
+    expect(w.text()).not.toContain('reading.alreadyWateredToday');
+  });
+
+  // The SURVEY route is unreachable in production today — `canOfferWaterSurvey` withholds Medir on a
+  // watered pot, so the dialog never opens there. It is pinned anyway because the gate lives in ONE place
+  // for both routes, and a future change that re-opens the survey (an owner ruling, a second entry point)
+  // must not have to remember to re-close this. Same rule, both doors.
+  it('withholds Done on the survey route too, if that route is ever reachable again', async () => {
+    const watered = await surveyTo(true);
+    expect(verdictButton(watered, 'common.done')).toBeUndefined();
+    expect(verdictButton(watered, 'common.postpone')).toBeDefined();
+
+    const dry = await surveyTo(false);
+    expect(verdictButton(dry, 'common.done')).toBeDefined();
   });
 });
 

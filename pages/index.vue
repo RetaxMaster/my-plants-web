@@ -967,11 +967,16 @@ function openProgress(plantId: string) {
          modals above. `mode="survey"` per the spec's file-header contract (SoilReadingModal.vue): hides
          `measuredOn`, makes the watering-relation question impossible by construction, and routes the
          reading through the read-only preview instead of recording it directly. -->
+    <!-- `:watered-today` — the SAME named constant `canSurveyWaterFor` passes, and for the same reason:
+         a watering advances `nextDueOn`, so the API has already dropped the row from this list and there is
+         no Today card left to open this modal from. Passed explicitly rather than defaulted so the day the
+         Today payload does start carrying the fact, this constant is the one thing that has to change. -->
     <UiSoilReadingModal
       v-model:open="readingModalOpen"
       :plant-id="readingModalPlantId ?? ''"
       :data="readingModalData"
       mode="survey"
+      :watered-today="WATERED_TODAY_NOT_ON_THE_TODAY_ROW"
       @saved="onReadingSaved"
       @water-done="onWaterVerdictDone"
       @water-postpone="onWaterVerdictPostpone"

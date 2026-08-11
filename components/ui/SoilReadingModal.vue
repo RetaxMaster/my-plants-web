@@ -110,10 +110,16 @@ import { upstreamErrorCode, upstreamErrorMessage } from '~/utils/upstreamError';
 // measurement-history "Add a reading" action — so the temporary scaffolding default this prop used to
 // carry (see the file-header comment for the full contract) is gone: a future caller that forgets to pass
 // `mode` now gets a compile error instead of a plausible-looking screen with the wrong behaviour.
+//
+// ⚠️ `wateredToday` IS REQUIRED FOR THE SAME REASON `mode` IS — a caller that forgets it must not compile
+// (QA round 3, F1b re-opened through the voluntary log; owner-ruled 2026-08-11). It is
+// `watering.wateredToday` on the plant care payload: a `WATER` care event of type `DONE` dated the plant's
+// own local today. It gates ONE thing, in the verdict step's footer — see `canMarkWaterDone`.
 const props = defineProps<{
   plantId: string;
   data: PlantSoilReadings;
   mode: 'survey' | 'voluntary';
+  wateredToday: boolean;
 }>();
 // `water-done` / `water-postpone` are raised ONLY from the WATER_NOW verdict's footer. They carry no
 // payload on purpose: this modal must not decide HOW a watering is recorded — the page owns that, and owns
@@ -1165,6 +1171,40 @@ async function submit() {
 }
 
 /**
+ * MAY THIS VERDICT OFFER **Hecho**? Not on a pot that has already been watered today.
+ *
+ * ⚠️ THIS IS F1b RETURNING THROUGH THE DOOR THE OWNER DELIBERATELY LEFT OPEN (QA round 3; owner-ruled
+ * 2026-08-11). F1b was: on a pot already watered today, a `WATER_NOW` verdict offered Hecho, the API's
+ * one-`WATER DONE`-per-day dedup swallowed the write, and the owner got a cheerful `200` that discarded his
+ * action — the app accepting a tap, showing no error, and recording nothing. It was closed by withholding
+ * the **Medir** survey once the pot is watered (`canOfferWaterSurvey`'s fourth condition).
+ *
+ * The VOLUNTARY "Agregar lectura" stays reachable after a watering, and that is not an oversight either —
+ * the owner ruled it explicitly, because it is the one way to correct today's reading. But an edit that
+ * carries an answer now RE-COMPUTES that answer (`restatesStoredAnswer`), and a re-computed answer can be
+ * `WATER_NOW`. So the exact defect returns by a different route: watered today → correct this morning's
+ * reading → the recompute earns `WATER_NOW` → this footer offers Hecho → the page's `onWaterVerdictDone`
+ * → the dedup discards it, `200`, nothing changes.
+ *
+ * THE OWNER'S OWN RULINGS DECIDE THIS; nothing is being invented here. *"After marking a Riego task as
+ * Done, the Medir button must disappear; it comes back the next day."* And, on measuring a pot you already
+ * watered today and finding it dry: *"it's a very edge case, and if it happens, it's something we don't
+ * support."* So on a pot already watered today the app does not offer to water it again.
+ *
+ * ⚠️ ONLY **Hecho** IS WITHHELD. `Posponer` stays, and that is deliberate rather than leftover: it says
+ * *"water it later"*, which is exactly what an owner in this state CAN act on, and the postpone path is
+ * untouched by the WATER-DONE dedup — it writes a real deferral. `Cerrar` stays for the obvious reason.
+ * Withholding all three would leave a verdict screen with nothing to do on it.
+ *
+ * ⚠️ WITHHELD, NEVER RENDERED DEAD, and the difference has cost this project before: a disabled button
+ * under an explanation is a control the owner argues with. The sentence that replaces it
+ * (`reading.alreadyWateredToday`) is a STATEMENT OF FACT about the plant, not a blocked-action reason, so
+ * it renders in the verdict body beside the verdict rather than through `ModalBlockedReason`, which means
+ * *"the primary action is blocked"* and belongs to the measure step's own footer.
+ */
+const canMarkWaterDone = computed(() => !props.wateredToday);
+
+/**
  * The WATER_NOW verdict's two actions (QA 2026-08-10). CLOSES FIRST, then emits.
  *
  * The order is load-bearing, not tidiness: the page's `onDone` can open a SECOND dialog (the early-water
@@ -1459,6 +1499,16 @@ const holdDateLabel = computed(() => {
         <!-- QA (2026-08-10, UX-4): HOLD carried a supporting sentence and WATER_NOW carried none, so the
              payoff verdict of the whole redesign read as an unfinished screen next to the "not yet" one. -->
         <p class="mp-reading__verdict-body">{{ t('reading.verdictWaterNowBody') }}</p>
+        <!-- ⚠️ WHY **Hecho** IS NOT IN THE FOOTER BELOW — see `canMarkWaterDone`. This plant already
+             carries a watering dated its own today, so a second one would be swallowed by the API's
+             one-WATER-DONE-per-day dedup and answer the owner with a 200 that changed nothing (F1b).
+             A missing button with no explanation is the mute dead end this modal has already been fixed
+             for twice (QA UX-2), so the fact is stated rather than left to be inferred — and it is stated
+             as a FACT ABOUT THE PLANT, never as "you can't do that": the sentence names the watering
+             already on file and points at Posponer, which is the action that still means something here. -->
+        <p v-if="!canMarkWaterDone" class="mp-reading__verdict-body">
+          {{ t('reading.alreadyWateredToday') }}
+        </p>
       </template>
       <template v-else-if="previewResult?.recommendation === 'HOLD'">
         <h3 class="mp-reading__verdict-title">{{ t('reading.verdictHoldTitle') }}</h3>
@@ -1522,11 +1572,16 @@ const holdDateLabel = computed(() => {
            must be able to say so without the app recording a watering that never happened.
            HOLD keeps Close alone: it applied its own postpone, so there is nothing left to decide.
            UNAVAILABLE is the third case (owner ruling, 2026-08-09): it OFFERS a save rather than performing
-           one, so its footer adds "Guardar lectura". -->
+           one, so its footer adds "Guardar lectura".
+           ⚠️ AND **Hecho** IS WITHHELD ON A POT ALREADY WATERED TODAY (`canMarkWaterDone` — read it before
+           removing this `v-if`). Offering it there is F1b: the API's one-WATER-DONE-per-day dedup discards
+           the write and answers 200, so the app would accept a tap and record nothing. Posponer is NOT
+           gated with it — it writes a real deferral, the dedup does not touch it, and "water it later" is
+           precisely what an owner in this state can still act on. -->
       <template v-else-if="previewResult?.recommendation === 'WATER_NOW'">
         <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
         <Button variant="ghost" @click="actOnVerdict('water-postpone')">{{ t('common.postpone') }}</Button>
-        <Button @click="actOnVerdict('water-done')">{{ t('common.done') }}</Button>
+        <Button v-if="canMarkWaterDone" @click="actOnVerdict('water-done')">{{ t('common.done') }}</Button>
       </template>
       <!-- ⚠️ THE SAVE IS OFFERED ONLY WHEN THERE IS SOMETHING PENDING TO SAVE, and that condition is the
            honest one rather than a mode check. The SURVEY's UNAVAILABLE branch deliberately writes nothing

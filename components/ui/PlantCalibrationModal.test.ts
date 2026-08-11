@@ -78,7 +78,13 @@ const kitchenScaleCalibrated = {
 const protocol = { potSizeCm: 20, insertionDepthCm: 7, distanceFromCentreCm: 3 };
 
 function makeData(overrides: Partial<PlantSoilReadings> = {}): PlantSoilReadings {
-  return { instruments: [kitchenScaleCalibrated], protocol, readings: [], wateringDays: [], ...overrides };
+  return {
+    // Far in the past by default (QA round 4, DEF-5), so no pre-existing case trips the new
+    // pre-acquisition refusal; the cases that are ABOUT it override it.
+    acquiredOn: '2020-01-01',
+    instruments: [kitchenScaleCalibrated], protocol, readings: [], wateringDays: [],
+    ...overrides,
+  };
 }
 
 function mountModal(data: PlantSoilReadings) {

@@ -207,4 +207,34 @@ describe('pages/settings — the instrument ladder honesty rule', () => {
     // extended here to the instrument ladder) — so no percentage may appear anywhere on the page.
     expect(w.text()).not.toMatch(/\d+\s?%/);
   });
+
+  // DEF-7 (QA round 4, LOW, mobile 390x844): the comparison table's own scroll container had no visual
+  // signal that it scrolled — no shadow, no fade, no scrollbar hint — so the two right-hand columns
+  // (including the one telling the owner a kitchen scale needs per-pot setup) read as ABSENT rather than
+  // scrolled off-screen. The fix is pure CSS (two stacked background layers on `.mp-instrtable`), which
+  // happy-dom cannot compute — it has no real layout/rendering engine — so, following the same pattern
+  // `RepotEvaluationModal.test.ts` uses for its own CSS-only disabled-row fix, this reads the component's
+  // OWN source and asserts the rule is actually declared, not just present in a comment. A DOM-only
+  // assertion (e.g. "the container renders") could never fail if someone deleted the CSS declarations
+  // while leaving the markup and the comment untouched.
+  it('the scroll container actually DECLARES the DEF-7 scroll affordance — the half no DOM assertion can see', async () => {
+    const w = await mountPage();
+    expect(w.find('.mp-instrtable').exists()).toBe(true);
+
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(process.cwd(), 'components/ui/InstrumentComparisonTable.vue'), 'utf8');
+
+    const rule = /\.mp-instrtable\s*\{([^}]*)\}/.exec(src);
+    expect(rule, 'the .mp-instrtable scroll-affordance rule is gone').not.toBeNull();
+    const body = rule![1];
+    // Two background layers, not one: a `local`-attached layer that travels with the scrolled content
+    // and a `scroll`-attached layer pinned to the viewport — this pairing is what makes the affordance
+    // fade itself out once the owner has scrolled to the end, instead of lingering forever.
+    expect(body).toMatch(/background-attachment:\s*local,\s*scroll/);
+    // Built from existing tokens, never a new hex/rgba — matches the design-system rule that colors are
+    // single-sourced from the token layer.
+    expect(body).toMatch(/var\(--surface-card\)/);
+    expect(body).toMatch(/var\(--border-subtle\)/);
+  });
 });

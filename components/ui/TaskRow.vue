@@ -104,6 +104,18 @@ const props = withDefaults(
      * `effectiveTaskStatus`; this prop only carries the fact.
      */
     promptAnsweredToday?: boolean;
+    /**
+     * WATER only — whether this pot was already WATERED on its own local today
+     * (`watering.wateredToday` on the plant care payload). Defaults to `false`, so a caller that omits it
+     * renders exactly as before.
+     *
+     * QA round 4, DEF-2 (HIGH): a measured `WATER_NOW` must not promote the row of a pot the owner has
+     * already watered — the ordinary Hecho it then offers is a `200` the API's one-watering-per-day dedup
+     * discards. It is a DIFFERENT fact from `promptAnsweredToday` (a watering recorded BEFORE the reading
+     * is deliberately not an answer to it), which is why it is a second prop and not a widening of the
+     * first. The rule lives in `effectiveTaskStatus`; this prop only carries the fact.
+     */
+    wateredToday?: boolean;
   }>(),
   {
     withDoneDate: false,
@@ -119,6 +131,7 @@ const props = withDefaults(
     suggestMeasuring: undefined,
     todaysVerdict: null,
     promptAnsweredToday: false,
+    wateredToday: false,
   },
 );
 
@@ -207,7 +220,13 @@ const verdictOverridesDue = computed(
 const effectiveStatus = computed<'overdue' | 'today' | 'upcoming'>(() =>
   verdictOverridesDue.value
     ? 'today'
-    : effectiveTaskStatus(props.task, props.todaysVerdict, props.status, props.promptAnsweredToday));
+    : effectiveTaskStatus({
+        task: props.task,
+        todaysVerdict: props.todaysVerdict,
+        status: props.status,
+        promptAnsweredToday: props.promptAnsweredToday,
+        wateredToday: props.wateredToday,
+      }));
 const measurementOverridesDue = computed(
   () => !verdictOverridesDue.value && effectiveStatus.value !== props.status,
 );
@@ -274,9 +293,32 @@ const verdictWithholdsDone = computed(() => showEvaluate.value || reevaluatePend
 // — PLUS the surface that has explicitly opted into a standalone Done.
 const showDone = computed(() => !verdictWithholdsDone.value || props.allowStandaloneDone);
 
-// Postpone is NEVER unlocked by `allowStandaloneDone` — see the prop's own doc. It keeps exactly the rule
-// it had: offered alongside a non-withheld Done, and never on a task that is not due yet.
-const showPostpone = computed(() => !verdictWithholdsDone.value && effectiveStatus.value !== 'upcoming');
+// ⚠️ A WATER SURVEY WITHHOLDS **HECHO** AND NOT **POSPONER**, AND THE ASYMMETRY IS THE WHOLE RULE (QA round
+// 4, DEF-3; owner-ruled 2026-08-11). Until this change, an owner who had selected an instrument could not
+// defer a watering at all: the row offered "¿Necesitas regar?" and nothing else, and the only escape was to
+// switch his probe OFF in Settings — which is not a thing anyone should have to discover.
+//
+// **"No tengo tiempo ahorita" is a legitimate answer that needs no measurement.** The soil's state is
+// irrelevant to it: the owner is reporting HIS OWN AVAILABILITY, not the pot's condition. Withholding
+// Posponer forced a measurement in order to answer a question measurement cannot answer.
+//
+// **Hecho is the opposite case and stays withheld.** Marking a watering done without measuring is exactly
+// what the survey exists to replace, and the row is at that moment offering to tell the owner whether he
+// should water at all. Letting him record a watering while that question is open defeats the feature.
+//
+// ⚠️ SCOPED TO WATER, DELIBERATELY. REPOT's own withholding states are untouched: a REPOT Posponer means
+// "yes, it needs it, but I can't right now" — a CONCLUSION, and there is no such thing as postponing a
+// repot nobody has established is needed. The answer to that is still the questionnaire (see
+// `allowStandaloneDone`'s own doc, which draws the same line for Done).
+//
+// The second clause is unchanged: a task that is not due yet has nothing to postpone.
+const verdictWithholdsPostpone = computed(() => verdictWithholdsDone.value && props.task !== 'WATER');
+
+// Postpone is NEVER unlocked by `allowStandaloneDone` — see the prop's own doc. That is unchanged; the only
+// thing that moved is WHICH withholding states apply to it (above).
+const showPostpone = computed(
+  () => !verdictWithholdsPostpone.value && effectiveStatus.value !== 'upcoming',
+);
 
 // The survey button's own copy is task-specific even though the shape is not: REPOT's key ("Time to
 // evaluate") describes reading visual signs, and reusing it for WATER would reassert the instruction voice
@@ -353,10 +395,14 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
           >
             {{ t('common.done') }}
           </Button>
-          <Button v-if="showPostpone" size="xs" color="neutral" variant="ghost" icon="clock" @click="onPostpone">
-            {{ t('common.postpone') }}
-          </Button>
         </template>
+        <!-- ⚠️ POSPONER SITS OUTSIDE THE `showDone` BLOCK (QA round 4, DEF-3). It used to be nested inside
+             it, which silently tied "may I postpone?" to "may I mark it done?" — and for a WATER row with
+             the survey on offer those two answers are now different. See `verdictWithholdsPostpone` for the
+             owner's ruling and why the asymmetry is the point. -->
+        <Button v-if="showPostpone" size="xs" color="neutral" variant="ghost" icon="clock" @click="onPostpone">
+          {{ t('common.postpone') }}
+        </Button>
         <!-- The measure affordance (spec §4.8): an affordance on the WATER task, never a separate task or
              mode. `suggestMeasuring !== undefined` is the opt-in gate — a caller that omits the prop
              renders exactly as before. `true` means the app's own confidence is low and is ASKING for a

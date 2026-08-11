@@ -258,15 +258,43 @@ export type TaskDueStatus = 'overdue' | 'today' | 'upcoming';
  * `false` — not a third state — when nothing was measured today: with no reading there is no verdict, so
  * nothing is promoting the row and there is nothing to suppress. `todaysVerdict === null` already
  * distinguishes "no reading" from "a reading nobody has answered yet" for any caller that cares.
+ *
+ * ⚠️ AND IT NEVER PROMOTES A POT THAT WAS ALREADY WATERED TODAY — `wateredToday`, a THIRD term and not a
+ * relaxation of the second (QA round 4, DEF-2, HIGH; owner-ruled 2026-08-11; docs/care-engine.md §7.20.18).
+ *
+ * THE DEFECT. Water the plant today (the card leaves Today, correctly). Then measure it and get "Riega
+ * ahora". The MODAL gets this right — it withholds **Hecho** and says there is nothing left to mark as done
+ * — and then the plant page's own WATER row promotes itself to "due today" and offers **Hecho** anyway.
+ * Pressing it posts a `200` the API's one-`WATER DONE`-per-day dedup silently discards: no event, no date
+ * movement, nothing on screen, permanently. Three presses across two plants, zero state changes.
+ *
+ * WHY `promptAnsweredToday` CANNOT COVER IT. In that sequence the watering PRECEDES the reading, so it is
+ * correctly NOT an answer to it — the API's `since` bound exists precisely so a decision taken before a
+ * measurement cannot answer it. The term is right; it is answering a different question. Widening it would
+ * break the orderings it was written to get right, which is why this is its own boolean here exactly as it
+ * is its own field on the payload.
+ *
+ * WHY THE FIX IS HERE AND NOT ON THE BUTTON. Withholding **Hecho** would leave a card saying "water now" on
+ * a pot the owner had just watered, offering only Posponer — unresolvable, and it should never have been
+ * asked for. The owner ruled the case underneath it (measure an already-watered pot, find it dry)
+ * explicitly out of scope, so the honest treatment is that the promotion does not happen at all.
+ *
+ * ⚠️ THE ARGUMENT IS A FACTS OBJECT, NOT FOUR POSITIONAL PARAMETERS, and that changed with this fix. Three
+ * of the four are now booleans; `effectiveTaskStatus('WATER', 'WATER_NOW', 'upcoming', false, false)` says
+ * nothing about WHICH `false` is which, and this repo has already been bitten twice this week by two facts
+ * that look alike being read off each other. `canOfferWaterSurvey` above takes a facts object for the same
+ * reason. No behaviour changed in the move.
  */
-export function effectiveTaskStatus(
-  task: TaskCode,
-  todaysVerdict: TodaysVerdict,
-  status: TaskDueStatus,
-  promptAnsweredToday: boolean,
-): TaskDueStatus {
-  const measurementSaysNow = task === 'WATER' && todaysVerdict === 'WATER_NOW' && status === 'upcoming';
-  return measurementSaysNow && !promptAnsweredToday ? 'today' : status;
+export function effectiveTaskStatus(facts: {
+  task: TaskCode;
+  todaysVerdict: TodaysVerdict;
+  status: TaskDueStatus;
+  promptAnsweredToday: boolean;
+  wateredToday: boolean;
+}): TaskDueStatus {
+  const measurementSaysNow =
+    facts.task === 'WATER' && facts.todaysVerdict === 'WATER_NOW' && facts.status === 'upcoming';
+  return measurementSaysNow && !facts.promptAnsweredToday && !facts.wateredToday ? 'today' : facts.status;
 }
 
 /**

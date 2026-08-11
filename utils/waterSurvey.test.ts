@@ -7,6 +7,7 @@ import {
   NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, storedVerdictFor,
   type TodaysVerdict,
 } from './waterSurvey.js';
+import type { TaskCode } from './tasks.js';
 import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
 
 describe('canOfferWaterSurvey', () => {
@@ -174,10 +175,20 @@ describe('postponeReasonWithoutAsking', () => {
 // copy in any of the three is how the app would tell the owner to water now and then ask him, one tap
 // later, why he is watering early.
 describe('effectiveTaskStatus', () => {
-  // REWRITTEN 2026-08-11 (QA round 3, HIGH): every case now states `promptAnsweredToday` too. The five
-  // pre-existing cases keep their exact meaning — an UNANSWERED day is what they always described.
+  // REWRITTEN 2026-08-11, TWICE, and the second rewrite changed the CALL SHAPE rather than any behaviour:
+  //   • QA round 3 (HIGH) added `promptAnsweredToday` — the promotion's exit;
+  //   • QA round 4 (DEF-2, HIGH) added `wateredToday`, and with three booleans in the argument list the
+  //     positional form stopped being readable (`(…, 'upcoming', false, false)` says nothing about which
+  //     `false` is which). The argument is a FACTS OBJECT now, matching `canOfferWaterSurvey` above.
+  // Every pre-existing case keeps its exact meaning: an UNANSWERED, UNWATERED day is what they always
+  // described, and each one now says so out loud.
+  const facts = (over: Partial<Parameters<typeof effectiveTaskStatus>[0]> = {}) => ({
+    task: 'WATER' as TaskCode, todaysVerdict: 'WATER_NOW' as TodaysVerdict,
+    status: 'upcoming' as const, promptAnsweredToday: false, wateredToday: false, ...over,
+  });
+
   it('promotes an upcoming WATER row to today when the measurement says WATER_NOW', () => {
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'upcoming', false)).toBe('today');
+    expect(effectiveTaskStatus(facts())).toBe('today');
   });
 
   // The two verdicts that must change nothing, wrong in opposite directions: POSTPONE is the instruction to
@@ -185,21 +196,21 @@ describe('effectiveTaskStatus', () => {
   // measured at all.
   it.each([['POSTPONE'], ['NONE'], [null]] as [TodaysVerdict][])(
     'leaves an upcoming row alone on a %s verdict', (verdict) => {
-      expect(effectiveTaskStatus('WATER', verdict, 'upcoming', false)).toBe('upcoming');
+      expect(effectiveTaskStatus(facts({ todaysVerdict: verdict }))).toBe('upcoming');
     });
 
   // Scoped to `upcoming`: an already-due or overdue row is not "promoted" — its own status is at least as
   // urgent and strictly more accurate, and rewriting `overdue` to `today` would LOSE information.
   it('never rewrites a row that is already due or overdue', () => {
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'today', false)).toBe('today');
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'overdue', false)).toBe('overdue');
+    expect(effectiveTaskStatus(facts({ status: 'today' }))).toBe('today');
+    expect(effectiveTaskStatus(facts({ status: 'overdue' }))).toBe('overdue');
   });
 
   // A soil verdict speaks for the WATER task and for nothing else. Passing it alongside another task is not
   // a shape the app produces, but the rule must be inert on it rather than incidentally correct.
   it('never touches a non-WATER task, whatever verdict travels with it', () => {
-    expect(effectiveTaskStatus('REPOT', 'WATER_NOW', 'upcoming', false)).toBe('upcoming');
-    expect(effectiveTaskStatus('FERTILIZE', 'WATER_NOW', 'upcoming', false)).toBe('upcoming');
+    expect(effectiveTaskStatus(facts({ task: 'REPOT' }))).toBe('upcoming');
+    expect(effectiveTaskStatus(facts({ task: 'FERTILIZE' }))).toBe('upcoming');
   });
 
   // ---- QA round 3, HIGH (2026-08-11): THE PROMOTION'S EXIT --------------------------------------------
@@ -209,16 +220,48 @@ describe('effectiveTaskStatus', () => {
   // `promptAnsweredToday` is what retires it. Dropping `&& !promptAnsweredToday` makes the case below RED;
   // inverting it to `&& promptAnsweredToday` makes the very first case in this block RED. Both directions.
   it('stands the promotion down once today\'s reading has been ANSWERED', () => {
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'upcoming', true)).toBe('upcoming');
+    expect(effectiveTaskStatus(facts({ promptAnsweredToday: true }))).toBe('upcoming');
   });
 
-  // The exit is not a general mute: an ANSWERED day leaves a genuinely due or overdue row exactly as the
-  // calendar reports it. (Guards against "answered" being folded into the status rather than into the
-  // promotion — a mutation that returns `'upcoming'` whenever `promptAnsweredToday` holds turns these red.)
+  // ---- QA round 4, DEF-2, HIGH (2026-08-11): THE SECOND EXIT ------------------------------------------
+  //
+  // Water the pot (the card leaves Today, correctly), THEN measure it and get "Riega ahora". The modal
+  // withholds Hecho and says there is nothing left to mark as done; this page promoted the row and offered
+  // Hecho anyway — a 200 the API's one-watering-per-day dedup discards, permanently, in silence.
+  //
+  // ⚠️ `promptAnsweredToday` IS FALSE IN EVERY CASE BELOW, DELIBERATELY, because that is the real shape:
+  // the watering PRECEDES the reading, so the API's `since` bound correctly refuses to count it as an
+  // ANSWER to it. That is what makes this a third term rather than a widening of the second — and it is
+  // what makes these cases invisible to any fixture where the pot was not watered today.
+  //
+  // Mutation, both directions: dropping `&& !facts.wateredToday` turns the case below RED; inverting it to
+  // `&& facts.wateredToday` turns the very first case in this block RED.
+  it('DEF-2: stands the promotion down on a pot that was already WATERED today', () => {
+    expect(effectiveTaskStatus(facts({ wateredToday: true }))).toBe('upcoming');
+  });
+
+  // ⚠️ THE TWO EXITS ARE INDEPENDENT, AND THIS IS WHAT SAYS SO. Reading either off the other passes every
+  // case above and turns one of these two red: they disagree in BOTH directions in reachable states.
+  it('DEF-2: the two exits are not aliases of one another', () => {
+    // A postpone: the prompt is answered, nothing was watered.
+    expect(effectiveTaskStatus(facts({ promptAnsweredToday: true, wateredToday: false }))).toBe('upcoming');
+    // A watering that preceded the reading: nothing answered it, but the pot is wet.
+    expect(effectiveTaskStatus(facts({ promptAnsweredToday: false, wateredToday: true }))).toBe('upcoming');
+  });
+
+  // Same boundary as its sibling: a `wateredToday` pot whose watering is genuinely due today keeps its own
+  // calendar status. The exits gate the PROMOTION, never the status itself.
+  it('DEF-2: changes nothing about a row the calendar itself already made due', () => {
+    expect(effectiveTaskStatus(facts({ status: 'today', wateredToday: true }))).toBe('today');
+    expect(effectiveTaskStatus(facts({ status: 'overdue', wateredToday: true }))).toBe('overdue');
+  });
+
   it('changes nothing about a row the calendar itself already made due', () => {
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'today', true)).toBe('today');
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'overdue', true)).toBe('overdue');
-    expect(effectiveTaskStatus('WATER', null, 'overdue', true)).toBe('overdue');
+    expect(effectiveTaskStatus(facts({ status: 'today', promptAnsweredToday: true }))).toBe('today');
+    expect(effectiveTaskStatus(facts({ status: 'overdue', promptAnsweredToday: true }))).toBe('overdue');
+    expect(effectiveTaskStatus(facts({
+      todaysVerdict: null, status: 'overdue', promptAnsweredToday: true,
+    }))).toBe('overdue');
   });
 });
 

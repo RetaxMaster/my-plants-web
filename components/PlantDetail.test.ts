@@ -1992,6 +1992,14 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // `showPostpone` apply for a WATER row (TaskRow.vue) — Postpone is deliberately NEVER unlocked by
   // `allowStandaloneDone` here either, mirroring the real component's own documented rule, so mutation
   // proof 2 (letting it be) has something real to catch.
+  //
+  // ⚠️ UPDATED 2026-08-11 (QA round 4, DEF-3; owner-ruled): a WATER survey now withholds **Hecho** and NOT
+  // **Posponer**. "No tengo tiempo ahorita" is an answer about the owner's own availability, which no
+  // measurement can supply; recording a watering while the app is still offering to tell you whether to
+  // water is the opposite case. The stub follows the real rule, or these cases would go on pinning the
+  // defect. It deliberately does NOT model the real component's second clause (`effectiveStatus !==
+  // 'upcoming'`), which is pinned where it belongs, in `TaskRow.test.ts` — this file's concern is which
+  // PROPS this page sends, not TaskRow's internal state machine.
   const UiTaskRowStub = {
     props: {
       task: null,
@@ -2003,7 +2011,7 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
       '<div :data-task="task" :data-can-survey="String(!!canSurvey)" :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
       '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">¿Necesitas regar?</button>' +
       '<button v-if="task !== \'WATER\' || !canSurvey || allowStandaloneDone" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
-      '<button v-if="task !== \'WATER\' || !canSurvey" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
+      '<button v-if="task !== \'WATER\' || !canSurvey || task === \'WATER\'" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
       '</div>',
   };
 
@@ -2034,7 +2042,11 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
       getRepotSigns: async () => ({ signs: [] }),
-      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [], wateringDays: [] }),
+      getSoilReadings: async () => ({
+        // QA round 4, DEF-5: the payload carries the plant's acquisition day now. Far in the past here, so
+        // it constrains nothing any case in this block is about.
+        acquiredOn: '2020-01-01', instruments: [], protocol: null, readings: [], wateringDays: [],
+      }),
       getOwnerInstruments: async () => ({ available: [], selected }),
       invalidatePlant: vi.fn(),
     }));
@@ -2058,19 +2070,41 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(row.find('.postpone-btn').exists()).toBe(true);
   });
 
-  // Mutation proof 2 target: letting the stub's `allowStandaloneDone` ALSO unlock `.postpone-btn` (i.e.
-  // dropping the `!canSurvey` guard on that button) makes this go RED — the real TaskRow.vue never unlocks
-  // Postpone this way either (a REPOT/WATER postpone means "yes, it's needed, but I can't right now", which
-  // makes no sense before the survey has even answered whether it's needed).
-  it('the WATER row offers the survey and keeps standalone Done', async () => {
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3; owner-ruled). Its old title was "...and keeps standalone
+  // Done", and BOTH of its action assertions were the defect, in opposite directions:
+  //
+  //   • `.postpone-btn` false — an owner with an instrument could not defer a watering at all. That is
+  //     DEF-3 proper, and it is now `true`.
+  //   • `.done-btn` true — this page passed `allow-standalone-done` unconditionally, so it offered a
+  //     Hecho the Today list never did. Two surfaces disagreeing about one row, in the opposite direction
+  //     to DEF-3 itself; the owner's ruling settles both halves at once, and it is now `false`.
+  //
+  // WITH THE SURVEY ON OFFER, A WATER ROW NOW READS THE SAME ON BOTH SURFACES: measure + Posponer, no
+  // Hecho. The consequence, recorded rather than discovered: back-dating a watering from this page means
+  // taking today's reading first — any reading closes the survey and hands the ordinary Hecho + date box
+  // back (the case directly below is exactly that state).
+  it('the WATER row offers the survey, keeps Posponer, and withholds Hecho', async () => {
     const w = await mountWater(['galvanic-probe']);
     const row = w.find('[data-task=WATER]');
     expect(row.attributes('data-can-survey')).toBe('true');
     expect(row.find('.evaluate-btn').exists()).toBe(true);
     expect(row.find('.evaluate-btn').text()).toBe('¿Necesitas regar?');
-    expect(row.find('.done-btn').exists()).toBe(true);
-    expect(row.find('.postpone-btn').exists()).toBe(false);
+    expect(row.find('.done-btn').exists()).toBe(false);
+    expect(row.find('.postpone-btn').exists()).toBe(true);
   });
+
+  // ⚠️ AND THE PROP THAT USED TO DO IT IS NOW REPOT-ONLY — asserted on the binding itself, not merely
+  // through its effect, because the two are separable: a stub that stopped honouring the prop would make
+  // the case above pass for entirely the wrong reason. REPOT keeps it exactly as it was (a repot the owner
+  // already did is still recordable without answering the questionnaire first).
+  it('DEF-3: withholds allow-standalone-done from the WATER row', async () => {
+    const w = await mountWater(['galvanic-probe']);
+    expect(w.find('[data-task=WATER]').attributes('data-allow-standalone-done')).toBe('false');
+  });
+  // The REPOT half — that the prop is still passed, and still `true` — is pinned in this file's own REPOT
+  // blocks above ("...passes allow-standalone-done", `data-allow-standalone-done` === 'true'), which mount
+  // a care payload that HAS a REPOT task. Restating it here would need a second fixture for no new
+  // information; a change that dropped the prop for REPOT turns those cases red, which is the point.
 
   // measured-verdict-gap spec (Task 47/T6b), REWRITTEN by QA finding F1 (2026-08-10) — the ground truth is
   // the READING'S VERDICT (`care.measurement.todaysVerdict`), not session memory and not the bare
@@ -2326,11 +2360,16 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       // the rule is TaskRow.vue's own (pinned in TaskRow.test.ts); what only this file can see is whether
       // the page passes the row the SAME fact it passes its own `onDone` handler.
       promptAnsweredToday: { type: Boolean, default: false },
+      // QA round 4, DEF-2 — the SECOND exit's fact. Declared here so the case below can assert the page
+      // actually BINDS it; without the declaration `data-watered-today` would read `undefined` forever and
+      // the assertion would be pinning the stub's own silence.
+      wateredToday: { type: Boolean, default: false },
     },
     emits: ['evaluate', 'done', 'postpone'],
     template:
       '<div :data-task="task" :data-can-survey="String(!!canSurvey)" ' +
-      ':data-prompt-answered="String(!!promptAnsweredToday)">' +
+      ':data-prompt-answered="String(!!promptAnsweredToday)" ' +
+      ':data-watered-today="String(!!wateredToday)">' +
       '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">survey</button>' +
       '<button v-if="task !== \'WATER\' || !canSurvey || allowStandaloneDone" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
       '<button v-if="task !== \'WATER\' || !canSurvey" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
@@ -2544,6 +2583,47 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, promptAnswered: false,
     });
     expect(unanswered.find('[data-task=WATER]').attributes('data-prompt-answered')).toBe('false');
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  // QA round 4, DEF-2, HIGH (2026-08-11) — THE SECOND EXIT, AND THIS PAGE IS AGAIN WHERE IT SHOWS.
+  //
+  // Water the pot (the card leaves Today), then measure it and get "Riega ahora". The MODAL gets this right
+  // — it withholds Hecho and says there is nothing left to mark as done — and this page promoted the row
+  // and offered Hecho anyway, which posts a 200 the API's one-watering-per-day dedup discards, silently and
+  // permanently.
+  //
+  // ⚠️ `promptAnswered: false` IN BOTH CASES, DELIBERATELY. The watering PRECEDES the reading, so the API's
+  // `since` bound correctly refuses to count it as an ANSWER — which is what makes this a THIRD term and
+  // not a widening of the second, and what makes these cases invisible to any fixture where the pot was not
+  // watered today. Dropping `wateredToday` from `careEffectiveStatus` turns them RED.
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  it('DEF-2: the promotion retires on a pot watered BEFORE the measurement — the handler half', async () => {
+    const w = await mountWater({
+      todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9,
+      wateredToday: true, promptAnswered: false,
+    });
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+    // Retired: the row is `upcoming` again, so an extra watering is an EARLY watering and asks why,
+    // instead of being sent straight through as the app's own prescription.
+    expect(sendFeedbackMock).not.toHaveBeenCalled();
+    expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
+  });
+
+  // The badge half, same discipline as its `promptAnsweredToday` sibling above: the row must be handed the
+  // same fact the handler reads, or the two disagree on screen. Dropping the `:watered-today` binding turns
+  // this RED while the handler case above stays green.
+  it('DEF-2: hands the row the same "already watered" fact it hands its own Done handler', async () => {
+    const watered = await mountWater({
+      todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, wateredToday: true,
+    });
+    expect(watered.find('[data-task=WATER]').attributes('data-watered-today')).toBe('true');
+
+    const dry = await mountWater({
+      todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, wateredToday: false,
+    });
+    expect(dry.find('[data-task=WATER]').attributes('data-watered-today')).toBe('false');
   });
 
   it('W2: the un-measured row still asks — but through the standalone Done path, since the survey is on ' +

@@ -34,7 +34,32 @@ const { t } = useI18n();
 </template>
 
 <style scoped>
-.mp-instrtable { overflow-x: auto; }
+/* DEF-7 (QA round 4, LOW, mobile 390x844): the table is 672px wide inside this 312px overflow-x:auto
+   container. It already scrolled correctly, but nothing signalled that it scrolled — so the two
+   right-hand columns, including the one telling the owner a kitchen scale needs per-pot setup, were
+   fully clipped with no shadow/fade/scrollbar hint and read as ABSENT rather than as scrolled
+   off-screen. This is an AFFORDANCE fix only: no column width, table content or layout changed below.
+
+   The fix is the classic pure-CSS "scroll shadow" trick (two stacked background layers, no JS, no
+   scroll listener): a `local`-attached "cover" layer travels WITH the scrolled content and is
+   positioned flush with the table's true right edge, while a `scroll`-attached "shadow" layer stays
+   pinned to the container's own right edge. At rest (scrollLeft 0) the cover sits off past the visible
+   window, so the shadow shows through — the hint. As the owner scrolls right, the cover slides into
+   view and lands exactly on top of the shadow once the container reaches its true end, so the hint
+   fades itself out instead of lingering after the hidden columns have already been seen. Both colors
+   come from existing tokens (--surface-card / --border-subtle) so it repaints correctly in dark mode
+   with no new hex/rgba values, and nothing here is animated (static backgrounds repositioned by native
+   scrolling only), so it does not touch the "never animate a blurred/mix-blend-mode'd element" rule. */
+.mp-instrtable {
+  overflow-x: auto;
+  background-image:
+    linear-gradient(to left, var(--surface-card), var(--surface-card) 45%, transparent),
+    linear-gradient(to left, var(--border-subtle), transparent);
+  background-position: top right, top right;
+  background-size: var(--space-8) 100%, var(--space-8) 100%;
+  background-repeat: no-repeat, no-repeat;
+  background-attachment: local, scroll;
+}
 .mp-instrtable__table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
 .mp-instrtable__table th,
 .mp-instrtable__table td {

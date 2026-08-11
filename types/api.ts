@@ -918,6 +918,11 @@ export interface SoilReadingItem {
 }
 
 export interface PlantSoilReadings {
+  /** The plant's own acquisition day (`YYYY-MM-DD`) — the BOTTOM of the window a reading's `measuredOn`
+   *  may fall in (QA round 4, DEF-5). The top is "today", which the client already knows. The API
+   *  enforces it (`assertNotBeforeAcquisition`); this is what lets the modal refuse an impossible date
+   *  inline instead of leaving the owner to decode a failed save, exactly as the FUTURE end already does. */
+  acquiredOn: string;
   instruments: PlantInstrument[];
   protocol: ReadingProtocol | null;
   readings: SoilReadingItem[];

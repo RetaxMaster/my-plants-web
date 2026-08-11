@@ -28,7 +28,9 @@ import {
   useRepotAttempt, classifyRepotFailure, repotFailureMessageKey, isAttemptFrozen,
   type RepotCompletion, type RepotAttemptFailure,
 } from '../composables/useRepotAttempt';
-import type { RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload } from '../types/api.js';
+import type {
+  RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload, PlantSoilReadings,
+} from '../types/api.js';
 
 const props = defineProps<{ id: string }>();
 
@@ -160,6 +162,15 @@ const { data: care, refresh } = await useAsyncData(`care-${id}`, () => api.getPl
 // `SoilReadingModal` (never optional-shaped like the care payload), so the template falls back to an empty
 // shape before the fetch resolves — same convention as `:places="places ?? []"` a few lines down.
 const { data: readings, refresh: refreshReadings } = await useAsyncData(`soil-readings-${id}`, () => api.getSoilReadings(id));
+// ⚠️ `acquiredOn: ''` IS THE HONEST EMPTY VALUE, NOT A PLACEHOLDER DATE (QA round 4, DEF-5). Before the
+// fetch resolves the client does not know when this plant arrived, and every consumer of the field guards
+// on truthiness — so the date input simply carries no `min` and the modal states nothing. Inventing a day
+// would be the app asserting something about the plant it has not been told, which is exactly the class of
+// statement this feature exists to delete. Named here (rather than written inline in the template as it
+// was) so there is ONE fallback shape, not one per binding.
+const EMPTY_SOIL_READINGS: PlantSoilReadings = {
+  acquiredOn: '', instruments: [], protocol: null, readings: [], wateringDays: [],
+};
 const readingModalOpen = ref(false);
 // Task 6: ONE modal instance now serves TWO entry points on this page — the WATER row's own survey
 // ("¿Necesitas regar?", set by `onEvaluateTask` below) and the measurement-history block's voluntary
@@ -1173,13 +1184,20 @@ async function onRepotPostpone() {
 // was ever removed from this page), so both ways of answering the card survived here. `promptAnsweredToday`
 // is the term that closes it, and it is read as a SIBLING of `measurement`, never aliased to `wateredToday`:
 // a postpone answers the day's question without watering anything.
+//
+// ⚠️ AND ITS SECOND EXIT, `wateredToday`, LANDS HERE FOR THE SAME REASON (QA round 4, DEF-2, HIGH). A pot
+// watered today and THEN measured `WATER_NOW` was promoted by this page into an urgent row offering
+// **Hecho** — a `200` the API's one-watering-per-day dedup discards, permanently and in silence. The
+// watering PRECEDES the reading, so `promptAnsweredToday` is correctly `false` and could not close it; the
+// two facts arrive as two fields on the payload precisely so this row can consult both.
 function careEffectiveStatus(task: TaskCode, status: 'overdue' | 'today' | 'upcoming') {
-  return effectiveTaskStatus(
+  return effectiveTaskStatus({
     task,
-    care.value?.measurement?.todaysVerdict ?? null,
+    todaysVerdict: care.value?.measurement?.todaysVerdict ?? null,
     status,
-    care.value?.watering?.promptAnsweredToday === true,
-  );
+    promptAnsweredToday: care.value?.watering?.promptAnsweredToday === true,
+    wateredToday: care.value?.watering?.wateredToday === true,
+  });
 }
 
 // A WATER done on a not-yet-due task (status 'upcoming') is an early watering → ask why. A REPOT done opens
@@ -1571,12 +1589,20 @@ async function confirmRevive() {
           </UiCard>
           <UiCard v-else :padded="false">
             <div class="mp-detail__rows">
-              <!-- `allow-standalone-done` is REPOT-only for status quo's sake, and WATER's own since Task 6
-                   (watering-survey-web plan): this page keeps a standalone "Done" beside "Time to evaluate" /
-                   "¿Necesitas regar?", so a repot — or a watering — the owner already did can be recorded
-                   without first answering the questionnaire/survey. The Today page deliberately does NOT
-                   pass it for either task: there, Done appears only once a verdict says the action is
-                   needed. `can-survey` mirrors pages/index.vue's own WATER wiring (commit ff75f51) exactly:
+              <!-- ⚠️ `allow-standalone-done` IS NOW REPOT-ONLY (QA round 4, DEF-3; owner-ruled 2026-08-11).
+                   It used to be passed unconditionally, so a WATER row with the survey on offer kept a
+                   standalone "Hecho" HERE that the Today list never offered — the two surfaces disagreeing
+                   about one row, in the opposite direction to the defect DEF-3 is mainly about. The owner's
+                   ruling settles both halves at once: with the survey on offer a WATER row reads the same
+                   everywhere — measure + Posponer, no Hecho — because recording a watering while the app is
+                   still offering to tell you whether to water defeats the feature. Posponer is what came
+                   BACK (TaskRow's `verdictWithholdsPostpone`), and it never depended on this prop.
+                   THE CONSEQUENCE, NAMED RATHER THAN DISCOVERED: back-dating a watering from this page now
+                   requires taking today's reading first (any reading closes the survey and hands the row's
+                   ordinary Hecho + date box back). That is the ruling working as intended, not a gap.
+                   REPOT keeps it exactly as it was: a repot the owner already did is recorded here without
+                   first answering the questionnaire. `can-survey` mirrors pages/index.vue's own WATER wiring
+                   (commit ff75f51) exactly:
                    true only when the owner has selected an instrument — an owner with none renders this row
                    BYTE-IDENTICAL to its pre-survey shape (TaskRow.vue's own contract for `canSurvey: false`).
                    The `@measure` affordance that used to sit on this row is GONE (Task 6): recording a
@@ -1595,9 +1621,10 @@ async function confirmRevive() {
                 :can-survey="t3.task === 'WATER' && canSurveyWater"
                 :todays-verdict="t3.task === 'WATER' ? (care.measurement?.todaysVerdict ?? null) : null"
                 :prompt-answered-today="t3.task === 'WATER' && care.watering?.promptAnsweredToday === true"
+                :watered-today="t3.task === 'WATER' && care.watering?.wateredToday === true"
                 with-done-date
                 show-info
-                allow-standalone-done
+                :allow-standalone-done="t3.task === 'REPOT'"
                 @done="e => onDone(e.task, careEffectiveStatus(e.task, t3.status), e.occurredOn)"
                 @postpone="e => onPostpone(e.task)"
                 @info="openTaskInfo"
@@ -1716,7 +1743,7 @@ async function confirmRevive() {
         <UiSoilReadingModal
           v-model:open="readingModalOpen"
           :plant-id="id"
-          :data="readings ?? { instruments: [], protocol: null, readings: [], wateringDays: [] }"
+          :data="readings ?? EMPTY_SOIL_READINGS"
           :mode="readingMode"
           :watered-today="care?.watering?.wateredToday === true"
           @saved="onReadingSaved"

@@ -163,7 +163,13 @@ const woodenStick = {
 const protocol = { potSizeCm: 20, insertionDepthCm: 7, distanceFromCentreCm: 3 };
 
 function makeData(overrides: Partial<PlantSoilReadings> = {}): PlantSoilReadings {
-  return { instruments: [galvanicProbe], protocol, readings: [], wateringDays: [], ...overrides };
+  return {
+    // Far in the past by default (QA round 4, DEF-5), so no pre-existing case trips the new
+    // pre-acquisition refusal; the cases that are ABOUT it override it.
+    acquiredOn: '2020-01-01',
+    instruments: [galvanicProbe], protocol, readings: [], wateringDays: [],
+    ...overrides,
+  };
 }
 
 // `mode` is ALWAYS passed explicitly — defaulted to `'voluntary'` here in the helper, never left to the
@@ -417,11 +423,49 @@ describe('SoilReadingModal', () => {
       expect(rawValueError(w)).toBe('reading.valueBelowMin|0');
     });
 
-    it('accepts an arbitrarily large weight — grams genuinely have no ceiling', async () => {
+    // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-4). Its CLAIM is unchanged and still true — the INSTRUMENT
+    // declares no ceiling, because grams genuinely are open-ended — but its FIXTURE was calibrated, and on
+    // a calibrated pot there is now a second, different bound: the pot's own anchors. Reproducing the claim
+    // honestly means asserting it where it actually holds, on a pot with NO ruler to judge against.
+    //
+    // The old assertion was, in fact, the defect: with anchors of 1200/1850 it accepted 1 000 000 g, saved
+    // it clamped to 100 % moisture and rescheduled the watering.
+    it('accepts an arbitrarily large weight on an UNCALIBRATED pot — grams have no ceiling', async () => {
+      const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
+      await readingInput(w).setValue(1_000_000);
+      expect(rawValueError(w)).toBeUndefined();
+    });
+
+    // DEF-4's own half of that same sentence: once the pot HAS anchors, they are the ruler.
+    it('DEF-4: refuses an implausible weight once the pot IS calibrated', async () => {
       const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
       await readingInput(w).setValue(1_000_000);
-      expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
-      expect(rawValueError(w)).toBeUndefined();
+      expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+      // Both anchors are named, so the owner can tell a typo from a pot that genuinely changed.
+      expect(rawValueError(w)).toBe('reading.valueImplausibleForPot|1200|1850');
+    });
+
+    // ⚠️ THE OTHER DIRECTION, AND THE ONE A CARELESS BAND BREAKS. A real pot leaves its anchors: heavier
+    // right after a deep watering (or with runoff in the saucer), lighter than "dry" in a heatwave. Anchors
+    // 1200/1850 => span 650 => band [550, 3150]. Tightening either constant to 0 turns these RED.
+    it('DEF-4: still accepts honest readings outside the anchors but inside the band', async () => {
+      for (const honest of [700, 2500, 3150]) {
+        const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+        await readingInput(w).setValue(honest);
+        expect(rawValueError(w)).toBeUndefined();
+        expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+      }
+    });
+
+    // The three values QA actually typed, on QA's own pot shape. `0` is the interesting one: it is ON the
+    // instrument's declared scale (`rawMin: 0`), so ONLY the pot band can refuse it — a guard written into
+    // `rawValueOutOfRange` instead would leave this green.
+    it('DEF-4: refuses the values QA saved with a 201', async () => {
+      for (const absurd of [99999999, 0, 12.7]) {
+        const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+        await readingInput(w).setValue(absurd);
+        expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+      }
     });
 
     it('still states BOTH bounds for a closed scale, never the open-ended message', async () => {
@@ -527,9 +571,12 @@ describe('SoilReadingModal', () => {
     expect(input.attributes('aria-invalid')).toBeUndefined();
   });
 
-  // The kitchen scale declares NO `rawMax` (grams are open-ended) — it must stay unrestricted.
-  it('never restricts the kitchen scale — grams are open-ended, no declared rawMax', async () => {
-    const w = mountModal(makeData({ instruments: [kitchenScaleCalibrated] }));
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-4), same correction as its sibling above and for the same
+  // reason: the claim is about the INSTRUMENT's declared scale, so it belongs on an uncalibrated pot. On a
+  // calibrated one the pot's own anchors now bound the value, which is the whole fix — see the DEF-4 block
+  // in the "open-ended scale still has a FLOOR" describe.
+  it('the instrument itself never restricts the kitchen scale — no declared rawMax', async () => {
+    const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }));
     const input = readingInput(w);
     await input.setValue(999999);
     expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
@@ -1625,6 +1672,60 @@ describe('a measurement cannot be dated in the future', () => {
 
     expect(w.text()).toContain('reading.measuredOnFuture');
     expect(w.text()).not.toContain('reading.saveFailed');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// QA round 4, DEF-5 (LOW) — AND IT CANNOT BE DATED BEFORE THE PLANT EXISTED.
+//
+// A plant acquired 2026-06-01 accepted a reading dated 2020-01-01. The FUTURE end of this same window has
+// been refused since A4; this is the missing mirror, written in its image.
+//
+// Mutation, both directions: deleting `measuredOnBeforeAcquired` from `canSubmit` turns the refusals RED;
+// inverting its comparison (`>` instead of `<`) turns the ACCEPTANCE cases RED — including the acquisition
+// day itself, which is the boundary an off-by-one gets wrong.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('a measurement cannot be dated before the plant existed (QA round 4, DEF-5)', () => {
+  function blockedText(w: ReturnType<typeof mount>) {
+    return w.find('.mp-modal-blocked').exists() ? w.find('.mp-modal-blocked').text() : undefined;
+  }
+  const owned = { instruments: [galvanicProbe], acquiredOn: '2026-06-01' };
+
+  it('blocks the save and says why — `min` does not stop a TYPED date either', async () => {
+    const w = mountModal(makeData(owned), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5);
+    await w.find('input[type="date"]').setValue('2020-01-01');
+
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+    expect(blockedText(w)).toBe('reading.measuredOnBeforeAcquired|2026-06-01');
+  });
+
+  // The browser half, which is what stops the picker's arrows before anything is typed at all — the exact
+  // counterpart of the `max` the future rule already carries.
+  it('carries the acquisition day as the date input\'s `min`', () => {
+    const w = mountModal(makeData(owned), { mode: 'voluntary' });
+    expect(w.find('input[type="date"]').attributes('min')).toBe('2026-06-01');
+  });
+
+  // ⚠️ THE BOUNDARY IS INCLUSIVE: a reading taken the very day the plant arrived is a real measurement of a
+  // real pot, and refusing it would be the guard eating a legitimate first reading.
+  it('ACCEPTS a reading dated exactly the acquisition day', async () => {
+    const w = mountModal(makeData(owned), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5);
+    await w.find('input[type="date"]').setValue('2026-06-01');
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+    expect(blockedText(w)).toBeUndefined();
+  });
+
+  // An older API — or the pre-fetch fallback shape — carries no acquisition day. The field must then be
+  // UNCONSTRAINED rather than locked: a client that does not know must not refuse on a guess, and the
+  // server still enforces the real rule.
+  it('constrains nothing when the payload carries no acquisition day', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], acquiredOn: '' }), { mode: 'voluntary' });
+    await w.find('input[type="number"]').setValue(5);
+    await w.find('input[type="date"]').setValue('2020-01-01');
+    expect(findSaveButton(w).attributes('disabled')).toBeUndefined();
+    expect(w.find('input[type="date"]').attributes('min')).toBeUndefined();
   });
 });
 

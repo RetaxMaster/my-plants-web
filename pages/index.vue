@@ -263,7 +263,12 @@ function todaysVerdictFor(plantId: string): TodaysVerdict {
 // both exits itself — `care-plan.service.ts` decides which rows reach the list at all:
 //
 //  • A watering advances `nextDueOn` into the future, so the row leaves by the ordinary due filter. There
-//    is no WATER row left here to offer Medir on, which is why `wateredToday` has nothing to gate.
+//    is no WATER row left here to offer Medir on, which is why `wateredToday` has nothing to gate. ⚠️ AND
+//    THE ONE CASE WHERE THAT WAS NOT ENOUGH IS NOW CLOSED SERVER-SIDE TOO (QA round 4, DEF-2): a plant
+//    watered today and THEN measured `WATER_NOW` was re-admitted by the surfacing arm, and the card it put
+//    back offered a Hecho the API's own dedup discarded. `care-plan.service.ts` now refuses to surface that
+//    row at all, so this constant stays a genuine `false` rather than becoming a fact this payload has to
+//    carry.
 //  • A row that reaches this list ONLY because a measurement surfaced it is dropped the moment that
 //    reading is answered (Hecho or Posponer) — the API's own `promptAnsweredToday` clause, applied server
 //    side rather than sent to us.
@@ -288,9 +293,13 @@ const PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW = false;
 // and then ask him why he is watering early — second-guessing its own verdict, one tap after issuing it.
 // The RULE itself lives in `utils/waterSurvey.ts` and is shared with TaskRow.vue and PlantDetail.vue.
 function rowEffectiveStatus(plantId: string, task: DueTask['task'], due: string): 'overdue' | 'today' | 'upcoming' {
-  return effectiveTaskStatus(
-    task, todaysVerdictFor(plantId), rowStatus(due), PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW,
-  );
+  return effectiveTaskStatus({
+    task,
+    todaysVerdict: todaysVerdictFor(plantId),
+    status: rowStatus(due),
+    promptAnsweredToday: PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW,
+    wateredToday: WATERED_TODAY_NOT_ON_THE_TODAY_ROW,
+  });
 }
 
 // Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey. The RULE (all three conditions,
@@ -667,7 +676,14 @@ async function onRepotPostpone(plantId: string) {
 // (never a parallel event): the task the event names is what routes it here instead of to `onEvaluate`.
 const readingModalOpen = ref(false);
 const readingModalPlantId = ref<string | null>(null);
-const EMPTY_SOIL_READINGS: PlantSoilReadings = { instruments: [], protocol: null, readings: [], wateringDays: [] };
+// ⚠️ `acquiredOn: ''` IS THE HONEST EMPTY VALUE, NOT A PLACEHOLDER DATE (QA round 4, DEF-5). This is the
+// shape used while no catalogue has been fetched, so there is no acquisition day to state — and every
+// consumer of the field guards on truthiness, so an empty string means "the client does not know" and the
+// date field simply carries no `min`. A fabricated day would be the app asserting something about the
+// plant that it has not been told, which is the class of statement this whole feature exists to delete.
+const EMPTY_SOIL_READINGS: PlantSoilReadings = {
+  acquiredOn: '', instruments: [], protocol: null, readings: [], wateringDays: [],
+};
 const readingModalData = ref<PlantSoilReadings>(EMPTY_SOIL_READINGS);
 
 // FIX W1 — the plants whose instrument catalogue we tried to fetch and FAILED to get. This is a state of

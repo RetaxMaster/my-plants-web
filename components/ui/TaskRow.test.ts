@@ -450,7 +450,14 @@ describe('UiTaskRow — the measure affordance on WATER (measured:22)', () => {
 // out of his own app over a feature he chose not to use, so `canSurvey: false` (the default) must leave the
 // row byte-identical to what it has always been.
 describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
-  it('a WATER row that CAN be surveyed offers the survey and withholds Done and Postpone', () => {
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3; owner-ruled). Its old title was "...withholds Done AND
+  // Postpone", and that second half was the defect: an owner who had selected an instrument could not
+  // defer a watering at all — the row offered "¿Necesitas regar?" and nothing else, and the only escape
+  // was to switch his probe off in Settings. "No tengo tiempo ahorita" is an answer about HIS OWN
+  // AVAILABILITY; no measurement can answer it, so demanding one is incoherent. Done stays withheld for
+  // the opposite reason: recording a watering while the app is still offering to tell you whether to water
+  // defeats the feature. The Done half of this case is therefore UNCHANGED and still asserted.
+  it('a WATER row that CAN be surveyed offers the survey, withholds Done, and KEEPS Postpone', () => {
     const w = mountRow({ task: 'WATER', status: 'today', canSurvey: true });
     // The copy IS the reframe — a QUESTION ("Do you need to water?"), never REPOT's "Time to evaluate".
     // `t` is mocked as identity (see the top of this file), so the rendered text is the i18n KEY itself —
@@ -459,8 +466,27 @@ describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
     expect(w.text()).not.toContain('repotEval.cardAction');
     const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
     expect(icons).toContain('magnifying-glass'); // the survey affordance
-    expect(icons).not.toContain('check'); // Done withheld
-    expect(icons).not.toContain('clock'); // Postpone withheld
+    expect(icons).not.toContain('check'); // Done withheld — unchanged
+    expect(icons).toContain('clock'); // ⚠️ DEF-3: Posponer is BACK
+  });
+
+  // ⚠️ THE SCOPE OF DEF-3, AND THE HALF THAT MUST NOT MOVE. REPOT's own withholding is untouched: a REPOT
+  // Posponer means "yes, it needs it, but I can't right now" — a CONCLUSION — and there is no such thing as
+  // postponing a repot nobody has established is needed. A fix written as "the survey never withholds
+  // Postpone" (dropping the `task !== 'WATER'` term) passes the case above and turns this one RED.
+  it('DEF-3 is WATER-only — a REPOT questionnaire still withholds Postpone', () => {
+    const w = mountRow({ task: 'REPOT', status: 'today', pendingVerdict: null });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass');
+    expect(icons).not.toContain('check');
+    expect(icons).not.toContain('clock');
+  });
+
+  // The second clause of the rule is unchanged and still binds: a task that is not due yet has nothing to
+  // postpone, survey or no survey. A fix that returned Posponer unconditionally turns this RED.
+  it('DEF-3 does not put Posponer on a WATER row that is not due yet', () => {
+    const w = mountRow({ task: 'WATER', status: 'upcoming', canSurvey: true });
+    expect(w.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).not.toContain('clock');
   });
 
   // THE LOAD-BEARING CASE. An owner with no instrument must not be locked out of his own app.
@@ -476,13 +502,25 @@ describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
     }
   });
 
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3). The claim under test is unchanged and is the important
+  // one: `allowStandaloneDone` re-opens Done and NEVER unlocks Postpone. What changed is that Postpone is
+  // no longer WITHHELD on this row at all, so its presence here says nothing about that prop — it is
+  // DEF-3's doing. Asserted on a not-yet-due row instead, which is the one state where the two rules can
+  // still be told apart: `allowStandaloneDone` re-opens Done there, and Postpone stays away because the
+  // task is not due. A fix that let `allowStandaloneDone` unlock Postpone turns this RED.
   it('allowStandaloneDone re-opens Done and NEVER Postpone, exactly as it does for REPOT', () => {
-    const w = mountRow({ task: 'WATER', status: 'today', canSurvey: true, allowStandaloneDone: true });
-    expect(w.text()).toContain('reading.surveyQuestion'); // the survey question is still on offer
-    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
-    expect(icons).toContain('magnifying-glass'); // the survey is still on offer
-    expect(icons).toContain('check'); // Done re-opened
-    expect(icons).not.toContain('clock'); // Postpone stays withheld — never unlocked by allowStandaloneDone
+    const due = mountRow({ task: 'WATER', status: 'today', canSurvey: true, allowStandaloneDone: true });
+    expect(due.text()).toContain('reading.surveyQuestion'); // the survey question is still on offer
+    const dueIcons = due.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(dueIcons).toContain('magnifying-glass'); // the survey is still on offer
+    expect(dueIcons).toContain('check'); // Done re-opened
+
+    const upcoming = mountRow({
+      task: 'WATER', status: 'upcoming', canSurvey: true, allowStandaloneDone: true,
+    });
+    const upcomingIcons = upcoming.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(upcomingIcons).toContain('check'); // Done re-opened here too
+    expect(upcomingIcons).not.toContain('clock'); // and Postpone is STILL not unlocked by it
   });
 
   it('every REPOT case is unchanged', () => {
@@ -617,6 +655,36 @@ describe('UiTaskRow — a measured WATER_NOW overrides an upcoming due date', ()
   // which is the honest "nothing has answered this" reading, and it is what the Today page relies on.
   it('a caller that OMITS promptAnsweredToday still gets the promotion', () => {
     const w = mountRow({ ...upcomingWater, todaysVerdict: 'WATER_NOW', canSurvey: false });
+    expect(w.text()).toContain('reading.verdictNowBadge');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// QA round 4, DEF-2 (HIGH) — the promotion's SECOND exit, at this component's own seam.
+//
+// Water the pot (the card leaves Today), then measure it and get "Riega ahora": this row promoted itself to
+// due-today and offered Hecho — a 200 the API's one-watering-per-day dedup discards, permanently.
+//
+// ⚠️ `promptAnsweredToday` IS FALSE THROUGHOUT, deliberately: the watering PRECEDES the reading, so the
+// API's own `since` bound correctly refuses to count it as an ANSWER. That is what makes the two props two
+// props. Dropping `wateredToday` from the `effectiveTaskStatus` call turns these RED; inverting it turns
+// the un-watered cases above RED.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('UiTaskRow — DEF-2: a pot watered today is not promoted by a measurement', () => {
+  const upcomingWaterRow = {
+    task: 'WATER' as const, status: 'upcoming' as const, dueLabel: 'in 9 days', canSurvey: false,
+  };
+
+  it('leaves the row upcoming, with its own due label, when the pot was watered today', () => {
+    const w = mountRow({ ...upcomingWaterRow, todaysVerdict: 'WATER_NOW', wateredToday: true });
+    expect(w.text()).toContain('in 9 days');
+    expect(w.text()).not.toContain('reading.verdictNowBadge');
+    // And no Posponer: the row is back to being not-yet-due, which is the state it was always in.
+    expect(w.findAll('.stub-btn').map((b) => b.attributes('data-icon'))).not.toContain('clock');
+  });
+
+  it('a caller that OMITS wateredToday still gets the promotion — the default is inert', () => {
+    const w = mountRow({ ...upcomingWaterRow, todaysVerdict: 'WATER_NOW' });
     expect(w.text()).toContain('reading.verdictNowBadge');
   });
 });

@@ -223,10 +223,15 @@ const stubs = {
       // REPOT's gate (that stays ungated here, exactly as before this row existed; REPOT's own state
       // machine is TaskRow.vue's job and is covered by TaskRow.test.ts, not this wiring-level file).
       '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">evaluate</button>' +
-      '<template v-if="task !== \'WATER\' || !canSurvey">' +
-      '<button class="done-btn" @click="$emit(\'done\', { task })">done</button>' +
+      // ⚠️ UPDATED 2026-08-11 (QA round 4, DEF-3; owner-ruled): a WATER survey withholds **Hecho** and NOT
+      // **Posponer**. "No tengo tiempo ahorita" is an answer about the owner's own availability, which no
+      // measurement can supply; recording a watering while the app is still offering to tell you whether to
+      // water is the opposite case. THIS STUB WAS PINNING THE DEFECT — it gated Posponer on `!canSurvey`,
+      // so the whole surface stayed green while the real component shipped the bug. Mirrors TaskRow.vue's
+      // rule now, minus its `effectiveStatus !== 'upcoming'` clause, which is TaskRow.test.ts's own concern
+      // (this file is about which PROPS the page sends).
+      '<button v-if="task !== \'WATER\' || !canSurvey" class="done-btn" @click="$emit(\'done\', { task })">done</button>' +
       '<button class="postpone-btn" @click="$emit(\'postpone\', { task })">postpone</button>' +
-      '</template>' +
       '</div>',
   },
   // Plan 3 T5: stands in for the real SoilReadingModal.vue (covered by its own test file) — this file's only
@@ -1363,10 +1368,13 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     const w = await mountPage();
     const row = w.find('[data-can-survey]');
     expect(row.attributes('data-can-survey')).toBe('true');
-    // The survey affordance renders; Done/Postpone stay withheld until the survey answers.
+    // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3). The old line read "Done/Postpone stay withheld until the
+    // survey answers", and the Postpone half of that was the defect: an owner who had selected an
+    // instrument could not defer a watering AT ALL — the row offered "¿Necesitas regar?" and nothing else,
+    // and his only escape was to switch his probe off in Settings. Hecho stays withheld, unchanged.
     expect(row.find('.evaluate-btn').exists()).toBe(true);
     expect(row.find('.done-btn').exists()).toBe(false);
-    expect(row.find('.postpone-btn').exists()).toBe(false);
+    expect(row.find('.postpone-btn').exists()).toBe(true);
   });
 
   // THE LOAD-BEARING CASE — an owner who selected no instrument has no way to satisfy a survey; the row

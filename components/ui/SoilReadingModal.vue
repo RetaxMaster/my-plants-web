@@ -94,7 +94,7 @@ import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
 // and not hand-written here as a `!== 'NONE'`. It is the same predicate the API applies when it decides
 // which of a day's readings speaks for that day and when it refuses to let an edit erase a stored answer;
 // it lived in both repos until 2026-08-11 and now lives once, beside the verdict vocabulary itself.
-import { verdictIsAnswer } from '@retaxmaster/my-plants-species-schema';
+import { implausibleForPotReason, verdictIsAnswer } from '@retaxmaster/my-plants-species-schema';
 // The WATER survey's own shared rules. `storedVerdictFor` is the ONE translation from a preview's
 // recommendation into the verdict a reading row stores, used by BOTH the survey's branches below and the
 // voluntary edit that re-derives one.
@@ -811,6 +811,25 @@ const rawValueOffStep = computed(() => {
   const steps = (rawValue.value - row.rawMin) / row.rawStep;
   return Math.abs(steps - Math.round(steps)) > 1e-9;
 });
+/**
+ * IS THIS A PLAUSIBLE READING FOR **THIS POT** (QA round 4, DEF-4)? The local half of the shared contract's
+ * own `implausibleForPotReason`, called rather than re-implemented — the API enforces the same rule on the
+ * write AND on the preview, so the button and the server can never disagree about what is submittable.
+ *
+ * ⚠️ IT IS A DIFFERENT QUESTION FROM `rawValueOutOfRange` DIRECTLY ABOVE, and that is why the kitchen scale
+ * had no ceiling at all until now: that one asks "can this INSTRUMENT produce this value?" and the scale's
+ * `rawMax` is `null` by contract, because grams genuinely are open-ended. This one asks "can THIS POT weigh
+ * this?", which only the pot's own calibration can answer — so `99999999` grams saved, clamped to 100 %
+ * moisture and rescheduled the watering, while the probe's own field validated properly all along.
+ *
+ * Returns `false` with no calibration on file: there is no ruler, and an uncalibrated reading is stored
+ * honestly with a null wetness rather than blocked.
+ */
+const rawValueImplausibleForPot = computed(() => {
+  if (rawValue.value == null) return false;
+  return implausibleForPotReason(rawValue.value, instrument.value?.calibration ?? null) !== null;
+});
+
 // Shown only once the owner has typed SOMETHING — an empty field is simply "not filled in yet" (canSubmit
 // already gates on that), never an inline error of its own. Same shape as RepotDoneForm.vue's own
 // `potSizeErrorMessage`.
@@ -827,6 +846,13 @@ const rawValueErrorMessage = computed(() => {
       : t('reading.valueOutOfRange', { min: row.rawMin, max: row.rawMax });
   }
   if (rawValueOffStep.value) return t('reading.valueOffStep', { min: row.rawMin, step: row.rawStep });
+  // DEF-4, LAST of the three value complaints, because it is the only one that can fire on a value the
+  // instrument itself accepts: the pot's own anchors are what refuse it. Both anchors are named, so the
+  // owner can tell a typo from a pot that has genuinely changed and needs re-calibrating.
+  if (rawValueImplausibleForPot.value) {
+    const cal = instrument.value!.calibration!;
+    return t('reading.valueImplausibleForPot', { dry: cal.dryValue, watered: cal.saturatedValue });
+  }
   return undefined;
 });
 
@@ -854,10 +880,15 @@ const blockedReason = computed(() => {
   if (submitting.value || instrumentId.value === '') return undefined;
   // Ahead of the value: a date the owner has to correct anyway makes every other complaint noise.
   if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
+  if (measuredOnBeforeAcquired.value) {
+    return t('reading.measuredOnBeforeAcquired', { acquired: props.data!.acquiredOn });
+  }
   if (rawValue.value == null) return t('reading.missingValue');
   // The SAME sentence the field shows, not a second phrasing of it — two wordings for one fault is what
   // actually reads as two faults.
-  if (rawValueOutOfRange.value || rawValueOffStep.value) return rawValueErrorMessage.value;
+  if (rawValueOutOfRange.value || rawValueOffStep.value || rawValueImplausibleForPot.value) {
+    return rawValueErrorMessage.value;
+  }
   // NOTE: three calibration reasons used to be reported here (missing anchors / off-scale anchor / inverted
   // span). They left with the fields on 2026-08-10 — an instrument that still needs a calibration is no
   // longer OFFERED (see `usableInstruments`), so none of the three can block a reading any more. Their
@@ -870,7 +901,8 @@ const blockedReason = computed(() => {
 
 const canSubmit = computed(() =>
   instrumentId.value !== '' && rawValue.value != null && !submitting.value &&
-  !rawValueOutOfRange.value && !rawValueOffStep.value && !measuredOnInFuture.value &&
+  !rawValueOutOfRange.value && !rawValueOffStep.value && !rawValueImplausibleForPot.value &&
+  !measuredOnInFuture.value && !measuredOnBeforeAcquired.value &&
   // Owner-ruled (2026-08-08): required, un-defaulted, whenever the control is actually shown — since
   // 2026-08-10 that means a watering day in VOLUNTARY mode only (see `showWateringRelation`).
   (!showWateringRelation.value || wateringRelation.value !== ''));
@@ -887,6 +919,17 @@ const primaryLabel = computed(() => (props.mode === 'survey' ? t('reading.calcul
 // clarification itself the lie.
 const measuredOnHint = computed(() =>
   (measuredOn.value ? d(ymdToLocalDate(measuredOn.value), 'short') : undefined));
+
+// The date field's own inline error — ONE computed rather than a ternary chain in the template, so the two
+// refusals (future / before the plant existed) cannot come to disagree with `blockedReason`'s ordering.
+// Future first, matching that footer exactly: the two must never name different faults for one date.
+const measuredOnError = computed(() => {
+  if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
+  if (measuredOnBeforeAcquired.value) {
+    return t('reading.measuredOnBeforeAcquired', { acquired: props.data!.acquiredOn });
+  }
+  return undefined;
+});
 
 /**
  * A MEASUREMENT CANNOT BE DATED IN THE FUTURE (QA 2026-08-10, defect 3).
@@ -905,6 +948,24 @@ const measuredOnHint = computed(() =>
  */
 const measuredOnInFuture = computed(() =>
   props.mode === 'voluntary' && !!measuredOn.value && measuredOn.value > todayYmd());
+
+/**
+ * AND IT CANNOT BE DATED BEFORE THE PLANT EXISTED (QA round 4, DEF-5) — the mirror of the rule directly
+ * above, written in its image on purpose.
+ *
+ * A plant acquired 2026-06-01 accepted a reading dated 2020-01-01: a measurement nobody could have taken,
+ * of a pot that was not yet in this garden. The server is the authority (`assertNotBeforeAcquisition`, in
+ * the shared write core); this is the fast local half, so the owner reads a sentence on the field instead
+ * of decoding a failed save — exactly the treatment the FUTURE end has had since A4.
+ *
+ * ⚠️ NO TIMEZONE SUBTLETY HERE, unlike its sibling, and the difference is worth stating. "Is it in the
+ * future?" is a question about NOW, so browser-today and plant-today can disagree across the midnight gap
+ * and the server's own refusal stays reachable. This one compares two STORED calendar days against each
+ * other; both sides are the same strings the server holds, so the two layers agree by construction.
+ */
+const measuredOnBeforeAcquired = computed(() =>
+  props.mode === 'voluntary' && !!measuredOn.value && !!props.data?.acquiredOn
+  && measuredOn.value < props.data.acquiredOn);
 
 async function submit() {
   if (!canSubmit.value || instrumentId.value === '' || rawValue.value == null) return;
@@ -1213,6 +1274,17 @@ const canMarkWaterDone = computed(() => !props.wateredToday);
  * by then has already flipped out of its survey state, because the reading written on the way to this
  * verdict set `measuredToday`.
  */
+// ⚠️ THE POSTPONE THIS RAISES SENDS `reason: 'no-time'` WITHOUT ASKING, AND THAT IS DELIBERATE (QA round 4,
+// DEF-6 — reported as a defect, ruled NOT one; spec §5.4). The reason is chosen by
+// `postponeReasonWithoutAsking` in `utils/waterSurvey.ts`, where the full argument lives; it is restated
+// here because THIS is the screen a reader arrives from when he wonders why nobody was asked.
+//
+// It is not a tap-count optimisation. `no-time` moves the DATE and deliberately does NOT move the CADENCE.
+// The generic picker this replaces still offers `soil-still-moist`, which DOES move the cadence — so
+// leaving it on offer after a WATER_NOW verdict would let the owner feed the adaptation loop a subjective
+// "the soil is wet" that his OWN measurement, taken seconds earlier, contradicts. After a survey there is
+// nothing left to ask: the soil already spoke, and it spoke through the reading. The picker survives only
+// on the un-gated (no-instrument) row, which is exactly the row where nothing measured anything.
 function actOnVerdict(action: 'water-done' | 'water-postpone') {
   open.value = false;
   // Branched rather than `emit(action)`: `defineEmits`'s generated overloads are resolved per literal, so
@@ -1464,9 +1536,13 @@ const holdDateLabel = computed(() => {
         v-if="mode === 'voluntary'"
         :label="t('reading.measuredOn')"
         :hint="measuredOnHint"
-        :error="measuredOnInFuture ? t('reading.measuredOnFuture') : undefined"
+        :error="measuredOnError"
       >
-        <Input v-model="measuredOn" type="date" :max="todayYmd()" />
+        <!-- `:min` is DEF-5's browser half, the exact counterpart of the `:max` beside it: it stops the
+             picker's arrows and nothing else, which is precisely why the computed refusal above exists
+             too — a TYPED date sails straight past both attributes. Omitted (undefined) when the payload
+             carries no acquisition day, so an older API never locks the field. -->
+        <Input v-model="measuredOn" type="date" :max="todayYmd()" :min="data?.acquiredOn || undefined" />
       </FormGroup>
 
       <!-- Owner-ruled (2026-08-08): shown on a day the plant was also watered — never a default, never

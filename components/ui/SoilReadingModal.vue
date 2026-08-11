@@ -370,6 +370,36 @@ const showCalibrationNotice = computed(() =>
     : instrument.value != null && needsCalibration(instrument.value));
 
 /**
+ * …AND THE TWO MODES CANNOT SHARE THE SENTENCE (review finding F3, 2026-08-11).
+ *
+ * Widening the notice to voluntary mode above brought the SURVEY's wording with it — *"calíbrala **para
+ * poder medir con ella**"*. That clause is TRUE in the survey, where an uncalibrated instrument is filtered
+ * out of the picker and there is genuinely no measuring to be done with it. It is FALSE in the voluntary
+ * log, three lines above a picker that offers that very instrument and a grams field that accepts and
+ * SAVES: the dialog told the owner he could not do the thing it then let him do. A banner that contradicts
+ * what the dialog allows teaches the owner to stop reading banners.
+ *
+ * What the log path actually has to say is narrower and true: we will keep the number, we just cannot turn
+ * it into a moisture reading until this pot is calibrated. Same alert, same `{calibrate}` link, same one
+ * markup block — only the keypath differs, so the two wordings cannot fork into two banners that drift.
+ *
+ * ⚠️ NOT `ModalBlockedReason.vue`, deliberately: that component means *"the primary action is
+ * UNAVAILABLE"* and renders beside a dead button. Here the primary action WORKS — the save is the whole
+ * point — so borrowing it would restate the exact false claim this finding is about, in the one place the
+ * owner reads to find out whether he may press the button.
+ *
+ * ⚠️ THE KEY IS `notCalibratedLog`, NOT `notCalibratedYetLog`, AND THE NAME IS LOAD-BEARING. Every test in
+ * this file asserts the notice by `toContain('…notCalibratedYet')` — the keys render verbatim under the
+ * test i18n — so a sibling key with `notCalibratedYet` as a PREFIX would satisfy the survey's own
+ * assertions while the log copy was showing, and every mode test here would pass whichever sentence
+ * rendered. That is a test that cannot fail; the two keys deliberately share no prefix instead.
+ */
+const calibrationNoticeKey = computed(() =>
+  props.mode === 'survey'
+    ? 'reading.calibration.notCalibratedYet'
+    : 'reading.calibration.notCalibratedLog');
+
+/**
  * SAY IT PLAINLY: THIS SAVE REPLACES A READING (owner-ruled 2026-08-11).
  *
  * One reading per (plant, instrument, day) means a second save for the same pair is an EDIT of the row that
@@ -1131,8 +1161,12 @@ const holdDateLabel = computed(() => {
            The link goes to the plant's own page, where the calibration modal lives — calibration is setup,
            done ahead of time, not collected mid-decision — and it ARRIVES AT THE MODAL rather than at the
            top of the page; see `calibrationLink`. -->
+      <!-- ⚠️ ONE ALERT, ONE LINK, TWO KEYPATHS (finding F3, 2026-08-11) — see `calibrationNoticeKey`. The
+           survey says the instrument cannot be measured with; the voluntary log cannot say that, because
+           it is about to let the owner save with it. Both sentences carry the SAME `{calibrate}` slot, so
+           neither markup nor link is duplicated. -->
       <Alert v-if="showCalibrationNotice" color="amber">
-        <i18n-t keypath="reading.calibration.notCalibratedYet" tag="span">
+        <i18n-t :keypath="calibrationNoticeKey" tag="span">
           <template #calibrate>
             <!-- ⚠️ `aria-current="false"`, and it is not noise (QA, 2026-08-11). When the survey is opened
                  from the plant's own page this link's path IS the current route, so vue-router stamps it

@@ -93,6 +93,17 @@ const props = withDefaults(
      * that rule for every consumer, this component included.
      */
     todaysVerdict?: TodaysVerdict;
+    /**
+     * WATER only — whether today's deciding reading has already been ANSWERED, by Hecho or by Posponer
+     * (`watering.promptAnsweredToday` on the plant care payload). Defaults to `false`, so a caller that
+     * omits it renders exactly as before.
+     *
+     * It is the EXIT of the promotion `todaysVerdict` above opens (QA round 3, HIGH): a verdict is a stored
+     * fact and nothing retracts it, so without this the measured card stayed byte-identical after Hecho —
+     * "Riega ahora", both buttons, across a full reload. The rule and the whole argument live in
+     * `effectiveTaskStatus`; this prop only carries the fact.
+     */
+    promptAnsweredToday?: boolean;
   }>(),
   {
     withDoneDate: false,
@@ -107,6 +118,7 @@ const props = withDefaults(
     // satisfies Vue's `hasDefault` check and keeps the prop genuinely tri-state.
     suggestMeasuring: undefined,
     todaysVerdict: null,
+    promptAnsweredToday: false,
   },
 );
 
@@ -189,10 +201,13 @@ const verdictOverridesDue = computed(
 // the early-watering reason picker opens. A local copy of the condition here is exactly how the badge and
 // the handler would come to disagree, and the disagreement is visible to the owner: "water it now",
 // followed one tap later by "why are you watering early?".
+//
+// ⚠️ AND IT ENDS — `promptAnsweredToday` is the exit QA round 3 found missing: once the owner has answered
+// the card (Hecho or Posponer), the promotion stands down and the row goes back to its calendar badge.
 const effectiveStatus = computed<'overdue' | 'today' | 'upcoming'>(() =>
   verdictOverridesDue.value
     ? 'today'
-    : effectiveTaskStatus(props.task, props.todaysVerdict, props.status));
+    : effectiveTaskStatus(props.task, props.todaysVerdict, props.status, props.promptAnsweredToday));
 const measurementOverridesDue = computed(
   () => !verdictOverridesDue.value && effectiveStatus.value !== props.status,
 );

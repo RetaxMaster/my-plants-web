@@ -1966,7 +1966,17 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // a fixture free to describe a payload the server cannot produce — a measured day with no verdict, or a
   // verdict on a day nothing was measured. That is the "hand-built fixture is a CLAIM about the wire"
   // trap this repo has already been bitten by; deriving it makes the claim true by construction.
-  const waterCare = (todaysVerdict: TodaysVerdict = null) => ({
+  //
+  // ⚠️ `watering` IS A SIBLING OF `measurement`, AND ITS TWO FIELDS ARE DERIVED THE WAY THE API DERIVES
+  // THEM (QA round 3, F1/F1b). `promptAnsweredToday` is FORCED false when nothing was measured: the API
+  // skips that query entirely when there is no deciding reading, so a fixture free to set it beside a null
+  // verdict would describe a payload the server cannot produce — a day whose reading was "answered" with no
+  // reading on file. `wateredToday` stays genuinely free, because it is genuinely independent: a watering
+  // happens on days nobody measured, and a reading happens on days nobody waters.
+  const waterCare = (
+    todaysVerdict: TodaysVerdict = null,
+    { wateredToday = false, promptAnswered = false } = {},
+  ) => ({
     plantId: 'p1',
     tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
     measurement: {
@@ -1974,6 +1984,7 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
       measuredToday: todaysVerdict != null,
       todaysVerdict,
     },
+    watering: { wateredToday, promptAnsweredToday: todaysVerdict != null && promptAnswered },
   });
 
   // A faithful-enough TaskRow: it re-derives Done/Postpone/Evaluate visibility from `canSurvey` and
@@ -2009,10 +2020,14 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
 
   const localStubs = { ...stubs, UiTaskRow: UiTaskRowStub, UiSoilReadingModal: UiSoilReadingModalStub };
 
-  async function mountWater(selected: string[], todaysVerdict: TodaysVerdict = null) {
+  async function mountWater(
+    selected: string[],
+    todaysVerdict: TodaysVerdict = null,
+    watering: { wateredToday?: boolean; promptAnswered?: boolean } = {},
+  ) {
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
-      getPlantCare: async () => waterCare(todaysVerdict),
+      getPlantCare: async () => waterCare(todaysVerdict, watering),
       listPlaces: async () => [],
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
@@ -2068,6 +2083,56 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(row.find('.evaluate-btn').exists()).toBe(false);
     expect(row.find('.done-btn').exists()).toBe(true);
     expect(row.find('.postpone-btn').exists()).toBe(true);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  // QA round 3, F1b — THE MEDIR BUTTON WITHDRAWS FOR THE REST OF THE DAY ONCE THE POT IS WATERED.
+  //
+  // The owner, 2026-08-11, in his own words: *"after marking a Riego task as Done, the Medir button on
+  // /plants/:id must disappear; it comes back the next day. And that's fine, because the watering task
+  // already measured."* What it prevents: measuring an already-watered pot produced a 200 the API's
+  // one-WATER-DONE-per-day dedup then discarded — an action the app accepted and did not record.
+  //
+  // ⚠️ NOTHING WAS MEASURED IN THIS FIXTURE, and that is the entire point: `todaysVerdict` is null, so
+  // no other term in `canOfferWaterSurvey` can withhold the survey here. This is the owner who simply
+  // pressed Hecho. Removing `wateredToday` from the `canSurveyWater` expression turns it RED.
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  it('F1b: withdraws the survey once the pot was watered today, with nothing measured', async () => {
+    const w = await mountWater(['galvanic-probe'], null, { wateredToday: true });
+    const row = w.find('[data-task=WATER]');
+    expect(row.attributes('data-can-survey')).toBe('false');
+    expect(row.find('.evaluate-btn').exists()).toBe(false);
+    // …and the ordinary pair is what the row falls back to, exactly as a no-instrument owner sees.
+    expect(row.find('.done-btn').exists()).toBe(true);
+    expect(row.find('.postpone-btn').exists()).toBe(true);
+  });
+
+  // THE BEFORE HALF: the SAME owner, the SAME instrument, the SAME un-measured day — only the watering
+  // differs. Without it the case above would pass against a page that never offered the survey at all.
+  it('F1b: an un-watered pot still offers it', async () => {
+    const w = await mountWater(['galvanic-probe'], null, { wateredToday: false });
+    expect(w.find('[data-task=WATER]').attributes('data-can-survey')).toBe('true');
+  });
+
+  // ⚠️ ITEM 3, OWNER-RULED THE SAME DAY: **ONLY** MEDIR DISAPPEARS. "Agregar lectura" is the free log and
+  // the only way to CORRECT the day's reading — one reading per plant per instrument per day means it edits
+  // today's row rather than adding a second one — so a watering must not take it away, or a wrong reading
+  // stays wrong until tomorrow. Gating the button on `wateredToday` "for consistency" turns this RED.
+  it('F1b: the voluntary "Agregar lectura" survives the watering — only Medir withdraws', async () => {
+    const w = await mountWater(['galvanic-probe'], null, { wateredToday: true });
+    expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(true);
+  });
+
+  // ⚠️ THE ANTI-ALIASING PIN, DIRECTION A: `wateredToday` must not be read off `promptAnsweredToday`.
+  // A voluntary reading (verdict `'NONE'`, which decides nothing and keeps the question open) followed by a
+  // Posponer answers the day's prompt while watering NOTHING — so the survey must still be on offer. Wiring
+  // `wateredToday: care.watering?.promptAnsweredToday` turns this RED; it is the only reachable shape where
+  // the two booleans disagree and the survey gate is not already closed by the verdict.
+  it('F1b: a postponed — not watered — day keeps the survey on offer', async () => {
+    const w = await mountWater(['galvanic-probe'], 'NONE', { wateredToday: false, promptAnswered: true });
+    const row = w.find('[data-task=WATER]');
+    expect(row.attributes('data-can-survey')).toBe('true');
+    expect(row.find('.evaluate-btn').exists()).toBe(true);
   });
 
   it('the Measure button is GONE from the task row', async () => {
@@ -2205,7 +2270,12 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // `status`/`daysUntilDue` are parameters since 2026-08-11 (QA finding 3): every case in this block used
   // to be `today`, which is precisely the shape that CANNOT exhibit the finding — the measurement override
   // only ever applies to a not-yet-due row.
-  const waterCare = (todaysVerdict: TodaysVerdict = null, status = 'today', daysUntilDue = 0) => ({
+  // `watering` derived exactly as the Task 6 block above derives it — see that comment for why
+  // `promptAnsweredToday` cannot be set beside a null verdict.
+  const waterCare = (
+    todaysVerdict: TodaysVerdict = null, status = 'today', daysUntilDue = 0,
+    { wateredToday = false, promptAnswered = false } = {},
+  ) => ({
     plantId: 'p1',
     tasks: [{ task: 'WATER', status, daysUntilDue, pendingEvaluation: null }],
     measurement: {
@@ -2213,6 +2283,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       measuredToday: todaysVerdict != null,
       todaysVerdict,
     },
+    watering: { wateredToday, promptAnsweredToday: todaysVerdict != null && promptAnswered },
   });
 
   // Same faithful-enough TaskRow the Task 6 block above uses: it re-derives Done/Postpone/Evaluate from
@@ -2222,10 +2293,15 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       task: null,
       canSurvey: { type: Boolean, default: false },
       allowStandaloneDone: { type: Boolean, default: false },
+      // Declared so the binding test below can read what the PAGE actually hands the row. The badge half of
+      // the rule is TaskRow.vue's own (pinned in TaskRow.test.ts); what only this file can see is whether
+      // the page passes the row the SAME fact it passes its own `onDone` handler.
+      promptAnsweredToday: { type: Boolean, default: false },
     },
     emits: ['evaluate', 'done', 'postpone'],
     template:
-      '<div :data-task="task" :data-can-survey="String(!!canSurvey)">' +
+      '<div :data-task="task" :data-can-survey="String(!!canSurvey)" ' +
+      ':data-prompt-answered="String(!!promptAnsweredToday)">' +
       '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">survey</button>' +
       '<button v-if="task !== \'WATER\' || !canSurvey || allowStandaloneDone" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
       '<button v-if="task !== \'WATER\' || !canSurvey" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
@@ -2262,8 +2338,13 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // fetcher — the error is captured, `data` stays null — rather than letting the rejection escape and
   // fail the mount, which is precisely the state the component has to survive.
   async function mountWater(
-    { todaysVerdict = null, readingsFails = false, status = 'today', daysUntilDue = 0 }:
-      { todaysVerdict?: TodaysVerdict; readingsFails?: boolean; status?: string; daysUntilDue?: number } = {},
+    {
+      todaysVerdict = null, readingsFails = false, status = 'today', daysUntilDue = 0,
+      wateredToday = false, promptAnswered = false,
+    }: {
+      todaysVerdict?: TodaysVerdict; readingsFails?: boolean; status?: string; daysUntilDue?: number;
+      wateredToday?: boolean; promptAnswered?: boolean;
+    } = {},
   ) {
     sendFeedbackMock.mockClear();
     vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
@@ -2273,7 +2354,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     });
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
-      getPlantCare: async () => waterCare(todaysVerdict, status, daysUntilDue),
+      getPlantCare: async () => waterCare(todaysVerdict, status, daysUntilDue, { wateredToday, promptAnswered }),
       listPlaces: async () => [],
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
@@ -2374,6 +2455,66 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
 
     expect(sendFeedbackMock).not.toHaveBeenCalled();
     expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  // QA round 3, HIGH (2026-08-11) — THE PROMOTION HAS AN EXIT, AND THIS PAGE IS WHERE IT WAS MISSING.
+  //
+  // Press Hecho on the measured card and it came back byte-identical — "Riega ahora", both buttons —
+  // surviving a full reload, because a verdict is a stored fact and nothing retracts it. The Today list
+  // was closed on the API side (the row simply stops being surfaced); this page renders the plant's own
+  // tasks and applies the promotion itself, and it offers Posponer on a WATER row too, so BOTH ways of
+  // answering the card survived here.
+  //
+  // What only this file can pin is the HANDLER half: `careEffectiveStatus` is what `onDone` uses, so a
+  // retired promotion means an extra watering on a not-yet-due task is once again an EARLY watering and
+  // asks why. Applying the exit to the badge alone would leave the two disagreeing.
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  it('the promotion retires once the card was answered with Hecho — an extra watering is early again',
+    async () => {
+      const w = await mountWater({
+        todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9,
+        wateredToday: true, promptAnswered: true,
+      });
+      await w.find('.done-btn').trigger('click');
+      await flushPromises();
+
+      expect(sendFeedbackMock).not.toHaveBeenCalled();
+      expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
+    });
+
+  // ⚠️ THE ANTI-ALIASING PIN, DIRECTION B: `promptAnsweredToday` must not be read off `wateredToday`.
+  // This is F1's Posponer variant — the owner measured, was told "riega ahora", and said "not today". The
+  // day's question IS answered and the promotion must retire, while NOTHING was watered. Wiring
+  // `promptAnsweredToday: care.watering?.wateredToday` sends the Done straight through here instead, RED.
+  it('the promotion retires on a POSPONER too — answered without watering anything', async () => {
+    const w = await mountWater({
+      todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9,
+      wateredToday: false, promptAnswered: true,
+    });
+    await w.find('.done-btn').trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).not.toHaveBeenCalled();
+    expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
+  });
+
+  // ⚠️ THE BADGE AND THE HANDLER MUST READ THE SAME FACT. `TaskRow` picks the badge and un-withholds
+  // Posponer; this page picks the status it hands `onDone`. Deriving those from different readings is how
+  // the app ends up telling the owner to water now and then asking him why he is watering early — so the
+  // row is handed the very same `watering.promptAnsweredToday` the two cases above exercise. Dropping the
+  // `:prompt-answered-today` binding from the template turns this RED while every handler case stays green,
+  // which is exactly the half-application this asserts against.
+  it('hands the row the same "already answered" fact it hands its own Done handler', async () => {
+    const answered = await mountWater({
+      todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, promptAnswered: true,
+    });
+    expect(answered.find('[data-task=WATER]').attributes('data-prompt-answered')).toBe('true');
+
+    const unanswered = await mountWater({
+      todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, promptAnswered: false,
+    });
+    expect(unanswered.find('[data-task=WATER]').attributes('data-prompt-answered')).toBe('false');
   });
 
   it('W2: the un-measured row still asks — but through the standalone Done path, since the survey is on ' +

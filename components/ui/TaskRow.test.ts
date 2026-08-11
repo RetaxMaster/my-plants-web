@@ -579,4 +579,44 @@ describe('UiTaskRow — a measured WATER_NOW overrides an upcoming due date', ()
     expect(w.text()).toContain('in 9 days');
     expect(w.text()).not.toContain('reading.verdictNowBadge');
   });
+
+  // ---- QA round 3, HIGH (2026-08-11): the promotion's EXIT, at the badge ------------------------------
+  //
+  // A verdict is a stored fact and nothing retracts it, so the override above had no end: press Hecho and
+  // the card came back byte-identical — "Riega ahora", Hecho AND Posponer — surviving a full reload, and
+  // the only rational reading left to the owner was "it didn't work". `promptAnsweredToday` retires it.
+  //
+  // Mutation, both directions: dropping `&& !promptAnsweredToday` from `effectiveTaskStatus` turns the two
+  // cases below RED; inverting it to `&& promptAnsweredToday` turns the three un-answered cases above RED.
+  it('drops the verdict badge once the owner has ANSWERED the card', () => {
+    const w = mountRow({ ...upcomingWater, todaysVerdict: 'WATER_NOW', promptAnsweredToday: true, canSurvey: false });
+    expect(w.text()).toContain('in 9 days');
+    expect(w.text()).not.toContain('reading.verdictNowBadge');
+  });
+
+  // Posponer is the control the finding was ABOUT, so it is the one that has to go back: the card is no
+  // longer claiming the watering is due, and Posponer is withheld on an `upcoming` row.
+  it('withdraws POSPONER again once the card has been answered', () => {
+    const w = mountRow({ ...upcomingWater, todaysVerdict: 'WATER_NOW', promptAnsweredToday: true, canSurvey: false });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).not.toContain('clock');
+  });
+
+  // The exit is not a general mute — a genuinely OVERDUE watering keeps saying so after the owner answers
+  // some other prompt that day. (A mutation that returns `'upcoming'` whenever the day was answered would
+  // silence a real overdue row, and this is what catches it.)
+  it('never quiets a row the calendar itself made overdue', () => {
+    const w = mountRow({
+      task: 'WATER', status: 'overdue', dueLabel: '3 days late',
+      todaysVerdict: 'WATER_NOW', promptAnsweredToday: true,
+    });
+    expect(w.text()).toContain('3 days late');
+  });
+
+  // A caller that omits the new prop renders exactly as it did before it existed — the default is `false`,
+  // which is the honest "nothing has answered this" reading, and it is what the Today page relies on.
+  it('a caller that OMITS promptAnsweredToday still gets the promotion', () => {
+    const w = mountRow({ ...upcomingWater, todaysVerdict: 'WATER_NOW', canSurvey: false });
+    expect(w.text()).toContain('reading.verdictNowBadge');
+  });
 });

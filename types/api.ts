@@ -425,6 +425,18 @@ export interface PlantCare {
    * dries fine".
    */
   measurement: PlantMeasurement | null;
+  /**
+   * What this plant's WATERING already is today, as opposed to what was MEASURED today (QA round 3,
+   * findings F1/F1b). `null` for a frozen plant — the same "nothing to report" null `measurement` carries
+   * there — so both blocks disappear together and neither has to be read as "false".
+   *
+   * ⚠️ A SIBLING OF `measurement`, NEVER A FIELD INSIDE IT, and the placement mirrors the API's own
+   * (`plants.service.ts`). `measuredToday`/`todaysVerdict` are facts about a READING. A watering is not a
+   * measurement fact: it is written by the feedback route, it is true for owners who have no instrument at
+   * all, and it happens on days nobody measured anything. Filing it under `measurement` is what would
+   * invite the very conflation this feature has already paid for once.
+   */
+  watering: PlantWatering | null;
 }
 
 // --- Care History ---
@@ -1004,6 +1016,39 @@ export interface PlantMeasurement {
    * affordance's shared rule reads — see `utils/waterSurvey.ts`'s `todaysVerdictClosesSurvey`.
    */
   todaysVerdict: TodaysVerdict;
+}
+
+/**
+ * The care payload's read-time WATERING block. Null for a frozen plant, exactly like `measurement`.
+ *
+ * ⚠️ **TWO FIELDS BECAUSE THEY DRIVE TWO DECISIONS. Never collapse them, and never widen one to save the
+ * other** — the API's own doc comment states this invariant and this side must keep it true. A postpone
+ * answers the second and not the first: it ends the day's question while watering nothing.
+ */
+export interface PlantWatering {
+  /**
+   * A `WATER` care event of type `DONE` exists for this plant, dated its own LOCAL today. `DONE` only,
+   * never `POSTPONED` — postponing is the owner saying "not today", which waters nothing.
+   *
+   * It decides ONE thing: whether the WATER row may still offer the **Medir** survey (owner ruling,
+   * 2026-08-11 — see `utils/waterSurvey.ts`'s `canOfferWaterSurvey`). It deliberately does NOT gate the
+   * voluntary "Agregar lectura".
+   */
+  wateredToday: boolean;
+  /**
+   * Today's deciding reading has already been answered — by **Hecho** or by **Posponer** — so its verdict
+   * has run its course. A `WATER` `DONE` **or** `POSTPONED` dated that day, recorded at or after the
+   * moment the reading was last STATED (so a postpone taken BEFORE the measurement existed cannot count
+   * as an answer to it, and neither can one taken before an afternoon edit of that reading).
+   *
+   * It decides ONE thing: whether a spent `WATER_NOW` verdict may still promote the WATER row to "due
+   * today" — see `utils/waterSurvey.ts`'s `effectiveTaskStatus`.
+   *
+   * `false`, not null, when nothing was measured today: no reading means no verdict, so nothing is
+   * promoting the row and there is nothing to suppress. `measurement.todaysVerdict` is `null` in exactly
+   * that case, so "no reading" and "an unanswered reading" stay distinguishable.
+   */
+  promptAnsweredToday: boolean;
 }
 
 export type UpdateBlogpost = Partial<CreateBlogpost>;

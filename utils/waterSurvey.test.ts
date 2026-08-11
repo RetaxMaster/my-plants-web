@@ -9,23 +9,29 @@ import {
 import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
 
 describe('canOfferWaterSurvey', () => {
-  it('offers the survey only when the owner has an instrument, today\'s question is unanswered, and we ' +
-    'HOLD the catalogue', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: true, todaysVerdict: null, catalogueAvailable: true }))
-      .toBe(true);
+  // REWRITTEN 2026-08-11 (QA round 3, F1b): every case in this block now states `wateredToday` too, because
+  // the rule gained a fourth necessary condition. The five pre-existing cases keep their exact meaning —
+  // they describe a plant nobody has watered today, which is what they always described implicitly.
+  it('offers the survey only when the owner has an instrument, today\'s question is unanswered, we HOLD ' +
+    'the catalogue, and the pot has not been watered today', () => {
+    expect(canOfferWaterSurvey({
+      hasInstrument: true, todaysVerdict: null, catalogueAvailable: true, wateredToday: false,
+    })).toBe(true);
   });
 
   it('withholds it from an owner who selected no instrument (spec §5.2)', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: false, todaysVerdict: null, catalogueAvailable: true }))
-      .toBe(false);
+    expect(canOfferWaterSurvey({
+      hasInstrument: false, todaysVerdict: null, catalogueAvailable: true, wateredToday: false,
+    })).toBe(false);
   });
 
   // REWRITTEN by QA finding F1 (2026-08-10). It used to read `measuredToday: true` — the bare FACT of a
   // reading. The fact is not the question: what closes the survey is what the reading ANSWERED, and that
   // decision now lives in `todaysVerdictClosesSurvey`, whose own cases are pinned below.
   it('withholds it once today\'s reading has answered the question', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: true, todaysVerdict: 'POSTPONE', catalogueAvailable: true }))
-      .toBe(false);
+    expect(canOfferWaterSurvey({
+      hasInstrument: true, todaysVerdict: 'POSTPONE', catalogueAvailable: true, wateredToday: false,
+    })).toBe(false);
   });
 
   // THE LOAD-BEARING CASE (finding W1). The owner DOES own an instrument, so `hasInstrument` is true and
@@ -33,25 +39,55 @@ describe('canOfferWaterSurvey', () => {
   // instruments, go to Settings" empty state, because the catalogue fetch had failed. Both halves of that
   // are wrong, and this is the one that made a due watering uncompletable.
   it('withholds it when the catalogue fetch FAILED, even though the owner owns an instrument', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: true, todaysVerdict: null, catalogueAvailable: false }))
-      .toBe(false);
+    expect(canOfferWaterSurvey({
+      hasInstrument: true, todaysVerdict: null, catalogueAvailable: false, wateredToday: false,
+    })).toBe(false);
   });
 
-  // The three facts are independently necessary, and this is the assertion that pins the CONJUNCTION
-  // rather than three separate one-at-a-time cases: swapping any `&&` for an `||` flips at least one row.
+  // ⚠️ QA round 3, F1b (owner-ruled 2026-08-11) — THE CASE NO OTHER TERM CAN COVER. Nothing was measured,
+  // so `todaysVerdict` is null and every other condition is satisfied: this is the owner who simply pressed
+  // Hecho on the row. Offering Medir here can only end in a write the API's one-WATER-DONE-per-day dedup
+  // discards — a 200 that records nothing. Dropping `&& !facts.wateredToday` makes this go RED; inverting
+  // it to `&& facts.wateredToday` makes the very first case above go RED. Both directions pinned.
+  it('withholds it once the pot has been watered today, even with nothing measured', () => {
+    expect(canOfferWaterSurvey({
+      hasInstrument: true, todaysVerdict: null, catalogueAvailable: true, wateredToday: true,
+    })).toBe(false);
+  });
+
+  // The four facts are independently necessary, and this is the assertion that pins the CONJUNCTION
+  // rather than four separate one-at-a-time cases: swapping any `&&` for an `||` flips at least one row.
   it.each([
-    // hasInstrument, todaysVerdict, catalogueAvailable, offered
-    [true, null, true, true],
-    [false, null, true, false],
-    [true, 'POSTPONE', true, false],
-    [true, null, false, false],
-    [false, 'POSTPONE', false, false],
-  ] as [boolean, TodaysVerdict, boolean, boolean][])(
-    'hasInstrument=%s verdict=%s catalogue=%s -> %s',
-    (hasInstrument, todaysVerdict, catalogueAvailable, offered) => {
-      expect(canOfferWaterSurvey({ hasInstrument, todaysVerdict, catalogueAvailable })).toBe(offered);
+    // hasInstrument, todaysVerdict, catalogueAvailable, wateredToday, offered
+    [true, null, true, false, true],
+    [false, null, true, false, false],
+    [true, 'POSTPONE', true, false, false],
+    [true, null, false, false, false],
+    [true, null, true, true, false],
+    [false, 'POSTPONE', false, true, false],
+    // A watered pot whose reading decided NOTHING: the two "still open" terms are both satisfied
+    // (`'NONE'` keeps the question open by design), so only `wateredToday` can withhold it here.
+    [true, 'NONE', true, true, false],
+  ] as [boolean, TodaysVerdict, boolean, boolean, boolean][])(
+    'hasInstrument=%s verdict=%s catalogue=%s watered=%s -> %s',
+    (hasInstrument, todaysVerdict, catalogueAvailable, wateredToday, offered) => {
+      expect(canOfferWaterSurvey({ hasInstrument, todaysVerdict, catalogueAvailable, wateredToday }))
+        .toBe(offered);
     },
   );
+
+  // ⚠️ THE TWO FACTS ARE INDEPENDENT, AND THIS IS WHAT SAYS SO. `wateredToday` is not derivable from
+  // `todaysVerdict` in EITHER direction: a watering with nothing measured leaves the verdict null (row 1),
+  // and a reading that says "water it now" says nothing about whether the owner then did (row 2, where the
+  // verdict is what withholds the survey and the watering is irrelevant). Collapsing them into one term is
+  // the conflation both the API's doc comment and this module's forbid.
+  it('never lets one of the two facts stand in for the other', () => {
+    const base = { hasInstrument: true, catalogueAvailable: true } as const;
+    expect(canOfferWaterSurvey({ ...base, todaysVerdict: null, wateredToday: true })).toBe(false);
+    expect(canOfferWaterSurvey({ ...base, todaysVerdict: 'WATER_NOW', wateredToday: false })).toBe(false);
+    // …and the ONE combination that still offers it: nothing decided, nothing watered.
+    expect(canOfferWaterSurvey({ ...base, todaysVerdict: 'NONE', wateredToday: false })).toBe(true);
+  });
 });
 
 // ⚠️ THE ONE PLACE THE VERDICT DECIDES, so this is where each verdict's behaviour is pinned — never
@@ -137,8 +173,10 @@ describe('postponeReasonWithoutAsking', () => {
 // copy in any of the three is how the app would tell the owner to water now and then ask him, one tap
 // later, why he is watering early.
 describe('effectiveTaskStatus', () => {
+  // REWRITTEN 2026-08-11 (QA round 3, HIGH): every case now states `promptAnsweredToday` too. The five
+  // pre-existing cases keep their exact meaning — an UNANSWERED day is what they always described.
   it('promotes an upcoming WATER row to today when the measurement says WATER_NOW', () => {
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'upcoming')).toBe('today');
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'upcoming', false)).toBe('today');
   });
 
   // The two verdicts that must change nothing, wrong in opposite directions: POSTPONE is the instruction to
@@ -146,20 +184,39 @@ describe('effectiveTaskStatus', () => {
   // measured at all.
   it.each([['POSTPONE'], ['NONE'], [null]] as [TodaysVerdict][])(
     'leaves an upcoming row alone on a %s verdict', (verdict) => {
-      expect(effectiveTaskStatus('WATER', verdict, 'upcoming')).toBe('upcoming');
+      expect(effectiveTaskStatus('WATER', verdict, 'upcoming', false)).toBe('upcoming');
     });
 
   // Scoped to `upcoming`: an already-due or overdue row is not "promoted" — its own status is at least as
   // urgent and strictly more accurate, and rewriting `overdue` to `today` would LOSE information.
   it('never rewrites a row that is already due or overdue', () => {
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'today')).toBe('today');
-    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'overdue')).toBe('overdue');
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'today', false)).toBe('today');
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'overdue', false)).toBe('overdue');
   });
 
   // A soil verdict speaks for the WATER task and for nothing else. Passing it alongside another task is not
   // a shape the app produces, but the rule must be inert on it rather than incidentally correct.
   it('never touches a non-WATER task, whatever verdict travels with it', () => {
-    expect(effectiveTaskStatus('REPOT', 'WATER_NOW', 'upcoming')).toBe('upcoming');
-    expect(effectiveTaskStatus('FERTILIZE', 'WATER_NOW', 'upcoming')).toBe('upcoming');
+    expect(effectiveTaskStatus('REPOT', 'WATER_NOW', 'upcoming', false)).toBe('upcoming');
+    expect(effectiveTaskStatus('FERTILIZE', 'WATER_NOW', 'upcoming', false)).toBe('upcoming');
+  });
+
+  // ---- QA round 3, HIGH (2026-08-11): THE PROMOTION'S EXIT --------------------------------------------
+  //
+  // A verdict is a stored fact and nothing retracts it, so the rule above had no way to END: press Hecho on
+  // the measured card and it came back byte-identical — "Riega ahora", both buttons — across a full reload.
+  // `promptAnsweredToday` is what retires it. Dropping `&& !promptAnsweredToday` makes the case below RED;
+  // inverting it to `&& promptAnsweredToday` makes the very first case in this block RED. Both directions.
+  it('stands the promotion down once today\'s reading has been ANSWERED', () => {
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'upcoming', true)).toBe('upcoming');
+  });
+
+  // The exit is not a general mute: an ANSWERED day leaves a genuinely due or overdue row exactly as the
+  // calendar reports it. (Guards against "answered" being folded into the status rather than into the
+  // promotion — a mutation that returns `'upcoming'` whenever `promptAnsweredToday` holds turns these red.)
+  it('changes nothing about a row the calendar itself already made due', () => {
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'today', true)).toBe('today');
+    expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'overdue', true)).toBe('overdue');
+    expect(effectiveTaskStatus('WATER', null, 'overdue', true)).toBe('overdue');
   });
 });

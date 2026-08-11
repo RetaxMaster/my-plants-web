@@ -90,7 +90,7 @@ export const NONE_VERDICT_CLOSES_SURVEY = false;
 /**
  * Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey.
  *
- * Three conditions, all necessary:
+ * Four conditions, all necessary:
  *  - `hasInstrument` — spec §5.2: an owner who selected no instrument has no way to satisfy a survey, so
  *    the row keeps today's Hecho | Posponer shape. Declining to measure is a supported choice.
  *  - `todaysVerdict` — what today's reading, if any, ANSWERED. ⚠️ THIS USED TO BE THE BARE FACT
@@ -109,16 +109,41 @@ export const NONE_VERDICT_CLOSES_SURVEY = false;
  *    uncompletable over an infrastructure fault. So a catalogue we do not hold closes the survey and hands
  *    the classic row back; the caller surfaces a retryable error saying exactly that, and never the
  *    "you have no instruments" copy, which for this owner is a false statement.
+ *  - `wateredToday` — ⚠️ THE FOURTH CONDITION, AND THE ONLY ONE THAT IS NOT ABOUT A READING (QA round 3,
+ *    finding F1b; owner-ruled 2026-08-11, in his own words): *after marking a Riego task as Done, the
+ *    **Medir** button on the plant page must disappear; it comes back the next day — and that's fine,
+ *    because the watering task already measured.* It is `watering.wateredToday` on the plant care payload:
+ *    a `WATER` care event of type `DONE` dated the plant's own local today.
+ *
+ *    WHAT IT PREVENTS. Measuring a pot that was already watered today produced a `200` the API's
+ *    one-WATER-DONE-per-day dedup then silently DISCARDED — the app accepted the action, showed no error
+ *    and recorded nothing. The honest fix is to stop offering the action, never to make a discarded one
+ *    look like it worked. The owner explicitly ruled the remaining edge case — measuring an
+ *    already-watered pot and finding it DRY — OUT OF SCOPE: we do not support it.
+ *
+ *    ⚠️ IT IS NOT COVERED BY `todaysVerdict`, AND THE TWO MUST NOT BE COLLAPSED. `todaysVerdict` speaks
+ *    only for days something was MEASURED; the case F1b is about is the owner who pressed Hecho on the row
+ *    WITHOUT measuring first — nothing was read, so the verdict is `null`, the survey stays on offer, and
+ *    the Medir it offers can only end in that discarded write. The converse is just as true: a watering
+ *    says nothing about what a reading decided. Two facts, two terms, and the API keeps them in two fields
+ *    for the same reason (`watering.wateredToday` vs `measurement.todaysVerdict`).
+ *
+ *    ⚠️ AND IT DOES NOT TOUCH THE VOLUNTARY "Agregar lectura" (owner-ruled the same day). Only the SURVEY
+ *    withdraws. The free log is the one way to correct the day's reading, and since there is one reading
+ *    per plant per instrument per day it EDITS today's row rather than adding a second one — so leaving it
+ *    reachable after a watering is deliberate, not an oversight. See `PlantDetail.vue`'s own gate.
  */
 export function canOfferWaterSurvey(facts: {
   hasInstrument: boolean;
   todaysVerdict: TodaysVerdict;
   catalogueAvailable: boolean;
+  wateredToday: boolean;
 }): boolean {
   return (
     facts.hasInstrument
     && !todaysVerdictClosesSurvey(facts.todaysVerdict)
     && facts.catalogueAvailable
+    && !facts.wateredToday
   );
 }
 
@@ -156,14 +181,37 @@ export type TaskDueStatus = 'overdue' | 'today' | 'upcoming';
  * overdue reading, which is the more urgent AND the more accurate of the two statements. And scoped to
  * `WATER_NOW`: `POSTPONE` is the opposite instruction (it moved its own date), `'NONE'` decided nothing,
  * and `null` means nothing was measured.
+ *
+ * ⚠️ AND IT HAS AN EXIT — `promptAnsweredToday` (QA round 3, HIGH, 2026-08-11). The rule above was written
+ * with no way to END: a verdict is a stored fact and nothing retracts it, so pressing **Hecho** on the
+ * measured card left it BYTE-IDENTICAL — still "Riega ahora", still both buttons — across a full reload,
+ * and the only rational reading available to the owner was *"it didn't work"*. The Today list closed this
+ * on the API side by not surfacing the row at all; the plant page has no such filter (it renders the
+ * plant's own tasks and applies this rule itself), and it offers `Posponer` on a WATER row too, so both
+ * ways of answering the card survived there.
+ *
+ * `promptAnsweredToday` is the API's own term for *"today's deciding reading has already been answered"* —
+ * a `WATER` care event of type `DONE` **or** `POSTPONED`, dated the plant's local today and recorded at or
+ * after the moment that reading was last STATED. Once it is true the verdict has run its course and this
+ * function stands down, handing back the calendar's own status.
+ *
+ * ⚠️ IT IS A DIFFERENT QUESTION FROM `canOfferWaterSurvey`'s `wateredToday`, and the API keeps them as two
+ * fields for exactly this reason. A **postpone** answers the day's question while watering nothing: it
+ * must retire this promotion (`promptAnsweredToday`) and must NOT withdraw the Medir button
+ * (`wateredToday`). One boolean cannot serve both without lying to one of the two callers.
+ *
+ * `false` — not a third state — when nothing was measured today: with no reading there is no verdict, so
+ * nothing is promoting the row and there is nothing to suppress. `todaysVerdict === null` already
+ * distinguishes "no reading" from "a reading nobody has answered yet" for any caller that cares.
  */
 export function effectiveTaskStatus(
   task: TaskCode,
   todaysVerdict: TodaysVerdict,
   status: TaskDueStatus,
+  promptAnsweredToday: boolean,
 ): TaskDueStatus {
   const measurementSaysNow = task === 'WATER' && todaysVerdict === 'WATER_NOW' && status === 'upcoming';
-  return measurementSaysNow ? 'today' : status;
+  return measurementSaysNow && !promptAnsweredToday ? 'today' : status;
 }
 
 /**

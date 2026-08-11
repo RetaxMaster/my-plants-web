@@ -1441,6 +1441,7 @@
       "how": "Weigh the pot when the soil is dry — right before you'd normally water it. Then water it, let it drain, and weigh it again. You can do both on the same day.",
       "save": "Save calibration",
       "notCalibratedYet": "This pot's scale isn't calibrated yet — {calibrate} before you can measure with it.",
+      "notCalibratedLog": "We'll save the weight, but we can't turn it into a moisture reading yet: this pot's scale isn't calibrated — {calibrate}.",
       "calibrateAction": "calibrate it",
       "noneCalibratable": "None of your instruments need calibration, so there's nothing to set up here.",
       "openAction": "Calibrate the scale"

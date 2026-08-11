@@ -412,10 +412,16 @@ const { data: ownerInstruments } = useLazyAsyncData('owner-instruments', () => a
 // (that surface fetches per click, this one at page load — the RULE they share lives in
 // `utils/waterSurvey.ts`, so only the plumbing differs).
 const readingsUnavailable = computed(() => readings.value == null);
+// QA round 3, F1b (owner-ruled 2026-08-11): *"after marking a Riego task as Done, the Medir button on the
+// plant page must disappear; it comes back the next day."* The fact is `watering.wateredToday`, a SIBLING of
+// `measurement` on the same payload this page already holds — never a second fetch, and never read off
+// `measurement`, where it does not belong (a watering is not a measurement fact). The RULE, including why
+// this cannot be folded into `todaysVerdict`, lives in `utils/waterSurvey.ts`.
 const canSurveyWater = computed(() => canOfferWaterSurvey({
   hasInstrument: (ownerInstruments.value?.selected.length ?? 0) > 0,
   todaysVerdict: care.value?.measurement?.todaysVerdict ?? null,
   catalogueAvailable: !readingsUnavailable.value,
+  wateredToday: care.value?.watering?.wateredToday === true,
 }));
 
 const { data: history, refresh: refreshHistory } =
@@ -1160,8 +1166,20 @@ async function onRepotPostpone() {
 // calendar status would have the app tell the owner to water now and then ask why he is watering early:
 // second-guessing its own verdict, one tap after issuing it. The RULE lives in `utils/waterSurvey.ts` and
 // is applied identically by TaskRow.vue and pages/index.vue — never a second copy of the condition.
+//
+// ⚠️ AND ITS EXIT LANDS HERE FIRST (QA round 3, HIGH). The Today list gets its exit from the API, which
+// simply stops surfacing an answered row; THIS page has no such filter — it renders the plant's own tasks
+// and applies the promotion itself — and it offers `Posponer` on a WATER row too (only the REPOT postpone
+// was ever removed from this page), so both ways of answering the card survived here. `promptAnsweredToday`
+// is the term that closes it, and it is read as a SIBLING of `measurement`, never aliased to `wateredToday`:
+// a postpone answers the day's question without watering anything.
 function careEffectiveStatus(task: TaskCode, status: 'overdue' | 'today' | 'upcoming') {
-  return effectiveTaskStatus(task, care.value?.measurement?.todaysVerdict ?? null, status);
+  return effectiveTaskStatus(
+    task,
+    care.value?.measurement?.todaysVerdict ?? null,
+    status,
+    care.value?.watering?.promptAnsweredToday === true,
+  );
 }
 
 // A WATER done on a not-yet-due task (status 'upcoming') is an early watering → ask why. A REPOT done opens
@@ -1576,6 +1594,7 @@ async function confirmRevive() {
                 :pending-reevaluate-on="t3.pendingEvaluation?.reevaluateOn ?? null"
                 :can-survey="t3.task === 'WATER' && canSurveyWater"
                 :todays-verdict="t3.task === 'WATER' ? (care.measurement?.todaysVerdict ?? null) : null"
+                :prompt-answered-today="t3.task === 'WATER' && care.watering?.promptAnsweredToday === true"
                 with-done-date
                 show-info
                 allow-standalone-done
@@ -1619,6 +1638,15 @@ async function confirmRevive() {
                  stays idle through it invites the second tap that used to swallow the dialog entirely
                  (QA round 4, B1). `readingOpening` also makes it inert, so the guard holds even if a
                  future variant drops the visual state. -->
+            <!-- ⚠️ DELIBERATELY NOT GATED ON `watering.wateredToday` — OWNER-RULED 2026-08-11, AND A LATER
+                 "CONSISTENCY" CLEANUP MUST NOT REMOVE IT. The survey (Medir) withdraws for the rest of the
+                 day once the plant has been watered, because measuring an already-watered pot ends in a
+                 write the API's one-WATER-DONE-per-day dedup discards. This is the OTHER affordance and it
+                 answers a different need: it is the free log, and the ONLY way to correct the day's
+                 reading — one reading per plant per instrument per day means opening it EDITS today's row
+                 rather than adding a second one (see `editingExistingLabel` in SoilReadingModal.vue). The
+                 owner ruled that only Medir disappears; taking this one with it would leave a wrong reading
+                 uncorrectable until tomorrow. -->
             <UiButton
               v-else
               size="xs"

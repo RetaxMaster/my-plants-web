@@ -1740,7 +1740,9 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
   it('STILL OFFERS an uncalibrated scale in voluntary mode — a raw reading is the owner\'s data', () => {
     const w = mountModal(makeData({ instruments: [kitchenScaleNoCalibration] }), { mode: 'voluntary' });
     // Offered, AND explained — not the survey's dead-end empty state, which withholds the control entirely.
-    expect(w.text()).toContain('reading.calibration.notCalibratedYet');
+    // ⚠️ REWRITTEN 2026-08-11 (review finding F3): the LOG's own sentence, never the survey's. See the
+    // dedicated F3 block at the end of this file for the whole argument.
+    expect(w.text()).toContain('reading.calibration.notCalibratedLog');
     const buttons = instrumentSegButtons(w);
     expect(buttons).toHaveLength(1);
     expect(buttons[0]!.text()).toBe('settings.instruments.name.kitchen-scale');
@@ -1860,6 +1862,8 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
     it('says nothing in VOLUNTARY mode while the SELECTED instrument is calibrated', () => {
       const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
       expect(instrumentSegButtons(w)[0]!.attributes('aria-pressed')).toBe('true'); // the probe is selected
+      // NEITHER sentence: the log's own (F3, 2026-08-11) nor the survey's.
+      expect(w.text()).not.toContain('reading.calibration.notCalibratedLog');
       expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
       expect(instrumentSegButtons(w)).toHaveLength(2);
     });
@@ -1869,7 +1873,8 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
     it('EXPLAINS the gap in VOLUNTARY mode once the uncalibrated instrument is the selected one', async () => {
       const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
       await instrumentSegButtons(w)[1]!.trigger('click'); // the uncalibrated kitchen scale
-      expect(w.text()).toContain('reading.calibration.notCalibratedYet');
+      // REWRITTEN 2026-08-11 (review finding F3) — the log's own sentence; see the F3 block below.
+      expect(w.text()).toContain('reading.calibration.notCalibratedLog');
       // ⚠️ AND THE INSTRUMENT IS STILL OFFERED. The survey WITHHOLDS an uncalibrated instrument; the log
       // must not start doing the same, or the raw weight the calibration backfill depends on can never be
       // recorded. Explaining is the whole change; withholding would be a regression wearing its clothes.
@@ -1877,17 +1882,56 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
       expect(w.find('input[type="date"]').exists()).toBe(true);
     });
 
-    // ONE IMPLEMENTATION, NOT A SECOND COPY WRITTEN FOR THE LOG DIALOG: the same i18n unit and the same
-    // working link to this plant's calibration, asserted here exactly as the survey's own case asserts it.
-    it('reuses the survey\'s own sentence and calibrate link, not a second copy of them', async () => {
+    // ONE IMPLEMENTATION, NOT A SECOND COPY WRITTEN FOR THE LOG DIALOG: the same alert, the same i18n unit
+    // and the same working link to this plant's calibration, asserted here exactly as the survey's own case
+    // asserts it. REWRITTEN 2026-08-11 (finding F3): what the log does NOT reuse is the survey's SENTENCE —
+    // only its markup and its link. Two keypaths, one block.
+    it('reuses the survey\'s own alert and calibrate link, not a second copy of them', async () => {
       const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
       await instrumentSegButtons(w)[1]!.trigger('click');
       const sentence = w.find('.i18n-t');
-      expect(sentence.text()).toContain('reading.calibration.notCalibratedYet');
+      expect(sentence.text()).toContain('reading.calibration.notCalibratedLog');
       const link = sentence.find('a.nuxt-link');
       expect(link.exists()).toBe(true);
       expect(link.attributes('href')).toBe('/plants/plant-1');
       expect(link.attributes('data-to-query')).toBe(JSON.stringify({ calibrate: '1' }));
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+    // REVIEW FINDING F3 (2026-08-11) — A BANNER THAT CONTRADICTS WHAT THE DIALOG THEN ALLOWS.
+    //
+    // Widening the notice into voluntary mode (finding 5, just above) brought the SURVEY's wording along:
+    // *"calíbrala PARA PODER MEDIR CON ELLA"*. True in the survey, where an uncalibrated instrument is
+    // filtered out of the picker. FALSE in the log, three lines above a picker that offers that very
+    // instrument and a grams field that accepts and SAVES — the dialog told the owner he could not do the
+    // thing it then let him do.
+    //
+    // ⚠️ THE TWO KEYS DELIBERATELY SHARE NO PREFIX. `notCalibratedLog`, not `notCalibratedYetLog`: the
+    // assertions in this file match keys with `toContain`, so a key with `notCalibratedYet` as a prefix
+    // would satisfy every survey assertion here while the LOG sentence was on screen, and each mode test
+    // would pass whichever wording rendered. That is a test that cannot fail.
+    //
+    // Pinned in BOTH directions: swapping the two keypaths in `calibrationNoticeKey` turns both cases
+    // below RED, and so does collapsing them back to one key.
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+    it('F3: the LOG says we will store the reading, and never the survey\'s "you cannot measure with it"',
+      async () => {
+        const w = mountModal(makeData(bothInstruments), { mode: 'voluntary' });
+        await instrumentSegButtons(w)[1]!.trigger('click');
+        expect(w.text()).toContain('reading.calibration.notCalibratedLog');
+        expect(w.text()).not.toContain('reading.calibration.notCalibratedYet');
+        // …and the claim it makes is true: the field is there and the save is live.
+        expect(w.find('input[type="number"]').exists()).toBe(true);
+        expect(findSaveButton(w).exists()).toBe(true);
+      });
+
+    it('F3: the SURVEY keeps its own sentence — there the instrument really is withheld', () => {
+      const w = mountSurvey(makeData(bothInstruments));
+      expect(w.text()).toContain('reading.calibration.notCalibratedYet');
+      expect(w.text()).not.toContain('reading.calibration.notCalibratedLog');
+      // The claim THAT sentence makes is true too: the uncalibrated scale is not in the picker.
+      expect(instrumentSegButtons(w)).toHaveLength(1);
+      expect(instrumentSegButtons(w)[0]!.text()).toBe('settings.instruments.name.galvanic-probe');
     });
   });
 

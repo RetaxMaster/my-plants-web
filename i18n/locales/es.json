@@ -1441,6 +1441,7 @@
       "how": "Pesa la maceta con la tierra seca, justo antes de cuando normalmente la regarías. Luego riégala, deja que escurra y vuelve a pesarla. Puedes hacer las dos el mismo día.",
       "save": "Guardar calibración",
       "notCalibratedYet": "La báscula de esta maceta todavía no está calibrada — {calibrate} para poder medir con ella.",
+      "notCalibratedLog": "Vamos a guardar el peso, pero todavía no podemos convertirlo en una lectura de humedad: la báscula de esta maceta no está calibrada — {calibrate}.",
       "calibrateAction": "calíbrala",
       "noneCalibratable": "Ninguno de tus instrumentos necesita calibración, así que aquí no hay nada que configurar.",
       "openAction": "Calibrar la báscula"

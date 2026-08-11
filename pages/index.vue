@@ -253,6 +253,30 @@ function todaysVerdictFor(plantId: string): TodaysVerdict {
   return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER')?.todaysVerdict ?? null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ⚠️ THE TWO "ALREADY ANSWERED" FACTS, AND WHY THIS SURFACE SUPPLIES BOTH AS `false`. THAT IS A
+// CONCLUSION, NOT A PLACEHOLDER — read it before "fixing" either one.
+//
+// `GET /plants/:id/care` gained a `watering` block (QA round 3, findings F1/F1b): `wateredToday` withdraws
+// the Medir survey for the rest of the day, `promptAnsweredToday` retires a spent WATER_NOW promotion.
+// THE TODAY PAYLOAD CARRIES NEITHER, deliberately, because on THIS surface the API has already applied
+// both exits itself — `care-plan.service.ts` decides which rows reach the list at all:
+//
+//  • A watering advances `nextDueOn` into the future, so the row leaves by the ordinary due filter. There
+//    is no WATER row left here to offer Medir on, which is why `wateredToday` has nothing to gate.
+//  • A row that reaches this list ONLY because a measurement surfaced it is dropped the moment that
+//    reading is answered (Hecho or Posponer) — the API's own `promptAnsweredToday` clause, applied server
+//    side rather than sent to us.
+//  • And any row the CALENDAR still admits arrives `overdue`/`today`, where `effectiveTaskStatus` is inert
+//    by its own `upcoming` scope. So there is no reachable Today row a spent verdict could still promote.
+//
+// Passing the facts explicitly rather than leaning on a default keeps the two surfaces reading alike, and
+// keeps this reasoning attached to the place a future change would have to revisit it: the day the Today
+// payload does start carrying these, these two constants are what it replaces.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+const WATERED_TODAY_NOT_ON_THE_TODAY_ROW = false;
+const PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW = false;
+
 // QA 2026-08-11, finding 3 — the status this row is ACTUALLY in, once today's measurement has had its say.
 // A `WATER_NOW` verdict makes a not-yet-due watering read as due today (the owner's ruling: the schedule is
 // a prediction, the measurement is the observation), which is what surfaces the card here at all and what
@@ -264,7 +288,9 @@ function todaysVerdictFor(plantId: string): TodaysVerdict {
 // and then ask him why he is watering early — second-guessing its own verdict, one tap after issuing it.
 // The RULE itself lives in `utils/waterSurvey.ts` and is shared with TaskRow.vue and PlantDetail.vue.
 function rowEffectiveStatus(plantId: string, task: DueTask['task'], due: string): 'overdue' | 'today' | 'upcoming' {
-  return effectiveTaskStatus(task, todaysVerdictFor(plantId), rowStatus(due));
+  return effectiveTaskStatus(
+    task, todaysVerdictFor(plantId), rowStatus(due), PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW,
+  );
 }
 
 // Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey. The RULE (all three conditions,
@@ -279,6 +305,7 @@ function canSurveyWaterFor(plantId: string): boolean {
     hasInstrument: hasInstrument.value,
     todaysVerdict: todaysVerdictFor(plantId),
     catalogueAvailable: !surveyUnavailableFor.value.includes(plantId),
+    wateredToday: WATERED_TODAY_NOT_ON_THE_TODAY_ROW,
   });
 }
 
@@ -863,6 +890,11 @@ function openProgress(plantId: string) {
           </NuxtLink>
         </template>
         <div class="mp-today__rows">
+          <!-- `:prompt-answered-today` is bound EXPLICITLY rather than left to the prop's own `false`
+               default, so this row's badge reads the very same fact the `@done` handler below hands
+               `rowEffectiveStatus`. Applying the promotion to one and not the other is how the app would
+               tell the owner to water now and then ask him why he is watering early. Why the value is
+               `false` on THIS surface (and only here) is argued at the constant's own declaration. -->
           <UiTaskRow
             v-for="t2 in plantTasks"
             :key="t2.task"
@@ -873,6 +905,7 @@ function openProgress(plantId: string) {
             :pending-reevaluate-on="pendingEvaluationFor(plantId)?.reevaluateOn ?? null"
             :can-survey="t2.task === 'WATER' && canSurveyWaterFor(plantId)"
             :todays-verdict="t2.task === 'WATER' ? todaysVerdictFor(plantId) : null"
+            :prompt-answered-today="PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW"
             @done="e => onDone(plantId, e.task, rowEffectiveStatus(plantId, e.task, t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"

@@ -783,4 +783,18 @@ describe('UiTaskRow — F1: a WATER Done the API would discard is never offered'
     expect(w.text()).toContain('tasks.wateredTodayNote');
     expect(w.text()).not.toContain('tasks.wateredTodayBackdate');
   });
+
+  // ⚠️ THIS ASSERTS THE RENDERED PROSE, NOT THE KEY NAMES, AND THAT IS THE WHOLE POINT (QA round 6).
+  // The two sentences shipped welded together — "Already watered today.Set an earlier date…" — in both
+  // locales and on every viewport, because Vue's default `condense` whitespace handling drops the
+  // whitespace-only text node between two sibling interpolations. Every sibling case above stayed green
+  // through it: they match KEY NAMES with `toContain`, and `'…NotetasksWateredTodayBackdate'` contains
+  // both keys just as happily as the correctly spaced string does. A test that cannot see the defect its
+  // own component shipped is this feature's most expensive recurring shape — so this one reads the text
+  // the owner actually sees, and pins the separator itself.
+  it('puts a SPACE between the two sentences, not just both of them', () => {
+    const w = mountRow(wateredWaterRow);
+    expect(w.get('.mp-taskrow__discarded-note').text())
+      .toBe('tasks.wateredTodayNote tasks.wateredTodayBackdate');
+  });
 });

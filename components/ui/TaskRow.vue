@@ -429,9 +429,14 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
                Two independent sentences rather than one composed key, deliberately — the second is a
                statement about a control that only exists when `withDoneDate` is passed, and printing "set
                an earlier date" on a row with no date field would be advice the owner cannot follow. -->
+          <!-- ⚠️ THE SEPARATOR IS PART OF THE EXPRESSION, NOT MARKUP (QA round 6). Written as sibling nodes
+               with the second sentence on its own line, Vue's default `condense` whitespace handling drops
+               the whitespace-only text node between them and the two sentences render welded together
+               ("Already watered today.Set an earlier date…") — in both locales, on every viewport, and
+               invisibly to a test that matches key names rather than rendered prose. Concatenating the
+               space into the interpolation is what makes it survive compilation. -->
           <span v-else class="mp-taskrow__discarded-note">
-            {{ t('tasks.wateredTodayNote') }}<template v-if="withDoneDate">
-              {{ t('tasks.wateredTodayBackdate') }}</template>
+            {{ t('tasks.wateredTodayNote') }}<template v-if="withDoneDate">{{ ' ' + t('tasks.wateredTodayBackdate') }}</template>
           </span>
         </template>
         <!-- ⚠️ POSPONER SITS OUTSIDE THE `showDone` BLOCK (QA round 4, DEF-3). It used to be nested inside

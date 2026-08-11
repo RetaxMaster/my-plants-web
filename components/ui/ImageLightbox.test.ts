@@ -249,6 +249,32 @@ describe('ImageLightbox', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  // THE OTHER END OF THE HAND-OFF (QA, 2026-08-11). The dialog the chain ended on must give focus back to
+  // where the owner actually started — the control on the PAGE — not to the link inside the panel that
+  // opened it, which is unmounted by then. Focusing a detached node silently lands on `<body>`, so a
+  // keyboard user closing the second dialog was dumped at the top of the document.
+  it('HAND-OFF: the second overlay returns focus to the PAGE control that began the chain', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const first = mountLightbox({ modelValue: false, index: 0, images: THREE });
+    await first.setProps({ modelValue: true });
+    await first.vm.$nextTick();
+    // Focus is now on a control INSIDE the first panel — the state the "calíbrala" link is in when clicked.
+    expect(panels()[0]!.contains(document.activeElement)).toBe(true);
+
+    const second = mountLightbox({ modelValue: false, index: 0, images: THREE });
+    await second.setProps({ modelValue: true });
+    await second.vm.$nextTick();
+
+    first.unmount();  // the outgoing panel goes away, taking its controls with it
+    second.unmount(); // the remaining dialog closes and restores
+
+    expect(document.activeElement).toBe(opener);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
   // An overlay whose flag is ALREADY true when it mounts (a deep link that opens a dialog on arrival) must
   // behave like one that opened: the watcher only ever sees a TRANSITION, so this is the `onMounted` path.
   // Before it existed, such a dialog rendered with focus still behind it — Escape reached nothing.

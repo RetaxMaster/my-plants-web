@@ -53,6 +53,30 @@ export interface UseOverlayOptions {
 // contributes at most one to the count (its `holdsLock` guard), so open/close/unmount can't double-count.
 let overlayLockCount = 0;
 
+// THE LAST ELEMENT THAT HELD FOCUS OUTSIDE ANY OVERLAY — module-level, for the same reason the lock count
+// is: it is a fact about the PAGE, not about one overlay (QA, 2026-08-11).
+//
+// An overlay saves what to give focus back to when it closes. Saving `document.activeElement` is right when
+// an overlay opens from the page, and WRONG when one overlay opens another: the active element is then a
+// control inside the OUTGOING panel — the survey's "calíbrala" link — which is unmounted moments later. The
+// incoming dialog is left holding a reference to a detached node, so closing it focused nothing and dumped
+// a keyboard user on `<body>` at the top of the document, with the whole header to Tab through again.
+// Measured on the calibration dialog: `document.activeElement.tagName === 'BODY'` after Escape, after
+// Cancelar, after the × and after a successful save, while the measuring modal it was opened from restored
+// correctly — which is exactly the asymmetry that gives the cause away.
+//
+// So an overlay opened from INSIDE another overlay inherits the page-level opener instead of pointing at a
+// doomed node. The whole hand-off chain then returns focus where the owner actually started.
+let lastFocusOutsideOverlay: HTMLElement | null = null;
+
+function captureOpener(): HTMLElement | null {
+  const active = document.activeElement as HTMLElement | null;
+  if (active == null || active === document.body) return lastFocusOutsideOverlay;
+  if (active.closest('[role="dialog"]') != null) return lastFocusOutsideOverlay;
+  lastFocusOutsideOverlay = active;
+  return active;
+}
+
 export function useOverlay(isOpen: Ref<boolean>, panelRef: Ref<HTMLElement | null>, options: UseOverlayOptions) {
   let previouslyFocused: HTMLElement | null = null;
   let holdsLock = false; // does THIS overlay currently contribute to the shared lock?
@@ -122,13 +146,16 @@ export function useOverlay(isOpen: Ref<boolean>, panelRef: Ref<HTMLElement | nul
     const active = document.activeElement as HTMLElement | null;
     const claimedElsewhere =
       active != null && active !== document.body && !(panelRef.value?.contains(active) ?? false);
+    // No `isConnected` guard here, deliberately: `.focus()` on a detached node is a silent no-op, so the
+    // guard would be a branch with no observable behaviour and therefore no test that could ever fail on
+    // it. `captureOpener` is what actually prevents a detached opener being stored in the first place.
     if (!claimedElsewhere) previouslyFocused?.focus?.();
     previouslyFocused = null;
   }
 
   // The open-side work, factored out because it now has TWO triggers — see `onMounted` below.
   async function onOpened() {
-    previouslyFocused = document.activeElement as HTMLElement | null;
+    previouslyFocused = captureOpener();
     acquireLock();
     await nextTick();
     const focusables = focusableWithin(panelRef.value);

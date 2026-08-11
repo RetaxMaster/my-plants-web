@@ -2594,6 +2594,18 @@ describe('PlantDetail — Task 8: calibration is reached from the plant page', (
     expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
+  // ⚠️ THE VALUE, NOT ITS PRESENCE (QA, 2026-08-11). A presence check opened the dialog for `?calibrate=0`
+  // and `?calibrate=abc` alike, which makes the flag's contract meaningless — and `0` reads as "off" to
+  // anyone. Both directions are pinned: `'1'` opens, anything else is left entirely alone.
+  it.each(['0', 'abc', ''])('F3: ignores ?calibrate=%s — only an explicit 1 opens the modal', async (value) => {
+    routeQuery = { calibrate: value };
+    const w = await mountWithInstruments([kitchenScaleNoCalibration]);
+    await flushPromises();
+    expect(w.findComponent({ name: 'UiPlantCalibrationModal' }).props('open')).toBe(false);
+    // …and the query is left untouched, rather than being stripped as though it had been consumed.
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+
   // A URL must not be able to conjure a dead end the page itself would never offer: with no calibratable
   // instrument the modal can only render its "nothing to set up here" terminal state, which is exactly why
   // the button is withheld in that case too.

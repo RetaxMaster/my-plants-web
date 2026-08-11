@@ -1785,6 +1785,14 @@ describe('an uncalibrated instrument is not offered IN A SURVEY', () => {
     });
 
     // A different plant's page is still a real navigation, not a same-page query change.
+    // An ACTION link whose path happens to be the current route: vue-router would stamp it
+    // `aria-current="page"`, so a screen reader announces "calíbrala" as "current page".
+    it('never announces itself as the current page, even when its path IS the current route', () => {
+      currentPath = '/plants/plant-1';
+      const w = mountSurvey(makeData({ instruments: [kitchenScaleNoCalibration] }));
+      expect(w.find('a.nuxt-link').attributes('aria-current')).toBe('false');
+    });
+
     it('PUSHES when on a DIFFERENT plant\'s page', () => {
       currentPath = '/plants/some-other-plant';
       expect(linkReplaces()).toBe(false);

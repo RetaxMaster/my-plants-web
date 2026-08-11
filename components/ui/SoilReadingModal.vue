@@ -940,9 +940,16 @@ const holdDateLabel = computed(() => {
       <Alert v-if="showCalibrationNotice" color="amber">
         <i18n-t keypath="reading.calibration.notCalibratedYet" tag="span">
           <template #calibrate>
+            <!-- ⚠️ `aria-current="false"`, and it is not noise (QA, 2026-08-11). When the survey is opened
+                 from the plant's own page this link's path IS the current route, so vue-router stamps it
+                 `aria-current="page"` and a screen reader announces an ACTION ("calíbrala") as "current
+                 page". The link goes somewhere in the app's sense — it opens the calibration dialog — but
+                 it is not a nav item marking where you are, so the honest ARIA value is the explicit
+                 negative rather than the default. -->
             <NuxtLink
               :to="calibrationLink"
               :replace="calibrationReplacesHistory"
+              aria-current="false"
               class="mp-reading__link"
               @click="open = false"
             >

@@ -333,7 +333,11 @@ const canCalibrate = computed(() =>
 watch(
   [() => route.query.calibrate, canCalibrate],
   ([flag, allowed]) => {
-    if (flag === undefined || !allowed) return;
+    // ⚠️ THE VALUE IS CHECKED, NOT MERELY ITS PRESENCE (QA, 2026-08-11). A presence check made
+    // `?calibrate=0` and `?calibrate=abc` open the dialog too, so the flag's own contract said nothing —
+    // and `0` in particular reads to anyone as "off". Exactly `'1'` opens it; anything else is left alone,
+    // query and all.
+    if (flag !== '1' || !allowed) return;
     calibrationOpen.value = true;
     const { calibrate: _dropped, ...rest } = route.query;
     void router.replace({ path: route.path, query: rest });

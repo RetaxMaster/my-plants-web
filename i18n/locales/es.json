@@ -1380,6 +1380,7 @@
     "saveFailed": "No pudimos guardar esa lectura. Inténtalo de nuevo.",
     "dayRolledOver": "Esa lectura pertenece a un día que ya terminó, así que no podemos guardarla tal cual. Vuelve a tomar la medición.",
     "alreadyRecorded": "Esa lectura ya había quedado registrada.",
+    "editingExisting": "Ya tienes una lectura con {instrument} para este día. Al guardar actualizarás esa lectura en lugar de agregar otra.",
     "valueOutOfRange": "Ingresa un valor entre {min} y {max}.",
     "valueBelowMin": "Ingresa un valor de {min} o más.",
     "valueOffStep": "Esta lectura toma números enteros desde {min}, de {step} en {step}.",

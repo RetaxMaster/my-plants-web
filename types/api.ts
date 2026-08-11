@@ -898,6 +898,11 @@ export interface SoilReadingItem {
   wetness: number | null;
   measuredOn: string; // YYYY-MM-DD
   verdict: ReadingVerdict;
+  /** Which side of that day's watering the reading falls on, or `null` for "unknown / never asked" — a
+   *  real, distinguishable state, never a default. Published by the API since 2026-08-11 so the measuring
+   *  modal can PREFILL it: one reading per (plant, instrument, day) means a second save is an EDIT, and an
+   *  edit form that silently dropped an answer the owner already gave would re-ask it. */
+  wateringRelation: WateringRelation | null;
 }
 
 export interface PlantSoilReadings {

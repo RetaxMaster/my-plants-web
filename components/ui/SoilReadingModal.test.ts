@@ -751,16 +751,21 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(w.findAll('button').some((b) => b.text().includes('reading.save'))).toBe(false);
   });
 
-  // REWRITTEN (measured-verdict-gap redesign, Task 47/T6b, owner ruling 2026-08-09) — the case this
-  // replaces asserted "WATER_NOW writes NOTHING", which was the exact dead end the redesign closes: with
-  // nothing written, the row had no way to know a measurement happened, so it kept offering "¿Necesitas
-  // regar?" forever after the owner already answered it and went to water. The new behaviour: WATER_NOW
-  // WRITES the reading, with `verdict: 'NONE'` (real data that teaches the drying-rate fit and changes no
-  // schedule — `NONE` never touches DueCache/TaskOverride the way `POSTPONE` does), and emits `saved` so
-  // the caller's refresh flips `measuredToday` and closes `canSurvey` back to false. The owner still acts
-  // on the row himself (Hecho once he has actually watered) — this write only stops the app from asking
-  // the same question again.
-  it('a WATER_NOW verdict WRITES the reading (verdict NONE) and still shows the verdict step', async () => {
+  // REWRITTEN TWICE, and both moves are worth keeping in view.
+  //
+  // (1) measured-verdict-gap redesign, Task 47/T6b, owner ruling 2026-08-09 — the case this replaced
+  // asserted "WATER_NOW writes NOTHING", the exact dead end that redesign closes: with nothing written, the
+  // row had no way to know a measurement happened, so it kept offering "¿Necesitas regar?" forever after
+  // the owner had already answered it and gone to water.
+  //
+  // (2) REWRITTEN AGAIN (owner-ruled 2026-08-11): the stored verdict changes from `'NONE'` to
+  // `'WATER_NOW'`. `'NONE'` was never the honest answer — it was a workaround for an API that turned a
+  // stored `WATER_NOW` into a WATER DONE, fabricating a watering the owner had not performed. The cost was
+  // that `'NONE'` then meant two opposite things (this survey, and a voluntary log that answered nothing),
+  // which are required to behave OPPOSITELY in the WATER row. The API's care-event write is now narrowed
+  // to POSTPONE, so the survey stores what it actually concluded. The write still moves no schedule and
+  // still emits `saved`; the owner still records the watering himself.
+  it('a WATER_NOW verdict WRITES the reading with the HONEST verdict and still shows the verdict step', async () => {
     previewSoilReading.mockResolvedValueOnce(waterNowPreview);
     const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
     await w.find('input[type="number"]').setValue(5);
@@ -771,7 +776,7 @@ describe('SoilReadingModal — survey mode (the redesigned measuring modal answe
     expect(recordSoilReading).toHaveBeenCalledTimes(1);
     const [plantId, body] = recordSoilReading.mock.calls[0]!;
     expect(plantId).toBe('plant-1');
-    expect(body).toMatchObject({ instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'NONE' });
+    expect(body).toMatchObject({ instrumentId: 'galvanic-probe', rawValue: 5, verdict: 'WATER_NOW' });
     // FIX W3 — dated by the PREVIEW's plant-local day, never by this browser's. Browser-behind would write
     // yesterday, so `measuredToday` never flips and the row asks forever; browser-ahead would write a
     // future date the API's own past-event rule refuses with a 400. Both dead-end the survey.
@@ -1472,10 +1477,16 @@ describe('no verdict branch sends wateringRelation — the API derives it', () =
     return { w, body: recordSoilReading.mock.calls.at(-1)?.[1] };
   }
 
+  // REWRITTEN (owner-ruled 2026-08-11): the asserted verdict moves from `'NONE'` to `'WATER_NOW'` — see
+  // the honest-verdict case above for why `'NONE'` was a workaround rather than the answer. The property
+  // this case exists for is UNCHANGED and is the second assertion: no branch of the survey sends
+  // `wateringRelation`, whatever verdict travels beside it. That is exactly what makes the fix durable —
+  // restoring the honest verdict cannot revive the 2026-08-09 breakage, because nothing here is keyed on
+  // the verdict any more.
   it('WATER_NOW sends none — the write is still made, just without the field', async () => {
     const { body } = await surveyBodyOnAWateringDay(waterNowPreview);
     expect(body).toBeDefined();
-    expect(body!.verdict).toBe('NONE');
+    expect(body!.verdict).toBe('WATER_NOW');
     expect(body).not.toHaveProperty('wateringRelation');
   });
 
@@ -1932,5 +1943,167 @@ describe('the deferred UNAVAILABLE save survives the plant rolling over midnight
 
     expect(w.text()).toContain('reading.saveFailed');
     expect(w.text()).not.toContain('reading.dayRolledOver');
+  });
+});
+
+// ---- ONE READING PER (PLANT, INSTRUMENT, DAY) — THE MODAL LOADS AND EDITS -------------------------------
+//
+// Owner-ruled 2026-08-11; docs/care-engine.md §7.20.14. Opening either dialog for a given instrument and
+// date now opens an EDIT FORM whenever a reading for that pair already exists, and it has to SAY SO: an
+// owner who thinks he is adding and is in fact replacing is the surprise this whole feature exists to
+// remove.
+describe('the modal loads and edits the reading already on file', () => {
+  const existingProbeToday = {
+    id: 'existing-probe', instrumentId: 'galvanic-probe' as const, rawValue: 7, wetness: 0.66,
+    measuredOn: todayYmd(), verdict: 'NONE' as const, wateringRelation: null,
+  };
+
+  /** The `reading.editingExisting` alert's own text, or `undefined` when it is not on screen. Read off the
+   *  rendered Alert (left REAL by this file's stubs) rather than off a component prop, so the assertion is
+   *  about what the owner actually sees. */
+  function editNotice(w: ReturnType<typeof mount>) {
+    return w.findAll('.mp-alert').map((a) => a.text())
+      .find((text) => text.includes('reading.editingExisting'));
+  }
+
+  it('prefills the raw value from the reading already on file for the selected instrument and date', () => {
+    const w = mountModal(makeData({ readings: [existingProbeToday] }));
+    // `7`, the STORED value — not the empty field a first reading starts from, and not the `5` any other
+    // case in this file types.
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('7');
+  });
+
+  // ⚠️ THE FULL INTERPOLATED STRING, INCLUDING THE INSTRUMENT. The `t` stub in this file renders
+  // `key|param|param`, so asserting only on the key would pass even if the instrument were dropped from the
+  // message — and this file has already shipped one assertion made unfalsifiable by exactly that stub.
+  // Naming the instrument is the load-bearing half of the sentence: the rule is per instrument, so
+  // measuring the same pot with a probe AND a scale on one day replaces nothing.
+  it('says plainly that saving REPLACES that reading, and names the instrument', () => {
+    const w = mountModal(makeData({ readings: [existingProbeToday] }));
+    expect(editNotice(w)).toBe('reading.editingExisting|settings.instruments.name.galvanic-probe');
+  });
+
+  it('says nothing when that (instrument, date) pair has no reading — a first reading is not an edit', () => {
+    const w = mountModal(makeData({ readings: [] }));
+    expect(editNotice(w)).toBeUndefined();
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('');
+  });
+
+  // The date is the other half of the identity, so a reading dated some OTHER day must not be loaded under
+  // today's — which is the mistake a lookup keyed on the instrument alone would make.
+  it('ignores a reading for the same instrument on a DIFFERENT day', () => {
+    const w = mountModal(makeData({
+      readings: [{ ...existingProbeToday, measuredOn: '2020-01-01' }],
+    }));
+    expect(editNotice(w)).toBeUndefined();
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('');
+  });
+
+  // …and symmetrically: a reading dated today with the OTHER instrument is a legitimate second reading,
+  // not the one this form is editing.
+  it('ignores a reading for a DIFFERENT instrument on the same day', () => {
+    const w = mountModal(makeData({
+      instruments: [galvanicProbe, kitchenScaleCalibrated],
+      readings: [{ ...existingProbeToday, id: 'scale-row', instrumentId: 'kitchen-scale', rawValue: 1500 }],
+    }));
+    // The picker defaults to the probe, which has nothing on file.
+    expect(editNotice(w)).toBeUndefined();
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('');
+  });
+
+  it('re-checks on an INSTRUMENT switch and loads that instrument\'s own reading', async () => {
+    const w = mountModal(makeData({
+      instruments: [galvanicProbe, kitchenScaleCalibrated],
+      readings: [{ ...existingProbeToday, id: 'scale-row', instrumentId: 'kitchen-scale', rawValue: 1500 }],
+    }));
+    await instrumentSegButtons(w)[1]!.trigger('click');
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('1500');
+    expect(editNotice(w)).toBe('reading.editingExisting|settings.instruments.name.kitchen-scale');
+  });
+
+  // The clear-on-switch rule (QA 2026-08-10, defect 2) must survive the prefill: a probe's `7` becoming a
+  // scale's `7 g` is a measurement the owner never took, on an instrument he never used.
+  it('an instrument switch to a pair with NOTHING on file still clears the loaded value', async () => {
+    const w = mountModal(makeData({
+      instruments: [galvanicProbe, kitchenScaleCalibrated],
+      readings: [existingProbeToday],
+    }));
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('7');
+    await instrumentSegButtons(w)[1]!.trigger('click');
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('');
+    expect(editNotice(w)).toBeUndefined();
+  });
+
+  it('re-checks on a DATE change and loads that day\'s reading', async () => {
+    const w = mountModal(makeData({
+      readings: [{ ...existingProbeToday, id: 'yesterday', measuredOn: '2026-08-05', rawValue: 2 }],
+    }));
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('');
+    await w.find('input[type="date"]').setValue('2026-08-05');
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('2');
+    expect(editNotice(w)).toBe('reading.editingExisting|settings.instruments.name.galvanic-probe');
+  });
+
+  // ⚠️ THE PROVENANCE DISTINCTION, and it is the reason `prefilledFromId` exists rather than a bare clear.
+  // A LOADED value is another reading's stored data; carrying it onto a date it does not describe would
+  // attribute a measurement to a day it was not taken on.
+  it('drops a LOADED value when the date moves to a day with nothing on file', async () => {
+    const w = mountModal(makeData({ readings: [existingProbeToday] }));
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('7');
+    await w.find('input[type="date"]').setValue('2026-08-05');
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('');
+  });
+
+  // …and the other side of it: a value the OWNER typed survives a date correction, because he is still
+  // recording that same measurement and is only fixing which day it belongs to.
+  it('KEEPS a value the owner TYPED when the date moves to a day with nothing on file', async () => {
+    const w = mountModal(makeData({ readings: [] }));
+    await readingInput(w).setValue(4);
+    await w.find('input[type="date"]').setValue('2026-08-05');
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('4');
+  });
+
+  // The watering-relation answer is part of "whatever else the owner set": an edit form that dropped it
+  // would silently re-ask a question he has already answered about that exact day.
+  it('prefills the watering-relation answer, and submits it without the owner touching the control', async () => {
+    recordSoilReading.mockClear();
+    const day = todayYmd();
+    const w = mountModal(makeData({
+      wateringDays: [day],
+      readings: [{ ...existingProbeToday, wateringRelation: 'BEFORE' }],
+    }));
+    // Shown as SELECTED, not merely held in the model — the owner must be able to see what he answered.
+    const before = wateringRelationSeg(w)!.findAll('button')
+      .find((b) => b.text() === 'reading.wateringRelation.before')!;
+    expect(before.attributes('aria-pressed')).toBe('true');
+
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    expect(recordSoilReading.mock.calls.at(-1)![1]).toMatchObject({
+      instrumentId: 'galvanic-probe', rawValue: 7, measuredOn: day, wateringRelation: 'BEFORE',
+    });
+  });
+
+  // ⚠️ A NULL RELATION IS "UNKNOWN / NEVER ASKED", NEVER A PRE-SELECTION. The owner's 2026-08-08 ruling —
+  // this question is ANSWERED, never defaulted — binds an edit form exactly as it binds a fresh one, so a
+  // loaded row holding `null` must leave both options unpressed and the save blocked until he answers.
+  it('never turns a NULL relation into a pre-selection', () => {
+    const w = mountModal(makeData({
+      wateringDays: [todayYmd()],
+      readings: [{ ...existingProbeToday, wateringRelation: null }],
+    }));
+    for (const b of wateringRelationSeg(w)!.findAll('button')) {
+      expect(b.attributes('aria-pressed')).toBe('false');
+    }
+    expect(findSaveButton(w).attributes('disabled')).toBeDefined();
+  });
+
+  // SURVEY MODE TOO — both controls write into the same table, so both open onto the same edit. The survey
+  // hides the date field and keys on the browser's today; see `existingReading`'s own comment for the one
+  // bounded case (the plant-city midnight gap) where that can miss.
+  it('loads the existing reading in SURVEY mode as well, not just in the voluntary log', () => {
+    const w = mountSurvey(makeData({ readings: [existingProbeToday] }));
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('7');
+    expect(editNotice(w)).toBe('reading.editingExisting|settings.instruments.name.galvanic-probe');
   });
 });

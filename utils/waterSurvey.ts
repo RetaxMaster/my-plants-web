@@ -53,37 +53,39 @@ export function todaysVerdictClosesSurvey(verdict: TodaysVerdict): boolean {
       // pair of task actions, Hecho | Posponer, which is exactly what TaskRow renders when `canSurvey` is
       // false. Reusing those controls, never a parallel pair built here.
       //
-      // ⚠️ NOT REACHABLE FROM THE APP TODAY — see the `'NONE'` arm below before you rely on it.
+      // ⚠️ REACHABLE SINCE 2026-08-11, AND THAT IS WHAT LET THE `'NONE'` ARM BELOW BE FIXED. Until then the
+      // survey stored `'NONE'` for a water-now answer, because a stored `'WATER_NOW'` made the API write a
+      // WATER **DONE** care event — fabricating a watering the owner had not performed. The API's
+      // care-event write is now narrowed to `'POSTPONE'` only (`soil-reading.write-core.ts`), so the survey
+      // stores the verdict it actually reached and this arm carries exactly the case its name says.
       return true;
     case 'NONE':
-      // ⚠️ SINGLE SEAM, OWNED BY A FOLLOW-UP TASK. A reading that decided nothing — the voluntary
-      // "Agregar lectura" path, including a raw value no calibration could interpret. Today it closes the
-      // survey exactly as every other reading does, which is the behaviour shipped before this fix and is
-      // deliberately left untouched here. A follow-up owns this branch; when it lands, THIS ARM is the
-      // whole change as far as this decision goes — nothing else in the app reads the verdict to make it.
+      // A reading that ANSWERED NOTHING — the voluntary "Agregar lectura" path, and a survey whose raw
+      // value no calibration could interpret. The survey control STAYS: the owner's question has not been
+      // asked, let alone answered, so withdrawing the only control that can answer it would be the app
+      // taking a measurement as a reply to a question it never put.
       //
-      // ⚠️⚠️ READ THIS BEFORE FLIPPING THE CONSTANT — THIS ARM CURRENTLY CARRIES TWO DIFFERENT CASES.
+      // ⚠️ THIS ARM RETURNED `true` UNTIL 2026-08-11, AND THE DEFECT IT CAUSED IS THE REASON THE WHOLE
+      // ONE-READING-PER-DAY RULING EXISTS. Logging a raw scale weight in the morning removed the survey for
+      // the rest of the day: the owner stored his own measurement, got no verdict, and lost the only way to
+      // ask for one — with no edit or delete affordance on the reading, so no way back either.
       //
-      // A survey that answers "water it now" does NOT store `'WATER_NOW'`. It stores `'NONE'` (see
-      // `SoilReadingModal.vue`'s `submit()`), because on the API side a stored `'WATER_NOW'` verdict makes
-      // `soil-reading.write-core.ts` record a WATER **DONE** care event — fabricating a watering the owner
-      // has not performed yet, which the owner overturned on 2026-08-09. Sending the honest verdict was
-      // therefore not available as part of THIS fix. The consequence is that, in the data, a WATER_NOW
-      // survey and a voluntary log are the same row.
-      //
-      // So flipping this constant to `false` on its own would ALSO stop a WATER_NOW survey from closing
-      // the affordance — and since TaskRow withholds Hecho and Posponer for as long as the survey is on
-      // offer, the owner would be told to water, then given no way to record that he had. That is the
-      // exact dead end Task 47/T6b closed. The follow-up must separate the two cases first (the natural
-      // route: let the survey store `'WATER_NOW'` and narrow the write-core's care-event write to
-      // `'POSTPONE'` only — that branch is unreachable from the app today, so narrowing it changes no
-      // current behaviour), and only then decide what a genuine `'NONE'` should do.
+      // ⚠️ WHY IT COULD NOT SIMPLY BE FLIPPED BEFORE. `'NONE'` used to carry TWO different cases, because a
+      // water-now survey also stored `'NONE'` (see the `'WATER_NOW'` arm above). Flipping this constant
+      // alone would therefore also have stopped a water-now survey from closing the affordance — and since
+      // TaskRow withholds Hecho and Posponer while the survey is on offer, the owner would have been told
+      // to water and then given no way to record that he had. Separating the two stored values in the API
+      // was the precondition, and it landed in the same change as this flip.
       return NONE_VERDICT_CLOSES_SURVEY;
   }
 }
 
-/** See the `'NONE'` arm of `todaysVerdictClosesSurvey`. Named so the follow-up has an obvious target. */
-export const NONE_VERDICT_CLOSES_SURVEY = true;
+/**
+ * See the `'NONE'` arm of `todaysVerdictClosesSurvey`. Kept as a NAMED constant rather than inlined as
+ * `false`, because the name is what makes the arm's meaning legible at the one place a future change would
+ * touch it: a reading that decided nothing does not close a question nobody answered.
+ */
+export const NONE_VERDICT_CLOSES_SURVEY = false;
 
 /**
  * Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey.

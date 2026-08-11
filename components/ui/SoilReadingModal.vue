@@ -8,11 +8,20 @@
 //                 (fixed to today — a survey answers today), the watering-relation question is NEVER ASKED
 //                 (the API derives it — see below), and the reading is evaluated by the read-only preview
 //                 endpoint FIRST — the outcome decides what gets written and how: HOLD applies itself
-//                 (reading + `verdict: 'POSTPONE'`), WATER_NOW WRITES the reading too (`verdict: 'NONE'`,
-//                 owner ruling 2026-08-09 — measured-verdict-gap redesign: real data that teaches the
-//                 drying-rate fit, and what lets the row's `measuredToday` gate close the "asks again
-//                 forever" dead-end once the owner has answered for today), and UNAVAILABLE writes nothing
-//                 until the owner explicitly offers to save it (see `submit()`'s own branch comments).
+//                 (reading + `verdict: 'POSTPONE'`), WATER_NOW WRITES the reading too, with
+//                 `verdict: 'WATER_NOW'` (owner ruling 2026-08-09 for the write, 2026-08-11 for the honest
+//                 verdict: real data that teaches the drying-rate fit, and the stored answer the WATER row
+//                 reads to swap the survey control for the task's ordinary Hecho | Posponer pair), and
+//                 UNAVAILABLE writes nothing until the owner explicitly offers to save it (see `submit()`).
+//
+// ⚠️ ONE READING PER (PLANT, INSTRUMENT, DAY) — OPENING THIS MODAL MAY BE OPENING AN EDIT FORM (owner-ruled
+// 2026-08-11; docs/care-engine.md §7.20.14). Both modes write into the same table, and until this ruling
+// they could produce two competing rows for one pot, one instrument and one day — which is how logging a
+// raw weight in the morning removed the survey for the rest of the day. Now the API UPSERTS, and this modal
+// LOADS whatever reading already exists for the selected instrument and date (`existingReading` /
+// `loadExistingIntoForm`), says so on screen (`reading.editingExisting`), and re-checks whenever either of
+// those two fields changes. An owner who thinks he is adding and is in fact replacing is exactly the
+// surprise this feature exists to remove.
 //                 ⚠️ Every survey write is dated by the PREVIEW's `measuredOn` — the plant-local day the
 //                 verdict was computed for — and never by this browser's day, which is a DIFFERENT day
 //                 across the midnight gap (finding W3; the full reasoning sits at that assignment).
@@ -215,6 +224,7 @@ watch(open, (isOpen) => {
   measuredOn.value = todayYmd();
   wateringRelation.value = '';
   serverSaysWateringDay.value = false;
+  prefilledFromId.value = null;
   // `instrumentId`'s setup-time initializer (`usableInstruments.value[0]?.id ?? ''`) can miss the "default
   // to the first instrument" intent entirely: PlantDetail.vue's template falls back to an empty
   // `{ instruments: [], … }` shape while its own async readings fetch is still in flight, so the modal can
@@ -224,6 +234,9 @@ watch(open, (isOpen) => {
   if (instrumentId.value === '' && usableInstruments.value[0]) {
     instrumentId.value = usableInstruments.value[0].id;
   }
+  // LAST, after every field above has been reset and the instrument default applied — otherwise a reset
+  // would run AFTER the load and wipe what was just loaded. See `loadExistingIntoForm`.
+  loadExistingIntoForm();
 });
 
 /**
@@ -249,6 +262,10 @@ watch(instrumentId, () => {
   // under a fresh, untouched form — the owner reads it as a fault in what he is about to do. An error
   // outliving the thing it was about is a lie with a delay on it.
   error.value = null;
+  // …and then load whatever THIS instrument already has on file for the selected date. The clear above
+  // still has to happen first and still has to be unconditional: it is what stops a probe's `3` becoming a
+  // scale's `3 g` when nothing is on file for the new instrument.
+  loadExistingIntoForm();
 });
 
 /**
@@ -328,6 +345,26 @@ const needsCalibrationSetup = computed(() =>
 const uncalibratedInstruments = computed(() =>
   props.data.instruments.filter((i) => !usableInstruments.value.some((u) => u.id === i.id)));
 const showCalibrationNotice = computed(() => uncalibratedInstruments.value.length > 0);
+
+/**
+ * SAY IT PLAINLY: THIS SAVE REPLACES A READING (owner-ruled 2026-08-11).
+ *
+ * One reading per (plant, instrument, day) means a second save for the same pair is an EDIT of the row that
+ * is already there. An owner who believes he is ADDING and is in fact REPLACING is precisely the surprise
+ * this feature exists to remove, so the modal states it rather than doing it quietly — the same standing
+ * rule the withheld-affordance notices above follow ("an affordance that behaves unexpectedly says so").
+ *
+ * It names the INSTRUMENT, because that is the half of the identity an owner is least likely to have in
+ * mind: measuring the same pot with a probe AND a scale on one day is two legitimate readings, and only the
+ * second reading with the SAME instrument replaces anything.
+ */
+const editingExistingLabel = computed(() => {
+  const existing = existingReading.value;
+  if (existing == null) return null;
+  return t('reading.editingExisting', {
+    instrument: t(`settings.instruments.name.${existing.instrumentId}`),
+  });
+});
 
 /**
  * WHERE "calíbrala" ACTUALLY GOES (QA finding F3, 2026-08-10).
@@ -445,7 +482,83 @@ watch(measuredOn, () => {
   wateringRelation.value = '';
   // The server's reveal was about the PREVIOUS day; a new date must be judged on its own evidence.
   serverSaysWateringDay.value = false;
+  // A NEW DATE IS A DIFFERENT READING. One reading per (plant, instrument, day) means the date is half the
+  // identity of the row this form is about to write, so moving it re-targets the whole form: load that
+  // day's reading if one exists, and drop a previous day's LOADED values if it does not.
+  loadExistingIntoForm();
 });
+
+/**
+ * THE READING THIS FORM IS ABOUT TO WRITE, IF IT ALREADY EXISTS (owner-ruled 2026-08-11).
+ *
+ * Keyed on the pair that now IDENTIFIES a reading — the instrument and the calendar day — because the API
+ * holds at most one row per (plant, instrument, day) and a second save is an EDIT of that row. So this is
+ * not a convenience lookup: it is the modal knowing which row it is editing.
+ *
+ * ⚠️ `measuredOn` IS THE KEY IN BOTH MODES, INCLUDING SURVEY MODE, WHERE THE FIELD IS HIDDEN. It is
+ * re-pinned to `todayYmd()` on every open and never moves during a survey, so it is the browser's today —
+ * which is the only day a client can know before the preview answers. Across the plant-city midnight gap
+ * that can differ from the day the write is actually stamped with (`preview.measuredOn`), and the honest
+ * consequence is bounded and worth naming: in that window the prefill can MISS a reading that exists, so
+ * the owner sees an empty form. He does not get a duplicate — the API still upserts on the day it stamps —
+ * he just is not told he is editing. Re-keying this on the preview's day is not available: the preview has
+ * not run when this form is being filled in, and that is precisely when the prefill has to happen.
+ *
+ * ⚠️ AND THE OTHER BOUND: `data.readings` is a BOUNDED page (newest 60). A reading back-dated past that
+ * window cannot be found here, so voluntary mode will not prefill it. Same shape of consequence — the API
+ * still edits the right row, the owner is just not shown that he is about to.
+ */
+const existingReading = computed(() =>
+  props.data.readings.find(
+    (r) => r.instrumentId === instrumentId.value && r.measuredOn === measuredOn.value,
+  ) ?? null);
+
+/** The id of the reading whose STORED values are currently sitting in the form, or `null` when the form
+ *  holds nothing but the owner's own typing. It is what lets `loadExistingIntoForm` tell those two apart —
+ *  see its own comment for why the distinction has to be tracked rather than inferred. */
+const prefilledFromId = ref<string | null>(null);
+
+/**
+ * PUT THE EXISTING READING INTO THE FORM — the ONE place that decides what the fields hold for a given
+ * (instrument, date) pair.
+ *
+ * Called from the three moments that change which reading this form is about: the modal opening, the
+ * instrument changing, and the date changing. Deliberately NOT a `watch` on `existingReading` itself: that
+ * computed also moves when the PROP refreshes (the plant page refetches its readings after every save), and
+ * a refetch landing while the owner is mid-type must never overwrite what he is typing.
+ *
+ * ⚠️ THE `else` BRANCH IS NOT SYMMETRY FOR ITS OWN SAKE. Moving to an (instrument, date) pair with nothing
+ * on file must clear values that were LOADED from another reading — they are another day's stored data
+ * sitting under a date it does not describe — while leaving a value the owner TYPED alone, because he is
+ * still recording that same measurement and is only fixing its date. Those two cases are indistinguishable
+ * from the field's contents, which is why `prefilledFromId` tracks the provenance instead of guessing.
+ */
+function loadExistingIntoForm() {
+  const existing = existingReading.value;
+  if (existing) {
+    rawValue.value = existing.rawValue;
+    // `null` on the row means "unknown / never asked" and must land as the unanswered sentinel, never as a
+    // pre-selection — the owner's 2026-08-08 ruling that this question is answered, never defaulted, holds
+    // just as firmly when the form is an edit.
+    wateringRelation.value = existing.wateringRelation ?? '';
+    prefilledFromId.value = existing.id;
+  } else if (prefilledFromId.value !== null) {
+    rawValue.value = null;
+    wateringRelation.value = '';
+    prefilledFromId.value = null;
+  }
+}
+
+// MOUNTED ALREADY OPEN. The `watch(open, …)` above is deliberately not `immediate` — it is a RESET, and
+// running it during setup would be pointless work over fields that are still at their initial values — so
+// a component mounted with `open: true` would otherwise never load its existing reading. `PlantDetail.vue`
+// mounts this modal CLOSED and toggles it, so production reaches the load through the watcher; a caller
+// that mounts it open (and every test in this file does) reaches it here.
+//
+// ⚠️ IT HAS TO SIT HERE, BELOW `loadExistingIntoForm`, NOT UP AT THE WATCHER. `existingReading` and
+// `prefilledFromId` are `const`s declared in this block: making the open watcher `immediate` instead would
+// execute the load during setup, before those bindings are initialised, and throw a TDZ ReferenceError.
+if (open.value) loadExistingIntoForm();
 
 // Single source of truth for "ask the same-day-watering question at all".
 //
@@ -673,21 +786,28 @@ async function submit() {
           // answer to freeze any more, because the survey does not ask and the API derives it.
         };
       } else if (preview.recommendation === 'WATER_NOW') {
-        // Owner ruling (2026-08-09, measured-verdict-gap redesign): WATER_NOW now WRITES the reading, with
-        // `verdict: 'NONE'`. It changes no schedule (`NONE` never touches DueCache/TaskOverride the way
-        // `POSTPONE` does), but it IS real data — a genuine wetness fraction that feeds the drying-rate
-        // fit — and, just as importantly, it is what lets the row's own `measuredToday` gate flip: without
-        // this write, nothing on this plant would ever record that today's survey happened, and the row
-        // would keep offering "¿Necesitas regar?" forever after the owner already answered it and went to
-        // water. `emit('saved')` fires HERE, the same as HOLD's own branch above (and BEFORE the verdict
-        // step renders) — the caller's refresh (`onReadingSaved`/`onWaterEvaluate`'s callers) runs in the
-        // background while the owner is still reading the verdict, so `canSurvey` has already flipped false
-        // by the time he closes the modal, instead of only on a later reload.
+        // Owner ruling (2026-08-09, measured-verdict-gap redesign): WATER_NOW WRITES the reading. It changes
+        // no schedule, but it IS real data — a genuine wetness fraction that feeds the drying-rate fit —
+        // and it is what records that today's survey happened at all. `emit('saved')` fires HERE, the same
+        // as HOLD's own branch above (and BEFORE the verdict step renders) — the caller's refresh
+        // (`onReadingSaved`/`onWaterEvaluate`'s callers) runs in the background while the owner is still
+        // reading the verdict, so the row has already swapped the survey control for Hecho | Posponer by
+        // the time he closes the modal, instead of only on a later reload.
+        //
+        // ⚠️ `verdict: 'WATER_NOW'` — THE VERDICT THE SURVEY ACTUALLY REACHED, since 2026-08-11. It used to
+        // send `'NONE'`, and that was not a naming quibble: the API turned a stored `'WATER_NOW'` into a
+        // WATER **DONE** care event, so sending the honest verdict would have recorded a watering the owner
+        // had not performed (overturned 2026-08-09). The cost of the workaround was that `'NONE'` then
+        // meant two opposite things — "the survey said water now" and "this was a voluntary log that
+        // answered nothing" — which are required to behave OPPOSITELY in the WATER row
+        // (`utils/waterSurvey.ts`), so neither could be got right while they shared one value. The API's
+        // care-event write is now narrowed to `'POSTPONE'` only, which is what makes this line both honest
+        // and safe. Do not send `'NONE'` here again.
         await api.recordSoilReading(props.plantId, {
           instrumentId: chosenInstrumentId,
           rawValue: chosenRawValue,
           measuredOn: verdictMeasuredOn,
-          verdict: 'NONE',
+          verdict: 'WATER_NOW',
           // NO `wateringRelation` — and the history of this ONE spread is worth keeping, because it has now
           // been argued both ways and each argument was correct at the time.
           //
@@ -702,6 +822,12 @@ async function submit() {
           // instead of fixing it: the API now derives the relation for any today-dated reading on a
           // watering day, whatever verdict it carries, so no branch sends it and the dead end is
           // unreachable by construction. The verdict-keyed exemption is subsumed and stops being a rule.
+          //
+          // ⚠️ AND THAT IS WHY RESTORING `verdict: 'WATER_NOW'` ABOVE (2026-08-11) COULD NOT REVIVE THE OLD
+          // COUPLING. The 2026-08-09 breakage happened because the exemption was keyed on the verdict and
+          // the verdict changed underneath it. Nothing is keyed on the verdict any more — the derivation
+          // asks only "is this reading dated the plant's own today?" — so this line still sends nothing and
+          // still means the same thing whichever verdict travels beside it.
         }, idempotencyKey.value);
         emit('saved');
       }
@@ -1007,6 +1133,13 @@ const holdDateLabel = computed(() => {
            circular, and it made a survey on an uncalibrated pot impossible to complete. They live in
            `PlantCalibrationModal.vue` now; an instrument still missing its anchors is filtered out of the
            picker above and the owner is routed there instead. Do not resurrect them behind a `v-if`. -->
+
+      <!-- ⚠️ "YOU ARE EDITING, NOT ADDING" (owner-ruled 2026-08-11) — see `editingExistingLabel`. Placed
+           directly above the value field because that is where the consequence is visible: the number in
+           that field was LOADED from the reading this save is about to replace, not typed. Rendered only
+           when a reading for this exact (instrument, date) pair is on file, so it never appears on a plain
+           first reading. -->
+      <Alert v-if="editingExistingLabel" color="amber">{{ editingExistingLabel }}</Alert>
 
       <FormGroup :label="valueFieldLabel" :error="rawValueErrorMessage">
         <!-- An ORDINAL instrument (the wooden stick, the finger) produces one of a few NAMED states, never

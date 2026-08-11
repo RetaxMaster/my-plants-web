@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canOfferWaterSurvey, postponeReasonWithoutAsking, todaysVerdictClosesSurvey,
-  SURVEYED_POSTPONE_REASON, type TodaysVerdict,
+  NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, type TodaysVerdict,
 } from './waterSurvey.js';
 import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
 
@@ -73,11 +73,24 @@ describe('todaysVerdictClosesSurvey', () => {
     expect(todaysVerdictClosesSurvey('WATER_NOW')).toBe(true);
   });
 
-  // A reading that decided nothing (the voluntary "Agregar lectura" path, including a raw value no
-  // calibration could interpret). Pinned at TODAY'S shipped behaviour, unchanged by finding F1's fix. A
-  // follow-up owns this branch; when it lands, this expectation is what it flips, and it is the only one.
-  it('closes it on a NONE verdict — today\'s behaviour, and the single seam a follow-up owns', () => {
-    expect(todaysVerdictClosesSurvey('NONE')).toBe(true);
+  // REWRITTEN (owner-ruled 2026-08-11). The retired case was
+  // `'closes it on a NONE verdict — today's behaviour, and the single seam a follow-up owns'`, and it
+  // pinned the shipped behaviour on purpose while the follow-up it names was still outstanding. THE DEFECT
+  // that behaviour caused, and which the follow-up has now landed: logging a raw weight in the morning
+  // removed the survey for the rest of the day — the owner stored his own measurement, got no verdict, and
+  // lost the only control that could give him one, with no edit or delete affordance to undo it.
+  //
+  // A reading that decided nothing (the voluntary "Agregar lectura" path, and a raw value no calibration
+  // could interpret) answers nothing, so it closes nothing.
+  it('KEEPS the question open on a NONE verdict — a reading that decided nothing answered nothing', () => {
+    expect(todaysVerdictClosesSurvey('NONE')).toBe(false);
+  });
+
+  // The constant is exported so the arm above has an obvious, named target. Pinned against the FUNCTION's
+  // own answer rather than as a second copy of the literal, so the two can never disagree.
+  it('exposes that decision as NONE_VERDICT_CLOSES_SURVEY', () => {
+    expect(NONE_VERDICT_CLOSES_SURVEY).toBe(false);
+    expect(todaysVerdictClosesSurvey('NONE')).toBe(NONE_VERDICT_CLOSES_SURVEY);
   });
 });
 

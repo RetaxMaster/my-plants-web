@@ -1,5 +1,8 @@
 import type { AgentCommand, AgentProviderStatus, CommandCatalog, SessionHistory } from '@retaxmaster/agents-realtime-protocol';
 import type { TaskCode } from '../utils/tasks.js';
+// The survey affordance's verdict vocabulary lives with the RULE that reads it, imported here rather than
+// re-declared, so the wire shape and the rule can never drift apart.
+import type { TodaysVerdict } from '../utils/waterSurvey.js';
 import type { CompressedUpload } from '../composables/useImageCompression';
 import type {
   PotType, SoilMix, GrowthHabit, WindowDist,
@@ -162,6 +165,17 @@ export interface DueTaskResponse {
    * survey, never silently hides it).
    */
   measuredToday?: boolean | null;
+  /**
+   * Meaningful ONLY on a `WATER` row, same convention as the two fields above: WHAT today's reading said
+   * (`'WATER_NOW'` / `'POSTPONE'` / `'NONE'`), or `null` for "no reading today" and for every non-WATER
+   * row. `measuredToday` beside it separates those two nulls.
+   *
+   * This is what the survey affordance branches on (QA finding F1) — `measuredToday` reports only that a
+   * measurement happened, and the row needs to know what it DECIDED. Optional at the type level for the
+   * same rolling-deploy reason the two fields above are; an absent field reads as `null`, i.e. "nothing
+   * measured", the safe default that still OFFERS the survey rather than silently hiding it.
+   */
+  todaysVerdict?: TodaysVerdict;
 }
 
 export type FeedbackType = 'DONE' | 'POSTPONED' | 'SYMPTOM';
@@ -972,12 +986,19 @@ export interface PlantMeasurement {
   suggestMeasuring: boolean;
   /**
    * True when this plant already has a soil reading dated its own LOCAL today (measured-verdict-gap
-   * spec, Task 47/T6b). This is the row's own gate on re-offering the "¿Necesitas regar?" survey: once
-   * WATER_NOW writes its reading (`verdict: 'NONE'` — SoilReadingModal.vue's `submit()`), the owner has
-   * already answered the question for today, so `canSurvey` must go false and the row falls back to the
-   * classic Done | Postpone pair instead of asking again.
+   * spec, Task 47/T6b).
+   *
+   * ⚠️ A PURELY FACTUAL FLAG — "a reading was taken today", nothing about whether it decided anything
+   * (owner ruling, 2026-08-10). It is NOT the survey affordance's gate; `todaysVerdict` below is. It still
+   * drives `postponeReasonWithoutAsking`, where the mere fact of a measurement is exactly the right
+   * question: a Posponer that follows one can only mean the owner ran out of day.
    */
   measuredToday: boolean;
+  /**
+   * WHAT today's reading said, or `null` when nothing was measured today. This is what the survey
+   * affordance's shared rule reads — see `utils/waterSurvey.ts`'s `todaysVerdictClosesSurvey`.
+   */
+  todaysVerdict: TodaysVerdict;
 }
 
 export type UpdateBlogpost = Partial<CreateBlogpost>;

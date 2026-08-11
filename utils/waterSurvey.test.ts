@@ -2,23 +2,29 @@
 // renderer that half-implements either one is a wiring bug in that renderer and not a second, silently
 // different rule. The per-surface wiring is pinned in pages/index.test.ts and components/PlantDetail.test.ts.
 import { describe, it, expect } from 'vitest';
-import { canOfferWaterSurvey, postponeReasonWithoutAsking, SURVEYED_POSTPONE_REASON } from './waterSurvey.js';
+import {
+  canOfferWaterSurvey, postponeReasonWithoutAsking, todaysVerdictClosesSurvey,
+  SURVEYED_POSTPONE_REASON, type TodaysVerdict,
+} from './waterSurvey.js';
 import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
 
 describe('canOfferWaterSurvey', () => {
-  it('offers the survey only when the owner has an instrument, has not measured today, and we HOLD the ' +
-    'catalogue', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: true, measuredToday: false, catalogueAvailable: true }))
+  it('offers the survey only when the owner has an instrument, today\'s question is unanswered, and we ' +
+    'HOLD the catalogue', () => {
+    expect(canOfferWaterSurvey({ hasInstrument: true, todaysVerdict: null, catalogueAvailable: true }))
       .toBe(true);
   });
 
   it('withholds it from an owner who selected no instrument (spec §5.2)', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: false, measuredToday: false, catalogueAvailable: true }))
+    expect(canOfferWaterSurvey({ hasInstrument: false, todaysVerdict: null, catalogueAvailable: true }))
       .toBe(false);
   });
 
-  it('withholds it once this plant was already measured today', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: true, measuredToday: true, catalogueAvailable: true }))
+  // REWRITTEN by QA finding F1 (2026-08-10). It used to read `measuredToday: true` — the bare FACT of a
+  // reading. The fact is not the question: what closes the survey is what the reading ANSWERED, and that
+  // decision now lives in `todaysVerdictClosesSurvey`, whose own cases are pinned below.
+  it('withholds it once today\'s reading has answered the question', () => {
+    expect(canOfferWaterSurvey({ hasInstrument: true, todaysVerdict: 'POSTPONE', catalogueAvailable: true }))
       .toBe(false);
   });
 
@@ -27,8 +33,51 @@ describe('canOfferWaterSurvey', () => {
   // instruments, go to Settings" empty state, because the catalogue fetch had failed. Both halves of that
   // are wrong, and this is the one that made a due watering uncompletable.
   it('withholds it when the catalogue fetch FAILED, even though the owner owns an instrument', () => {
-    expect(canOfferWaterSurvey({ hasInstrument: true, measuredToday: false, catalogueAvailable: false }))
+    expect(canOfferWaterSurvey({ hasInstrument: true, todaysVerdict: null, catalogueAvailable: false }))
       .toBe(false);
+  });
+
+  // The three facts are independently necessary, and this is the assertion that pins the CONJUNCTION
+  // rather than three separate one-at-a-time cases: swapping any `&&` for an `||` flips at least one row.
+  it.each([
+    // hasInstrument, todaysVerdict, catalogueAvailable, offered
+    [true, null, true, true],
+    [false, null, true, false],
+    [true, 'POSTPONE', true, false],
+    [true, null, false, false],
+    [false, 'POSTPONE', false, false],
+  ] as [boolean, TodaysVerdict, boolean, boolean][])(
+    'hasInstrument=%s verdict=%s catalogue=%s -> %s',
+    (hasInstrument, todaysVerdict, catalogueAvailable, offered) => {
+      expect(canOfferWaterSurvey({ hasInstrument, todaysVerdict, catalogueAvailable })).toBe(offered);
+    },
+  );
+});
+
+// ⚠️ THE ONE PLACE THE VERDICT DECIDES, so this is where each verdict's behaviour is pinned — never
+// re-asserted inside a renderer's own test, which is how the rule would come to have two definitions.
+describe('todaysVerdictClosesSurvey', () => {
+  it('keeps the question open when nothing was measured today', () => {
+    expect(todaysVerdictClosesSurvey(null)).toBe(false);
+  });
+
+  // "Don't water yet": the reading auto-postponed the task, so the card has already left Today and the
+  // plant page's row carries the moved date. Asking again would re-ask a question already acted on.
+  it('closes it on a POSTPONE verdict', () => {
+    expect(todaysVerdictClosesSurvey('POSTPONE')).toBe(true);
+  });
+
+  // "Water it now": the answer was delivered in the modal, and what the row shows next is the ordinary
+  // Hecho | Posponer pair TaskRow renders when `canSurvey` is false — the existing controls, not a new pair.
+  it('closes it on a WATER_NOW verdict', () => {
+    expect(todaysVerdictClosesSurvey('WATER_NOW')).toBe(true);
+  });
+
+  // A reading that decided nothing (the voluntary "Agregar lectura" path, including a raw value no
+  // calibration could interpret). Pinned at TODAY'S shipped behaviour, unchanged by finding F1's fix. A
+  // follow-up owns this branch; when it lands, this expectation is what it flips, and it is the only one.
+  it('closes it on a NONE verdict — today\'s behaviour, and the single seam a follow-up owns', () => {
+    expect(todaysVerdictClosesSurvey('NONE')).toBe(true);
   });
 });
 

@@ -18,13 +18,67 @@ import type { TaskCode } from './tasks.js';
 export const SURVEYED_POSTPONE_REASON = 'no-time' satisfies WaterPostponeReason;
 
 /**
+ * What today's soil reading SAID, as the API reports it (`measurement.todaysVerdict` on the plant care
+ * payload, `todaysVerdict` on the Today WATER row). `null` means nothing was measured today.
+ *
+ * `'NONE'` is a real, distinguishable answer — "this reading decided nothing" — not a missing one. It is
+ * what a voluntary "Agregar lectura" writes, and what a survey writes when no calibration could interpret
+ * the raw value.
+ */
+export type TodaysVerdict = 'WATER_NOW' | 'POSTPONE' | 'NONE' | null;
+
+/**
+ * ⚠️ THE ONE PLACE THE VERDICT DECIDES WHETHER THE SURVEY CONTROL STAYS ON OFFER.
+ *
+ * Every case is listed here, once, as an exhaustive switch — never as a condition spread across
+ * `PlantDetail.vue`, `pages/index.vue` and this file. A change to how any single verdict behaves is a
+ * change to exactly one arm of this switch, and TypeScript's exhaustiveness makes a newly added verdict a
+ * compile error rather than a silent fall-through.
+ *
+ * The owner's rule (2026-08-10): the modal's job is to ANSWER "should I water?", so once it has answered,
+ * the survey control is replaced by the CONSEQUENCE of that answer rather than by nothing.
+ */
+export function todaysVerdictClosesSurvey(verdict: TodaysVerdict): boolean {
+  switch (verdict) {
+    case null:
+      // Nothing measured today — the question is still open, so it is still asked.
+      return false;
+    case 'POSTPONE':
+      // "Don't water yet." The reading already auto-postponed the watering task, so the row's own due date
+      // has moved and the card has left the Today list entirely. Re-offering the survey would be asking a
+      // question the app has already answered and acted on.
+      return true;
+    case 'WATER_NOW':
+      // "Water it now." The verdict was delivered in the modal; what the row needs next is the ordinary
+      // pair of task actions, Hecho | Posponer, which is exactly what TaskRow renders when `canSurvey` is
+      // false. Reusing those controls, never a parallel pair built here.
+      return true;
+    case 'NONE':
+      // ⚠️ SINGLE SEAM, OWNED BY A FOLLOW-UP TASK. A reading that decided nothing — the voluntary
+      // "Agregar lectura" path, including a raw value no calibration could interpret. Today it closes the
+      // survey exactly as every other reading does, which is the behaviour shipped before this fix and is
+      // deliberately left untouched here. A follow-up owns this branch; when it lands, THIS ARM is the
+      // whole change — nothing else in the app reads the verdict to make this decision.
+      return NONE_VERDICT_CLOSES_SURVEY;
+  }
+}
+
+/** See the `'NONE'` arm of `todaysVerdictClosesSurvey`. Named so the follow-up has an obvious target. */
+export const NONE_VERDICT_CLOSES_SURVEY = true;
+
+/**
  * Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey.
  *
  * Three conditions, all necessary:
  *  - `hasInstrument` — spec §5.2: an owner who selected no instrument has no way to satisfy a survey, so
  *    the row keeps today's Hecho | Posponer shape. Declining to measure is a supported choice.
- *  - `measuredToday` — an owner who already measured this plant today has already answered the question
- *    (WATER_NOW writes its reading with `verdict: 'NONE'`), so asking again is the "asks forever" dead end.
+ *  - `todaysVerdict` — what today's reading, if any, ANSWERED. ⚠️ THIS USED TO BE THE BARE FACT
+ *    `measuredToday`, and QA measured the consequence 3/3 on three plants (finding F1, 2026-08-10): any
+ *    reading dated today made the button vanish from the plant page AND the Today card, with no message,
+ *    no verdict and no way back — readings carry no edit or delete affordance, so there was no undo. The
+ *    flag itself was not wrong, it was the wrong QUESTION to ask: it reports that a measurement happened,
+ *    and what the row needs to know is what that measurement DECIDED. The decision now lives in
+ *    `todaysVerdictClosesSurvey` above, in one exhaustive switch.
  *  - `catalogueAvailable` — ⚠️ THE FAILURE DIRECTION OF THE SAME §5.2 INVARIANT, and the reason this
  *    function exists rather than a two-term `&&` in each renderer. The survey modal needs the plant's
  *    instrument catalogue (`getSoilReadings`), and a FAILED fetch is NOT an empty catalogue: opening the
@@ -37,10 +91,14 @@ export const SURVEYED_POSTPONE_REASON = 'no-time' satisfies WaterPostponeReason;
  */
 export function canOfferWaterSurvey(facts: {
   hasInstrument: boolean;
-  measuredToday: boolean;
+  todaysVerdict: TodaysVerdict;
   catalogueAvailable: boolean;
 }): boolean {
-  return facts.hasInstrument && !facts.measuredToday && facts.catalogueAvailable;
+  return (
+    facts.hasInstrument
+    && !todaysVerdictClosesSurvey(facts.todaysVerdict)
+    && facts.catalogueAvailable
+  );
 }
 
 /**

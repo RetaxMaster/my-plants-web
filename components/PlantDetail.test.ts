@@ -33,6 +33,7 @@ import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttemp
 // || todayYmd()`, see components/ui/RepotDoneForm.vue), never a second ad-hoc "today" computation of their
 // own (the project's "no new forks" rule).
 import { todayYmd } from '../utils/localDate.js';
+import type { TodaysVerdict } from '../utils/waterSurvey.js';
 
 const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en, es } }).global;
 
@@ -1948,14 +1949,21 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
 // task row — the `@measure` binding is gone — and into the measurement-history block below the task-rows
 // card, which is the SAME block that already hosted the two drying-rate findings (Task 28).
 describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary reading moves to the history', () => {
-  // measured-verdict-gap spec (Task 47/T6b) — `measuredToday` defaults to `false` (not measured), so
+  // measured-verdict-gap spec (Task 47/T6b) — the verdict defaults to `null` (nothing measured), so
   // every PRE-EXISTING test in this block keeps describing a plant nobody has surveyed yet, unchanged.
-  const waterCare = (measuredToday = false) => ({
+  //
+  // ⚠️ `measuredToday` IS DERIVED HERE, NEVER SET INDEPENDENTLY (QA finding F1, 2026-08-10). The API
+  // derives it from the verdict for exactly this reason, and a fixture free to set the two separately is
+  // a fixture free to describe a payload the server cannot produce — a measured day with no verdict, or a
+  // verdict on a day nothing was measured. That is the "hand-built fixture is a CLAIM about the wire"
+  // trap this repo has already been bitten by; deriving it makes the claim true by construction.
+  const waterCare = (todaysVerdict: TodaysVerdict = null) => ({
     plantId: 'p1',
     tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
     measurement: {
       dryingRate: null, reason: null, tooSlowDrying: false, flatSeries: false, suggestMeasuring: false,
-      measuredToday,
+      measuredToday: todaysVerdict != null,
+      todaysVerdict,
     },
   });
 
@@ -1992,10 +2000,10 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
 
   const localStubs = { ...stubs, UiTaskRow: UiTaskRowStub, UiSoilReadingModal: UiSoilReadingModalStub };
 
-  async function mountWater(selected: string[], measuredToday = false) {
+  async function mountWater(selected: string[], todaysVerdict: TodaysVerdict = null) {
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
-      getPlantCare: async () => waterCare(measuredToday),
+      getPlantCare: async () => waterCare(todaysVerdict),
       listPlaces: async () => [],
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
@@ -2038,13 +2046,14 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(row.find('.postpone-btn').exists()).toBe(false);
   });
 
-  // measured-verdict-gap spec (Task 47/T6b) — the ground truth is the READING (`care.measurement.
-  // measuredToday`), not session memory: once WATER_NOW has written today's reading, the row must fall
-  // back to the classic Done | Postpone pair, exactly as a no-instrument owner sees, even though this
-  // owner DOES have an instrument selected. Hardcoding `measuredToday` out of the `canSurveyWater`
-  // expression makes this go RED.
-  it('withholds the survey once the plant has already been measured today, even with an instrument', async () => {
-    const w = await mountWater(['galvanic-probe'], true);
+  // measured-verdict-gap spec (Task 47/T6b), REWRITTEN by QA finding F1 (2026-08-10) — the ground truth is
+  // the READING'S VERDICT (`care.measurement.todaysVerdict`), not session memory and not the bare
+  // `measuredToday` fact this used to read. Once the survey has answered "water it now", the row must fall
+  // back to the classic Done | Postpone pair — the app's ORDINARY task controls, reused rather than
+  // rebuilt — exactly as a no-instrument owner sees, even though this owner DOES have an instrument
+  // selected. Hardcoding the verdict out of the `canSurveyWater` expression makes this go RED.
+  it('withholds the survey once today\'s reading has answered the question, even with an instrument', async () => {
+    const w = await mountWater(['galvanic-probe'], 'WATER_NOW');
     const row = w.find('[data-task=WATER]');
     expect(row.attributes('data-can-survey')).toBe('false');
     expect(row.find('.evaluate-btn').exists()).toBe(false);
@@ -2183,12 +2192,14 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
 // `useAsyncData`, Today fetches per click), so the two blocks assert the same behaviour through different
 // seams.
 describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that stops asking', () => {
-  const waterCare = (measuredToday = false) => ({
+  // Same derived shape as the Task 6 block above, and for the same reason — see its own comment.
+  const waterCare = (todaysVerdict: TodaysVerdict = null) => ({
     plantId: 'p1',
     tasks: [{ task: 'WATER', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
     measurement: {
       dryingRate: null, reason: null, tooSlowDrying: false, flatSeries: false, suggestMeasuring: false,
-      measuredToday,
+      measuredToday: todaysVerdict != null,
+      todaysVerdict,
     },
   });
 
@@ -2239,7 +2250,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // fetcher — the error is captured, `data` stays null — rather than letting the rejection escape and
   // fail the mount, which is precisely the state the component has to survive.
   async function mountWater(
-    { measuredToday = false, readingsFails = false }: { measuredToday?: boolean; readingsFails?: boolean } = {},
+    { todaysVerdict = null, readingsFails = false }: { todaysVerdict?: TodaysVerdict; readingsFails?: boolean } = {},
   ) {
     sendFeedbackMock.mockClear();
     vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
@@ -2249,7 +2260,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     });
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
-      getPlantCare: async () => waterCare(measuredToday),
+      getPlantCare: async () => waterCare(todaysVerdict),
       listPlaces: async () => [],
       getPlantHistory: async () => [],
       getPlantPhotos: async () => [],
@@ -2311,7 +2322,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     });
 
   it('W2: a postpone after today\'s measurement submits no-time without opening the picker', async () => {
-    const w = await mountWater({ measuredToday: true });
+    const w = await mountWater({ todaysVerdict: 'WATER_NOW' });
     await w.find('.postpone-btn').trigger('click');
     await flushPromises();
 

@@ -7,7 +7,7 @@ import { plantTitle } from '../utils/displayName.js';
 import { resolvableEvaluationId, checkedSignIdsFrom } from '../utils/repotEvaluation.js';
 // The WATER row's two survey rules — "may this row offer the survey at all" and "does a Posponer still have
 // anything to ask" — live once and are shared with PlantDetail.vue, never restated per renderer.
-import { canOfferWaterSurvey, postponeReasonWithoutAsking } from '../utils/waterSurvey.js';
+import { canOfferWaterSurvey, postponeReasonWithoutAsking, type TodaysVerdict } from '../utils/waterSurvey.js';
 // Explicit import (like PlantDetail.vue's `onUnmounted`, and for the same reason): the composable's own
 // `shallowRef` import from 'vue' makes it test-environment-agnostic, and this ONE implementation is now
 // shared with PlantDetail.vue (round-5 finding V1) — never a second copy of the attempt-tracking logic.
@@ -244,16 +244,24 @@ function measuredTodayFor(plantId: string): boolean {
   return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER')?.measuredToday === true;
 }
 
+// QA finding F1 (2026-08-10) — WHAT that reading said, read off the SAME row by the SAME lookup. An absent
+// field (an older API mid rolling deploy) reads as `null`, i.e. "nothing measured": the safe default, which
+// still OFFERS the survey rather than silently hiding it.
+function todaysVerdictFor(plantId: string): TodaysVerdict {
+  return (tasks.value ?? []).find((entry) => entry.plantId === plantId && entry.task === 'WATER')?.todaysVerdict ?? null;
+}
+
 // Whether THIS plant's WATER row may offer the "¿Necesitas regar?" survey. The RULE (all three conditions,
 // including the catalogue one W1 added) lives in `utils/waterSurvey.ts` and is shared with PlantDetail.vue;
-// this function only supplies the three facts THIS renderer holds. Once WATER_NOW writes today's reading
-// (`verdict: 'NONE'` — SoilReadingModal.vue's `submit()`), `measuredTodayFor` flips true on the next refresh
-// and this closes back to false — the row falls back to the classic Done | Postpone pair (TaskRow.vue's own
-// `showEvaluate`/`canSurvey` contract) instead of asking the same question forever.
+// this function only supplies the three facts THIS renderer holds. Once today's reading has ANSWERED the
+// question, this closes back to false and the row falls back to the classic Done | Posponer pair
+// (TaskRow.vue's own `showEvaluate`/`canSurvey` contract) instead of asking the same question forever —
+// which for a "don't water yet" verdict it never gets the chance to do anyway, because that verdict's own
+// auto-postpone has already taken the card out of this list.
 function canSurveyWaterFor(plantId: string): boolean {
   return canOfferWaterSurvey({
     hasInstrument: hasInstrument.value,
-    measuredToday: measuredTodayFor(plantId),
+    todaysVerdict: todaysVerdictFor(plantId),
     catalogueAvailable: !surveyUnavailableFor.value.includes(plantId),
   });
 }

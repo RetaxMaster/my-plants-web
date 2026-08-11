@@ -369,7 +369,7 @@ const { data: ownerInstruments } = useLazyAsyncData('owner-instruments', () => a
 const readingsUnavailable = computed(() => readings.value == null);
 const canSurveyWater = computed(() => canOfferWaterSurvey({
   hasInstrument: (ownerInstruments.value?.selected.length ?? 0) > 0,
-  measuredToday: care.value?.measurement?.measuredToday === true,
+  todaysVerdict: care.value?.measurement?.todaysVerdict ?? null,
   catalogueAvailable: !readingsUnavailable.value,
 }));
 

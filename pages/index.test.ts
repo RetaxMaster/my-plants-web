@@ -20,6 +20,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { PlantSoilReadings, RepotEvaluationResult, RepotSign } from '../types/api.js';
+import type { TodaysVerdict } from '../utils/waterSurvey.js';
 // X2: the parent-level integration test near the end of this file mounts the REAL RepotDoneForm.vue (never a
 // re-implemented stub of its hydration watcher — see that describe block's own header comment for why).
 import RealRepotDoneForm from '../components/ui/RepotDoneForm.vue';
@@ -1314,10 +1315,16 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
 // invented fetch, and an owner with none renders the row EXACTLY as it did before this feature — declining
 // to measure is a supported choice, not a degraded state.
 const WATER_TASK_A = { plantId: 'A', task: 'WATER' as const, nextDueOn: '2026-01-01', pendingEvaluation: null };
-// measured-verdict-gap spec (Task 47/T6b) — the SAME row, already measured today (WATER_NOW's own write,
-// `verdict: 'NONE'`, has already landed). `canSurveyWaterFor` must gate on this too, not just the
-// instrument — asking again after the owner already answered is the exact dead end this field closes.
-const WATER_TASK_A_MEASURED_TODAY = { ...WATER_TASK_A, measuredToday: true };
+// measured-verdict-gap spec (Task 47/T6b), REWORKED by QA finding F1 (2026-08-10) — the SAME row, whose
+// survey has already ANSWERED today. `canSurveyWaterFor` gates on the VERDICT, not just the instrument and
+// not on the bare `measuredToday` fact: asking again after the owner already got his answer is the exact
+// dead end this closes.
+//
+// ⚠️ `measuredToday` IS DERIVED FROM THE VERDICT, never set beside it. The API derives it the same way, so
+// a fixture that set the two independently could describe a payload the server cannot produce.
+const answeredWaterTask = (todaysVerdict: TodaysVerdict) =>
+  ({ ...WATER_TASK_A, measuredToday: todaysVerdict != null, todaysVerdict });
+const WATER_TASK_A_MEASURED_TODAY = answeredWaterTask('WATER_NOW');
 
 function stubApiWithWaterTask(tasks: unknown[] = [WATER_TASK_A]) {
   vi.stubGlobal('useApi', () => ({
@@ -1366,7 +1373,7 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
   // measured-verdict-gap spec (Task 47/T6b) — the ground truth is the READING, not session memory: once
   // WATER_NOW has written today's reading, the row must fall back to the classic Done | Postpone pair,
   // exactly as an owner with no instrument sees, even though this owner DOES have one selected.
-  it('withholds the survey once the plant has already been measured today, even with an instrument', async () => {
+  it('withholds the survey once today\'s reading has answered the question, even with an instrument', async () => {
     getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: ['galvanic-probe'] }));
     stubApiWithWaterTask([WATER_TASK_A_MEASURED_TODAY]);
 
@@ -1501,7 +1508,7 @@ describe('pages/index.vue — W2: a postpone after today\'s measurement sends no
     stubApiWithWaterTask([WATER_TASK_A_MEASURED_TODAY]);
 
     const w = await mountPage();
-    // Already measured today, so the row is back to its classic pair — this is the Posponer under test.
+    // Today's reading already answered, so the row is back to its ordinary pair — the Posponer under test.
     await w.find('.postpone-btn').trigger('click');
     await flushPromises();
 

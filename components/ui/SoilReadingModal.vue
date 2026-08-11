@@ -114,9 +114,19 @@ const api = useApi();
  * In VOLUNTARY mode the same filter would delete a capability the backend preserves on purpose. There the
  * owner is RECORDING a measurement he already took, usually back-dated, and `soil-reading.write-core.ts`
  * says outright: *"A missing calibration yields a NULL wetness — the reading is still RECORDED (it is the
- * owner's data)."* The raw weights are not wasted either: calibrate the pot later and every stored raw
- * reading becomes interpretable, because the anchors are what turn a weight into a fraction, and they
- * apply retroactively. Filtering in both modes (the state commit 338762e shipped) meant a pot whose only
+ * owner's data)."* The raw weights are not wasted either, and the mechanism is worth NAMING rather
+ * than gesturing at. ⚠️ CORRECTED 2026-08-10 (cross-family code review): this paragraph used to say the
+ * anchors "apply retroactively", and that was simply FALSE — normalisation happens once, at write time, and
+ * the only path that reacted to a calibration was the anchors-MOVED one, which cannot fire on a FIRST
+ * calibration, so those rows stayed NULL forever while this comment promised the opposite. What makes the
+ * promise true now: `SoilReadingsService.setCalibration` BACKFILLS on a first calibration — every reading of
+ * that instrument still holding a null wetness, measured on or after the pot's current substrate-basis day,
+ * is normalised through the SAME normaliser the write path uses, in the SAME transaction as the calibration
+ * write, so the pot can never be left calibrated with its history half-filled. VERIFIED, not assumed:
+ * 1500 g against anchors of 2000/1000 g reads exactly 0.5 afterwards (`reading-basis.test.ts` and
+ * `soil-readings.service.test.ts` both pin the NUMBER, not merely "not null"). Why giving a row its FIRST
+ * interpretation is allowed where RE-interpreting one is forbidden — and the one residual this does not
+ * close — is `docs/care-engine.md` §7.20.13. Filtering in both modes (the state commit 338762e shipped) meant a pot whose only
  * instrument was an uncalibrated scale rendered no number field and no date field in voluntary mode — the
  * owner simply could not record his own reading. There is no verdict to protect in that mode: nothing is
  * computed, nothing is recommended, and the row is stored honestly with a null wetness.

@@ -2279,3 +2279,260 @@ describe('the modal loads and edits the reading already on file', () => {
     expect(editNotice(w)).toBe('reading.editingExisting|settings.instruments.name.galvanic-probe');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// EDITING A READING THAT ALREADY CARRIES AN ANSWER RE-COMPUTES THAT ANSWER
+// (owner-ruled 2026-08-11; docs/care-engine.md §7.20.17)
+//
+// THE OWNER'S CASE, VERBATIM IN SHAPE: you type `8` (soaking), the survey defers the watering to the 13th,
+// you realise you meant `3` (dry), you edit the reading — and the deferral must lift.
+//
+// The API half shipped first and was INERT: it retracts a deferral when a reading's stored verdict WAS
+// `POSTPONE` and the restated one is not, but nothing in the app ever sent it a changed verdict. The survey
+// control is withdrawn for the rest of the day once a `POSTPONE` is stored, so the only route back into
+// that reading is the voluntary log — which posted `'NONE'`, the one arm that deliberately changes nothing.
+//
+// ⚠️ EVERY CASE HERE ASSERTS THE REQUEST **BODY**, not merely that a call happened. This file has already
+// shipped one assertion made unfalsifiable by looking at the wrong half of a write (see the `wateringRelation`
+// suite's own header), and the whole ruling lives in one field of that body.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('editing a reading that already answered re-computes its answer', () => {
+  // `mockReset`, not `mockClear` — same harness lesson the wateringRelation suite above states in writing:
+  // an unconsumed `mockResolvedValueOnce` queued by an earlier suite would be handed to the first case here.
+  beforeEach(() => {
+    previewSoilReading.mockReset();
+    recordSoilReading.mockReset();
+    recordSoilReading.mockResolvedValue({ readingId: 'r1' });
+  });
+
+  /** A reading on file for TODAY, on the picker's default instrument, carrying whatever verdict a case
+   *  needs. `rawValue: 7` is what the form prefills, so every case below types a DIFFERENT number and the
+   *  "the value actually changed" guard is genuinely satisfied rather than incidentally. */
+  function readingOnFile(
+    verdict: 'NONE' | 'POSTPONE' | 'WATER_NOW', overrides: Record<string, unknown> = {},
+  ) {
+    return {
+      id: 'on-file', instrumentId: 'galvanic-probe' as const, rawValue: 7, wetness: 0.66,
+      measuredOn: todayYmd(), verdict, wateringRelation: null, ...overrides,
+    };
+  }
+
+  /** Open the VOLUNTARY log over `reading`, correct the number to `value`, and save. */
+  async function correctTo(reading: ReturnType<typeof readingOnFile>, value: number) {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], readings: [reading] }));
+    // The prefill really happened — otherwise "the value changed" could pass for the wrong reason.
+    expect((readingInput(w).element as HTMLInputElement).value).toBe(String(reading.rawValue));
+    await readingInput(w).setValue(value);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+    return { w, body: recordSoilReading.mock.calls.at(-1)?.[1] };
+  }
+
+  // ⚠️ MUTATION THIS PINS (direction: the fix is PRESENT). Delete the `restatesStoredAnswer` branch from
+  // `submit()` — i.e. go back to posting `'NONE'` unconditionally — and this case goes red on the verdict.
+  // It is the owner's own case, end to end.
+  it('re-previews the corrected value and posts the verdict it earns, not NONE', async () => {
+    previewSoilReading.mockResolvedValueOnce(waterNowPreview);
+    const { body } = await correctTo(readingOnFile('POSTPONE'), 3);
+
+    expect(previewSoilReading).toHaveBeenCalledWith('plant-1', {
+      instrumentId: 'galvanic-probe', rawValue: 3,
+    });
+    expect(body).toMatchObject({ instrumentId: 'galvanic-probe', rawValue: 3, verdict: 'WATER_NOW' });
+    expect(body!.verdict).not.toBe('NONE');
+  });
+
+  // ⚠️ THE DAY IS THE ROW'S OWN, AND THIS IS THE OPPOSITE OF WHAT THE SURVEY DOES (fix W3 dates every
+  // SURVEY write by `preview.measuredOn`). An edit targets a row that already exists at `measuredOn`;
+  // stamping it with the preview's plant-local day would, across the midnight gap, CREATE a second reading
+  // at plant-today and leave the row whose deferral is standing untouched — the defect this branch removes,
+  // reintroduced silently. `PLANT_TODAY` is deliberately a date no real "today" equals, so this cannot pass
+  // by the two happening to agree.
+  it('edits the row it loaded — dated the owner\'s day, never the preview\'s', async () => {
+    previewSoilReading.mockResolvedValueOnce(waterNowPreview);
+    const { body } = await correctTo(readingOnFile('POSTPONE'), 3);
+
+    expect(body!.measuredOn).toBe(todayYmd());
+    expect(body!.measuredOn).not.toBe(PLANT_TODAY);
+  });
+
+  // ⚠️ MUTATION THIS PINS: drop `step.value = 'verdict'` from the branch and this goes red while the write
+  // above stays green. Silently re-deriving a verdict would move the owner's watering schedule with nothing
+  // on screen saying so — the same shape of defect as the card that never reached Today.
+  it('SHOWS the owner the verdict it reached, on the survey\'s own verdict step', async () => {
+    previewSoilReading.mockResolvedValueOnce(waterNowPreview);
+    const { w } = await correctTo(readingOnFile('POSTPONE'), 3);
+
+    expect(w.text()).toContain('reading.verdictWaterNowTitle');
+    // …and the measure form is gone, so the verdict is the screen rather than a line under a live form.
+    expect(w.findAll('input[type="number"]')).toHaveLength(0);
+  });
+
+  // The reverse transition, and the arm that actually moves a date. ⚠️ MUTATION THIS PINS: drop the
+  // `postponeToOn` spread and the shared schema refuses the write (a POSTPONE without its date is a 400),
+  // so the field is asserted here rather than inferred from the verdict.
+  it('a restatement that earns a HOLD posts POSTPONE with the preview\'s own date', async () => {
+    previewSoilReading.mockResolvedValueOnce(holdPreview);
+    const { w, body } = await correctTo(readingOnFile('WATER_NOW'), 9);
+
+    expect(body).toMatchObject({ verdict: 'POSTPONE', postponeToOn: '2026-08-20' });
+    expect(w.text()).toContain('reading.verdictHoldTitle');
+  });
+
+  // ---- THE THREE GUARDS. Each of these is the NARROWING direction: they go red the moment the recompute
+  // stops asking one of its four questions, which is what stops this feature from turning every voluntary
+  // log into a verdict nobody asked for. ------------------------------------------------------------------
+
+  // ⚠️ MUTATION THIS PINS (direction: the fix is NOT OVER-BROAD). Drop `verdictIsAnswer(existing.verdict)`
+  // and this goes red: a plain log — a raw weight, a back-dated note, anything that decided nothing — would
+  // start deciding. That is the defect the one-reading-per-day ruling closed, pointed the other way.
+  it('leaves a row that answered NOTHING as a plain log — no preview, no verdict', async () => {
+    const { w, body } = await correctTo(readingOnFile('NONE'), 3);
+
+    expect(previewSoilReading).not.toHaveBeenCalled();
+    expect(body).toMatchObject({ verdict: 'NONE' });
+    expect(body).not.toHaveProperty('postponeToOn');
+    // Voluntary mode's ordinary ending: the modal closes, and no verdict step is reached.
+    expect(w.text()).not.toContain('reading.verdictWaterNowTitle');
+  });
+
+  // …and the same for a pair with nothing on file at all: a FIRST reading is not an edit of anything.
+  it('leaves a first reading alone — there is no stored answer to restate', async () => {
+    const w = mountModal(makeData({ instruments: [galvanicProbe], readings: [] }));
+    await readingInput(w).setValue(3);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    expect(previewSoilReading).not.toHaveBeenCalled();
+    expect(recordSoilReading.mock.calls.at(-1)?.[1]).toMatchObject({ verdict: 'NONE' });
+  });
+
+  // ⚠️ MUTATION THIS PINS: drop `measuredOn === todayYmd()` and this goes red. It is the guard without
+  // which the fix would be worse than the bug — the preview endpoint answers "should I water RIGHT NOW?"
+  // and has no parameter for a past day, so re-previewing a three-day-old value would post the answer it
+  // would have earned TODAY and move a real watering date off a pot that has long since dried.
+  it('refuses to re-derive a verdict for a BACK-DATED reading — the preview only speaks for today',
+    async () => {
+      const backDated = readingOnFile('POSTPONE', { measuredOn: BACK_DATED });
+      const w = mountModal(makeData({ instruments: [galvanicProbe], readings: [backDated] }));
+      await w.find('input[type="date"]').setValue(BACK_DATED);
+      expect((readingInput(w).element as HTMLInputElement).value).toBe('7'); // the row really is loaded
+      await readingInput(w).setValue(3);
+      await findSaveButton(w).trigger('click');
+      await flushPromises();
+
+      expect(previewSoilReading).not.toHaveBeenCalled();
+      expect(recordSoilReading.mock.calls.at(-1)?.[1]).toMatchObject({
+        measuredOn: BACK_DATED, verdict: 'NONE',
+      });
+    });
+
+  // ⚠️ MUTATION THIS PINS: drop `rawValue !== existing.rawValue` and this goes red. Re-posting a POSTPONE
+  // verbatim is NOT a no-op on the API side — `recordFeedbackCore` upserts the single (plant, WATER)
+  // override onto a date measured from TODAY and appends a second POSTPONED care event — so an open-and-save
+  // that changed nothing would shift the watering by a day and write history saying the owner postponed
+  // again. The owner's model is literally "the number changed, so the answer changed".
+  it('decides nothing when the owner opens the edit and saves without changing the number', async () => {
+    const w = mountModal(makeData({
+      instruments: [galvanicProbe], readings: [readingOnFile('POSTPONE')],
+    }));
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('7');
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    expect(previewSoilReading).not.toHaveBeenCalled();
+    expect(recordSoilReading.mock.calls.at(-1)?.[1]).toMatchObject({ rawValue: 7, verdict: 'NONE' });
+  });
+
+  // …and typing a different number and then typing the old one back is genuinely no change.
+  it('treats a value changed and changed back as no change at all', async () => {
+    const w = mountModal(makeData({
+      instruments: [galvanicProbe], readings: [readingOnFile('POSTPONE')],
+    }));
+    await readingInput(w).setValue(3);
+    await readingInput(w).setValue(7);
+    await findSaveButton(w).trigger('click');
+    await flushPromises();
+
+    expect(previewSoilReading).not.toHaveBeenCalled();
+    expect(recordSoilReading.mock.calls.at(-1)?.[1]).toMatchObject({ verdict: 'NONE' });
+  });
+
+  // ---- THE UNAVAILABLE RESTATEMENT: the delegated decision, and it is stated on screen ------------------
+  //
+  // The owner changed a number and no verdict can be derived from the new one. Clearing the stored answer
+  // is not expressible — the API rules that a non-answer never supersedes an answer — so it is PRESERVED,
+  // and the residual (a reading whose number he changed and whose verdict he did not) is said out loud.
+  describe('when no verdict can be derived from the corrected value', () => {
+    it('still saves the correction, as the non-answer NONE — the reading is the owner\'s data', async () => {
+      previewSoilReading.mockResolvedValueOnce(unavailablePreview);
+      const { body } = await correctTo(readingOnFile('POSTPONE'), 3);
+
+      expect(body).toMatchObject({ rawValue: 3, verdict: 'NONE', measuredOn: todayYmd() });
+    });
+
+    // ⚠️ MUTATION THIS PINS: drop the `v-if="verdictRestatedAnswer"` sentence and this goes red. Without it
+    // the owner reads only "we can't turn this into an honest number" and is left to discover from a
+    // schedule that did not move that his previous answer survived his correction.
+    it('says outright that the previous answer — and the schedule it set — still stand', async () => {
+      previewSoilReading.mockResolvedValueOnce(unavailablePreview);
+      const { w } = await correctTo(readingOnFile('POSTPONE'), 3);
+
+      expect(w.text()).toContain('reading.verdictUnavailableReason.NOT_MEASURABLE');
+      expect(w.text()).toContain('reading.answerKeptOnUnavailable');
+    });
+
+    // ⚠️ MUTATION THIS PINS: drop the footer's `v-if="pendingUnavailableReading"` and this goes red. The
+    // survey parks its UNAVAILABLE reading and OFFERS the save; this path has already written, so a second
+    // "Guardar lectura" under the same pinned idempotency key would answer the owner with "this reading was
+    // already recorded" for a save that worked.
+    it('offers no second save — this path wrote first and showed the verdict afterwards', async () => {
+      previewSoilReading.mockResolvedValueOnce(unavailablePreview);
+      const { w } = await correctTo(readingOnFile('POSTPONE'), 3);
+
+      expect(recordSoilReading).toHaveBeenCalledTimes(1);
+      expect(findSaveButton(w)).toBeUndefined();
+      expect(findCloseButton(w)).toBeDefined();
+    });
+
+    // The other direction of the same two mutations: the SURVEY's own UNAVAILABLE is untouched — it still
+    // writes nothing on arrival, still offers the save, and never borrows the edit path's extra sentence.
+    it('leaves the SURVEY\'s own UNAVAILABLE branch exactly as it was', async () => {
+      previewSoilReading.mockResolvedValueOnce(unavailablePreview);
+      const w = mountSurvey(makeData({ instruments: [galvanicProbe] }));
+      await readingInput(w).setValue(3);
+      await findCalculateButton(w).trigger('click');
+      await flushPromises();
+
+      expect(recordSoilReading).not.toHaveBeenCalled();
+      expect(findSaveButton(w)).toBeDefined();
+      expect(w.text()).not.toContain('reading.answerKeptOnUnavailable');
+    });
+  });
+
+  // A verdict step reached by an edit must never survive into the next session — the same rule the survey's
+  // own reset already follows, extended to the flag that chooses the UNAVAILABLE copy.
+  it('resets the restated-answer verdict on close and reopen', async () => {
+    previewSoilReading.mockResolvedValueOnce(unavailablePreview);
+    const { w } = await correctTo(readingOnFile('POSTPONE'), 3);
+    expect(w.text()).toContain('reading.answerKeptOnUnavailable');
+
+    await w.setProps({ open: false });
+    await w.setProps({ open: true });
+
+    expect(w.text()).not.toContain('reading.answerKeptOnUnavailable');
+    expect(w.text()).not.toContain('reading.verdictUnavailableReason');
+    expect(w.findAll('input[type="number"]')).toHaveLength(1); // back on the measure step
+  });
+
+  // A failed preview writes nothing and leaves the owner on the form — the same guarantee the survey has,
+  // and it matters more here, because the form holds a correction he has not saved yet.
+  it('a failed preview writes nothing and keeps the correction on screen', async () => {
+    previewSoilReading.mockRejectedValueOnce(proxiedError(500, 'upstream exploded'));
+    const { w } = await correctTo(readingOnFile('POSTPONE'), 3);
+
+    expect(recordSoilReading).not.toHaveBeenCalled();
+    expect(w.text()).toContain('reading.saveFailed');
+    expect((readingInput(w).element as HTMLInputElement).value).toBe('3');
+  });
+});

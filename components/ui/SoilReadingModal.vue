@@ -27,8 +27,14 @@
 //                 across the midnight gap (finding W3; the full reasoning sits at that assignment).
 //   `voluntary` — a back-dated reading taken earlier. `measuredOn` stays editable (capped at today), the
 //                 watering-relation question is asked exactly as before (owner-ruled 2026-08-08, no
-//                 pre-selection — see below), and the reading is recorded with `verdict: 'NONE'`. No
-//                 verdict step: this mode never calls the preview endpoint at all.
+//                 pre-selection — see below), and the reading is recorded with `verdict: 'NONE'`.
+//                 ⚠️ WITH ONE EXCEPTION, ADDED 2026-08-11: EDITING A READING THAT ALREADY CARRIES AN ANSWER
+//                 RE-COMPUTES THAT ANSWER (owner-ruled; docs/care-engine.md §7.20.17). See
+//                 `restatesStoredAnswer` for the full rule and its three guards. In that one case — and
+//                 only there — this mode DOES call the preview endpoint, posts the verdict the corrected
+//                 value actually earns, and shows the owner that verdict on the same verdict step the
+//                 survey uses. Everywhere else voluntary mode still posts `'NONE'`, decides nothing, moves
+//                 no schedule, and never reaches the verdict step.
 //
 // ⚠️ WHY THE SURVEY NEVER ASKS THE WATERING-RELATION QUESTION (owner-ruled 2026-08-10). That question exists
 // because a reading taken on a day the plant was ALSO watered is ambiguous about which side of the watering
@@ -84,6 +90,11 @@ import type { InstrumentId } from '@retaxmaster/my-plants-species-schema/soil-in
 import type { PlantSoilReadings, SoilReadingPreview, WateringRelation } from '~/types/api';
 import { toNullableNumber } from '~/utils/nullableNumber';
 import { todayYmd, ymdToLocalDate } from '~/utils/localDate';
+// The WATER survey's shared rules. `verdictIsAnswer` is the web's half of the API's own definition of what
+// counts as an answer (read its comment before writing any `!== 'NONE'` here); `storedVerdictFor` is the
+// ONE translation from a preview's recommendation into the verdict a reading row stores, used by BOTH the
+// survey's branches below and the voluntary edit that re-derives one.
+import { storedVerdictFor, verdictIsAnswer } from '~/utils/waterSurvey';
 // The ONE module that knows the Nuxt BFF's error envelope. Read its header before touching the catch
 // blocks below: the envelope carries no `message` of its own, so a hand-rolled `e.data.message` read here
 // does not merely duplicate this module — it silently never matches, on every proxied failure.
@@ -171,6 +182,12 @@ const step = ref<'measure' | 'verdict'>('measure');
 // The survey's own answer, once it has one. Drives the verdict step's copy; `null` until `submit()` sets
 // it (or on any reopen — see the `watch(open, …)` reset below).
 const previewResult = ref<SoilReadingPreview | null>(null);
+// Did the verdict currently on screen come from RESTATING a stored answer (the voluntary edit path,
+// `restatesStoredAnswer`) rather than from a survey? Only the copy differs — the UNAVAILABLE arm has one
+// extra sentence to say there, because that is the one arm where the owner's correction was saved and his
+// PREVIOUS answer nonetheless survives it (see `reading.answerKeptOnUnavailable`). Reset on every open with
+// `previewResult` itself: a stale flag would attach that sentence to a fresh survey's own UNAVAILABLE.
+const verdictRestatedAnswer = ref(false);
 // UNAVAILABLE only (owner ruling, 2026-08-09): the reading `saveUnavailableReading()` will write if — and
 // only if — the owner presses "Guardar lectura". Captured at the moment the verdict is reached (not read
 // live off `instrumentId`/`rawValue`/`measuredOn` at save time) so the write can never pick up a value that
@@ -227,6 +244,7 @@ watch(open, (isOpen) => {
   rawValue.value = null;
   step.value = 'measure';
   previewResult.value = null;
+  verdictRestatedAnswer.value = false;
   pendingUnavailableReading.value = null;
   measuredOn.value = todayYmd();
   wateringRelation.value = '';
@@ -573,6 +591,71 @@ const existingReading = computed(() =>
     (r) => r.instrumentId === instrumentId.value && r.measuredOn === measuredOn.value,
   ) ?? null);
 
+/**
+ * EDITING A READING THAT ALREADY CARRIES AN ANSWER RE-COMPUTES THAT ANSWER (owner-ruled 2026-08-11;
+ * docs/care-engine.md §7.20.17). The owner's model, in one line: **the number changed, so the answer
+ * changed.**
+ *
+ * HIS CASE, VERBATIM IN SHAPE. You type `8` (soaking), the survey answers *don't water yet*, the watering
+ * is deferred to the 13th. You realise you meant `3` (dry) and correct the reading — and until this rule the
+ * deferral stood: the row now said the pot was dry and the plant was still pushed nine days out.
+ *
+ * ⚠️ THE API HALF OF THIS RULING SHIPPED FIRST AND WAS INERT WITHOUT THIS. `recordSoilReadingCore` retracts
+ * a postponement when a reading's stored verdict WAS `POSTPONE` and the restated one is not — but nothing in
+ * the app ever sent it a changed verdict. `todaysVerdictClosesSurvey('POSTPONE')` withdraws the survey
+ * control for the rest of the day (correctly — the question has been answered and acted on), so the only
+ * route back into an already-postponed reading is this voluntary log, and this log posted `'NONE'`
+ * unconditionally: the one arm the API deliberately treats as "nothing changed". The ruling never reached
+ * the owner. This computed is the missing half.
+ *
+ * FOUR CONDITIONS, AND EVERY ONE OF THEM IS LOAD-BEARING:
+ *
+ *  • `mode === 'voluntary'` — the survey previews unconditionally; it needs no permission from here.
+ *
+ *  • THE ROW ALREADY CARRIES AN ANSWER (`verdictIsAnswer`, the web's half of the API's own definition —
+ *    never a hand-rolled `!== 'NONE'` here, see that function). A fresh log, a different instrument, or a
+ *    row whose stored verdict is `'NONE'` all stay exactly as they were: `'NONE'` in, nothing decided,
+ *    nothing moved. That narrowness is deliberate rather than caution — a voluntary log is the owner
+ *    RECORDING something, and turning every recording into a verdict would re-open the very defect the
+ *    2026-08-11 one-reading-per-day ruling closed, where storing a measurement silently answered a question
+ *    nobody had asked.
+ *
+ *  • THE READING IS DATED TODAY. ⚠️ THIS IS THE GUARD WITHOUT WHICH THE FIX WOULD BE WORSE THAN THE BUG.
+ *    `POST .../soil-readings/preview` takes only an instrument and a raw value and answers *"should I water
+ *    this pot RIGHT NOW?"* — it has no parameter for a past day and could not honour one, because the
+ *    verdict is a comparison against a drying curve evaluated at today. Re-previewing a five-day-old
+ *    reading would take a value the pot has long since dried past and post the answer it would have earned
+ *    today: a plausible wrong number inside a legal range, moving a real watering date, which is precisely
+ *    the failure class this whole feature exists to delete. So a back-dated correction still saves the
+ *    number and still decides nothing.
+ *
+ *  • THE VALUE ACTUALLY CHANGED. Opening the edit and pressing Save without touching anything must not
+ *    recompute: with the same value the preview earns the same verdict, and re-posting a `POSTPONE`
+ *    verbatim is NOT a no-op on the API side — `recordFeedbackCore` upserts the single (plant, WATER)
+ *    override onto a date measured from TODAY and appends a second `POSTPONED` care event. So a save that
+ *    changed nothing would silently shift the watering by a day and leave a history row saying the owner
+ *    postponed again. Comparing against the STORED value (never against what the form was prefilled with)
+ *    also means a value typed, changed and changed back is correctly no change at all.
+ *
+ * ⚠️ THE ONE RESIDUAL, NAMED RATHER THAN CLOSED: the plant-city midnight gap. "Today" here can only be the
+ * BROWSER's day, while the preview answers for the PLANT's — so in that window the verdict is judged on the
+ * plant's today while the row being edited is dated the plant's yesterday. The write still targets
+ * `measuredOn` (the row the form loaded), never `preview.measuredOn`, because writing the preview's day
+ * would CREATE a second reading at plant-today and leave the wrong row — and its standing deferral —
+ * untouched, which is the defect this rule exists to remove. What the gap costs is bounded: the value is at
+ * most one day stale and it is that row's own most recent statement, so the recompute stays coherent. It is
+ * the same gap `existingReading` above already names for the prefill.
+ */
+const restatesStoredAnswer = computed(() => {
+  const existing = existingReading.value;
+  return props.mode === 'voluntary'
+    && existing != null
+    && verdictIsAnswer(existing.verdict)
+    && measuredOn.value === todayYmd()
+    && rawValue.value != null
+    && rawValue.value !== existing.rawValue;
+});
+
 /** The id of the reading whose STORED values are currently sitting in the form, or `null` when the form
  *  holds nothing but the owner's own typing. It is what lets `loadExistingIntoForm` tell those two apart —
  *  see its own comment for why the distinction has to be tracked rather than inferred. */
@@ -856,7 +939,11 @@ async function submit() {
           instrumentId: chosenInstrumentId,
           rawValue: chosenRawValue,
           measuredOn: verdictMeasuredOn,
-          verdict: 'POSTPONE',
+          // `'POSTPONE'` — resolved through the ONE recommendation→verdict mapping (`storedVerdictFor`)
+          // rather than written as a literal here, because this modal now has a SECOND caller for it: the
+          // voluntary edit that re-derives a verdict for a corrected reading. The mapping has already moved
+          // once under its callers (WATER_NOW was stored as `'NONE'` until 2026-08-11).
+          verdict: storedVerdictFor(preview.recommendation),
           ...(preview.suggestedPostponeToOn ? { postponeToOn: preview.suggestedPostponeToOn } : {}),
           // NO `wateringRelation` — see the file header. A survey reading is taken NOW, so a watering
           // already recorded for today necessarily precedes it, and the API derives that itself.
@@ -905,7 +992,9 @@ async function submit() {
           instrumentId: chosenInstrumentId,
           rawValue: chosenRawValue,
           measuredOn: verdictMeasuredOn,
-          verdict: 'WATER_NOW',
+          // `'WATER_NOW'` — through the shared `storedVerdictFor` mapping, for the reason its sibling in
+          // the HOLD branch above states: this translation now has two callers in this file.
+          verdict: storedVerdictFor(preview.recommendation),
           // NO `wateringRelation` — and the history of this ONE spread is worth keeping, because it has now
           // been argued both ways and each argument was correct at the time.
           //
@@ -930,10 +1019,62 @@ async function submit() {
         emit('saved');
       }
       step.value = 'verdict';
+    } else if (restatesStoredAnswer.value) {
+      // ---- THE EDIT THAT RE-COMPUTES ITS OWN ANSWER (owner-ruled 2026-08-11; docs/care-engine.md
+      // §7.20.17). Read `restatesStoredAnswer` above for the rule and all four of its guards.
+      //
+      // The corrected value is re-put to the SAME read-only preview endpoint the survey uses, and the
+      // verdict it earns is what gets posted — which is the whole point: the API retracts the deferral a
+      // reading authored only when that reading's stored verdict WAS `POSTPONE` and the restated one is
+      // not, and nothing in the app had ever sent it a changed verdict.
+      const preview = await api.previewSoilReading(props.plantId, {
+        instrumentId: chosenInstrumentId,
+        rawValue: chosenRawValue,
+      });
+      previewResult.value = preview;
+      // ⚠️ ONE MAPPING, SHARED WITH THE SURVEY'S OWN BRANCHES ABOVE (`storedVerdictFor`). This translation
+      // has already moved once under its callers — a `WATER_NOW` recommendation was stored as `'NONE'`
+      // until 2026-08-11 — so a second copy written here is a copy that can be silently wrong while
+      // looking right.
+      const verdict = storedVerdictFor(preview.recommendation);
+      await api.recordSoilReading(props.plantId, {
+        instrumentId: chosenInstrumentId,
+        rawValue: chosenRawValue,
+        // ⚠️ THE ROW'S OWN DAY, NEVER `preview.measuredOn` — the opposite of what the survey does, and for
+        // a reason that only exists here. The survey is writing a reading it is taking NOW, so the
+        // plant-local day the verdict was computed for IS the right stamp. This is an EDIT of a row that
+        // already exists at `measuredOn`; stamping it with the preview's day would, across the midnight
+        // gap, create a SECOND reading at plant-today and leave the row whose deferral is standing exactly
+        // as it was — the defect this whole branch exists to remove, reintroduced silently.
+        measuredOn: measuredOn.value,
+        verdict,
+        // A `POSTPONE` without its date is refused by the shared schema, so it travels the same way the
+        // survey's own HOLD branch sends it.
+        ...(verdict === 'POSTPONE' && preview.suggestedPostponeToOn
+          ? { postponeToOn: preview.suggestedPostponeToOn }
+          : {}),
+        // Unchanged from the ordinary voluntary write below: sent ONLY when the question was actually
+        // asked, which `canSubmit` already guarantees was then answered.
+        ...(showWateringRelation.value ? { wateringRelation: wateringRelation.value as WateringRelation } : {}),
+      }, idempotencyKey.value);
+      // ⚠️ THE VERDICT IS SHOWN, AND THAT IS NOT DECORATION. Re-deriving a verdict silently would move the
+      // owner's watering schedule with nothing on screen saying so — the same shape of defect as the card
+      // that never left Today. The survey's own verdict step is REUSED rather than a second one built:
+      // WATER_NOW keeps its Hecho | Posponer pair (he has just been told to water; making him hunt the row
+      // for the buttons is the dead end QA filed in 2026-08-10), HOLD keeps Close alone (it applied its own
+      // postpone), and UNAVAILABLE renders Close alone here because there is nothing left to save — the
+      // reading is already written. See the footer's own `v-if="pendingUnavailableReading"`.
+      verdictRestatedAnswer.value = true;
+      step.value = 'verdict';
+      // Same seam and same timing as the survey's own writes: the page's refresh runs in the background
+      // while the owner is still reading the verdict.
+      emit('saved');
     } else {
       // Voluntary: always `verdict: 'NONE'` — this mode never asks "what are you doing about it", it only
       // records the reading. No verdict step follows a successful save; the modal closes exactly like the
-      // pre-redesign NONE-verdict path did.
+      // pre-redesign NONE-verdict path did. (The ONE exception is the branch directly above — an edit of a
+      // reading that already carried an answer. It is narrow on purpose; widening it would make storing a
+      // measurement answer a question nobody asked.)
       await api.recordSoilReading(props.plantId, {
         instrumentId: chosenInstrumentId,
         rawValue: chosenRawValue,
@@ -1054,7 +1195,10 @@ async function saveUnavailableReading() {
       // measurement, and it is the only survey write where that is true; the API derives which side of
       // the day's watering the reading sits on from THIS instant instead of from its own write time.
       measurementTakenAt: pending.measurementTakenAt,
-      verdict: 'NONE',
+      // `'NONE'` — an UNAVAILABLE preview answered nothing, so the reading decides nothing. Resolved
+      // through the same shared mapping the other three write sites use, so all four move together if the
+      // translation ever moves again.
+      verdict: storedVerdictFor('UNAVAILABLE'),
       // No `wateringRelation`: the pending record no longer carries one (see where it is built) — the
       // survey does not ask, and the API derives the relation for a today-dated reading itself.
     }, idempotencyKey.value);
@@ -1322,6 +1466,22 @@ const holdDateLabel = computed(() => {
         <p class="mp-reading__verdict-body">
           {{ t(`reading.verdictUnavailableReason.${previewResult.unavailableReason}`) }}
         </p>
+        <!-- ⚠️ THE EDIT PATH'S EXTRA SENTENCE, AND IT IS THE HONEST HALF OF A DECISION, NOT A FLOURISH
+             (owner-ruled 2026-08-11; docs/care-engine.md §7.20.17). The owner corrected a reading that
+             carried an answer, and no verdict could be derived from the new value. The two available
+             treatments are: PRESERVE the stored answer, or CLEAR it. Clearing is not even expressible —
+             §7.20.15 rules that a non-answer never supersedes an answer, so the API refuses it by design,
+             and inventing a way round that would be the app deciding something it had just failed to
+             compute. So the answer is preserved, which leaves the owner holding a reading whose number he
+             changed and whose verdict he did not. That residual is stated on screen rather than left for
+             him to discover from a schedule that did not move.
+             ⚠️ IT DELIBERATELY DOES NOT NAME WHAT THE PREVIOUS ANSWER WAS, nor claim anything was lifted:
+             this client cannot know whether the standing deferral is the one that reading authored (the
+             API's retraction is guarded on exactly that), and a sentence that guessed would be the same
+             class of lie as the badges this feature already deleted. -->
+        <p v-if="verdictRestatedAnswer" class="mp-reading__verdict-body">
+          {{ t('reading.answerKeptOnUnavailable') }}
+        </p>
       </template>
       <Alert v-if="error" color="red" :description="error" announce />
     </template>
@@ -1363,9 +1523,21 @@ const holdDateLabel = computed(() => {
         <Button variant="ghost" @click="actOnVerdict('water-postpone')">{{ t('common.postpone') }}</Button>
         <Button @click="actOnVerdict('water-done')">{{ t('common.done') }}</Button>
       </template>
+      <!-- ⚠️ THE SAVE IS OFFERED ONLY WHEN THERE IS SOMETHING PENDING TO SAVE, and that condition is the
+           honest one rather than a mode check. The SURVEY's UNAVAILABLE branch deliberately writes nothing
+           on arrival and parks the reading in `pendingUnavailableReading`, so its footer offers the save.
+           The voluntary EDIT that re-derived an UNAVAILABLE verdict has ALREADY written — that path saves
+           first and shows the verdict afterwards, because the owner's correction is his data and is kept
+           whatever the preview could or could not conclude — so there is nothing pending, and a "Guardar
+           lectura" button there would write the identical reading a second time under the same idempotency
+           key, i.e. answer him with "this reading was already recorded". -->
       <template v-else-if="previewResult?.recommendation === 'UNAVAILABLE'">
         <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>
-        <Button :loading="submitting" @click="saveUnavailableReading">{{ t('reading.save') }}</Button>
+        <Button
+          v-if="pendingUnavailableReading"
+          :loading="submitting"
+          @click="saveUnavailableReading"
+        >{{ t('reading.save') }}</Button>
       </template>
       <template v-else>
         <Button variant="ghost" @click="open = false">{{ t('common.close') }}</Button>

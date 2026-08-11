@@ -6,6 +6,8 @@
 // Neither function touches Vue, the API, or i18n: they take the three facts the caller already holds and
 // return a decision, so a test can pin the RULE without mounting a page.
 import type { WaterPostponeReason } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
+import type { Recommendation } from '@retaxmaster/my-plants-species-schema/watering-verdict-constants';
+import type { ReadingVerdict } from '@retaxmaster/my-plants-species-schema';
 import type { TaskCode } from './tasks.js';
 
 /**
@@ -26,6 +28,67 @@ export const SURVEYED_POSTPONE_REASON = 'no-time' satisfies WaterPostponeReason;
  * the raw value.
  */
 export type TodaysVerdict = 'WATER_NOW' | 'POSTPONE' | 'NONE' | null;
+
+/**
+ * DID THIS READING ANSWER THE DAY'S WATERING QUESTION? `'NONE'` is the ABSENCE of an answer, never one of
+ * them — the voluntary "Agregar lectura" writes it, and so does a survey whose raw value no calibration
+ * could interpret.
+ *
+ * ⚠️ THIS IS THE WEB'S HALF OF A DEFINITION THE API ALREADY OWNS, AND THE TWO MUST NOT DRIFT. The API's
+ * `verdictIsAnswer` (`my-plants-api/src/soil-readings/todays-reading.ts`) is the definition: it decides
+ * which of a day's readings speaks for that day AND — since 2026-08-11 — it is the rule that stops a
+ * voluntary edit (`verdict: 'NONE'`) from erasing an answer a survey already stored on that same row
+ * (docs/care-engine.md §7.20.15). The web now needs the SAME question, because the edit dialog has to know
+ * whether the row it is about to replace carries an answer worth restating (§7.20.17). Writing a second,
+ * hand-rolled `!== 'NONE'` at the call site is precisely how the two halves would come to disagree about
+ * what an answer is — this project's named highest-yield bug class — so the predicate is stated once, here,
+ * beside the survey's other shared rules.
+ *
+ * ⚠️ IT IS NOT `todaysVerdictClosesSurvey` WITH THE NULL ARM REMOVED, however identical the two look on
+ * today's three verdicts. That one answers *"should the survey control be withdrawn?"*; this one answers
+ * *"did this reading decide anything?"*. They agree by coincidence, not by construction — a future verdict
+ * could easily be an answer that nonetheless leaves the survey on offer — and collapsing them would make
+ * one function silently responsible for two rulings.
+ *
+ * DERIVED FROM THE ONE VERDICT THAT MEANS "NOTHING DECIDED", exactly as the API derives it, so a future
+ * fourth verdict is an ANSWER by default. That is the safe direction: a new answer that is ignored is a
+ * silent regression, a new non-answer that is honoured is visible the first time it is used.
+ */
+export function verdictIsAnswer(verdict: ReadingVerdict): boolean {
+  return verdict !== 'NONE';
+}
+
+/**
+ * WHAT A PREVIEW'S RECOMMENDATION IS STORED AS — the ONE translation from the read-only verdict endpoint's
+ * vocabulary (`WATER_NOW` / `HOLD` / `UNAVAILABLE`) into the reading row's own (`WATER_NOW` / `POSTPONE` /
+ * `'NONE'`).
+ *
+ * ⚠️ IT EXISTS BECAUSE THIS MAPPING NOW HAS MORE THAN ONE CALLER, and it has already changed once under
+ * them. Until 2026-08-11 a `WATER_NOW` recommendation was stored as `'NONE'` — a workaround for an API that
+ * turned a stored `'WATER_NOW'` into a WATER **DONE** care event, i.e. a watering the owner had not
+ * performed. When the API's care-event write was narrowed to `'POSTPONE'` only, this mapping moved. A
+ * second copy of it, in the edit path that re-derives a verdict for a corrected reading, would be a copy
+ * that can be silently wrong while looking right.
+ *
+ * An exhaustive `switch` rather than a lookup object, so a fourth recommendation is a COMPILE error here
+ * instead of an `undefined` verdict travelling to the API.
+ */
+export function storedVerdictFor(recommendation: Recommendation): ReadingVerdict {
+  switch (recommendation) {
+    case 'WATER_NOW':
+      // "Water it now." Advice, never an act — the API records no watering for it (that ruling is what
+      // made storing the honest verdict safe at all).
+      return 'WATER_NOW';
+    case 'HOLD':
+      // "Don't water yet." The one verdict that moves the schedule: it is stored as `POSTPONE` and must
+      // travel with the preview's own `suggestedPostponeToOn`, or the shared schema refuses the write.
+      return 'POSTPONE';
+    case 'UNAVAILABLE':
+      // No honest fraction exists, so no question was answered. The reading is still the owner's data and
+      // is still stored — it simply decides nothing, which is exactly what `'NONE'` means.
+      return 'NONE';
+  }
+}
 
 /**
  * ⚠️ THE ONE PLACE THE VERDICT DECIDES WHETHER THE SURVEY CONTROL STAYS ON OFFER.

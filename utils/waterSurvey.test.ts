@@ -4,7 +4,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   canOfferWaterSurvey, effectiveTaskStatus, postponeReasonWithoutAsking, todaysVerdictClosesSurvey,
-  NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, type TodaysVerdict,
+  NONE_VERDICT_CLOSES_SURVEY, SURVEYED_POSTPONE_REASON, storedVerdictFor, verdictIsAnswer,
+  type TodaysVerdict,
 } from './waterSurvey.js';
 import { WATER_POSTPONE_REASONS } from '@retaxmaster/my-plants-species-schema/feedback-reason-constants';
 
@@ -218,5 +219,48 @@ describe('effectiveTaskStatus', () => {
     expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'today', true)).toBe('today');
     expect(effectiveTaskStatus('WATER', 'WATER_NOW', 'overdue', true)).toBe('overdue');
     expect(effectiveTaskStatus('WATER', null, 'overdue', true)).toBe('overdue');
+  });
+});
+
+// ---- EDITING A READING RE-COMPUTES ITS ANSWER — the two rules the edit path leans on (owner-ruled
+// 2026-08-11; docs/care-engine.md §7.20.17) ---------------------------------------------------------------
+describe('verdictIsAnswer', () => {
+  // ⚠️ THE WEB'S HALF OF A DEFINITION THE API OWNS. `my-plants-api/src/soil-readings/todays-reading.ts`'s
+  // own `verdictIsAnswer` is the definition — it decides which of a day's readings speaks for that day, and
+  // it is the rule that stops a voluntary edit from erasing an answer a survey stored. These three cases
+  // are the same three the API's `todays-reading.test.ts` pins, so a divergence is a red suite on one side.
+  it('counts a real decision as an answer', () => {
+    expect(verdictIsAnswer('WATER_NOW')).toBe(true);
+    expect(verdictIsAnswer('POSTPONE')).toBe(true);
+  });
+
+  // ⚠️ MUTATION THIS PINS, BOTH DIRECTIONS: `return true` turns this case red (every voluntary log would
+  // start recomputing a verdict nobody asked for); `return false` turns the case above red (a corrected
+  // reading would go on posting `'NONE'` and the owner's deferral would stand, which is the live defect).
+  it('counts "nothing decided" as the ABSENCE of an answer, never one of them', () => {
+    expect(verdictIsAnswer('NONE')).toBe(false);
+  });
+});
+
+describe('storedVerdictFor', () => {
+  // The mapping the survey and the voluntary edit now SHARE. It has already moved once under its callers:
+  // a WATER_NOW recommendation was stored as `'NONE'` until 2026-08-11, because a stored `'WATER_NOW'` made
+  // the API fabricate a watering. Pinning all three arms is what makes a second move visible.
+  it('stores a WATER_NOW recommendation as the verdict it actually reached', () => {
+    expect(storedVerdictFor('WATER_NOW')).toBe('WATER_NOW');
+  });
+
+  // ⚠️ THE ONE ARM THAT MOVES A SCHEDULE. `HOLD` is the recommendation; `POSTPONE` is the stored verdict,
+  // and it is the value the API's retraction rule is keyed on ("the row used to say POSTPONE and no longer
+  // does"). Mutating this arm to `'NONE'` makes the edit path decide nothing and the deferral stand — the
+  // defect §7.20.17 exists to remove; mutating it to `'WATER_NOW'` inverts a hold into its opposite.
+  it('stores a HOLD recommendation as POSTPONE', () => {
+    expect(storedVerdictFor('HOLD')).toBe('POSTPONE');
+  });
+
+  // No honest fraction exists, so nothing was decided. Mutating this arm to either answer would make an
+  // uninterpretable reading silently supersede the answer already on the row.
+  it('stores an UNAVAILABLE recommendation as the non-answer NONE', () => {
+    expect(storedVerdictFor('UNAVAILABLE')).toBe('NONE');
   });
 });

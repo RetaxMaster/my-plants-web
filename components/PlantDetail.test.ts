@@ -1951,9 +1951,12 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
       const base = (globalThis as unknown as { useApi: () => Record<string, unknown> }).useApi();
       // `sendFeedback` is absent from the shared stub (no test in it marks a task done), and without it
       // `sendDone` would throw before ever reaching its refresh batch — which would make this test pass
-      // for the wrong reason if it asserted the negative.
+      // for the wrong reason if it asserted the negative. Task 10: the resolved value now has to be a
+      // genuine `CareWriteResult` (an `outcome` is never optional on the wire) — an empty `{}` made
+      // `recordOutcome` throw on `result.outcome.status` before `sendDone` ever reached its refresh batch.
       vi.stubGlobal('useApi', () => ({
-        ...base, getPlantCare: async () => care, sendFeedback: vi.fn(async () => ({})),
+        ...base, getPlantCare: async () => care,
+        sendFeedback: vi.fn(async () => ({ ok: true, outcome: { status: 'applied' } } as CareWriteResult)),
       }));
     }
     const PlantDetail = (await import('./PlantDetail.vue')).default;
@@ -2074,6 +2077,10 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     selected: string[],
     todaysVerdict: TodaysVerdict = null,
     watering: { wateredToday?: boolean; promptAnswered?: boolean } = {},
+    // Task 10: an optional overlay on the `useApi` stub, so a case can control what `sendFeedback`
+    // resolves with and assert the row renders the outcome the server actually sent — every OTHER case in
+    // this block relies on the implicit default (no `sendFeedback` stub at all) unchanged.
+    apiOverrides: Record<string, unknown> = {},
   ) {
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => basePlant(),
@@ -2089,6 +2096,37 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
       }),
       getOwnerInstruments: async () => ({ available: [], selected }),
       invalidatePlant: vi.fn(),
+      ...apiOverrides,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: localStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  // Task 10's own fixture — a fixture this file does not have yet. FERTILIZE is the only task whose outcome
+  // note SPLITS by submit path (`careOutcomeNoteKey`'s own FERTILIZE branch), so proving the plant page picks
+  // the right half of that split needs a row `waterCare` (WATER-only) cannot produce.
+  async function mountFertilize(apiOverrides: Record<string, unknown> = {}) {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => basePlant(),
+      getPlantCare: async () => ({
+        plantId: 'p1',
+        tasks: [{ task: 'FERTILIZE', status: 'today', daysUntilDue: 0, nextDueOn: todayYmd(), pendingEvaluation: null }],
+      }),
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({
+        acquiredOn: '2020-01-01', instruments: [], protocol: null, readings: [], wateringDays: [],
+      }),
+      getOwnerInstruments: async () => ({ available: [], selected: [] }),
+      invalidatePlant: vi.fn(),
+      ...apiOverrides,
     }));
     const PlantDetail = (await import('./PlantDetail.vue')).default;
     const w = mount(
@@ -2361,6 +2399,90 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     const modal = w.findComponent({ name: 'UiSoilReadingModal' });
     expect(modal.attributes('data-open')).toBe('true');
     expect(modal.props('mode')).toBe('survey');
+  });
+
+  // Task 10: the row states the one-per-day outcome it actually got back, on both submit paths, and the
+  // note lives beside the box — never in place of it (the owner's typed date is what he pressed Hecho with).
+  it('states the outcome on the row when the day already carried the event, and does NOT reset the box', async () => {
+    const w = await mountWater([], null, {}, {
+      sendFeedback: async () => ({
+        ok: true,
+        outcome: {
+          status: 'already-recorded-on-day', task: 'WATER', occurredOn: '2026-08-12',
+          otherEffectsApplied: false,
+        },
+      }),
+    });
+    const row = taskRowFor(w, 'WATER');
+    await row.find('input[type="date"]').setValue('2026-08-12');
+    await doneButtons(row)[0]!.trigger('click');
+    await flushPromises();
+    expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').text())
+      .toBe(i18n.t('tasks.alreadyRecorded.neutral'));
+    expect((taskRowFor(w, 'WATER').find('input[type="date"]').element as HTMLInputElement).value)
+      .toBe('2026-08-12');
+  });
+
+  it('gives a back-dated FERTILIZE the FACTUAL sentence, never the imperative one', async () => {
+    const w = await mountFertilize({
+      sendFeedback: async () => ({
+        ok: true,
+        outcome: {
+          status: 'already-recorded-on-day', task: 'FERTILIZE', occurredOn: '2026-08-12',
+          otherEffectsApplied: false,
+        },
+      }),
+    });
+    const row = taskRowFor(w, 'FERTILIZE');
+    await row.find('input[type="date"]').setValue('2026-08-12');
+    await doneButtons(row)[0]!.trigger('click');
+    await flushPromises();
+    const note = taskRowFor(w, 'FERTILIZE').find('.mp-taskrow__outcome-note').text();
+    expect(note).toBe(i18n.t('tasks.alreadyRecorded.fertilizeBackDated'));
+    expect(note).not.toBe(i18n.t('tasks.alreadyRecorded.fertilizeSameDay'));
+  });
+
+  it('says nothing and CLEARS the box when the submit was applied', async () => {
+    const w = await mountWater([], null, {}, {
+      sendFeedback: async () => ({ ok: true, outcome: { status: 'applied' } }),
+    });
+    const row = taskRowFor(w, 'WATER');
+    await row.find('input[type="date"]').setValue('2026-08-12');
+    await doneButtons(row)[0]!.trigger('click');
+    await flushPromises();
+    expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').exists()).toBe(false);
+    expect((taskRowFor(w, 'WATER').find('input[type="date"]').element as HTMLInputElement).value).toBe('');
+  });
+
+  // Task 10, the rolling-deploy half of the contract Task 8 already honours in its own unit case
+  // (`careOutcomeNoteKey(undefined, 'same-day') === null` — "say nothing about a fact the server did not
+  // state"). An API that predates the outcome answers `{ ok: true }` and nothing else, so the call site
+  // must honour the same absence: reading `.status` off it throws INSIDE `sendDone`, before its refresh
+  // batch, and the row then never reconciles — a dead button over a write the server actually performed.
+  // Asserted on the REFRESH, not on the missing note: the note is absent either way, so only the refresh
+  // tells a survived press apart from a thrown one. `pages/index.test.ts` pins the twin — parallel copies.
+  describe('an outcome-less response (an older API mid rolling deploy)', () => {
+    afterEach(() => {
+      vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+        data: ref(await fn()),
+        refresh: vi.fn(async () => {}),
+      }));
+    });
+
+    it('says nothing and still reconciles the row', async () => {
+      const careRefresh = vi.fn(async () => {});
+      vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => ({
+        data: ref(await fn()),
+        refresh: key.startsWith('care-') ? careRefresh : vi.fn(async () => {}),
+      }));
+      const w = await mountWater([], null, {}, { sendFeedback: async () => ({ ok: true }) });
+      const row = taskRowFor(w, 'WATER');
+      await row.find('input[type="date"]').setValue('2026-08-12');
+      await doneButtons(row)[0]!.trigger('click');
+      await flushPromises();
+      expect(careRefresh).toHaveBeenCalled();
+      expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').exists()).toBe(false);
+    });
   });
 });
 

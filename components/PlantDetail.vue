@@ -9,6 +9,9 @@
 // not this hook. Nuxt's auto-import skips an already-imported name, so there is no duplicate in the build.
 import { onUnmounted } from 'vue';
 import { orderTasksForCard, type TaskCode, type DueState } from '../utils/tasks.js';
+// Task 10 — the one-per-day outcome sentence, decided ONCE and shared with pages/index.vue (Task 8's own
+// rule): never a second, per-renderer copy of "which sentence does this outcome earn".
+import { careOutcomeNoteKey, doneSubmitPath } from '../utils/careOutcome.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 import { repotExplanation } from '../utils/repotExplanation.js';
@@ -30,6 +33,7 @@ import {
 } from '../composables/useRepotAttempt';
 import type {
   RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload, PlantSoilReadings,
+  CareWriteResult,
 } from '../types/api.js';
 
 const props = defineProps<{ id: string }>();
@@ -829,6 +833,33 @@ const meter = computed(() => {
 
 const today = () => todayYmd();
 
+// Task 10 — the one-per-day outcome, per task (spec §3.2, consumer 1). Two plain records rather than one
+// object of pairs, because they have different lifetimes: the NOTE is cleared by the next submit of that
+// task, the COUNTER only ever rises. Keyed by task because the rows are keyed by task.
+const outcomeNotes = ref<Partial<Record<TaskCode, string | null>>>({});
+const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
+
+// ⚠️ THE RESET IS KEYED TO AN *APPLIED* OUTCOME AND NOTHING ELSE (spec §2.4/§3.2). Bumping the counter on
+// an "already recorded on that day" result would clear the owner's typed date over a submission that wrote
+// no care event — he would read that as a successful record and never learn it was a no-op.
+//
+// `?.` IS LOAD-BEARING, not defensive noise: `careOutcomeNoteKey` deliberately accepts an ABSENT outcome
+// (an older API mid rolling deploy answers `{ ok: true }` and nothing else) and answers "say nothing" for
+// it. Reading `.status` off that absent outcome would throw HERE, inside `sendDone`, before its refresh
+// batch — so the row would never reconcile and the press would read as a dead button over a write the
+// server actually performed. Absent outcome ⇒ no sentence and no bump, which is exactly what the two
+// rules above already state.
+function recordOutcome(task: TaskCode, result: CareWriteResult, occurredOn?: string) {
+  const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today()));
+  outcomeNotes.value = { ...outcomeNotes.value, [task]: key ? t(key) : null };
+  if (result.outcome?.status === 'applied') {
+    appliedCompletions.value = {
+      ...appliedCompletions.value,
+      [task]: (appliedCompletions.value[task] ?? 0) + 1,
+    };
+  }
+}
+
 // The care endpoint returns { daysUntilDue, status }; map it to the shared DueState
 // shape so the i18n dueLabelLong() renders it (no English wording lives here).
 function careDueState(row: { daysUntilDue: number; status: string }): DueState {
@@ -849,7 +880,8 @@ const pendingRepotEvaluation = computed(() => care.value?.tasks.find((t) => t.ta
 const orderedTasks = computed(() => orderTasksForCard(care.value?.tasks ?? []));
 
 async function sendDone(task: TaskCode, occurredOn?: string, reason?: string) {
-  await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
+  const result = await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
+  recordOutcome(task, result, occurredOn);
   // A completed action becomes a history item (kind:'action', e.g. "Watered today"), so refresh the
   // timeline in place too — not just the care rows — consistent with the progress-log path.
   //
@@ -1087,7 +1119,8 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
     payload: { ...repotDonePayload, ...(evaluationId ? { evaluationId } : {}) },
   });
   try {
-    await api.completeRepot(id, attempt.body.occurredOn, attempt.body.payload, attempt.key);
+    const result = await api.completeRepot(id, attempt.body.occurredOn, attempt.body.payload, attempt.key);
+    recordOutcome('REPOT', result, attempt.body.occurredOn);
     // X1: same reasoning as onEvaluationSubmit's identical comment above — `resolveDoneSuccess` is the ONLY
     // place that clears the attempt AND publishes the completion signal (the Done flow has no verdict to
     // carry, so its completion names only the plant), and it already no-ops both when `attempt` is no longer
@@ -1626,6 +1659,8 @@ async function confirmRevive() {
                 :todays-verdict="t3.task === 'WATER' ? (care.measurement?.todaysVerdict ?? null) : null"
                 :prompt-answered-today="t3.task === 'WATER' && care.watering?.promptAnsweredToday === true"
                 :watered-today="t3.task === 'WATER' && care.watering?.wateredToday === true"
+                :outcome-note="outcomeNotes[t3.task] ?? null"
+                :applied-completions="appliedCompletions[t3.task] ?? 0"
                 with-done-date
                 show-info
                 :allow-standalone-done="t3.task === 'REPOT'"

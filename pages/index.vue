@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { groupByPlant, orderTasksForCard, dueState, type DueTask } from '../utils/tasks.js';
+// Task 10 — the one-per-day outcome sentence, decided ONCE and shared with PlantDetail.vue (Task 8's own
+// rule): never a second, per-renderer copy of "which sentence does this outcome earn".
+import { careOutcomeNoteKey, doneSubmitPath } from '../utils/careOutcome.js';
 import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
 // One implementation of "which pending evaluation may an action name" and of "which sign is worth
@@ -19,7 +22,7 @@ import {
 } from '../composables/useRepotAttempt';
 import type {
   Plant, RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload, PendingRepotEvaluation,
-  PlantSoilReadings,
+  PlantSoilReadings, CareWriteResult,
 } from '../types/api.js';
 
 const { t, d, locale } = useI18n();
@@ -327,8 +330,33 @@ function canSurveyWaterFor(plantId: string): boolean {
   });
 }
 
+// Task 10 — the one-per-day outcome, keyed by `plantId + task` because this page renders many plants at
+// once (PlantDetail.vue's sibling map is keyed by task alone — one plant per mount, so no collision there).
+const outcomeNotes = ref<Record<string, string | null>>({});
+const appliedCompletions = ref<Record<string, number>>({});
+const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${task}`;
+
+// The SAME rule the plant page applies, through the SAME helper — never a second copy of the mapping.
+// Today's rows carry no date box, so `doneSubmitPath` answers `same-day` here by construction; it is still
+// called rather than hardcoded, so the two surfaces cannot come to disagree about what a path is.
+//
+// `?.` IS LOAD-BEARING, and it is the SAME guard PlantDetail.vue's twin carries (see its own comment):
+// `careOutcomeNoteKey` deliberately accepts an ABSENT outcome — an older API mid rolling deploy answers
+// `{ ok: true }` and nothing else — so reading `.status` off it would throw here, inside `sendDone`,
+// before `refresh()`. The card would never reconcile and the press would read as a dead button over a
+// write the server actually performed.
+function recordOutcome(plantId: string, task: DueTask['task'], result: CareWriteResult, occurredOn?: string) {
+  const k = outcomeKey(plantId, task);
+  const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today));
+  outcomeNotes.value = { ...outcomeNotes.value, [k]: key ? t(key) : null };
+  if (result.outcome?.status === 'applied') {
+    appliedCompletions.value = { ...appliedCompletions.value, [k]: (appliedCompletions.value[k] ?? 0) + 1 };
+  }
+}
+
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
-  await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today, reason });
+  const result = await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today, reason });
+  recordOutcome(plantId, task, result, occurredOn);
   await refresh();
 }
 
@@ -931,6 +959,8 @@ function openProgress(plantId: string) {
             :can-survey="t2.task === 'WATER' && canSurveyWaterFor(plantId)"
             :todays-verdict="t2.task === 'WATER' ? todaysVerdictFor(plantId) : null"
             :prompt-answered-today="PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW"
+            :outcome-note="outcomeNotes[outcomeKey(plantId, t2.task)] ?? null"
+            :applied-completions="appliedCompletions[outcomeKey(plantId, t2.task)] ?? 0"
             @done="e => onDone(plantId, e.task, rowEffectiveStatus(plantId, e.task, t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
             @log-progress="() => openProgress(plantId)"

@@ -313,17 +313,55 @@ describe('UiTaskRow — the back-date does not survive a recorded completion', (
   const clickDone = (w: ReturnType<typeof mountRow>) =>
     w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
 
-  it('clears the typed date once the schedule moves, so the NEXT Done starts empty', async () => {
+  it('clears the typed date once the completion is APPLIED, so the NEXT Done starts empty', async () => {
     const w = mountRow({ withDoneDate: true, task: 'WATER', status: 'overdue', dueLabel: '2 days overdue' });
     await w.find('input[type="date"]').setValue('2026-08-01');
     await clickDone(w);
     expect(w.emitted('done')![0]).toEqual([{ task: 'WATER', occurredOn: '2026-08-01' }]);
 
-    // The completion landed and the parent re-rendered the row with its new due date.
-    await w.setProps({ status: 'upcoming', dueLabel: 'in 7 days' });
+    // The parent recorded it and bumped the APPLIED counter; the schedule moved too.
+    await w.setProps({ status: 'upcoming', dueLabel: 'in 7 days', appliedCompletions: 1 });
     expect((w.find('input[type="date"]').element as HTMLInputElement).value).toBe('');
     await clickDone(w);
     expect(w.emitted('done')![1]).toEqual([{ task: 'WATER', occurredOn: undefined }]);
+  });
+
+  // ⚠️ THE REGRESSION THE OLD MECHANISM COULD NOT FAIL ON (spec §2.4, the textual-identity trap). The
+  // recomputed schedule renders the SAME sentence it already showed — Vue's `watch` fires on a CHANGE, so
+  // a label-keyed reset never runs and Hecho stays enabled over a stale date, reading as a failed submit.
+  it('clears it even when the due label renders the IDENTICAL string it already showed', async () => {
+    const w = mountRow({ withDoneDate: true, task: 'WATER', status: 'today', dueLabel: 'Today' });
+    await w.find('input[type="date"]').setValue('2026-08-01');
+    await w.setProps({ dueLabel: 'Today', appliedCompletions: 1 }); // label byte-identical, on purpose
+    expect((w.find('input[type="date"]').element as HTMLInputElement).value).toBe('');
+  });
+
+  // ⚠️ AND IT MUST NOT FIRE ON A NON-APPLIED OUTCOME (spec §3.2). The parent does not bump the counter for
+  // an "already recorded on that day" result, so the typed date STAYS — a row that silently cleared it
+  // would tell the owner his back-date was recorded when nothing was written.
+  it('keeps the typed date when the submit changed nothing', async () => {
+    const w = mountRow({ withDoneDate: true, task: 'WATER', status: 'today', dueLabel: 'Today' });
+    await w.find('input[type="date"]').setValue('2026-08-01');
+    await w.setProps({ outcomeNote: 'tasks.alreadyRecorded.neutral' }); // no counter bump
+    expect((w.find('input[type="date"]').element as HTMLInputElement).value).toBe('2026-08-01');
+  });
+
+  it('renders the outcome sentence the parent hands it, and nothing when there is none', async () => {
+    const silent = mountRow({ task: 'FERTILIZE', status: 'today' });
+    expect(silent.find('.mp-taskrow__outcome-note').exists()).toBe(false);
+    const noisy = mountRow({
+      task: 'FERTILIZE', status: 'today', outcomeNote: 'tasks.alreadyRecorded.fertilizeSameDay',
+    });
+    expect(noisy.find('.mp-taskrow__outcome-note').text()).toBe('tasks.alreadyRecorded.fertilizeSameDay');
+  });
+
+  // A locale switch used to reset the box as a documented false positive of the label watcher. It no
+  // longer can, and that is strictly better: nothing the owner did not do touches his typed date.
+  it('a due-label change ALONE never touches the typed date any more', async () => {
+    const w = mountRow({ withDoneDate: true, task: 'WATER', status: 'today', dueLabel: 'Today' });
+    await w.find('input[type="date"]').setValue('2026-08-01');
+    await w.setProps({ dueLabel: 'Hoy' });
+    expect((w.find('input[type="date"]').element as HTMLInputElement).value).toBe('2026-08-01');
   });
 
   it('does NOT clear on the emit itself — the REPOT emit only OPENS the Done form, it does not complete it', async () => {

@@ -810,11 +810,29 @@ const proposalError = ref<string | null>(null);
 // PlantDetail.vue (F11 fix, 2026-08-14): freezing the translated string at write time would leave this note
 // stuck in the old language after a locale switch. `$t(key)` in the template resolves it at render.
 //
-// No entry for the proposal's AGGREGATE status (`outcome.global`): no existing sentence honestly states
-// ALL_APPLIED / PARTIALLY_ALREADY_RECORDED / ALL_ALREADY_RECORDED, and authoring one is out of this
-// verdict's authority (constraint 3) — only the per-operation notes `careOutcomeNoteKey` already knows how
-// to phrase are rendered.
+// The per-operation notes only. The proposal's AGGREGATE status is `approvedOutcomeSummary` below.
 const approvedOutcomeNoteKeys = ref<string[]>([]);
+
+// THE AGGREGATE SUMMARY (owner ruling 2026-08-14). The per-operation notes say what happened to each
+// operation; nothing said how much of the proposal as a whole landed. The owner ruled ONE line, shown
+// ONLY when something did not apply:
+//
+//   ALL_APPLIED                 → null. The per-operation ticks already say it, and a line that adds no
+//                                 information is noise in by far the most common case.
+//   PARTIALLY_ALREADY_RECORDED  → "2 of 4 changes were applied".
+//   ALL_ALREADY_RECORDED        → the same shape at zero, "0 of 2 changes were applied". One sentence, not
+//                                 two: the numbers already distinguish the two cases, and a second string
+//                                 would be a second thing to keep translated for no reader benefit.
+//
+// COUNTS, not a pre-built sentence. The line is interpolated at render (`$t(key, { applied, total },
+// total)`) for the same reason `approvedOutcomeNoteKeys` stores keys rather than prose: a sentence frozen
+// at write time is stuck in the old language after a locale switch. It is also why the two numbers are
+// never concatenated into copy here — a sentence assembled from fragments cannot be translated correctly,
+// since word order is the translator's to choose.
+//
+// `total` doubles as the plural choice so the noun agrees with it: a one-operation proposal that was
+// already recorded must read "0 of 1 change was applied", not "0 of 1 changes".
+const approvedOutcomeSummary = ref<{ applied: number; total: number } | null>(null);
 const skipPermissions = ref(false);
 const skipBusy = ref(false);
 const skipError = ref<string | null>(null);
@@ -880,13 +898,15 @@ async function approveProposal() {
   proposalBusy.value = true;
   proposalError.value = null;
   approvedOutcomeNoteKeys.value = [];
+  approvedOutcomeSummary.value = null;
   try {
     // THE RESPONSE — no longer discarded. `outcome` is `null` whenever the proposal genuinely was not
     // applied (a stale/never-reached row); `?? []` in that case renders nothing, which is exactly
     // constraint 4 ("a `null` outcome must render nothing at all").
     const result = await props.proposals.approve(currentSessionId.value, pendingProposal.value.id);
     const today = todayYmd();
-    approvedOutcomeNoteKeys.value = (result.outcome?.perOperation ?? [])
+    const perOperation = result.outcome?.perOperation ?? [];
+    approvedOutcomeNoteKeys.value = perOperation
       .map((outcome) =>
         careOutcomeNoteKey(
           outcome,
@@ -894,6 +914,16 @@ async function approveProposal() {
         ),
       )
       .filter((key): key is string => key !== null);
+    // Gated on the SERVER's derived `global`, never on a count recomputed here: the shared contract derives
+    // that status once (`deriveProposalOutcomeStatus`) precisely so no surface holds a second answer that
+    // could disagree with it. The counts below are only the numbers the sentence prints.
+    approvedOutcomeSummary.value =
+      result.outcome && result.outcome.global !== 'ALL_APPLIED'
+        ? {
+            applied: perOperation.filter((outcome) => outcome.status === 'applied').length,
+            total: perOperation.length,
+          }
+        : null;
     pendingProposal.value = null;
     dismissedProposalId.value = null;
   } catch (e: unknown) {
@@ -904,6 +934,12 @@ async function approveProposal() {
   } finally {
     proposalBusy.value = false;
   }
+}
+
+/** One dismissal for the whole approved-outcome block — the summary line and the notes it introduces. */
+function dismissApprovedOutcome() {
+  approvedOutcomeNoteKeys.value = [];
+  approvedOutcomeSummary.value = null;
 }
 
 async function declineProposal() {
@@ -1073,6 +1109,15 @@ defineExpose({
       />
     </Teleport>
 
+    <!-- The aggregate line, ABOVE the per-operation notes (owner ruling 2026-08-14): the owner reads how
+         much of the proposal landed first, then why. It is absent for `ALL_APPLIED` on purpose — see
+         `approvedOutcomeSummary`. Same `.mp-kchat__note` shape as every other notice in this zone, which
+         already carries the design system's caution tone (`--care-caution-text`); the modifier only lifts
+         the weight so the summary reads as the heading of the list it introduces. -->
+    <p v-if="approvedOutcomeSummary" class="mp-kchat__note mp-kchat__note--summary" role="status">
+      {{ $t('tasks.partialOutcomeSummary', approvedOutcomeSummary, approvedOutcomeSummary.total) }}
+    </p>
+
     <!-- E2 fix (owner decision 9) — the banner is gone because the proposal was just APPROVED, and what
          each operation actually did must be STATED, not swallowed. Reuses the SAME `tasks.alreadyRecorded.*`
          sentences the Today/plant pages already render for the identical fact, through the SAME
@@ -1087,11 +1132,14 @@ defineExpose({
       role="status"
     >
       {{ $t(noteKey) }}
+      <!-- Close clears the summary too. The summary can only ever appear alongside at least one note
+           (every `already-recorded-on-day` outcome earns a key), so this one button owns the whole block —
+           a second close on the summary would be a second control for one dismissal. -->
       <button
         v-if="idx === approvedOutcomeNoteKeys.length - 1"
         type="button"
         class="mp-kchat__recheck"
-        @click="approvedOutcomeNoteKeys = []"
+        @click="dismissApprovedOutcome()"
       >
         {{ $t('common.close') }}
       </button>
@@ -1268,6 +1316,11 @@ defineExpose({
   flex: none;
   font: 13px var(--font-sans);
   color: var(--care-caution-text);
+}
+/* The summary introduces the notes below it, so it takes the design system's semibold weight token and
+   nothing else — same size, same caution color, no new surface. */
+.mp-kchat__note--summary {
+  font-weight: var(--weight-semibold);
 }
 /* On a phone the column is far tighter (the toolbar and the Skip Permissions switch both wrap, costing
    ~300px more than on desktop), and the transcript is the one thing here that is ALSO reachable by

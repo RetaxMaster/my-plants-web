@@ -229,7 +229,14 @@ function mountChatInner(proposals: Record<string, unknown> | undefined, extra: R
       ...extra,
     },
     global: {
-      mocks: { $t: (k: string) => k },
+      // Identity on the KEY (Ruling 1 above), but the INTERPOLATION PARAMS are appended when there are
+      // any. Without this, `$t('…', { applied, total })` would render identically for 2-of-4 and 0-of-2 and
+      // a test asserting on the counts could not fail — the whole point of the summary line is the numbers.
+      // Call sites that pass no params (`$t(noteKey)`, `$t('common.close')`) are untouched.
+      mocks: {
+        $t: (k: string, named?: Record<string, unknown>) =>
+          named ? `${k}|${JSON.stringify(named)}` : k,
+      },
       stubs: {
         AgentProposalBanner: BannerStub,
         AgentSkipPermissions: SkipStub,
@@ -476,6 +483,83 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.text()).not.toContain('tasks.alreadyRecorded');
   });
 
+  // ── The aggregate summary line (owner ruling 2026-08-14) ────────────────────────────────────────────
+  //
+  // The per-operation notes say WHAT happened to each operation; none of them says how much of the
+  // proposal as a whole landed. The owner ruled one line, shown ONLY when something did not apply.
+  //
+  // These three cases together are what makes the assertion discriminating: a test that only checked the
+  // absence for ALL_APPLIED is satisfied by a world where the summary was never implemented at all, and a
+  // test that only checked presence would not catch the line leaking into the ordinary success.
+  it('states how much of the proposal applied when only some operations did', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [
+            { status: 'applied' as const },
+            { status: 'applied' as const },
+            { status: 'already-recorded-on-day' as const, task: 'WATER' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+            { status: 'already-recorded-on-day' as const, task: 'ROTATE' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+          ],
+          global: 'PARTIALLY_ALREADY_RECORDED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    // The COUNTS, not merely the key: 2 applied out of 4 operations.
+    expect(w.text()).toContain('tasks.partialOutcomeSummary|{"applied":2,"total":4}');
+  });
+
+  it('states a zero count when no operation applied', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [
+            { status: 'already-recorded-on-day' as const, task: 'WATER' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+            { status: 'already-recorded-on-day' as const, task: 'FERTILIZE' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+          ],
+          global: 'ALL_ALREADY_RECORDED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.text()).toContain('tasks.partialOutcomeSummary|{"applied":0,"total":2}');
+  });
+
+  // ⚠️ THE ABSENCE CASE NEEDS A POSITIVE CONTROL. "The summary is not in the text" is also true of a
+  // component that rendered nothing, that never mounted, or whose approve path threw before reaching the
+  // outcome — so the two assertions above the absence prove the component IS on screen and the approval
+  // DID run. Without them this test would stay green against a completely broken surface.
+  it('renders no summary line for an ALL_APPLIED outcome', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [{ status: 'applied' as const }, { status: 'applied' as const }],
+          global: 'ALL_APPLIED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.find('.mp-kchat').exists()).toBe(true);
+    expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1');
+    expect(w.text()).not.toContain('tasks.partialOutcomeSummary');
+  });
+
   // Constraint 4: `null` means "no outcome recorded" — never render a sentence about a fact the server did
   // not state.
   it('renders nothing when the response carries a null outcome', async () => {
@@ -486,7 +570,10 @@ describe('AgentChat — the doctor approval surface', () => {
     await flushPromises();
     w.findComponent(BannerStub).vm.$emit('approve');
     await flushPromises();
+    expect(w.find('.mp-kchat').exists()).toBe(true);
     expect(w.text()).not.toContain('tasks.alreadyRecorded');
+    // The summary is derived from the same `outcome` object: a null outcome must produce no line either.
+    expect(w.text()).not.toContain('tasks.partialOutcomeSummary');
   });
 
   // Dismiss is NOT a decline (§5.3): it closes the banner and sends nothing.

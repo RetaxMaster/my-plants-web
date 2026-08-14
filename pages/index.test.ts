@@ -1729,12 +1729,18 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
 
   // Level-integration finding: `onRepotDoneConfirm` (the Done-form confirm path, distinct from `sendDone`
   // above — REPOT's Done detours through `UiRepotDoneForm` rather than firing straight off the row) awaited
-  // `api.completeRepot(...)` and threw the result away, so a REPOT completion carrying
-  // `otherEffectsApplied: true` (the substrate/fertilizer-floor side effects a completed repot triggers even
-  // when the CareEvent write itself is suppressed as a same-day duplicate) rendered as if nothing had
-  // happened. Mirrors `PlantDetail.test.ts`'s own WATER/FERTILIZE outcome-note cases in the same "Task 10"
-  // family, applied to REPOT's own confirm flow — same real `TaskRow.vue`, same `.mp-taskrow__outcome-note`
-  // assertion, so both renderers are held to the identical standard.
+  // `api.completeRepot(...)` and threw the result away, so a REPOT completion rendered as if nothing had
+  // happened even though the server reported an `already-recorded-on-day` outcome. Mirrors
+  // `PlantDetail.test.ts`'s own WATER/FERTILIZE outcome-note cases in the same "Task 10" family, applied to
+  // REPOT's own confirm flow — same real `TaskRow.vue`, same `.mp-taskrow__outcome-note` assertion, so both
+  // renderers are held to the identical standard.
+  //
+  // `otherEffectsApplied` is pinned `false` here, matching every other fixture in this codebase
+  // (`utils/careOutcome.test.ts:8-10` says explicitly why: the `true` case has no copy of its own yet — PIN
+  // 1 in `docs/superpowers/specs/2026-08-14-nothing-left-open-design.md` §3.2 forbids phrasing that outcome
+  // as "nothing happened", and no sentence is invented for it in this plan). This test only needs to prove
+  // that Today's REPOT completion populates the outcome note AT ALL — the defect was that nothing rendered,
+  // not that the wrong sentence rendered.
   it('a REPOT completion via the Done form populates the outcome note, mirroring PlantDetail.vue', async () => {
     tasksFixture = repotTasks(RESOLVED); // a Done button is only offered once a REPOT verdict is pending
     const w = await mountPage();
@@ -1746,7 +1752,7 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
       ok: true,
       outcome: {
         status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
-        otherEffectsApplied: true,
+        otherEffectsApplied: false,
       },
     });
     await flushPromises();

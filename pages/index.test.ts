@@ -19,7 +19,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
-import type { PlantSoilReadings, RepotEvaluationResult, RepotSign } from '../types/api.js';
+import type { CareWriteResult, PlantSoilReadings, RepotEvaluationResult, RepotSign } from '../types/api.js';
 import type { TodaysVerdict } from '../utils/waterSurvey.js';
 // X2: the parent-level integration test near the end of this file mounts the REAL RepotDoneForm.vue (never a
 // re-implemented stub of its hydration watcher — see that describe block's own header comment for why).
@@ -119,7 +119,7 @@ let getRepotSignsMock: ReturnType<typeof vi.fn>;
 let submitDeferreds: Record<string, ReturnType<typeof deferred<RepotEvaluationResult>>>;
 let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
 let getPlantMock: ReturnType<typeof vi.fn>;
-let completeRepotDeferreds: Record<string, ReturnType<typeof deferred<{ ok: true }>>>;
+let completeRepotDeferreds: Record<string, ReturnType<typeof deferred<CareWriteResult>>>;
 let completeRepotMock: ReturnType<typeof vi.fn>;
 // Plan 3 T5: the WATER survey's own two api calls. Defaulted to "the owner selected nothing" / "an empty
 // per-plant reading catalogue" so every PRE-EXISTING (REPOT-focused) test in this file — which never touches
@@ -140,7 +140,7 @@ beforeEach(() => {
   // at the top of its own `it`.
   tasksFixture = repotTasks(RESOLVED);
   submitDeferreds = { A: deferred<RepotEvaluationResult>(), B: deferred<RepotEvaluationResult>() };
-  completeRepotDeferreds = { A: deferred<{ ok: true }>(), B: deferred<{ ok: true }>() };
+  completeRepotDeferreds = { A: deferred<CareWriteResult>(), B: deferred<CareWriteResult>() };
   getRepotSignsMock = vi.fn(async () => ({ signs: [] as RepotSign[] }));
   submitRepotEvaluationMock = vi.fn(async (plantId: string) => submitDeferreds[plantId].promise);
   getPlantMock = vi.fn(async (plantId: string) => ({ profile: PLANT_PROFILES[plantId] }));
@@ -149,7 +149,7 @@ beforeEach(() => {
   getSoilReadingsMock = vi.fn(async () => (
     { instruments: [], protocol: null, readings: [], wateringDays: [] } as unknown as PlantSoilReadings
   ));
-  sendFeedbackMock = vi.fn(async () => ({ ok: true }));
+  sendFeedbackMock = vi.fn(async () => ({ ok: true, outcome: { status: 'applied' } } as CareWriteResult));
 
   // UiSoilReadingModal reads the route to decide push-vs-replace for its calibration link.
 vi.stubGlobal('useRoute', () => ({ path: '/', query: {} }));
@@ -463,7 +463,7 @@ describe('pages/index.vue — round-4 finding V1: the submitting flag must never
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
-    completeRepotDeferreds.A!.resolve({ ok: true });
+    completeRepotDeferreds.A!.resolve({ ok: true, outcome: { status: 'applied' } });
     await flushPromises();
     expect(w.find('.done-form').attributes('data-open')).toBe('false');
 
@@ -560,7 +560,7 @@ describe('pages/index.vue — a late response from an ABANDONED Done-form confir
     expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
 
     // A's LATE response now arrives — resolved only now, after B has fully taken over the shared form.
-    completeRepotDeferreds.A!.resolve({ ok: true });
+    completeRepotDeferreds.A!.resolve({ ok: true, outcome: { status: 'applied' } });
     await flushPromises();
 
     // The abandoned A response must be ignored entirely: B's form stays open and B's confirm is still
@@ -569,7 +569,7 @@ describe('pages/index.vue — a late response from an ABANDONED Done-form confir
     expect(w.find('.done-form').attributes('data-submitting')).toBe('true');
 
     // B's own response now arrives — THIS is the active attempt, and it closes the shared form as normal.
-    completeRepotDeferreds.B!.resolve({ ok: true });
+    completeRepotDeferreds.B!.resolve({ ok: true, outcome: { status: 'applied' } });
     await flushPromises();
 
     expect(w.find('.done-form').attributes('data-open')).toBe('false');
@@ -732,7 +732,7 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
-    completeRepotDeferreds.A!.resolve({ ok: true });
+    completeRepotDeferreds.A!.resolve({ ok: true, outcome: { status: 'applied' } });
     await flushPromises();
     const keyFirst = completeRepotMock.mock.calls[0]![3];
     expect(w.find('.done-form').attributes('data-open')).toBe('false');
@@ -1208,7 +1208,7 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
     const tasksReadsBeforeCompletion = todaysTasksMock.mock.calls.length;
 
     // A's response now arrives while B's UNCONFIRMED form is showing.
-    completeRepotDeferreds.A!.resolve({ ok: true });
+    completeRepotDeferreds.A!.resolve({ ok: true, outcome: { status: 'applied' } });
     await flushPromises();
 
     // The Today list must reconcile regardless.

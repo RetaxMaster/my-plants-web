@@ -122,6 +122,9 @@ vi.mock('@retaxmaster/agents-realtime-protocol', async (importOriginal) => ({
 
 import AgentChat from './AgentChat.vue';
 import type { ChatProposalsAdapter } from '../types/api';
+// Names "today" the SAME way the component itself does (`utils/localDate.js`'s `todayYmd()`) so a fixture
+// `occurredOn` lands on the same-day path deterministically, mirroring pages/index.test.ts's own convention.
+import { todayYmd } from '../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -429,6 +432,61 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1');
     expect(w.find('.stub-banner').exists()).toBe(false);
     expect(w.text()).not.toContain('diagnose.proposal.applyError');
+  });
+
+  // E2 fix: the response `approve()` just returned was discarded — the owner who pressed Approve never
+  // learned what the server actually did. Now it renders the SAME `tasks.alreadyRecorded.*` sentence the
+  // Today/plant pages already render for the identical `CareWriteOutcome`, through the SAME
+  // `careOutcomeNoteKey` helper — proving the outcome actually reaches the owner, not just that a proposal
+  // closes cleanly (the pre-existing test right above).
+  it('renders the already-recorded outcome note after an approval whose response carries one', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [
+            { status: 'already-recorded-on-day' as const, task: 'WATER' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+          ],
+          global: 'ALL_ALREADY_RECORDED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.text()).toContain('tasks.alreadyRecorded.neutral');
+  });
+
+  // Constraint 5: an ordinary success (ALL_APPLIED) needs no sentence — `careOutcomeNoteKey` already
+  // answers `null` for an `applied` per-operation outcome, and this proves that precedent is followed here.
+  it('renders nothing for an ALL_APPLIED outcome', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: { perOperation: [{ status: 'applied' as const }], global: 'ALL_APPLIED' as const },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.text()).not.toContain('tasks.alreadyRecorded');
+  });
+
+  // Constraint 4: `null` means "no outcome recorded" — never render a sentence about a fact the server did
+  // not state.
+  it('renders nothing when the response carries a null outcome', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({ ...PENDING, status: 'APPROVED' as const, outcome: null })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.text()).not.toContain('tasks.alreadyRecorded');
   });
 
   // Dismiss is NOT a decline (§5.3): it closes the banner and sends nothing.

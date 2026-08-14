@@ -19,6 +19,11 @@ import type {
 // exercise the conflict path.
 import { upstreamErrorBody, upstreamErrorCode, upstreamErrorStatus } from '../utils/upstreamError.js';
 import { CHAT_ATTACHMENT_CAPS } from '../utils/chatSend.js';
+// E2 fix — the SAME one-per-day outcome helper the Today/plant pages already use (pages/index.vue,
+// components/PlantDetail.vue), reused here rather than re-derived: a second mapping from `CareWriteOutcome`
+// to an i18n key is exactly the parallel-copy bug class this project calls out.
+import { careOutcomeNoteKey, doneSubmitPath } from '../utils/careOutcome.js';
+import { todayYmd } from '../utils/localDate.js';
 
 const props = defineProps<{
   // Our internal cuid session id; null for a brand-new chat not yet created.
@@ -795,6 +800,21 @@ const pendingProposal = ref<AgentProposal | null>(null);
 const dismissedProposalId = ref<string | null>(null);
 const proposalBusy = ref(false);
 const proposalError = ref<string | null>(null);
+// E2 fix — WHAT AN APPROVED PROPOSAL ACTUALLY DID (owner decision 9: "the result is STATED instead of
+// swallowed"). The `approve()` response carries a per-operation `CareWriteOutcome[]`
+// (`AgentProposal.outcome.perOperation`, INDEX-ALIGNED with `operations`) that was previously discarded —
+// `approveProposal` below awaited it and threw it away. Populated the moment approval succeeds, at the
+// SAME point `pendingProposal` is torn down, so it renders where the banner used to be.
+//
+// STORES i18n KEYS, never translated strings — the SAME reason `outcomeNotes` does in pages/index.vue and
+// PlantDetail.vue (F11 fix, 2026-08-14): freezing the translated string at write time would leave this note
+// stuck in the old language after a locale switch. `$t(key)` in the template resolves it at render.
+//
+// No entry for the proposal's AGGREGATE status (`outcome.global`): no existing sentence honestly states
+// ALL_APPLIED / PARTIALLY_ALREADY_RECORDED / ALL_ALREADY_RECORDED, and authoring one is out of this
+// verdict's authority (constraint 3) — only the per-operation notes `careOutcomeNoteKey` already knows how
+// to phrase are rendered.
+const approvedOutcomeNoteKeys = ref<string[]>([]);
 const skipPermissions = ref(false);
 const skipBusy = ref(false);
 const skipError = ref<string | null>(null);
@@ -859,8 +879,21 @@ async function approveProposal() {
   if (!props.proposals || !currentSessionId.value || !pendingProposal.value) return;
   proposalBusy.value = true;
   proposalError.value = null;
+  approvedOutcomeNoteKeys.value = [];
   try {
-    await props.proposals.approve(currentSessionId.value, pendingProposal.value.id);
+    // THE RESPONSE — no longer discarded. `outcome` is `null` whenever the proposal genuinely was not
+    // applied (a stale/never-reached row); `?? []` in that case renders nothing, which is exactly
+    // constraint 4 ("a `null` outcome must render nothing at all").
+    const result = await props.proposals.approve(currentSessionId.value, pendingProposal.value.id);
+    const today = todayYmd();
+    approvedOutcomeNoteKeys.value = (result.outcome?.perOperation ?? [])
+      .map((outcome) =>
+        careOutcomeNoteKey(
+          outcome,
+          doneSubmitPath(outcome.status === 'already-recorded-on-day' ? outcome.occurredOn : undefined, today),
+        ),
+      )
+      .filter((key): key is string => key !== null);
     pendingProposal.value = null;
     dismissedProposalId.value = null;
   } catch (e: unknown) {
@@ -1039,6 +1072,30 @@ defineExpose({
         @dismiss="dismissProposal"
       />
     </Teleport>
+
+    <!-- E2 fix (owner decision 9) — the banner is gone because the proposal was just APPROVED, and what
+         each operation actually did must be STATED, not swallowed. Reuses the SAME `tasks.alreadyRecorded.*`
+         sentences the Today/plant pages already render for the identical fact, through the SAME
+         `careOutcomeNoteKey` helper (see `approveProposal`) — no new copy, no new surface. `ALL_APPLIED`
+         renders nothing here because `careOutcomeNoteKey` already answers `null` for an `applied`
+         per-operation outcome (constraint 5), and a `null` proposal outcome never reaches this array at all
+         (constraint 4). -->
+    <p
+      v-for="(noteKey, idx) in approvedOutcomeNoteKeys"
+      :key="`outcome-note-${idx}`"
+      class="mp-kchat__note"
+      role="status"
+    >
+      {{ $t(noteKey) }}
+      <button
+        v-if="idx === approvedOutcomeNoteKeys.length - 1"
+        type="button"
+        class="mp-kchat__recheck"
+        @click="approvedOutcomeNoteKeys = []"
+      >
+        {{ $t('common.close') }}
+      </button>
+    </p>
 
     <!-- The banner is gone but the attempt failed: the failure must still be on screen, or an approve that
          hit an expired proposal would look exactly like an approve that worked (§5.3.1). -->

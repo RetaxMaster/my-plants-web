@@ -339,11 +339,17 @@ const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${tas
 // The SAME rule the plant page applies, through the SAME helper — never a second copy of the mapping.
 // Today's rows carry no date box, so `doneSubmitPath` answers `same-day` here by construction; it is still
 // called rather than hardcoded, so the two surfaces cannot come to disagree about what a path is.
+//
+// `?.` IS LOAD-BEARING, and it is the SAME guard PlantDetail.vue's twin carries (see its own comment):
+// `careOutcomeNoteKey` deliberately accepts an ABSENT outcome — an older API mid rolling deploy answers
+// `{ ok: true }` and nothing else — so reading `.status` off it would throw here, inside `sendDone`,
+// before `refresh()`. The card would never reconcile and the press would read as a dead button over a
+// write the server actually performed.
 function recordOutcome(plantId: string, task: DueTask['task'], result: CareWriteResult, occurredOn?: string) {
   const k = outcomeKey(plantId, task);
   const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today));
   outcomeNotes.value = { ...outcomeNotes.value, [k]: key ? t(key) : null };
-  if (result.outcome.status === 'applied') {
+  if (result.outcome?.status === 'applied') {
     appliedCompletions.value = { ...appliedCompletions.value, [k]: (appliedCompletions.value[k] ?? 0) + 1 };
   }
 }

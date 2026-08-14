@@ -1704,4 +1704,26 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
     await flushPromises();
     expect(w.find('.mp-taskrow__outcome-note').text()).toBe('tasks.alreadyRecorded.fertilizeSameDay');
   });
+
+  // The twin of `PlantDetail.test.ts`'s own outcome-less case, pinned separately because the two pages
+  // carry PARALLEL copies of `recordOutcome`. An API that predates the outcome answers `{ ok: true }` and
+  // nothing else — the absence `careOutcomeNoteKey` already accepts by design ("say nothing"). Reading
+  // `.status` off it throws inside `sendDone`, BEFORE `await refresh()`, so the card never reconciles and
+  // the press reads as a dead button over a write the server actually performed. The refresh is the
+  // assertion: the note is absent either way, so only the refresh separates a survived press from a
+  // thrown one.
+  it('still refreshes Today when the server sent no outcome at all (an older API mid rolling deploy)', async () => {
+    tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+    sendFeedbackMock = vi.fn(async () => ({ ok: true }));
+    const refreshTasks = vi.fn(async () => {});
+    vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => ({
+      data: ref(await fn()),
+      refresh: key === 'today' ? refreshTasks : vi.fn(async () => {}),
+    }));
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    expect(refreshTasks).toHaveBeenCalled();
+    expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
+  });
 });

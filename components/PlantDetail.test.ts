@@ -2453,6 +2453,37 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').exists()).toBe(false);
     expect((taskRowFor(w, 'WATER').find('input[type="date"]').element as HTMLInputElement).value).toBe('');
   });
+
+  // Task 10, the rolling-deploy half of the contract Task 8 already honours in its own unit case
+  // (`careOutcomeNoteKey(undefined, 'same-day') === null` — "say nothing about a fact the server did not
+  // state"). An API that predates the outcome answers `{ ok: true }` and nothing else, so the call site
+  // must honour the same absence: reading `.status` off it throws INSIDE `sendDone`, before its refresh
+  // batch, and the row then never reconciles — a dead button over a write the server actually performed.
+  // Asserted on the REFRESH, not on the missing note: the note is absent either way, so only the refresh
+  // tells a survived press apart from a thrown one. `pages/index.test.ts` pins the twin — parallel copies.
+  describe('an outcome-less response (an older API mid rolling deploy)', () => {
+    afterEach(() => {
+      vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+        data: ref(await fn()),
+        refresh: vi.fn(async () => {}),
+      }));
+    });
+
+    it('says nothing and still reconciles the row', async () => {
+      const careRefresh = vi.fn(async () => {});
+      vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => ({
+        data: ref(await fn()),
+        refresh: key.startsWith('care-') ? careRefresh : vi.fn(async () => {}),
+      }));
+      const w = await mountWater([], null, {}, { sendFeedback: async () => ({ ok: true }) });
+      const row = taskRowFor(w, 'WATER');
+      await row.find('input[type="date"]').setValue('2026-08-12');
+      await doneButtons(row)[0]!.trigger('click');
+      await flushPromises();
+      expect(careRefresh).toHaveBeenCalled();
+      expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').exists()).toBe(false);
+    });
+  });
 });
 
 // FIX W1 + FIX W2 on the plant page — the SAME two rules pages/index.vue carries (see pages/index.test.ts's

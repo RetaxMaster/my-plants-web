@@ -842,10 +842,17 @@ const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
 // ⚠️ THE RESET IS KEYED TO AN *APPLIED* OUTCOME AND NOTHING ELSE (spec §2.4/§3.2). Bumping the counter on
 // an "already recorded on that day" result would clear the owner's typed date over a submission that wrote
 // no care event — he would read that as a successful record and never learn it was a no-op.
+//
+// `?.` IS LOAD-BEARING, not defensive noise: `careOutcomeNoteKey` deliberately accepts an ABSENT outcome
+// (an older API mid rolling deploy answers `{ ok: true }` and nothing else) and answers "say nothing" for
+// it. Reading `.status` off that absent outcome would throw HERE, inside `sendDone`, before its refresh
+// batch — so the row would never reconcile and the press would read as a dead button over a write the
+// server actually performed. Absent outcome ⇒ no sentence and no bump, which is exactly what the two
+// rules above already state.
 function recordOutcome(task: TaskCode, result: CareWriteResult, occurredOn?: string) {
   const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today()));
   outcomeNotes.value = { ...outcomeNotes.value, [task]: key ? t(key) : null };
-  if (result.outcome.status === 'applied') {
+  if (result.outcome?.status === 'applied') {
     appliedCompletions.value = {
       ...appliedCompletions.value,
       [task]: (appliedCompletions.value[task] ?? 0) + 1,

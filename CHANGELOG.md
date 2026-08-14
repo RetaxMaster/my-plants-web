@@ -2,7 +2,25 @@
 
 All notable, user-facing changes to the MyPlants web app. Newest first.
 
-## Unreleased — Measure your soil moisture, and your plant's care explains itself
+## Unreleased — Nothing left open: the care engine's full story reaches your plants (2026-08-14)
+
+**The app now shows you every task your plant needs in the order it should be done, records each task only once per day, tells you when a measurement failed so you can retry it, and lets you record care actions from days past.**
+
+### Added
+
+- **Task ordering within a plant card — repot first, then water, then fertilize.** Previously all six tasks appeared together; now within a single plant card they are ordered so an answer to *"this plant needs repotting"* appears first, not last. The global plant-list order stays unchanged.
+- **Plant registration now asks which soil mix you used.** When adding a new plant, the form offers a choice of common soil types — potting mix, clay, peat, cactus, orchid, carnivorous — plus an *"I don't know"* that leaves it unrecorded. The choice you make is persisted from the moment of creation and appears on the plant's own page. Omitting the choice or picking *"I don't know"* changes nothing — the app treats a `null` mix exactly as it treats a plant recorded before this field existed.
+- **Back-dated care records are now traceable.** The Water row on a plant's page regains its date box and **Hecho** button, so a watering from two days ago (or three weeks) can simply be typed in. The back-dated record clears the date box after it is actually applied, giving clear visual confirmation the action was recorded.
+- **The readings dialog states each fault once.** Opening the measuring modal no longer shows redundant error messages — a single clear statement for each problem you encounter, rather than the same reason repeated across different control sections.
+- **The readings card now says it couldn't refresh, with a retry button.** Opening the measuring dialog refreshes your plant's soil readings. If that refresh fails, the previous snapshot is restored (correct stale-while-revalidate) — but now the card shows *"No se pudo actualizar · Reintentar"* / *"Couldn't refresh · Retry"* instead of silently showing stale data with nothing to prompt a retry. The failure is reported as a small, non-blocking marker on the card itself.
+
+### Changed
+
+- **The Water row clears after a back-dated record is applied.** When you record a watering from a past day, the date box empties immediately after save, eliminating any ambiguity about which day the record was for.
+
+### Fixed
+
+- **Readings that failed to refresh are no longer silent.** Previously an empty catch handler swallowed refresh failures entirely — an owner who had recorded a reading on another device would see a silently stale list with nothing to signal the problem or offer a retry. The failure is now visible and retryable on the card itself.
 
 **You can now measure how fast your soil dries out and let that estimate guide your watering, and — new — the watering task can ask you first and answer "water today, or hold?" from a single reading. The app also now tells you exactly why each plant's next feeding and repotting dates are what they are.**
 

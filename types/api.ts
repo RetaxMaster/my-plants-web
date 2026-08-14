@@ -30,12 +30,18 @@ import { RECOMMENDATIONS, HOLD_BASES, UNAVAILABLE_REASONS } from '@retaxmaster/m
 // union can't silently drift.
 import type {
   ProposalOperationType, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
-  WateringRelation,
+  WateringRelation, ProposalOutcomeStatus,
 } from '@retaxmaster/my-plants-species-schema';
 export type {
   ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
   WateringRelation,
 };
+// `FREQUENCY_BEARING_TASKS` is the shared contract's own vocabulary (six tasks, PROGRESS excluded) — a
+// VALUE import (not `import type`), because `TaskHistoryBlock` below derives its key set from
+// `(typeof FREQUENCY_BEARING_TASKS)[number]` rather than hand-copying the six task names. A hand-copied
+// union is exactly the fork `AgentProposalOperationType`'s own comment warns about: the shared list could
+// grow or shrink and this file would stay stale and green.
+import { FREQUENCY_BEARING_TASKS } from '@retaxmaster/my-plants-species-schema';
 
 export type ViabilityLevel = 'good' | 'caution' | 'poor';
 
@@ -346,9 +352,28 @@ export interface PlantCareTask {
   /** Present on the REPOT entry; `null` on every other task and when nothing is pending. */
   pendingEvaluation: PendingRepotEvaluation | null;
 }
+
+/**
+ * §4.1 — mirrors the API's own `TaskHistoryBlock` (`task-history.ts`): for each of the six frequency-bearing
+ * tasks, when it was last done and whether that completion IS the plant's own local today. A task with no
+ * history reads `{ lastDoneOn: null, doneToday: false }`, never an absent key — so a consumer never has to
+ * distinguish "never done" from "the server did not answer".
+ */
+export type TaskHistoryBlock = Record<
+  (typeof FREQUENCY_BEARING_TASKS)[number],
+  { lastDoneOn: string | null; doneToday: boolean }
+>;
+
 export interface PlantCare {
   plantId: string;
   tasks: PlantCareTask[];
+  /**
+   * §4.1 — ALWAYS present, on the FROZEN branch too: `getCare` computes it unconditionally via one
+   * `careEvent.groupBy` (`plants.service.ts`, `loadTaskHistory`), so — unlike `crowding`/`juvenile`/
+   * `substrate` below, which stay optional for a rolling-deploy older API — this field is declared
+   * REQUIRED. An API that predates it simply cannot exist alongside this type.
+   */
+  taskHistory: TaskHistoryBlock;
   // Added in Phase C — the per-plant viability semaphore for its current place. Null for a frozen plant
   // (Plant Lifecycle feature) — the recompute-free frozen branch never computes a semaphore.
   viability: { level: ViabilityLevel; reasons: string[] } | null;
@@ -777,6 +802,19 @@ export interface AgentProposal {
    * agent's summary — this field is the whole reason the fan-out claim is verifiable.
    */
   affectedPlantCount: number | null;
+  /**
+   * §3.2 consumer 3 — WHAT EACH OPERATION ACTUALLY DID, plus the proposal's derived global status. Mirrors
+   * the API's own field (`proposal-render.service.ts`) byte-for-byte.
+   *
+   * `null` means "no outcome recorded": the proposal has not been applied (every PENDING/DECLINED/EXPIRED/
+   * FAILED row), or it was applied before the storage column existed — deliberately NOT an empty array,
+   * which would read as "a proposal with no operations".
+   *
+   * `perOperation` reuses this file's own `CareWriteOutcome` (declared above, and INDEX-ALIGNED with
+   * `operations`); `global` aliases the shared contract's `ProposalOutcomeStatus` rather than a hand-copied
+   * string union, for the identical fork-prevention reason `AgentProposalOperationType` is aliased above.
+   */
+  outcome: { perOperation: CareWriteOutcome[]; global: ProposalOutcomeStatus } | null;
   // `createdAt` is a `Date` on the server; it crosses JSON as an ISO-8601 string.
   createdAt: string;
 }

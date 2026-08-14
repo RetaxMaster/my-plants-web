@@ -861,6 +861,12 @@ const today = () => todayYmd();
 // Task 10 — the one-per-day outcome, per task (spec §3.2, consumer 1). Two plain records rather than one
 // object of pairs, because they have different lifetimes: the NOTE is cleared by the next submit of that
 // task, the COUNTER only ever rises. Keyed by task because the rows are keyed by task.
+//
+// ⚠️ STORES THE i18n KEY, NEVER THE TRANSLATED STRING (F11 fix, 2026-08-14 — the parallel-copy pair with
+// pages/index.vue this feature already tripped over once: a prior fix landed here and not there). Freezing
+// the translated string at write time means a later locale switch leaves this one sentence stuck in the old
+// language while the rest of the UI switches. `outcomeNoteFor` below re-resolves the key through `t()` on
+// every render instead.
 const outcomeNotes = ref<Partial<Record<TaskCode, string | null>>>({});
 const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
 
@@ -876,13 +882,20 @@ const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
 // rules above already state.
 function recordOutcome(task: TaskCode, result: CareWriteResult, occurredOn?: string) {
   const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today()));
-  outcomeNotes.value = { ...outcomeNotes.value, [task]: key ? t(key) : null };
+  outcomeNotes.value = { ...outcomeNotes.value, [task]: key };
   if (result.outcome?.status === 'applied') {
     appliedCompletions.value = {
       ...appliedCompletions.value,
       [task]: (appliedCompletions.value[task] ?? 0) + 1,
     };
   }
+}
+
+// Resolves the stored KEY through `t()` at RENDER time (called from the template below), so a locale
+// switch after a submit re-renders the sentence in the new language instead of freezing it in the old one.
+function outcomeNoteFor(task: TaskCode): string | null {
+  const key = outcomeNotes.value[task] ?? null;
+  return key ? t(key) : null;
 }
 
 // The care endpoint returns { daysUntilDue, status }; map it to the shared DueState
@@ -1681,7 +1694,7 @@ async function confirmRevive() {
                 :todays-verdict="t3.task === 'WATER' ? (care.measurement?.todaysVerdict ?? null) : null"
                 :prompt-answered-today="t3.task === 'WATER' && care.watering?.promptAnsweredToday === true"
                 :watered-today="t3.task === 'WATER' && care.watering?.wateredToday === true"
-                :outcome-note="outcomeNotes[t3.task] ?? null"
+                :outcome-note="outcomeNoteFor(t3.task)"
                 :applied-completions="appliedCompletions[t3.task] ?? 0"
                 with-done-date
                 show-info

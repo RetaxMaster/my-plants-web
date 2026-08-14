@@ -69,6 +69,7 @@
     "wateredTodayBackdate": "Pon una fecha anterior para registrar un riego pasado.",
     "alreadyRecorded": {
       "neutral": "Ese día ya tenía un registro, así que no se agregó nada.",
+      "otherEffectsApplied": "Ese día ya tenía un registro, así que no se agregó una entrada nueva, pero el resto de la actualización, como el tamaño de la maceta y la tierra, sí se aplicó.",
       "fertilizeSameDay": "Ya se fertilizó hoy. No vuelvas a fertilizar el mismo día: el exceso de sales quema la raíz.",
       "fertilizeBackDated": "Ya había un fertilizado registrado ese día. Si de verdad fertilizaste dos veces, tenlo presente: el exceso de sales quema la raíz."
     }

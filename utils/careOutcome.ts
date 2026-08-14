@@ -32,6 +32,18 @@ export function doneSubmitPath(occurredOn: string | undefined, today: string): D
  * imperative warning belongs to the owner who might be about to fertilize again — the same-day press. The
  * back-dated case is somebody recording history, and warning him not to do something he is not doing reads
  * as the app misunderstanding what just happened. Two keys, never one key with a conditional half.
+ *
+ * ⚠️ `otherEffectsApplied: true` EARNS ITS OWN SENTENCE, KEYED ON THE CONTRACT MEMBER, NEVER ON THE TASK
+ * (F2 fix, 2026-08-14). The API states outright (`repot-complete.write-core.ts`) that on a duplicate REPOT
+ * "the care-event write" is the ONLY thing suppressed — the profile update, the substrate refresh
+ * (`substrate_refreshed_on` re-anchored) and the care-plan recompute all still run. The neutral fallthrough
+ * below says "nothing was added", which is exactly the phrasing the shared contract's own doc-comment
+ * (`care-outcome.ts`) forbids for that case. Branching on `outcome.otherEffectsApplied` — rather than on
+ * `outcome.task === 'REPOT'` — is deliberate: REPOT is the only task that carries side effects TODAY, but a
+ * future task could too, and the contract member is exactly what exists so a surface never has to hardcode
+ * which task that is. This branch sits AFTER the FERTILIZE check (FERTILIZE can never carry side effects —
+ * an over-fertilize risk has no "other effects" to speak of) and BEFORE the neutral fallthrough, so it only
+ * ever fires for WATER, REPOT, ROTATE and CLEAN_LEAVES.
  */
 export function careOutcomeNoteKey(
   outcome: CareWriteOutcome | undefined,
@@ -43,7 +55,11 @@ export function careOutcomeNoteKey(
       ? 'tasks.alreadyRecorded.fertilizeSameDay'
       : 'tasks.alreadyRecorded.fertilizeBackDated';
   }
-  // WATER, REPOT, ROTATE and CLEAN_LEAVES: a neutral statement of fact. MIST has no dedup at all and can
-  // never reach this branch — misting twice on a hot day is a genuine second event (owner decision 7).
+  if (outcome.otherEffectsApplied) {
+    return 'tasks.alreadyRecorded.otherEffectsApplied';
+  }
+  // WATER, REPOT, ROTATE and CLEAN_LEAVES with no other effects: a neutral statement of fact. MIST has no
+  // dedup at all and can never reach this branch — misting twice on a hot day is a genuine second event
+  // (owner decision 7).
   return 'tasks.alreadyRecorded.neutral';
 }

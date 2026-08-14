@@ -1736,11 +1736,9 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
   // renderers are held to the identical standard.
   //
   // `otherEffectsApplied` is pinned `false` here, matching every other fixture in this codebase
-  // (`utils/careOutcome.test.ts:8-10` says explicitly why: the `true` case has no copy of its own yet — PIN
-  // 1 in `docs/superpowers/specs/2026-08-14-nothing-left-open-design.md` §3.2 forbids phrasing that outcome
-  // as "nothing happened", and no sentence is invented for it in this plan). This test only needs to prove
-  // that Today's REPOT completion populates the outcome note AT ALL — the defect was that nothing rendered,
-  // not that the wrong sentence rendered.
+  // (`utils/careOutcome.test.ts` says explicitly why): this case only needs to prove that Today's REPOT
+  // completion populates the outcome note AT ALL — the defect was that nothing rendered, not that the wrong
+  // sentence rendered. The `true` case (F2 fix) is its OWN case immediately below, asserting the NEW key.
   it('a REPOT completion via the Done form populates the outcome note, mirroring PlantDetail.vue', async () => {
     tasksFixture = repotTasks(RESOLVED); // a Done button is only offered once a REPOT verdict is pending
     const w = await mountPage();
@@ -1757,5 +1755,65 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
     });
     await flushPromises();
     expect(w.find('.mp-taskrow__outcome-note').text()).toBe('tasks.alreadyRecorded.neutral');
+  });
+
+  // F2 fix: on a duplicate REPOT the server still runs the profile write, the substrate refresh and the
+  // recompute — only the CareEvent row is suppressed. The neutral "nothing was added" sentence above is
+  // exactly the phrasing PIN 1 (`docs/superpowers/specs/2026-08-14-nothing-left-open-design.md` §3.2)
+  // forbids for this case, so an `otherEffectsApplied: true` outcome must render the DIFFERENT key.
+  it('a REPOT completion whose otherEffectsApplied is true gets the effects-applied sentence, never the neutral one', async () => {
+    tasksFixture = repotTasks(RESOLVED);
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds.A!.resolve({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
+        otherEffectsApplied: true,
+      },
+    });
+    await flushPromises();
+    const note = w.find('.mp-taskrow__outcome-note').text();
+    expect(note).toBe('tasks.alreadyRecorded.otherEffectsApplied');
+    expect(note).not.toBe('tasks.alreadyRecorded.neutral');
+  });
+
+  // F11 fix: the outcome note must resolve through i18n at RENDER time, never freeze in the locale that
+  // was active when the owner submitted. The module-level `useI18n` stub's `t` is an identity function
+  // (`k => k`), which can't tell "resolved at write time" from "resolved at render time" apart — both would
+  // read the same key either way — so THIS test overrides `useI18n` with a genuinely locale-aware `t`, then
+  // switches `locale` AFTER the submit WITHOUT remounting. A stale-string bug (storing `t(key)` instead of
+  // `key`) would leave the note on its English text even after the switch.
+  it('a locale switch AFTER the submit re-renders the outcome note in the new locale', async () => {
+    const NOTE_KEY = 'tasks.alreadyRecorded.neutral';
+    const localeRef = ref<'en' | 'es'>('en');
+    const localizedT = (k: string) => {
+      if (k !== NOTE_KEY) return k;
+      return localeRef.value === 'es' ? 'ES: sin cambios' : 'EN: nothing added';
+    };
+    vi.stubGlobal('useI18n', () => ({ t: localizedT, d: () => '', locale: localeRef }));
+    try {
+      tasksFixture = [{ plantId: 'A', task: 'ROTATE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+      sendFeedbackMock = vi.fn(async () => ({
+        ok: true,
+        outcome: {
+          status: 'already-recorded-on-day', task: 'ROTATE', occurredOn: todayYmd(),
+          otherEffectsApplied: false,
+        },
+      }));
+      const w = await mountPage();
+      await doneButtons(w)[0]!.trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-taskrow__outcome-note').text()).toBe('EN: nothing added');
+
+      localeRef.value = 'es';
+      await flushPromises();
+      expect(w.find('.mp-taskrow__outcome-note').text()).toBe('ES: sin cambios');
+    } finally {
+      vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, d: () => '', locale: ref('en') }));
+    }
   });
 });

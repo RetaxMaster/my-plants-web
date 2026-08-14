@@ -69,6 +69,7 @@
     "wateredTodayBackdate": "Set an earlier date to record a past watering.",
     "alreadyRecorded": {
       "neutral": "That day already had a record, so nothing was added.",
+      "otherEffectsApplied": "That day already had a record, so no new entry was added — but the rest of the update, like the pot size and soil, was still applied.",
       "fertilizeSameDay": "This plant was already fertilized today. Do not fertilize it again on the same day: the excess salts burn the roots.",
       "fertilizeBackDated": "That day already had a fertilizing on record. If you really did fertilize twice, keep it in mind: excess salts burn the roots."
     }

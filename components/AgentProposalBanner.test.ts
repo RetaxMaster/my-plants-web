@@ -28,6 +28,9 @@ const PROPOSAL = {
   failureCode: null,
   failureReason: null,
   affectedPlantCount: null,
+  // F3a: `outcome` is `null` for every PENDING/DECLINED/EXPIRED/FAILED row — this fixture is PENDING, so
+  // no outcome has been recorded yet (see `types/api.ts`'s own doc-comment on `AgentProposal.outcome`).
+  outcome: null,
   createdAt: '2026-07-18T10:00:00.000Z',
   operations: [
     {

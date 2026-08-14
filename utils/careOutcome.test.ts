@@ -3,10 +3,11 @@ import { careOutcomeNoteKey, doneSubmitPath } from './careOutcome.js';
 import type { CareWriteOutcome } from '../types/api.js';
 
 const applied: CareWriteOutcome = { status: 'applied' };
-const already = (task: 'WATER' | 'FERTILIZE' | 'REPOT' | 'ROTATE' | 'CLEAN_LEAVES'): CareWriteOutcome =>
-  // otherEffectsApplied is irrelevant to which SENTENCE an outcome earns (this file's whole subject), so
-  // every fixture here fixes it to `false` — REPOT's `true` case is Task 10's, not this pure function's.
-  ({ status: 'already-recorded-on-day', task, occurredOn: '2026-08-12', otherEffectsApplied: false });
+const already = (
+  task: 'WATER' | 'FERTILIZE' | 'REPOT' | 'ROTATE' | 'CLEAN_LEAVES',
+  otherEffectsApplied = false,
+): CareWriteOutcome =>
+  ({ status: 'already-recorded-on-day', task, occurredOn: '2026-08-12', otherEffectsApplied });
 
 describe('careOutcomeNoteKey', () => {
   it('says NOTHING on an applied outcome — a successful record needs no sentence', () => {
@@ -36,11 +37,32 @@ describe('careOutcomeNoteKey', () => {
     expect(sameDay).not.toBe(backDated);
   });
 
-  it('gives every other one-per-day task the neutral sentence, on both paths', () => {
+  it('gives every other one-per-day task the neutral sentence, on both paths, when otherEffectsApplied is false', () => {
     for (const task of ['WATER', 'REPOT', 'ROTATE', 'CLEAN_LEAVES'] as const) {
       expect(careOutcomeNoteKey(already(task), 'same-day')).toBe('tasks.alreadyRecorded.neutral');
       expect(careOutcomeNoteKey(already(task), 'back-dated')).toBe('tasks.alreadyRecorded.neutral');
     }
+  });
+
+  // F2 fix: a duplicate REPOT (or any one-per-day task) still runs its OTHER side effects — the neutral
+  // "nothing was added" sentence is exactly the phrasing the shared contract forbids for this case.
+  it('gives the effects-applied sentence when otherEffectsApplied is true, on both paths — keyed on the CONTRACT MEMBER, never on the task', () => {
+    for (const task of ['WATER', 'REPOT', 'ROTATE', 'CLEAN_LEAVES'] as const) {
+      expect(careOutcomeNoteKey(already(task, true), 'same-day')).toBe('tasks.alreadyRecorded.otherEffectsApplied');
+      expect(careOutcomeNoteKey(already(task, true), 'back-dated')).toBe('tasks.alreadyRecorded.otherEffectsApplied');
+    }
+  });
+
+  it('never picks the neutral key for an outcome that carries otherEffectsApplied: true', () => {
+    const outcome = already('REPOT', true);
+    expect(careOutcomeNoteKey(outcome, 'same-day')).not.toBe('tasks.alreadyRecorded.neutral');
+  });
+
+  it('never gives FERTILIZE the effects-applied sentence — FERTILIZE can never carry side effects', () => {
+    expect(careOutcomeNoteKey(already('FERTILIZE', true), 'same-day'))
+      .toBe('tasks.alreadyRecorded.fertilizeSameDay');
+    expect(careOutcomeNoteKey(already('FERTILIZE', true), 'back-dated'))
+      .toBe('tasks.alreadyRecorded.fertilizeBackDated');
   });
 });
 

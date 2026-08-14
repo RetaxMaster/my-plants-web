@@ -17,7 +17,7 @@
 // pipeline — outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals,
 // same technique ProgressForm.test.ts / NoteModal.test.ts / pages/plants/{new,index}.test.ts use.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ref, computed, watch, defineComponent } from 'vue';
+import { ref, computed, watch, inject } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import en from '../i18n/locales/en.json';
@@ -42,12 +42,23 @@ import type { CareWriteResult } from '../types/api.js';
 // resolve to on its own; `@vue/test-utils` registers whatever `stubs.UiTaskRow` names as the component that
 // tag renders, real or fake. Passing the real import there is what makes the row genuinely mount.
 import TaskRow from './ui/TaskRow.vue';
+// F8 fix — the FIX D1 describe block below used to hand-roll a `RepotDoneFormStub` that REIMPLEMENTED
+// RepotDoneForm.vue's own `watch(open, ...)` hydration state machine inside the test itself (the exact
+// pattern the "a test stub may not re-derive behavior" rule this feature adds to the project constitution
+// names). Mirrors `pages/index.test.ts`'s own "W3" integration test, which already mounts this same real
+// component for the identical reason.
+import RealRepotDoneForm from './ui/RepotDoneForm.vue';
 
 const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en, es } }).global;
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
 vi.stubGlobal('watch', watch);
+// F8 fix: needed the moment a real form's real Input.vue/SelectField.vue mounts (the FIX D1 describe block
+// below, which now mounts the REAL RepotDoneForm.vue) — both call `inject('mpFieldId', ...)`, and `inject`
+// is normally auto-imported by Nuxt's build pipeline, invisible as a bare global outside it. Same technique
+// `pages/index.test.ts`'s own real-RepotDoneForm integration test already uses.
+vi.stubGlobal('inject', inject);
 vi.stubGlobal('useI18n', () => ({ t: i18n.t, d: (v: unknown) => String(v), locale: ref('en') }));
 vi.stubGlobal('useHead', () => {});
 vi.stubGlobal('useSeoMeta', () => {});
@@ -1281,13 +1292,17 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
     // `doneFormOccurredOn`, passed down as `:seed-occurred-on`); the form's own `confirm` payload is what
     // reaches `onRepotDoneConfirm`. This stub mirrors the real form's default exactly (`seedOccurredOn ||
     // todayYmd()`), so it stays faithful to the widened emit contract Task 25 shipped.
+    // F7a fix: NO `|| todayYmd()` fallback in the confirm emit. That fallback made "sends the card's own
+    // (readonly, always-today) date through to the request" below pass even if the ENTIRE seed chain
+    // (TaskRow's date box -> onRepotDone -> doneFormOccurredOn -> :seed-occurred-on -> here) were severed
+    // and delivered `undefined` — the stub would still emit `todayYmd()` on its own. A severed chain must
+    // now send `undefined` verbatim, so the case can actually fail.
     UiRepotDoneForm: {
       props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
       emits: ['confirm', 'start-over', 'update:open'],
-      methods: { todayYmd },
       template:
         '<div class="done-form" :data-open="open">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: seedOccurredOn || todayYmd() })">confirm</button>' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: seedOccurredOn })">confirm</button>' +
         '</div>',
     },
   };
@@ -1399,55 +1414,60 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
     tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
   };
 
-  // Task 4: the REAL REPOT card's date box is READONLY, always `todayYmd()` (TaskRow.vue:400-409, :141-158)
-  // — a real owner cannot type a different date INTO THE CARD at all, so the two dated `done-aug1`/
-  // `done-aug5` buttons this stub used to fabricate cannot exist any more. The genuinely editable date
-  // surface for a repot completion is the FORM's own `occurredOn` field (`RepotDoneForm.vue:119,181,267`),
-  // so this stub is widened to mirror that field faithfully: an `<input type="date">` seeded from
-  // `seedOccurredOn` on a FRESH open and from `frozenSnapshot.occurredOn` on a FROZEN resume (the real
-  // component's own `watch(open, ...)`), editable only while not frozen. "Reopening with a NEW date" is now
-  // exercised by typing into THIS input, exactly where the real UI puts that editable surface.
-  // `defineComponent`, not a plain object literal — this stub's `watch` reads `this.frozen`/
-  // `this.frozenSnapshot`/`this.seedOccurredOn`, and only `defineComponent` gives TypeScript the Options
-  // API's own `this` inference for `props`/`data`/`methods` (same technique `AgentChat.test.ts` already
-  // uses for its own stateful stubs).
-  const RepotDoneFormStub = defineComponent({
-    props: [
-      'open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'frozenSnapshot',
-      'seedOccurredOn',
-    ],
-    emits: ['confirm', 'start-over', 'update:open'],
-    data() {
-      return { occurredOn: '' };
-    },
-    methods: { todayYmd },
-    watch: {
-      // Mirrors RepotDoneForm.vue's own `watch(open, ...)`: a frozen resume hydrates from the outstanding
-      // attempt's own stored envelope (never `seedOccurredOn`/`todayYmd()`); a fresh open seeds from the
-      // card's own back-date, falling back to today.
-      open(isOpen: boolean) {
-        if (!isOpen) return;
-        this.occurredOn = this.frozen && this.frozenSnapshot
-          ? this.frozenSnapshot.occurredOn
-          : (this.seedOccurredOn || this.todayYmd());
-      },
-    },
-    template:
-      '<div class="done-form" :data-open="open" :data-frozen="frozen">' +
-      '<input class="occurred-on-input" type="date" v-model="occurredOn" :disabled="frozen" />' +
-      '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: 26, soilMix: currentSoilMix, charged: true, occurredOn })">confirm</button>' +
-      // The REAL v-model:open contract (X/Escape/backdrop) — the owner dismissing the form to reopen it.
-      '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
-      '</div>',
-  });
-
-  const repotStubs = {
+  // F8 fix: mounts the REAL RepotDoneForm.vue rather than a hand-rolled stub that re-implemented its own
+  // hydration state machine (`watch(open, ...)`, copied from RepotDoneForm.vue:119-181) — exactly the
+  // pattern the "a test stub may not re-derive behavior" rule this feature adds to the project constitution
+  // names. The stub used to pass whether or not the REAL component's own hydration worked; mounting the
+  // real component means these two cases now exercise its actual watcher. Modal/FormGroup/Button are
+  // stubbed (same shape `pages/index.test.ts`'s own "W3" integration test uses for this identical mount);
+  // Input/SelectField/SegmentedControl/Alert are left OUT of the stub map so the REAL components render and
+  // their actual DOM (`input[type="date"]`, `input[type="number"]`) is what these tests assert against.
+  const realDoneFormStubs = {
     ...stubs,
     UiTaskRow: TaskRow,
-    UiRepotDoneForm: RepotDoneFormStub,
+    UiRepotDoneForm: RealRepotDoneForm,
+    Modal: {
+      props: ['modelValue', 'title'],
+      template: '<div data-modal-stub v-if="modelValue"><slot /><slot name="footer" /></div>',
+    },
+    FormGroup: { props: ['label', 'hint'], template: '<div><slot /></div>' },
+    // Widened from the file-level `stubs.Button`: that one never binds `:disabled` onto the native button,
+    // which would leave the real form's `:disabled="!canConfirm"`/`:disabled="frozen"` invisible to a test.
+    Button: {
+      props: ['size', 'color', 'variant', 'icon', 'disabled', 'loading'],
+      template:
+        '<button class="stub-btn" :data-icon="icon" :data-variant="variant" :disabled="disabled"><slot /></button>',
+    },
   };
 
   let completeRepotMock: ReturnType<typeof vi.fn>;
+
+  // The REAL RepotDoneForm.vue calls `useProfileMeta()` for its own soil-mix `<select>` options — the
+  // file-level stub (top of this file) only carries the label lookups `PlantDetail.vue` itself needs
+  // elsewhere, so this block widens it FOR ITS OWN TESTS ONLY, restoring the original in `afterEach` so no
+  // other describe block in this file inherits the wider shape.
+  const fileLevelUseProfileMeta = () => ({
+    windowDistanceLabel: () => null,
+    potTypeLabel: () => null,
+    soilMixLabel: () => null,
+    growthHabitLabel: () => null,
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal('useProfileMeta', () => ({
+      ...fileLevelUseProfileMeta(),
+      soilMixOptions: computed(() => [{ value: 'potting-mix', label: 'Potting mix' }]),
+      // The REAL implementation, copied rather than faked (mirrors `pages/index.test.ts`'s identical
+      // comment): a stub returning a different SHAPE would make the mounted form structurally different
+      // from the shipped one. See `composables/useProfileMeta.ts`.
+      withNotSet: (opts: { value: string; label: string }[], notSetLabel?: string | null) =>
+        [{ value: '', label: notSetLabel ?? 'plantProfile.pickOption' }, ...opts],
+    }));
+  });
+
+  afterEach(() => {
+    vi.stubGlobal('useProfileMeta', fileLevelUseProfileMeta);
+  });
 
   async function mountRepot(firstFailure: unknown) {
     let call = 0;
@@ -1472,14 +1492,23 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
     const PlantDetail = (await import('./PlantDetail.vue')).default;
     const w = mount(
       { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
-      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+      { global: { stubs: realDoneFormStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
     );
     await flushPromises();
     return w;
   }
 
-  async function press(w: Awaited<ReturnType<typeof mountRepot>>, selector: string) {
-    await w.find(selector).trigger('click');
+  // The form's own Confirm button, found by its REAL translated label — never by icon: the real form's
+  // Confirm button and the row's own Done button both use `icon="check"`, so a page-wide icon lookup would
+  // match either one once the form is open.
+  function findConfirmButton(w: Awaited<ReturnType<typeof mountRepot>>) {
+    const btn = w.findAll('button').find((b) => b.text() === i18n.t('repotDone.confirm'));
+    if (!btn) throw new Error('no confirm button found');
+    return btn;
+  }
+
+  async function press(w: Awaited<ReturnType<typeof mountRepot>>, btn: { trigger: (e: string) => Promise<void> }) {
+    await btn.trigger('click');
     await flushPromises();
   }
 
@@ -1490,24 +1519,30 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
 
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
-    await w.find('.occurred-on-input').setValue('2026-08-01');
+    // Scoped under the modal stub: the REPOT row itself also renders an `input[type="date"]` (its own
+    // READONLY, always-`todayYmd()` box) — an unscoped lookup would silently hit that one instead.
+    await w.find('[data-modal-stub] input[type="date"]').setValue('2026-08-01');
     const seededDate = '2026-08-01';
-    await press(w, '.confirm-btn');
+    await press(w, findConfirmButton(w));
     expect(completeRepotMock).toHaveBeenCalledTimes(1);
     expect(completeRepotMock.mock.calls[0]![1]).toBe(seededDate);
-    // The 400 unfreezes: the owner is being invited to correct the value.
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
+    // The 400 unfreezes: the owner is being invited to correct the value — the real fields un-disable.
+    expect(w.find('[data-modal-stub] input[type="date"]').attributes('disabled')).toBeUndefined();
+    expect(w.find('[data-modal-stub] input[type="number"]').attributes('disabled')).toBeUndefined();
 
     // The form's own date field is what's editable — not the (readonly) card — so correcting it means
-    // dismissing the form, reopening it, and typing a DIFFERENT date directly into that field.
-    await press(w, '.close-btn');
+    // dismissing the form, reopening it, and typing a DIFFERENT date directly into that field. Modal is
+    // stubbed to a bare passthrough (no close control of its own), so drive the real v-model:open contract
+    // directly — the same technique `pages/index.test.ts`'s "W3" integration test uses.
+    w.findComponent(RealRepotDoneForm).vm.$emit('update:open', false);
+    await flushPromises();
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
-    expect(w.find('.done-form').attributes('data-open')).toBe('true');
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('false'); // fresh, not resumed
-    await w.find('.occurred-on-input').setValue('2026-08-05');
+    expect(w.find('[data-modal-stub]').exists()).toBe(true);
+    expect(w.find('[data-modal-stub] input[type="date"]').attributes('disabled')).toBeUndefined(); // fresh, not resumed
+    await w.find('[data-modal-stub] input[type="date"]').setValue('2026-08-05');
 
-    await press(w, '.confirm-btn');
+    await press(w, findConfirmButton(w));
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
     expect(completeRepotMock.mock.calls[1]![1]).toBe('2026-08-05');
     // ...and under a genuinely new key, since the server committed nothing under the rejected one.
@@ -1521,21 +1556,22 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
 
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
-    await w.find('.occurred-on-input').setValue('2026-08-01');
+    await w.find('[data-modal-stub] input[type="date"]').setValue('2026-08-01');
     const seededDate = '2026-08-01';
-    await press(w, '.confirm-btn');
+    await press(w, findConfirmButton(w));
     expect(completeRepotMock.mock.calls[0]![1]).toBe(seededDate);
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+    expect(w.find('[data-modal-stub] input[type="date"]').attributes('disabled')).toBeDefined();
 
-    await press(w, '.close-btn');
+    w.findComponent(RealRepotDoneForm).vm.$emit('update:open', false);
+    await flushPromises();
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click'); // resumes — frozen stays true
     await flushPromises();
-    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+    expect(w.find('[data-modal-stub] input[type="date"]').attributes('disabled')).toBeDefined();
     // Hydrated from the frozen snapshot, unchanged, AND disabled — there is no way to retype it.
-    expect((w.find('.occurred-on-input').element as HTMLInputElement).value).toBe(seededDate);
-    expect(w.find('.occurred-on-input').attributes('disabled')).toBeDefined();
+    expect((w.find('[data-modal-stub] input[type="date"]').element as HTMLInputElement).value).toBe(seededDate);
+    expect(w.find('[data-modal-stub] input[type="number"]').attributes('disabled')).toBeDefined();
 
-    await press(w, '.confirm-btn');
+    await press(w, findConfirmButton(w));
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
     expect(completeRepotMock.mock.calls[1]![1]).toBe(seededDate);
     expect(completeRepotMock.mock.calls[1]![3]).toBe(completeRepotMock.mock.calls[0]![3]);
@@ -1649,14 +1685,16 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
       '<button class="save-unchanged-btn" @click="$emit(\'saved\', { soilMixChanged: false })">save (unchanged)</button>' +
       '</div>',
   };
+  // F7a fix: NO `|| todayYmd()` fallback in the confirm emit — see the identical note on the sibling stub
+  // in the "standalone REPOT Done" describe block above. A severed seed chain must send `undefined`
+  // verbatim, never a stub-invented "today" that would mask the defect.
   const UiRepotDoneFormStub = {
     props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
     emits: ['confirm', 'start-over', 'update:open'],
-    methods: { todayYmd },
     template:
       '<div class="done-form" :data-open="open" :data-seed="seedOccurredOn">' +
       '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, ' +
-      'charged: true, occurredOn: seedOccurredOn || todayYmd() })">confirm</button>' +
+      'charged: true, occurredOn: seedOccurredOn })">confirm</button>' +
       '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
       '</div>',
   };
@@ -1928,13 +1966,12 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
     emits: ['saved'],
     template: '<button class="reading-saved-btn" @click="$emit(\'saved\')" />',
   };
-  // The base map stubs UiTaskRow inert; this block needs to fire its real `done` event for the WATER row,
-  // which is what reaches `sendDone`.
-  const taskRowStub = {
-    props: ['task', 'status', 'nextDueOn', 'daysUntilDue', 'pendingVerdict', 'suggestMeasuring'],
-    emits: ['done'],
-    template: '<button :class="`done-btn-${task}`" @click="$emit(\'done\', { task })" />',
-  };
+  // F8 fix: the base map stubs UiTaskRow inert; this block used to swap in a hand-rolled `taskRowStub` that
+  // rendered Done UNCONDITIONALLY (bypassing the real row's own `showDone`/`doneWouldBeDiscarded` rules) and
+  // emitted `{ task }` alone — a divergent private copy of the real row's `{ task, occurredOn }` event
+  // contract (`TaskRow.vue:390`). This block's whole subject is that marking a task done reaches the right
+  // `refresh()`s, which needs a real `done` event to fire, never a re-implemented one — the REAL row, exactly
+  // like every other describe block in this file now uses (Task 2/3).
 
   async function mountDetailForReading(plant: ReturnType<typeof basePlant>, care: unknown = null) {
     stubApi(plant);
@@ -1957,7 +1994,7 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
       { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
       {
         global: {
-          stubs: { ...stubs, UiSoilReadingModal: soilReadingModalStub, UiTaskRow: taskRowStub },
+          stubs: { ...stubs, UiSoilReadingModal: soilReadingModalStub, UiTaskRow: TaskRow },
           mocks: { $t: i18n.t, $d: (v: unknown) => String(v) },
         },
       },
@@ -1996,7 +2033,7 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
     });
     expect(readingsRefresh).not.toHaveBeenCalled();
 
-    await w.find('.done-btn-WATER').trigger('click');
+    await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
     await flushPromises();
 
     expect(readingsRefresh).toHaveBeenCalled();
@@ -2430,6 +2467,35 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
       .toBe(i18n.t('tasks.alreadyRecorded.neutral'));
     expect((taskRowFor(w, 'WATER').find('input[type="date"]').element as HTMLInputElement).value)
       .toBe('2026-08-12');
+  });
+
+  // F11 fix: the outcome note must resolve through i18n at RENDER time, never freeze in the locale that
+  // was active when the owner submitted. Proven WITHOUT remounting — a stale-string bug would leave this
+  // sentence in English even after the switch, because `outcomeNotes` stored `t(key)` instead of `key`.
+  it('a locale switch AFTER the submit re-renders the outcome note in the new locale', async () => {
+    const w = await mountWater([], null, {}, {
+      sendFeedback: async () => ({
+        ok: true,
+        outcome: {
+          status: 'already-recorded-on-day', task: 'WATER', occurredOn: '2026-08-12',
+          otherEffectsApplied: false,
+        },
+      }),
+    });
+    const row = taskRowFor(w, 'WATER');
+    await row.find('input[type="date"]').setValue('2026-08-12');
+    await doneButtons(row)[0]!.trigger('click');
+    await flushPromises();
+    expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').text())
+      .toBe(en.tasks.alreadyRecorded.neutral);
+    i18n.locale.value = 'es';
+    try {
+      await flushPromises();
+      expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').text())
+        .toBe(es.tasks.alreadyRecorded.neutral);
+    } finally {
+      i18n.locale.value = 'en';
+    }
   });
 
   it('gives a back-dated FERTILIZE the FACTUAL sentence, never the imperative one', async () => {

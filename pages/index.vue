@@ -332,6 +332,11 @@ function canSurveyWaterFor(plantId: string): boolean {
 
 // Task 10 — the one-per-day outcome, keyed by `plantId + task` because this page renders many plants at
 // once (PlantDetail.vue's sibling map is keyed by task alone — one plant per mount, so no collision there).
+//
+// ⚠️ STORES THE i18n KEY, NEVER THE TRANSLATED STRING (F11 fix, 2026-08-14). Translating at write time
+// froze the note in whatever locale was active at submit — if the owner switched locale afterward, the
+// rest of the UI switched and this one sentence didn't. `outcomeNoteFor` below re-resolves the key through
+// `t()` on every render, so a locale switch re-renders it like every other piece of UI copy.
 const outcomeNotes = ref<Record<string, string | null>>({});
 const appliedCompletions = ref<Record<string, number>>({});
 const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${task}`;
@@ -348,10 +353,17 @@ const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${tas
 function recordOutcome(plantId: string, task: DueTask['task'], result: CareWriteResult, occurredOn?: string) {
   const k = outcomeKey(plantId, task);
   const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today));
-  outcomeNotes.value = { ...outcomeNotes.value, [k]: key ? t(key) : null };
+  outcomeNotes.value = { ...outcomeNotes.value, [k]: key };
   if (result.outcome?.status === 'applied') {
     appliedCompletions.value = { ...appliedCompletions.value, [k]: (appliedCompletions.value[k] ?? 0) + 1 };
   }
+}
+
+// Resolves the stored KEY through `t()` at RENDER time (called from the template below), so a locale
+// switch after a submit re-renders the sentence in the new language instead of freezing it in the old one.
+function outcomeNoteFor(plantId: string, task: DueTask['task']): string | null {
+  const key = outcomeNotes.value[outcomeKey(plantId, task)] ?? null;
+  return key ? t(key) : null;
 }
 
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
@@ -967,7 +979,7 @@ function openProgress(plantId: string) {
             :can-survey="t2.task === 'WATER' && canSurveyWaterFor(plantId)"
             :todays-verdict="t2.task === 'WATER' ? todaysVerdictFor(plantId) : null"
             :prompt-answered-today="PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW"
-            :outcome-note="outcomeNotes[outcomeKey(plantId, t2.task)] ?? null"
+            :outcome-note="outcomeNoteFor(plantId, t2.task)"
             :applied-completions="appliedCompletions[outcomeKey(plantId, t2.task)] ?? 0"
             @done="e => onDone(plantId, e.task, rowEffectiveStatus(plantId, e.task, t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"

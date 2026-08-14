@@ -257,7 +257,10 @@
     "substrateChargedYes": "Sí — mezcla nueva con alimento",
     "substrateChargedNo": "No — sustrato reusado o inerte",
     "substrateChargedUnknown": "No sé",
-    "substrateHint": "Déjalo en blanco si no estás seguro — asumiremos que el sustrato todavía tiene algo de alimento y esperaremos antes de la primera fertilización, que es lo prudente."
+    "substrateHint": "Déjalo en blanco si no estás seguro — asumiremos que el sustrato todavía tiene algo de alimento y esperaremos antes de la primera fertilización, que es lo prudente.",
+    "soilMix": "Sustrato",
+    "soilMixHint": "Opcional. Si no sabes, déjalo así — no asumimos nada en ningún sentido.",
+    "soilMixUnknown": "No sé"
   },
   "plantDetail": {
     "backAll": "Todas las plantas",

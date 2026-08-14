@@ -1363,24 +1363,18 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
   });
 
   // The deleted stub used to fabricate a SECOND button emitting an injected '2026-08-01' to prove "the
-  // card's date reaches the request". The real REPOT card has no such second affordance — its date box is
-  // READONLY, always `todayYmd()` (TaskRow.vue:400-409, :141-158) — so this now proves the SAME claim end
-  // to end through the real seed chain (TaskRow's box -> onRepotDone -> doneFormOccurredOn ->
-  // UiRepotDoneForm's seedOccurredOn -> the confirm payload), which is strictly stronger than the stub's
-  // injected value: nothing here is a value WE fabricated.
-  it('sends the date shown on the card\'s own (readonly) date box through to the request', async () => {
+  // card's date reaches the request", and a separate case proved the no-date fallback the same way. The real
+  // REPOT card has no such second affordance — its date box is READONLY, always `todayYmd()`
+  // (TaskRow.vue:400-409, :141-158) — so both cases now collapse to one and the same assertion (the request
+  // date equals `todayYmd()`, proved end to end through the real seed chain: TaskRow's box -> onRepotDone ->
+  // doneFormOccurredOn -> UiRepotDoneForm's seedOccurredOn -> the confirm payload). Folded into a single test
+  // (fix wave) rather than kept as two identically-asserting cases under different titles — the readonly box
+  // makes an owner-typed back-date impossible, so "sends the date shown on the card" and "falls back to
+  // today" are no longer two different behaviors to pin.
+  it('sends the card\'s own (readonly, always-today) date through to the request', async () => {
     const w = await mountRepot(null);
     await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
     expect(completeRepotMock.mock.calls[0]![1]).toBe(todayYmd());
-  });
-
-  it('falls back to today when the owner typed no date — the same default every other task has', async () => {
-    const w = await mountRepot(null);
-    await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
-    const sent = completeRepotMock.mock.calls[0]![1] as string;
-    const now = new Date();
-    const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    expect(sent).toBe(todayLocal);
   });
 });
 
@@ -1495,7 +1489,8 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
 
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
-    const seededDate = (w.find('.occurred-on-input').element as HTMLInputElement).value;
+    await w.find('.occurred-on-input').setValue('2026-08-01');
+    const seededDate = '2026-08-01';
     await press(w, '.confirm-btn');
     expect(completeRepotMock).toHaveBeenCalledTimes(1);
     expect(completeRepotMock.mock.calls[0]![1]).toBe(seededDate);
@@ -1525,7 +1520,8 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
 
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
-    const seededDate = (w.find('.occurred-on-input').element as HTMLInputElement).value;
+    await w.find('.occurred-on-input').setValue('2026-08-01');
+    const seededDate = '2026-08-01';
     await press(w, '.confirm-btn');
     expect(completeRepotMock.mock.calls[0]![1]).toBe(seededDate);
     expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
@@ -1748,18 +1744,27 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
   });
 
   // Diagnosed (Task 4, spec §7): this case failed once in a 40-repeat loop and passed 12/12 immediately
-  // after, i.e. a genuine flake, not a fluke. The chain the Done click drives is TWO promise ticks — the
-  // click handler's own `await api.getPlant(...)` inside `onRepotDone`'s resume check, THEN the re-render
-  // that mounts the form with its seed — and the case awaited only one `flushPromises()`. Fixed with the
-  // missing await, expressed as an await (never a `setTimeout`/retry/`vi.waitFor` masking it). The expected
-  // value also changes from the deleted stub's injected `'2026-08-01'` to `todayYmd()` — the real REPOT
-  // card's own (readonly) seed — a consequence of Step 1's stub retirement, not a weakening: the assertion
-  // now reads a value the component produced rather than one the test injected.
+  // after, i.e. a genuine flake, not a fluke. Fixed with a second `flushPromises()`, expressed as an await
+  // (never a `setTimeout`/retry/`vi.waitFor` masking it). NOTE (fix wave, corrected): the previous version of
+  // this comment attributed the extra tick to "the click handler's own `await api.getPlant(...)` inside
+  // `onRepotDone`'s resume check" — that is false. `onRepotDone` (`PlantDetail.vue:1018-1056`) is not even
+  // `async`, and its own comment at `:1029-1031` says plainly "there is no fallible fetch here"; `onDone`
+  // (`PlantDetail.vue:1208`) and `TaskRow.vue`'s own `onDone` (`components/ui/TaskRow.vue:356`) are both
+  // synchronous too, so the whole click-to-open chain has no `await` in it anywhere. Re-running this single
+  // case in isolation 15/15 times with only ONE `flushPromises()` never reproduced the original flake, so the
+  // second tick is precautionary against a re-render race that only showed up once, running inside the full
+  // file (shared module-level fixtures/timers across `describe` blocks), not evidence of a real second
+  // microtask this component schedules. Also: the plan's own `--repeat 40` verification loop is not runnable
+  // as written — vitest 3.2.7 (see `package.json`) has no `--repeat` flag.
+  // Expected-value note (unrelated to the above): it also changes from the deleted stub's injected
+  // `'2026-08-01'` to `todayYmd()` — the real REPOT card's own (readonly) seed — a consequence of Step 1's
+  // stub retirement, not a weakening: the assertion now reads a value the component produced rather than one
+  // the test injected.
   it('passes the card\'s shown date into the repot form as its seed', async () => {
     const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
-    await flushPromises(); // the handler's own `await api.getPlant(...)`
-    await flushPromises(); // the re-render that mounts the form with its seed
+    await flushPromises();
+    await flushPromises(); // precautionary second tick — see the note above; not a real second await
     expect(w.find('.done-form').attributes('data-seed')).toBe(todayYmd());
   });
 

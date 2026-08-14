@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { groupByPlant, dueState, type DueTask } from '../utils/tasks.js';
+import { groupByPlant, orderTasksForCard, dueState, type DueTask } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
 // One implementation of "which pending evaluation may an action name" and of "which sign is worth
@@ -212,7 +212,16 @@ const placeName = (id: string): string => {
   return (places.value ?? []).find((pl) => pl.id === p.placeId)?.name ?? '';
 };
 
-const grouped = computed(() => groupByPlant((tasks.value ?? []) as DueTask[]));
+// ⚠️ ORDER THE ROWS INSIDE EACH BUCKET, NEVER THE BUCKETS (spec §2.2, owner decision 4). Sorting the
+// values leaves the Map's key insertion order — the CARD order the API's urgency-group sort decided —
+// exactly where it was, so a plant with a five-day-overdue watering is never pushed below a plant whose
+// repot can wait. A flat re-sort of `tasks` before grouping would do precisely that.
+const grouped = computed(() => {
+  const buckets = groupByPlant((tasks.value ?? []) as DueTask[]);
+  const ordered = new Map<string, DueTask[]>();
+  for (const [plantId, rows] of buckets) ordered.set(plantId, orderTasksForCard(rows));
+  return ordered;
+});
 const dueCount = computed(() => (tasks.value ?? []).length);
 
 const today = todayYmd();

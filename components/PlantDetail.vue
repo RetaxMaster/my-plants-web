@@ -8,7 +8,7 @@
 // timer cleanup resolves under the component test harness, which stubs the other Vue APIs as globals but
 // not this hook. Nuxt's auto-import skips an already-imported name, so there is no duplicate in the build.
 import { onUnmounted } from 'vue';
-import { type TaskCode, type DueState } from '../utils/tasks.js';
+import { orderTasksForCard, type TaskCode, type DueState } from '../utils/tasks.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 import { repotExplanation } from '../utils/repotExplanation.js';
@@ -843,6 +843,10 @@ function careDueState(row: { daysUntilDue: number; status: string }): DueState {
 // evaluationId to a REPOT Done/Postpone that follows a resolved verdict. Mirrors pages/index.vue's
 // `pendingEvaluationFor`, scoped to this plant's single care read instead of the whole Today list.
 const pendingRepotEvaluation = computed(() => care.value?.tasks.find((t) => t.task === 'REPOT')?.pendingEvaluation ?? null);
+// ⚠️ THE SAME ONE RULE Today applies to each of its buckets (spec §2.2) — this page never calls
+// `groupByPlant` at all, which is why the rule lives in an exported function rather than inside it. One
+// plant here, so "within the card" is the whole rendered list.
+const orderedTasks = computed(() => orderTasksForCard(care.value?.tasks ?? []));
 
 async function sendDone(task: TaskCode, occurredOn?: string, reason?: string) {
   await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
@@ -1609,7 +1613,7 @@ async function confirmRevive() {
                    back-dated reading is not part of deciding today's watering, so it moved to the
                    measurement-history block below (`openVoluntaryReading`). -->
               <UiTaskRow
-                v-for="t3 in care.tasks"
+                v-for="t3 in orderedTasks"
                 :key="t3.task"
                 :id="t3.task === 'REPOT' ? 'repot' : undefined"
                 :task="t3.task"

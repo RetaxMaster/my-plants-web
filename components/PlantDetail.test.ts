@@ -1260,11 +1260,13 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
   const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
   // §7A (Task 4): a MIXED-task payload. With a REPOT row alone this fixture could not fail on a wrongly
   // -propped WATER row, which is exactly the gap §7 names. Both rows, so the per-task binding is observable.
+  // WATER sent BEFORE REPOT (spec §2.2, Task 6) — a fixture that already arrived REPOT-first would let the
+  // "orders the plant page's own rows REPOT first" case below pass without the sort, proving nothing.
   const careWith = (pendingEvaluation: Pending) => ({
     plantId: 'p1',
     tasks: [
-      { task: 'REPOT', status: 'today', daysUntilDue: 0, nextDueOn: '2026-08-14', pendingEvaluation },
       { task: 'WATER', status: 'today', daysUntilDue: 0, nextDueOn: '2026-08-14', pendingEvaluation: null },
+      { task: 'REPOT', status: 'today', daysUntilDue: 0, nextDueOn: '2026-08-14', pendingEvaluation },
     ],
   });
 
@@ -1375,6 +1377,11 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
     const w = await mountRepot(null);
     await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
     expect(completeRepotMock.mock.calls[0]![1]).toBe(todayYmd());
+  });
+
+  it('orders the plant page\'s own rows REPOT first, whatever order the API sent (spec §2.2)', async () => {
+    const w = await mountRepot(null); // careWith sends WATER first, REPOT second? assert the RENDERED order
+    expect(w.findAll('.mp-taskrow__label').map((l) => l.text())).toEqual(['REPOT', 'WATER']);
   });
 });
 

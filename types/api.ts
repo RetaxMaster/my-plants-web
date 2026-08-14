@@ -28,13 +28,19 @@ import { RECOMMENDATIONS, HOLD_BASES, UNAVAILABLE_REASONS } from '@retaxmaster/m
 // `WateringRelation` is the same shared contract's newest `soil-reading.ts` type (owner-ruled, 2026-08-08),
 // imported alongside its siblings above for the identical reason — never re-declared, so the two-value
 // union can't silently drift.
+// `CareWriteOutcome`/`CareWriteResult` are the same shared contract's `care-outcome.ts` types, imported here
+// for the identical fork-prevention reason as `RepotEvaluationSubmit`/`RepotEvidenceClass` above — a
+// hand-copied `CareWriteOutcome` would type `task` as this file's own six-task `CareActionTask` (MIST
+// included) rather than the shared five-task `OnePerDayTask` the write rule actually covers, so a copy is
+// not merely a style nit here: it is a real drift from the contract it was meant to mirror. Importing it
+// makes `utils/careOutcome.ts`'s "MIST can never reach this branch" true BY TYPE instead of true by comment.
 import type {
   ProposalOperationType, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
-  WateringRelation, ProposalOutcomeStatus,
+  WateringRelation, ProposalOutcomeStatus, CareWriteOutcome, CareWriteResult,
 } from '@retaxmaster/my-plants-species-schema';
 export type {
   ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
-  WateringRelation,
+  WateringRelation, CareWriteOutcome, CareWriteResult,
 };
 // `FREQUENCY_BEARING_TASKS` is the shared contract's own vocabulary (six tasks, PROGRESS excluded) — a
 // VALUE import (not `import type`), because `TaskHistoryBlock` below derives its key set from
@@ -211,40 +217,15 @@ export interface Feedback {
   payload?: Record<string, unknown>;
 }
 
-/**
- * ONE DAY, ONE RECORD — AND THE RECORD SAYS SO (spec §3.2).
- *
- * A second same-day submission is still a SUCCESS and still writes no second care event (the 2026-08-10
- * ruling stands: a 409 would turn a harmless repeat into an error the owner can do nothing about). What
- * changed is that the result STATES what happened instead of being indistinguishable from a write.
- *
- * ⚠️ DAY-SCOPED, NOT TODAY-SCOPED. The server dedups against the day the submission NAMES, so a back-dated
- * `Hecho` onto a past day that already carries the event comes back `already-recorded-on-day` too — that
- * second case is the whole reason this payload exists (`docs/care-engine.md` §7.20.19's second residual).
- *
- * ⚠️ "ALREADY RECORDED" DESCRIBES THE CARE-EVENT WRITE, NOT THE WHOLE OPERATION. On a duplicate REPOT the
- * server still runs the profile update, the substrate refresh and the recompute — only the care-event row
- * is suppressed. No web copy may phrase this outcome as "nothing happened". `otherEffectsApplied` is
- * exactly that distinction, made machine-readable instead of left for a reader to infer: `true` means real
- * side effects ran even though no CareEvent was written. This plan does not render it as its own sentence
- * yet — it arrives on the wire, available to a future task, and no copy is invented for it here.
- *
- * This is PIN 1 (spec §3.2), quoted byte-identically. It is declared here because `types/api.ts` is this
- * app's single home for wire shapes, exactly as every other response type in this file is declared.
- */
-export type CareWriteOutcome =
-  | { status: 'applied' }
-  | {
-      status: 'already-recorded-on-day';
-      task: CareActionTask;
-      occurredOn: string;
-      otherEffectsApplied: boolean;
-    };
-
-export interface CareWriteResult {
-  ok: true;
-  outcome: CareWriteOutcome;
-}
+// `CareWriteOutcome`/`CareWriteResult` — ONE DAY, ONE RECORD (spec §3.2), PIN 1 — now ALIASED FROM THE
+// SHARED CONTRACT (`@retaxmaster/my-plants-species-schema`'s `care-outcome.ts`) instead of declared here.
+// A second same-day submission is still a SUCCESS and still writes no second care event (2026-08-10 ruling:
+// a 409 would turn a harmless repeat into an error the owner can do nothing about); the result STATES what
+// happened instead of being indistinguishable from a write. Day-scoped, not today-scoped — the server
+// dedups against the day the submission NAMES. "Already recorded" describes the CARE-EVENT WRITE ONLY: on a
+// duplicate REPOT the profile update, substrate refresh and recompute still run (`otherEffectsApplied`), so
+// no web copy may phrase that outcome as "nothing happened". The full doc lives on the shared type itself
+// (see `CareWriteOutcome` at import time) — not re-declared here to avoid two copies of one contract.
 
 export interface OwnerSummary {
   ownerId: string;

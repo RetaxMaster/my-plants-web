@@ -628,7 +628,15 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
     payload: { ...repotPayload, ...(evaluationId ? { evaluationId } : {}) },
   });
   try {
-    await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
+    const result = await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
+    // Level-integration fix: record the write's own CareWriteOutcome the SAME way sendDone (line ~359) and
+    // PlantDetail.vue's own onRepotDoneConfirm already do — a completed repot can carry
+    // `otherEffectsApplied: true` (the substrate/fertilizer-floor side effects), and the spec (§3.2) requires
+    // that never render as "nothing happened". This MUST run before `resolveDoneSuccess`/the completion
+    // watcher's `refresh()` below: `recordOutcome` only touches `outcomeNotes`/`appliedCompletions`, which
+    // `refresh()` (a Today-list re-fetch) never overwrites — so the ordering here doesn't race the watcher,
+    // but recording it first keeps the note visible from the earliest possible moment, same as sendDone.
+    recordOutcome(plantId, 'REPOT', result, attempt.body.occurredOn);
     // X1: same reasoning as onEvaluationSubmit's identical comment above — `resolveDoneSuccess` is the ONLY
     // place that clears the attempt AND publishes the completion signal (the Done flow has no verdict to
     // carry, so its completion names only the plant), and it already no-ops both when `attempt` is no longer

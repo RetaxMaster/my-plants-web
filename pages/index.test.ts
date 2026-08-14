@@ -21,6 +21,9 @@ import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { CareWriteResult, PlantSoilReadings, RepotEvaluationResult, RepotSign } from '../types/api.js';
 import type { TodaysVerdict } from '../utils/waterSurvey.js';
+// Task 10: names "today" the same way the page itself does (`utils/localDate.js`'s `todayYmd()`), so the
+// fixture's `occurredOn` genuinely lands on the SAME-DAY path rather than an accidental back-dated one.
+import { todayYmd } from '../utils/localDate.js';
 // X2: the parent-level integration test near the end of this file mounts the REAL RepotDoneForm.vue (never a
 // re-implemented stub of its hydration watcher — see that describe block's own header comment for why).
 import RealRepotDoneForm from '../components/ui/RepotDoneForm.vue';
@@ -1680,5 +1683,25 @@ describe('pages/index.vue — row order within a card, card order untouched (spe
     const cards = w.findAll('.mp-taskrow__label');
     // Rendered document order = card order then row order.
     expect(cards.map((l) => l.text())).toEqual(['REPOT', 'WATER', 'WATER', 'FERTILIZE']);
+  });
+});
+
+// Task 10 — Today's rows carry no date box, so every submit it produces takes the SAME-DAY path
+// (`doneSubmitPath` returns 'same-day' by construction here). Today can never exercise the back-dated half
+// of `careOutcomeNoteKey`'s FERTILIZE split — that half is PlantDetail.test.ts's, whose rows do carry one.
+describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row', () => {
+  it('warns on a same-day FERTILIZE the server already had, with the IMPERATIVE sentence', async () => {
+    tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+    sendFeedbackMock = vi.fn(async () => ({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'FERTILIZE', occurredOn: todayYmd(),
+        otherEffectsApplied: false,
+      },
+    }));
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.mp-taskrow__outcome-note').text()).toBe('tasks.alreadyRecorded.fertilizeSameDay');
   });
 });

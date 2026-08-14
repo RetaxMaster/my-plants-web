@@ -901,18 +901,27 @@ const rawValueErrorMessage = computed(() => {
 /**
  * WHY THE PRIMARY BUTTON IS DISABLED, or `undefined` when it is not (QA UX-2).
  *
- * A dead green button that explains nothing is a dialog the owner cannot get out of without guessing. The
- * order matters: it reports the FIRST thing standing in the way, walking the form top-to-bottom the way
- * the owner's eye does, rather than whichever condition happens to be evaluated first.
+ * A dead green button that explains nothing is a dialog the owner cannot get out of without guessing.
  *
- * ⚠️ IT USED TO GO DELIBERATELY SILENT ABOUT THE VALUE'S OWN BOUNDS AND STEP, on the reasoning that those
- * already render inline on the field and saying it twice reads as two separate faults. QA (round 3,
- * 2026-08-10) overturned that from the owner's side: typing `11` into a field labelled `Reading (1–10
- * index)` greyed the button out with nothing beside it, and the same for `0`, `1.5`, `-5` and `1e3`. The
- * inline message is real, but the footer is where the owner looks when the button will not press — and in a
- * tall dialog (the kitchen scale renders three number fields plus two hints) the field can be scrolled out
- * of view while the footer is not. THE DATE FIELD ALREADY WORKS THIS WAY, states its reason in both places,
- * and QA verified it as the good case; this is the same treatment for the number.
+ * ⚠️ IT REPORTS ONLY THE FAULTS WITH NO INLINE HOME (spec §2.5, ruled 2026-08-14) — AND THIS PARAGRAPH
+ * REPLACES AN EARLIER ONE ARGUING THE OPPOSITE, WHICH IS RECORDED RATHER THAN DELETED. QA round 3
+ * (2026-08-10) put the value's bounds back HERE because a tall dialog can scroll the field out of view
+ * while the footer stays put. QA 2026-08-13 then measured the other end of the same trade at 390 px: field
+ * and footer are both on screen, and the owner reads one fault as two. Both observations are true; the
+ * ruling keeps the footer for the faults it is the ONLY surface for and drops it for the rest.
+ *
+ * What has an inline home, verified against this file: the value's bounds/step/plausibility render through
+ * `rawValueErrorMessage` at `:1579`/`:1596`, and BOTH date faults render through `measuredOnError` on the
+ * date `FormGroup`'s `:error` at `:1611`. What does not: an EMPTY value (`rawValueErrorMessage` returns
+ * `undefined` for it, deliberately — an untouched field is not an error) and the unanswered same-day
+ * watering question, whose `FormGroup` declares no `:error` at all.
+ *
+ * ⚠️ THE TRADE, NAMED: on a small viewport with the body scrolled, a suppressed fault could now have no
+ * visible statement. If QA finds that, the fix is to make the suppression conditional on the inline field
+ * being in view — NEVER to restore the unconditional duplication QA already rejected.
+ *
+ * ⚠️ AND THE SERVER-ERROR `Alert` (`:1635`) IS A DIFFERENT SURFACE, NOT THIS ONE (finding F3, `:419`):
+ * it is the only thing that reports a FAILED SAVE and must never be folded in here.
  */
 const blockedReason = computed(() => {
   // `instrumentId === ''` means NOTHING is usable (see the `usableInstruments` watcher — a selection can no
@@ -920,21 +929,7 @@ const blockedReason = computed(() => {
   // no primary button in the footer to explain. Returning a reason here would print a second, quieter
   // sentence under an alert that already said the whole thing.
   if (submitting.value || instrumentId.value === '') return undefined;
-  // Ahead of the value: a date the owner has to correct anyway makes every other complaint noise.
-  if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
-  if (measuredOnBeforeAcquired.value) {
-    return t('reading.measuredOnBeforeAcquired', { acquired: acquiredOnLabel.value });
-  }
   if (rawValue.value == null) return t('reading.missingValue');
-  // The SAME sentence the field shows, not a second phrasing of it — two wordings for one fault is what
-  // actually reads as two faults.
-  if (rawValueOutOfRange.value || rawValueOffStep.value || rawValueImplausibleForPot.value) {
-    return rawValueErrorMessage.value;
-  }
-  // NOTE: three calibration reasons used to be reported here (missing anchors / off-scale anchor / inverted
-  // span). They left with the fields on 2026-08-10 — an instrument that still needs a calibration is no
-  // longer OFFERED (see `usableInstruments`), so none of the three can block a reading any more. Their
-  // assertions moved to `PlantCalibrationModal`, where the anchors are now typed.
   if (showWateringRelation.value && wateringRelation.value === '') {
     return t('reading.missingWateringRelation');
   }
@@ -980,6 +975,10 @@ const acquiredOnLabel = computed(() =>
 // The date field's own inline error — ONE computed rather than a ternary chain in the template, so the two
 // refusals (future / before the plant existed) cannot come to disagree with `blockedReason`'s ordering.
 // Future first, matching that footer exactly: the two must never name different faults for one date.
+//
+// ⚠️ `reading.measuredOnBeforeAcquired` IS SHARED WORDING. The server enforces the same rule
+// (`assertNotBeforeAcquisition`, applied to care events, progress entries and repot completions as of
+// spec §3.3), and the two must never drift: this is the CLIENT-SIDE check for the same refusal.
 const measuredOnError = computed(() => {
   if (measuredOnInFuture.value) return t('reading.measuredOnFuture');
   if (measuredOnBeforeAcquired.value) {

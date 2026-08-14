@@ -1537,19 +1537,22 @@ describe('the reading field enforces the instrument\'s declared granularity', ()
   // dialog the field scrolls out of view while the footer does not, and the footer is where the eye goes
   // when a button will not press. Kept and inverted rather than deleted: the old assertion records a
   // judgement that was made deliberately and turned out to be wrong in front of a user.
-  it('names the value fault in the footer too — the SAME sentence the field shows', async () => {
+  // ⚠️ REWRITTEN 2026-08-14 (spec §2.5). QA round 3 put this sentence in the footer BECAUSE the field can
+  // scroll out of view in a tall dialog. At 390 px — the viewport QA actually measured — both are on
+  // screen at once, so the owner reads one fault as two. The footer now keeps only the reasons with NO
+  // inline home at all; this one has one, at `:1579`/`:1596`.
+  it('states the value fault ONCE — inline on the field, not restated in the footer', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(99);
-    // One sentence in two places. Two DIFFERENT wordings for one fault is what actually reads as two
-    // faults, so this asserts they are identical rather than merely both present.
     expect(rawValueError(w)).toBe('reading.valueOutOfRange|1|10');
-    expect(blockedText(w)).toBe('reading.valueOutOfRange|1|10');
+    expect(blockedText(w)).toBeUndefined();
   });
 
-  it('names the off-step fault in the footer as well', async () => {
+  it('states the off-step fault ONCE, on the field', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(5.5);
-    expect(blockedText(w)).toBe('reading.valueOffStep|1|1');
+    expect(rawValueError(w)).toBe('reading.valueOffStep|1|1');
+    expect(blockedText(w)).toBeUndefined();
   });
 
   // MOVED 2026-08-10 — two more calibration blocking-reason cases, with the defects they were written
@@ -1695,19 +1698,29 @@ describe('a measurement cannot be dated in the future', () => {
     return w.find('.mp-modal-blocked').exists() ? w.find('.mp-modal-blocked').text() : undefined;
   }
 
-  it('blocks the save and says why — the `max` attribute does not stop a TYPED date', async () => {
+  it('blocks the save and says why ON THE FIELD — the `max` attribute does not stop a TYPED date', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(5);
     await w.find('input[type="date"]').setValue(tomorrow());
 
     expect(findSaveButton(w).attributes('disabled')).toBeDefined();
-    expect(blockedText(w)).toBe('reading.measuredOnFuture');
+    const dateGroup = w.findAllComponents({ name: 'FormGroup' })
+      .find((g) => g.props('label') === 'reading.measuredOn');
+    expect(dateGroup!.props('error')).toBe('reading.measuredOnFuture');
+    expect(blockedText(w)).toBeUndefined();
   });
 
-  it('reports the date before the value — a date you must fix anyway makes the rest noise', async () => {
+  // ⚠️ REWRITTEN 2026-08-14 (spec §2.5). This used to pin the footer's ORDERING (date ahead of value). The
+  // footer now states neither — the date has an inline home and the value's own field states its bounds —
+  // so what is pinned instead is that the two surfaces no longer say the same thing twice, while the ONE
+  // fault with no inline home anywhere still reaches the owner.
+  it('with a future date and an empty value: the date states itself inline, the footer names only the value', async () => {
     const w = mountModal(makeData({ instruments: [galvanicProbe] }), { mode: 'voluntary' });
     await w.find('input[type="date"]').setValue(tomorrow());
-    expect(blockedText(w)).toBe('reading.measuredOnFuture');
+    const dateGroup = w.findAllComponents({ name: 'FormGroup' })
+      .find((g) => g.props('label') === 'reading.measuredOn');
+    expect(dateGroup!.props('error')).toBe('reading.measuredOnFuture');
+    expect(blockedText(w)).toBe('reading.missingValue'); // no inline home — the footer is its only surface
   });
 
   it('a SERVER refusal about measuredOn says what it is about, not "try again"', async () => {
@@ -1742,13 +1755,16 @@ describe('a measurement cannot be dated before the plant existed (QA round 4, DE
   }
   const owned = { instruments: [galvanicProbe], acquiredOn: '2026-06-01' };
 
-  it('blocks the save and says why — `min` does not stop a TYPED date either', async () => {
+  it('blocks the save and says why ON THE FIELD — `min` does not stop a TYPED date either', async () => {
     const w = mountModal(makeData(owned), { mode: 'voluntary' });
     await w.find('input[type="number"]').setValue(5);
     await w.find('input[type="date"]').setValue('2020-01-01');
 
     expect(findSaveButton(w).attributes('disabled')).toBeDefined();
-    expect(blockedText(w)).toBe('reading.measuredOnBeforeAcquired|2026-06-01');
+    const dateGroup = w.findAllComponents({ name: 'FormGroup' })
+      .find((g) => g.props('label') === 'reading.measuredOn');
+    expect(dateGroup!.props('error')).toBe('reading.measuredOnBeforeAcquired|2026-06-01');
+    expect(blockedText(w)).toBeUndefined();
   });
 
   // ═════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1782,11 +1798,11 @@ describe('a measurement cannot be dated before the plant existed (QA round 4, DE
     });
     afterEach(() => { vi.stubGlobal('useI18n', realUseI18n); });
 
-    it('formats it in the footer reason', async () => {
+    it('no longer restates it in the footer — the field is its one home', async () => {
       const w = mountModal(makeData(owned), { mode: 'voluntary' });
       await w.find('input[type="number"]').setValue(5);
       await w.find('input[type="date"]').setValue('2020-01-01');
-      expect(blockedText(w)).toBe('reading.measuredOnBeforeAcquired|formatted<2026-06-01>');
+      expect(blockedText(w)).toBeUndefined();
     });
 
     // The SAME sentence renders twice — footer and inline field error — and the two must never disagree

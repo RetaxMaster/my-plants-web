@@ -1726,4 +1726,30 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
     expect(refreshTasks).toHaveBeenCalled();
     expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
   });
+
+  // Level-integration finding: `onRepotDoneConfirm` (the Done-form confirm path, distinct from `sendDone`
+  // above — REPOT's Done detours through `UiRepotDoneForm` rather than firing straight off the row) awaited
+  // `api.completeRepot(...)` and threw the result away, so a REPOT completion carrying
+  // `otherEffectsApplied: true` (the substrate/fertilizer-floor side effects a completed repot triggers even
+  // when the CareEvent write itself is suppressed as a same-day duplicate) rendered as if nothing had
+  // happened. Mirrors `PlantDetail.test.ts`'s own WATER/FERTILIZE outcome-note cases in the same "Task 10"
+  // family, applied to REPOT's own confirm flow — same real `TaskRow.vue`, same `.mp-taskrow__outcome-note`
+  // assertion, so both renderers are held to the identical standard.
+  it('a REPOT completion via the Done form populates the outcome note, mirroring PlantDetail.vue', async () => {
+    tasksFixture = repotTasks(RESOLVED); // a Done button is only offered once a REPOT verdict is pending
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds.A!.resolve({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
+        otherEffectsApplied: true,
+      },
+    });
+    await flushPromises();
+    expect(w.find('.mp-taskrow__outcome-note').text()).toBe('tasks.alreadyRecorded.neutral');
+  });
 });

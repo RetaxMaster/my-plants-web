@@ -1665,3 +1665,20 @@ describe('pages/index.vue — finding 3: a measured WATER_NOW is acted on as a t
     expect(w.findAll('.reason-picker')[0].attributes('data-open')).toBe('true');
   });
 });
+
+describe('pages/index.vue — row order within a card, card order untouched (spec §2.2)', () => {
+  it('orders each card REPOT > WATER > FERTILIZE without moving the PLANTS', async () => {
+    // Plant B leads the API's list (its watering is the most overdue). Its REPOT is last in the payload
+    // and must rise to the top of ITS OWN card — while B itself stays the first card on the page.
+    tasksFixture = [
+      { plantId: 'B', task: 'WATER', nextDueOn: '2026-01-01', pendingEvaluation: null },
+      { plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-02-01', pendingEvaluation: null },
+      { plantId: 'B', task: 'REPOT', nextDueOn: '2028-01-01', pendingEvaluation: RESOLVED },
+      { plantId: 'A', task: 'WATER', nextDueOn: '2026-02-01', pendingEvaluation: null },
+    ] as any;
+    const w = await mountPage();
+    const cards = w.findAll('.mp-taskrow__label');
+    // Rendered document order = card order then row order.
+    expect(cards.map((l) => l.text())).toEqual(['REPOT', 'WATER', 'WATER', 'FERTILIZE']);
+  });
+});

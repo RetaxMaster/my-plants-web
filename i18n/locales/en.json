@@ -66,7 +66,12 @@
       "MIST": "Misted"
     },
     "wateredTodayNote": "Already watered today.",
-    "wateredTodayBackdate": "Set an earlier date to record a past watering."
+    "wateredTodayBackdate": "Set an earlier date to record a past watering.",
+    "alreadyRecorded": {
+      "neutral": "That day already had a record, so nothing was added.",
+      "fertilizeSameDay": "This plant was already fertilized today. Do not fertilize it again on the same day: the excess salts burn the roots.",
+      "fertilizeBackDated": "That day already had a fertilizing on record. If you really did fertilize twice, keep it in mind: excess salts burn the roots."
+    }
   },
   "taskInfo": {
     "aria": "About this task",

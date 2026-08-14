@@ -116,6 +116,27 @@ const props = withDefaults(
      * first. The rule lives in `effectiveTaskStatus`; this prop only carries the fact.
      */
     wateredToday?: boolean;
+    /**
+     * The one-per-day outcome's sentence (spec §3.2, consumer 1), ALREADY TRANSLATED by the parent — this
+     * component renders it and decides nothing about it. Which sentence an outcome earns lives once, in
+     * `utils/careOutcome.ts`, because both pages need the identical answer.
+     *
+     * `null`/omitted renders nothing at all, which is every row that has not just been submitted.
+     */
+    outcomeNote?: string | null;
+    /**
+     * A COUNTER THE PARENT BUMPS ONLY WHEN A SUBMIT RESOLVED *APPLIED* (spec §2.4).
+     *
+     * ⚠️ THIS REPLACED A `watch(() => props.dueLabel, …)`, AND RE-ADDING ONE WOULD REOPEN THE DEFECT. The
+     * label is a RENDERED STRING: a successful back-dated submit recomputes the schedule, and when the new
+     * label happens to render textually identical to the old one, `watch` — which fires on a CHANGE — never
+     * runs, the date box keeps the typed day, and Hecho stays enabled over it, reading as a failed submit.
+     * A due-VALUE trigger would be wrong too: a back-dated insert earlier than the last event is applied
+     * without moving the schedule at all. The only honest trigger is the parent saying "the server applied
+     * it", which is exactly what this counter carries — and an "already recorded on that day" outcome must
+     * NOT bump it, or the row clears itself over a submission that wrote nothing.
+     */
+    appliedCompletions?: number;
   }>(),
   {
     withDoneDate: false,
@@ -132,6 +153,8 @@ const props = withDefaults(
     todaysVerdict: null,
     promptAnsweredToday: false,
     wateredToday: false,
+    outcomeNote: null,
+    appliedCompletions: 0,
   },
 );
 
@@ -177,8 +200,19 @@ const doneDate = ref(repotDoneDateDefault());
 // completion does and what a dismissed form does not. Its only false positive is a locale switch, which
 // resets a WATER input the owner can see is empty and retype, or a REPOT input back to `todayYmd()`; its
 // only false negative leaves today's behaviour. Neither can write a date the owner did not choose.
+//
+// ⚠️ THE TEXTUAL-IDENTITY TRAP (spec §2.4) — why this is no longer a `watch(() => props.dueLabel, …)`. Vue's
+// `watch` fires only on a CHANGE, and a successful back-dated submit can recompute a schedule whose label
+// renders textually IDENTICAL to the one already on screen — the calendar day moved, the rendered sentence
+// did not. A label-keyed watcher then never fires, `doneDate` is never cleared, and Hecho stays enabled over
+// a stale date, reading as though the submit failed. A due-VALUE trigger would be wrong too: a back-dated
+// insert earlier than the last event can be applied without moving the schedule at all, so it would not fire
+// either — and it would contradict spec §3.2's own rule that the reset fires ONLY on an applied outcome. The
+// only honest trigger is the parent stating "the server applied it", which is exactly what `appliedCompletions`
+// carries: bumped only on an APPLIED outcome, never on an "already recorded on that day" one, so a submission
+// that wrote nothing never silently clears a date the owner is still relying on.
 watch(
-  () => props.dueLabel,
+  () => props.appliedCompletions,
   () => {
     doneDate.value = repotDoneDateDefault();
   },
@@ -461,6 +495,11 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
         </Button>
       </template>
     </div>
+    <!-- The one-per-day outcome (spec §3.2). `aria-live` because it appears in response to the owner's own
+         action and a screen reader must HEAR it, exactly as `ModalBlockedReason` does for a blocked save.
+         A statement of fact, not an alert: same muted treatment as the discarded-Done note above. NO
+         animation of any kind — this app composites on the CPU on the owner's machine. -->
+    <p v-if="outcomeNote" class="mp-taskrow__outcome-note" aria-live="polite">{{ outcomeNote }}</p>
   </div>
 </template>
 
@@ -495,6 +534,14 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
 .mp-taskrow__explanation {
   flex-basis: 100%;
   margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.mp-taskrow__outcome-note {
+  flex-basis: 100%;
+  margin: var(--space-1) 0 0;
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   color: var(--text-muted);

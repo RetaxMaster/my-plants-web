@@ -257,7 +257,10 @@
     "substrateChargedYes": "Yes — fresh, charged mix",
     "substrateChargedNo": "No — reused or inert medium",
     "substrateChargedUnknown": "I don't know",
-    "substrateHint": "Leave blank if you're not sure — we'll assume the soil still holds some charge and hold off on the first feeding, which is the safe assumption."
+    "substrateHint": "Leave blank if you're not sure — we'll assume the soil still holds some charge and hold off on the first feeding, which is the safe assumption.",
+    "soilMix": "Soil mix",
+    "soilMixHint": "Optional. If you don't know, leave it as it is — we assume nothing either way.",
+    "soilMixUnknown": "I don't know"
   },
   "plantDetail": {
     "backAll": "All plants",

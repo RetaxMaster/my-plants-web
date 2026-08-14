@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ref, reactive, computed, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
+import { todayYmd } from '../../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('reactive', reactive);
@@ -23,6 +24,20 @@ vi.stubGlobal('useHead', () => {});
 vi.stubGlobal('useSeoMeta', () => {});
 vi.stubGlobal('navigateTo', vi.fn());
 vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({ data: ref(await fn()) }));
+
+// The shared SOIL_MIXES vocabulary, real values (task 14 §2.3) — copied here rather than imported so this
+// test asserts the page reads it THROUGH `useProfileMeta`, never through a local literal of its own.
+const SOIL_MIXES = [
+  'aroid', 'all-purpose', 'all-purpose-perlite', 'cactus-succulent', 'orchid-bark',
+  'peat-based', 'coco-coir', 'semi-hydro', 'other',
+];
+vi.stubGlobal('useProfileMeta', () => ({
+  soilMixOptions: computed(() => SOIL_MIXES.map((v) => ({ value: v, label: v }))),
+  // The REAL implementation, copied deliberately rather than faked to something convenient — see
+  // composables/useProfileMeta.ts. Three lines, no dependencies of its own.
+  withNotSet: (opts: { value: string; label: string }[], notSetLabel?: string | null) =>
+    [{ value: '', label: notSetLabel ?? 'plantProfile.pickOption' }, ...opts],
+}));
 
 const routerPush = vi.fn();
 vi.stubGlobal('useRouter', () => ({ push: routerPush }));
@@ -46,7 +61,7 @@ vi.stubGlobal('useApi', () => ({
 const stubs = {
   UiScreenHeader: true,
   UiFormGroup: { template: '<div><slot /></div>' },
-  UiSelectField: true,
+  UiSelectField: { name: 'UiSelectField', props: ['modelValue', 'options', 'placeholder'], template: '<select />' },
   UiInput: true,
   UiSwitch: true,
   UiImageDropzone: true,
@@ -205,5 +220,51 @@ describe('submit-anchored stable idempotency key (Task 9)', () => {
     expect(setCoverPhotoMock).not.toHaveBeenCalled(); // no photo was picked — unrelated to the key
     expect(recomputeMock).toHaveBeenCalledTimes(1);
     expect(routerPush).toHaveBeenCalledWith('/plants/p1');
+  });
+});
+
+describe('the soil mix at registration (spec §2.3)', () => {
+  // ⚠️ STRICT, not objectContaining. Every existing assertion in this file matches loosely, which is
+  // exactly why a field can quietly stop being sent without one test noticing. This case asserts the WHOLE
+  // body, so dropping `soilMix` — or sending `''` instead of `null` — turns it red.
+  it('sends soilMix: null when the owner leaves it at "I don\'t know"', async () => {
+    createPlantMock.mockResolvedValue({ id: 'p1' });
+    const w = await mountPage();
+    (w.vm as any).form.speciesSlug = 'ficus-lyrata';
+    (w.vm as any).form.placeId = 'pl1';
+    await (w.vm as any).submit();
+    await flushPromises();
+
+    expect(createPlantMock.mock.calls[0]![0]).toEqual({
+      speciesSlug: 'ficus-lyrata',
+      placeId: 'pl1',
+      nickname: undefined,
+      acquiredOn: todayYmd(),
+      lifecycleState: undefined,
+      substrateRefreshedOn: undefined,
+      substrateCharged: undefined,
+      soilMix: null,
+    });
+  });
+
+  it('sends the chosen slug when the owner picks one', async () => {
+    createPlantMock.mockResolvedValue({ id: 'p1' });
+    const w = await mountPage();
+    (w.vm as any).form.speciesSlug = 'ficus-lyrata';
+    (w.vm as any).form.placeId = 'pl1';
+    (w.vm as any).soilMix = 'aroid';
+    await (w.vm as any).submit();
+    await flushPromises();
+    expect(createPlantMock.mock.calls[0]![0]).toMatchObject({ soilMix: 'aroid' });
+  });
+
+  it('offers the SHARED vocabulary plus an explicit "I don\'t know", never a local literal', async () => {
+    const w = await mountPage();
+    const select = w.findAllComponents({ name: 'UiSelectField' })
+      .find((c) => (c.props('options') as any[])?.some((o) => o.value === 'aroid'));
+    const values = (select!.props('options') as { value: string }[]).map((o) => o.value);
+    expect(values[0]).toBe('');                       // "I don't know", ENABLED and re-selectable
+    expect(values).toContain('aroid');
+    expect(values.length).toBeGreaterThan(2);          // the real SOIL_MIXES list, not a hand-written pair
   });
 });

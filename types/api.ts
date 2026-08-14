@@ -103,6 +103,13 @@ export interface CreatePlant {
   substrateRefreshedOn?: string;
   /** Tri-state by PRESENCE: omitted = derive from the mix, true = fresh charged, false = reused/inert. */
   substrateCharged?: boolean;
+  /**
+   * Spec §2.3 — the soil mix at registration. OPTIONAL, and `null` is a real answer ("I don't know"),
+   * not an absence: the engine reads `null` as neutral in all three of its consumers (`soilMixFactor`
+   * returns 1, `optionalDataConfidence` adds no weight, `chargeDays` takes the no-evidence path), so the
+   * field can only ever ADD information.
+   */
+  soilMix?: SoilMix | null;
 }
 
 // --- Plant physical profile (spec 1 vocabulary; all fields optional/nullable) ---

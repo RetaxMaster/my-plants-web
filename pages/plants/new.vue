@@ -26,6 +26,17 @@ const form = reactive<CreatePlant>({
 // modelling gain.
 const substrateRefreshedOn = ref('');
 const substrateCharged = ref<'yes' | 'no' | 'unknown'>('unknown');
+// Spec §2.3 — the engine consumes the soil mix but registration never asked for it, so every plant started
+// life with it unknown. OPTIONAL, defaulting to the SAME "I don't know" empty option the plant-profile
+// modal and the repot-Done form already offer, which sends `null`.
+//
+// ⚠️ THROUGH `useProfileMeta`, NEVER A LOCAL LITERAL. The vocabulary is nine slugs that live once, in the
+// shared package (`SOIL_MIXES`); a copy here would be its third writer and the one that drifts. `withNotSet`
+// prepends an ENABLED empty option — a `<select>`'s own `placeholder` renders a DISABLED one, which can
+// never be re-selected, so "not knowing IS an answer" needs this and not that.
+const { soilMixOptions, withNotSet } = useProfileMeta();
+const soilMix = ref('');
+const soilMixChoices = computed(() => withNotSet(soilMixOptions.value, t('plantsNew.soilMixUnknown')));
 // Deferred cover selection: held here and uploaded AFTER the plant is created (no plantId exists yet).
 // ACTIVE-create only — an import uses the batch picker below instead.
 const photoFiles = ref<File[]>([]);
@@ -146,6 +157,9 @@ async function submit() {
         // separately means "derive from the mix", which is NOT the same as `false`.
         substrateRefreshedOn: substrateRefreshedOn.value || undefined,
         substrateCharged: substrateCharged.value === 'unknown' ? undefined : substrateCharged.value === 'yes',
+        // `null`, never `undefined`: the owner ANSWERED "I don't know", and that answer is worth sending
+        // as itself. The strict-payload test in this page's spec file is what keeps it from being dropped.
+        soilMix: (soilMix.value || null) as CreatePlant['soilMix'],
       }, createIdempotencyKey.value);
       createdPlantId.value = plant.id;
       plantId = plant.id;
@@ -235,6 +249,12 @@ async function submit() {
             { key: 'no', label: $t('plantsNew.substrateChargedNo') },
           ]"
         />
+      </UiFormGroup>
+
+      <UiFormGroup :label="$t('plantsNew.soilMix')" :hint="$t('plantsNew.soilMixHint')">
+        <!-- ⚠️ A <select>, RULED (owner decision 5, 2026-08-14): the vocabulary is nine slugs plus "I don't
+             know", and ten segmented buttons wrap to four rows of illegible targets at 390 px. -->
+        <UiSelectField v-model="soilMix" :options="soilMixChoices" />
       </UiFormGroup>
 
       <UiFormGroup v-if="error" :error="error" />

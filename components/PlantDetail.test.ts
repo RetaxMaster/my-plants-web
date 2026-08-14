@@ -2035,42 +2035,14 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     watering: { wateredToday, promptAnsweredToday: todaysVerdict != null && promptAnswered },
   });
 
-  // A faithful-enough TaskRow: it re-derives Done/Postpone/Evaluate visibility from `canSurvey` and
-  // `allowStandaloneDone` using the SAME gating the real component's own `showEvaluate`/`showDone`/
-  // `showPostpone` apply for a WATER row (TaskRow.vue) — Postpone is deliberately NEVER unlocked by
-  // `allowStandaloneDone` here either, mirroring the real component's own documented rule, so mutation
-  // proof 2 (letting it be) has something real to catch.
-  //
-  // ⚠️ UPDATED 2026-08-11 (QA round 4, DEF-3; owner-ruled): a WATER survey now withholds **Hecho** and NOT
-  // **Posponer**. "No tengo tiempo ahorita" is an answer about the owner's own availability, which no
-  // measurement can supply; recording a watering while the app is still offering to tell you whether to
-  // water is the opposite case. The stub follows the real rule, or these cases would go on pinning the
-  // defect. It deliberately does NOT model the real component's second clause (`effectiveStatus !==
-  // 'upcoming'`), which is pinned where it belongs, in `TaskRow.test.ts` — this file's concern is which
-  // PROPS this page sends, not TaskRow's internal state machine.
-  //
-  // ⚠️ UPDATED AGAIN 2026-08-11 (QA round 5, F1): a WATER row on a pot already watered today withholds
-  // **Hecho** as well, because the date box is empty by default and an empty box means TODAY — which is
-  // the Done the API's one-`WATER DONE`-per-day dedup throws away. Without this the stub would re-offer a
-  // button the real component withholds, which is precisely the shape that let DEF-3 ship green (see
-  // pages/index.test.ts's own warning). This stub has NO date box, so it can only ever describe the
-  // empty-box case; the back-dating half of the rule — type an earlier day and Hecho comes back — is
-  // TaskRow.test.ts's, where a real input exists to type into.
-  const UiTaskRowStub = {
-    props: {
-      task: null,
-      canSurvey: { type: Boolean, default: false },
-      allowStandaloneDone: { type: Boolean, default: false },
-      wateredToday: { type: Boolean, default: false },
-    },
-    emits: ['evaluate', 'done', 'postpone'],
-    template:
-      '<div :data-task="task" :data-can-survey="String(!!canSurvey)" :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
-      '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">¿Necesitas regar?</button>' +
-      '<button v-if="(task !== \'WATER\' || !canSurvey || allowStandaloneDone) && !(task === \'WATER\' && wateredToday)" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
-      '<button v-if="task !== \'WATER\' || !canSurvey || task === \'WATER\'" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
-      '</div>',
-  };
+  // ⚠️ NO MORE HAND-WRITTEN `UiTaskRow` STUB HERE (Task 5, spec §5.1). It used to re-derive Done/Postpone/
+  // Evaluate visibility from `canSurvey`/`allowStandaloneDone`/`wateredToday` — a second, private copy of
+  // `TaskRow.vue`'s own `showEvaluate`/`showDone`/`showPostpone`/`doneWouldBeDiscarded` — and it stayed
+  // green through two QA rounds while the real row had no date box to model the back-dating half of the
+  // discarded-Done rule at all. `localStubs` below now resolves `UiTaskRow` to the REAL `TaskRow.vue`
+  // (imported at the top of this file), so every case in this block reads the row's own rendered DOM
+  // through the `taskRowFor`/`doneButtons`/`evaluateButtons`/`postponeButtons` helpers, exactly like the
+  // REPOT blocks above (Tasks 2-4).
 
   // Stands in for the real SoilReadingModal.vue (covered by its own test file) — this describe block's only
   // concern is that PlantDetail.vue opens it in the right MODE from the right entry point. Named explicitly
@@ -2085,7 +2057,7 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     template: '<div class="soil-modal" :data-open="open" :data-mode="mode" />',
   };
 
-  const localStubs = { ...stubs, UiTaskRow: UiTaskRowStub, UiSoilReadingModal: UiSoilReadingModalStub };
+  const localStubs = { ...stubs, UiTaskRow: TaskRow, UiSoilReadingModal: UiSoilReadingModalStub };
 
   async function mountWater(
     selected: string[],
@@ -2117,14 +2089,13 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   }
 
   // Mutation proof 1 target: hardcoding `:can-survey="true"` on the WATER binding makes this go RED
-  // (`data-can-survey` would read 'true' with zero instruments selected).
+  // (the survey would render with zero instruments selected).
   it('a WATER row with no instrument selected keeps today\'s shape', async () => {
     const w = await mountWater([]);
-    const row = w.find('[data-task=WATER]');
-    expect(row.attributes('data-can-survey')).toBe('false');
-    expect(row.find('.evaluate-btn').exists()).toBe(false);
-    expect(row.find('.done-btn').exists()).toBe(true);
-    expect(row.find('.postpone-btn').exists()).toBe(true);
+    const row = taskRowFor(w, 'WATER');
+    expect(evaluateButtons(row).length).toBe(0);
+    expect(doneButtons(row).length).toBe(1);
+    expect(postponeButtons(row).length).toBe(1);
   });
 
   // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3; owner-ruled). Its old title was "...and keeps standalone
@@ -2142,26 +2113,25 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // back (the case directly below is exactly that state).
   it('the WATER row offers the survey, keeps Posponer, and withholds Hecho', async () => {
     const w = await mountWater(['galvanic-probe']);
-    const row = w.find('[data-task=WATER]');
-    expect(row.attributes('data-can-survey')).toBe('true');
-    expect(row.find('.evaluate-btn').exists()).toBe(true);
-    expect(row.find('.evaluate-btn').text()).toBe('¿Necesitas regar?');
-    expect(row.find('.done-btn').exists()).toBe(false);
-    expect(row.find('.postpone-btn').exists()).toBe(true);
+    const row = taskRowFor(w, 'WATER');
+    expect(evaluateButtons(row).length).toBe(1);
+    // The real button's text is the ACTUAL i18n translation (this file's `useI18n` stub resolves through
+    // the real `i18n` instance below `en.json`/`es.json`, unlike the deleted stub's own hardcoded literal).
+    expect(evaluateButtons(row)[0]!.text()).toBe(i18n.t('reading.surveyQuestion'));
+    expect(doneButtons(row).length).toBe(0);   // ⚠️ FLIPPED BY §2.1 — Task 11
+    expect(postponeButtons(row).length).toBe(1);
   });
 
-  // ⚠️ AND THE PROP THAT USED TO DO IT IS NOW REPOT-ONLY — asserted on the binding itself, not merely
-  // through its effect, because the two are separable: a stub that stopped honouring the prop would make
-  // the case above pass for entirely the wrong reason. REPOT keeps it exactly as it was (a repot the owner
-  // already did is still recordable without answering the questionnaire first).
-  it('DEF-3: withholds allow-standalone-done from the WATER row', async () => {
+  // ⚠️ REWRITTEN BY §2.1 IN TASK 11 (the prop becomes true for WATER on this page). Until then this is the
+  // DEF-3 guard exactly as it stands, observed on the real row rather than on a stub's data attribute.
+  it('DEF-3: the WATER row is not opted into the standalone Done', async () => {
     const w = await mountWater(['galvanic-probe']);
-    expect(w.find('[data-task=WATER]').attributes('data-allow-standalone-done')).toBe('false');
+    expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(0);
   });
-  // The REPOT half — that the prop is still passed, and still `true` — is pinned in this file's own REPOT
-  // blocks above ("...passes allow-standalone-done", `data-allow-standalone-done` === 'true'), which mount
-  // a care payload that HAS a REPOT task. Restating it here would need a second fixture for no new
-  // information; a change that dropped the prop for REPOT turns those cases red, which is the point.
+  // The REPOT half — that the prop is still passed, and still opts the row in — is pinned in this file's
+  // own REPOT blocks above ("...opts the REPOT row into the standalone Done"), which mount a care payload
+  // that HAS a REPOT task. Restating it here would need a second fixture for no new information; a change
+  // that dropped the prop for REPOT turns those cases red, which is the point.
 
   // measured-verdict-gap spec (Task 47/T6b), REWRITTEN by QA finding F1 (2026-08-10) — the ground truth is
   // the READING'S VERDICT (`care.measurement.todaysVerdict`), not session memory and not the bare
@@ -2171,11 +2141,10 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // selected. Hardcoding the verdict out of the `canSurveyWater` expression makes this go RED.
   it('withholds the survey once today\'s reading has answered the question, even with an instrument', async () => {
     const w = await mountWater(['galvanic-probe'], 'WATER_NOW');
-    const row = w.find('[data-task=WATER]');
-    expect(row.attributes('data-can-survey')).toBe('false');
-    expect(row.find('.evaluate-btn').exists()).toBe(false);
-    expect(row.find('.done-btn').exists()).toBe(true);
-    expect(row.find('.postpone-btn').exists()).toBe(true);
+    const row = taskRowFor(w, 'WATER');
+    expect(evaluateButtons(row).length).toBe(0);
+    expect(doneButtons(row).length).toBe(1);
+    expect(postponeButtons(row).length).toBe(1);
   });
 
   // ═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2192,23 +2161,26 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // ═════════════════════════════════════════════════════════════════════════════════════════════════
   it('F1b: withdraws the survey once the pot was watered today, with nothing measured', async () => {
     const w = await mountWater(['galvanic-probe'], null, { wateredToday: true });
-    const row = w.find('[data-task=WATER]');
-    expect(row.attributes('data-can-survey')).toBe('false');
-    expect(row.find('.evaluate-btn').exists()).toBe(false);
+    const row = taskRowFor(w, 'WATER');
+    expect(evaluateButtons(row).length).toBe(0);
     // ⚠️ REWRITTEN 2026-08-11 (QA round 5, F1). This used to assert that "the ordinary pair is what the row
     // falls back to" — and that fallback WAS the third door onto the discarded-Done defect: with the pot
     // already watered, the Hecho it restored posts an `occurredOn` of today, which the API's
     // one-`WATER DONE`-per-day dedup swallows for a `200` and no change anywhere. Posponer is untouched
     // (DEF-3: "no tengo tiempo ahorita" is an answer about the owner, not the pot, and it is not deduped).
-    expect(row.find('.done-btn').exists()).toBe(false);
-    expect(row.find('.postpone-btn').exists()).toBe(true);
+    // ⚠️ AND THIS IS NOW ALSO THE PROOF OF `doneWouldBeDiscarded` (Task 5) — the real row's own date box
+    // starts blank, and a blank box means TODAY, so the discarded-note replaces Hecho even though nothing
+    // measured today at all withheld it via `canSurvey`. The stub this replaces had no date box and could
+    // only ever describe this empty-box case.
+    expect(doneButtons(row).length).toBe(0);
+    expect(postponeButtons(row).length).toBe(1);
   });
 
   // THE BEFORE HALF: the SAME owner, the SAME instrument, the SAME un-measured day — only the watering
   // differs. Without it the case above would pass against a page that never offered the survey at all.
   it('F1b: an un-watered pot still offers it', async () => {
     const w = await mountWater(['galvanic-probe'], null, { wateredToday: false });
-    expect(w.find('[data-task=WATER]').attributes('data-can-survey')).toBe('true');
+    expect(evaluateButtons(taskRowFor(w, 'WATER')).length).toBe(1);
   });
 
   // ⚠️ ITEM 3, OWNER-RULED THE SAME DAY: **ONLY** MEDIR DISAPPEARS. "Agregar lectura" is the free log and
@@ -2254,9 +2226,7 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // the two booleans disagree and the survey gate is not already closed by the verdict.
   it('F1b: a postponed — not watered — day keeps the survey on offer', async () => {
     const w = await mountWater(['galvanic-probe'], 'NONE', { wateredToday: false, promptAnswered: true });
-    const row = w.find('[data-task=WATER]');
-    expect(row.attributes('data-can-survey')).toBe('true');
-    expect(row.find('.evaluate-btn').exists()).toBe(true);
+    expect(evaluateButtons(taskRowFor(w, 'WATER')).length).toBe(1);
   });
 
   it('the Measure button is GONE from the task row', async () => {
@@ -2264,7 +2234,7 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     // The old affordance's own rendered text (`reading.measureAction`, resolved through the REAL i18n
     // instance this file uses) is nowhere in the row: PlantDetail.vue no longer binds `:suggest-measuring`
     // at all, so the (still-supported) real TaskRow.vue never even considers rendering it.
-    expect(w.find('[data-task=WATER]').text()).not.toContain(i18n.t('reading.measureAction'));
+    expect(taskRowFor(w, 'WATER').text()).not.toContain(i18n.t('reading.measureAction'));
     expect(w.find('.measure-btn').exists()).toBe(false);
   });
 
@@ -2374,7 +2344,7 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
   // opened the REPOT questionnaire instead of the measuring modal.
   it('the WATER survey click opens the SAME modal in survey mode, not the REPOT questionnaire', async () => {
     const w = await mountWater(['galvanic-probe']);
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
     await flushPromises();
 
     const modal = w.findComponent({ name: 'UiSoilReadingModal' });
@@ -2410,34 +2380,12 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     watering: { wateredToday, promptAnsweredToday: todaysVerdict != null && promptAnswered },
   });
 
-  // Same faithful-enough TaskRow the Task 6 block above uses: it re-derives Done/Postpone/Evaluate from
-  // `canSurvey`/`allowStandaloneDone` exactly as the real TaskRow.vue does for a WATER row.
-  const UiTaskRowStub = {
-    props: {
-      task: null,
-      canSurvey: { type: Boolean, default: false },
-      allowStandaloneDone: { type: Boolean, default: false },
-      // Declared so the binding test below can read what the PAGE actually hands the row. The badge half of
-      // the rule is TaskRow.vue's own (pinned in TaskRow.test.ts); what only this file can see is whether
-      // the page passes the row the SAME fact it passes its own `onDone` handler.
-      promptAnsweredToday: { type: Boolean, default: false },
-      // QA round 4, DEF-2 — the SECOND exit's fact. Declared here so the case below can assert the page
-      // actually BINDS it; without the declaration `data-watered-today` would read `undefined` forever and
-      // the assertion would be pinning the stub's own silence.
-      wateredToday: { type: Boolean, default: false },
-    },
-    emits: ['evaluate', 'done', 'postpone'],
-    template:
-      '<div :data-task="task" :data-can-survey="String(!!canSurvey)" ' +
-      ':data-prompt-answered="String(!!promptAnsweredToday)" ' +
-      ':data-watered-today="String(!!wateredToday)">' +
-      '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">survey</button>' +
-      // QA round 5, F1 — mirrors the real component: on a pot already watered today a WATER Hecho would be
-      // dated TODAY (this stub has no date box) and the API's dedup would discard it, so it is withheld.
-      '<button v-if="(task !== \'WATER\' || !canSurvey || allowStandaloneDone) && !(task === \'WATER\' && wateredToday)" class="done-btn" @click="$emit(\'done\', { task })">Done</button>' +
-      '<button v-if="task !== \'WATER\' || !canSurvey" class="postpone-btn" @click="$emit(\'postpone\', { task })">Postpone</button>' +
-      '</div>',
-  };
+  // ⚠️ NO MORE HAND-WRITTEN `UiTaskRow` STUB HERE EITHER (Task 5, spec §5.1) — same argument as the Task 6
+  // block above. `localStubs` below resolves `UiTaskRow` to the REAL `TaskRow.vue`; the two prop-binding
+  // cases that used to read this stub's `data-prompt-answered`/`data-watered-today` attributes now read the
+  // real component's PROPS directly via `w.findComponent(TaskRow).props(...)`, and the two that used to
+  // emit `done` on `UiTaskRowStub` now emit it on `w.findComponent(TaskRow)` — the row itself, not a button
+  // the real component may not even render for that fixture.
   // The base map collapses UiAlert to `true` (its slot never renders), so the retry button inside the
   // load-failure banner would be unreachable — a real stub that renders its slot AND names which banner
   // it is, the same `data-description` hook pages/index.test.ts uses.
@@ -2452,7 +2400,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   };
   const localStubs = {
     ...stubs,
-    UiTaskRow: UiTaskRowStub,
+    UiTaskRow: TaskRow,
     UiAlert: UiAlertStub,
     UiReasonPicker: UiReasonPickerStub,
     UiSoilReadingModal: { name: 'UiSoilReadingModal', props: ['open', 'plantId', 'data', 'mode'], template: '<div />' },
@@ -2518,11 +2466,10 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   it('W1: a failed catalogue fetch hands the classic Hecho | Posponer back instead of withholding them',
     async () => {
       const w = await mountWater({ readingsFails: true });
-      const row = w.find('[data-task=WATER]');
-      expect(row.attributes('data-can-survey')).toBe('false');
-      expect(row.find('.evaluate-btn').exists()).toBe(false);
-      expect(row.find('.done-btn').exists()).toBe(true);
-      expect(row.find('.postpone-btn').exists()).toBe(true);
+      const row = taskRowFor(w, 'WATER');
+      expect(evaluateButtons(row).length).toBe(0);
+      expect(doneButtons(row).length).toBe(1);
+      expect(postponeButtons(row).length).toBe(1);
     });
 
   it('W1: says the load failed, and never offers a voluntary reading it could only answer with the ' +
@@ -2540,7 +2487,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   it('W1: a catalogue we DO hold changes neither — the survey is offered and the reading stays addable',
     async () => {
       const w = await mountWater();
-      expect(w.find('[data-task=WATER]').attributes('data-can-survey')).toBe('true');
+      expect(evaluateButtons(taskRowFor(w, 'WATER')).length).toBe(1);
       expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(true);
       expect(w.findAll('.detail-alert')
         .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
@@ -2548,7 +2495,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
 
   it('W2: a postpone after today\'s measurement submits no-time without opening the picker', async () => {
     const w = await mountWater({ todaysVerdict: 'WATER_NOW' });
-    await w.find('.postpone-btn').trigger('click');
+    await postponeButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
@@ -2566,7 +2513,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // failure here: the row read "faltan 9 días", Posponer did not render, and the verdict left no trace.
   it('finding 3: a measured WATER_NOW sends the Done straight through on a not-yet-due watering', async () => {
     const w = await mountWater({ todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9 });
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
@@ -2581,7 +2528,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // (with the catalogue held, the survey withholds it — see the W2 case below).
   it('finding 3: still asks on an UNMEASURED not-yet-due watering', async () => {
     const w = await mountWater({ readingsFails: true, status: 'upcoming', daysUntilDue: 9 });
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).not.toHaveBeenCalled();
@@ -2618,9 +2565,9 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
         wateredToday: true, promptAnswered: true,
       });
       // F1: there is nothing to press. The row is the pot's own, and the pot is watered.
-      expect(w.find('.done-btn').exists()).toBe(false);
+      expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(0);
 
-      w.findComponent(UiTaskRowStub).vm.$emit('done', { task: 'WATER' });
+      w.findComponent(TaskRow).vm.$emit('done', { task: 'WATER' });
       await flushPromises();
 
       // Retired: the row is `upcoming` again, so the handler treats an extra watering as an EARLY one and
@@ -2638,7 +2585,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9,
       wateredToday: false, promptAnswered: true,
     });
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).not.toHaveBeenCalled();
@@ -2655,12 +2602,12 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     const answered = await mountWater({
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, promptAnswered: true,
     });
-    expect(answered.find('[data-task=WATER]').attributes('data-prompt-answered')).toBe('true');
+    expect(answered.findComponent(TaskRow).props('promptAnsweredToday')).toBe(true);
 
     const unanswered = await mountWater({
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, promptAnswered: false,
     });
-    expect(unanswered.find('[data-task=WATER]').attributes('data-prompt-answered')).toBe('false');
+    expect(unanswered.findComponent(TaskRow).props('promptAnsweredToday')).toBe(false);
   });
 
   // ═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2685,9 +2632,9 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9,
       wateredToday: true, promptAnswered: false,
     });
-    expect(w.find('.done-btn').exists()).toBe(false);
+    expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(0);
 
-    w.findComponent(UiTaskRowStub).vm.$emit('done', { task: 'WATER' });
+    w.findComponent(TaskRow).vm.$emit('done', { task: 'WATER' });
     await flushPromises();
     // Retired: the row is `upcoming` again, so an extra watering is an EARLY watering and asks why,
     // instead of being sent straight through as the app's own prescription.
@@ -2702,12 +2649,12 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     const watered = await mountWater({
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, wateredToday: true,
     });
-    expect(watered.find('[data-task=WATER]').attributes('data-watered-today')).toBe('true');
+    expect(watered.findComponent(TaskRow).props('wateredToday')).toBe(true);
 
     const dry = await mountWater({
       todaysVerdict: 'WATER_NOW', status: 'upcoming', daysUntilDue: 9, wateredToday: false,
     });
-    expect(dry.find('[data-task=WATER]').attributes('data-watered-today')).toBe('false');
+    expect(dry.findComponent(TaskRow).props('wateredToday')).toBe(false);
   });
 
   it('W2: the un-measured row still asks — but through the standalone Done path, since the survey is on ' +
@@ -2716,7 +2663,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
     // reachable un-measured postpone is the one a FAILED catalogue hands back (the W1 fallback), which is
     // exactly the "un-gated row" the spec says keeps the picker.
     const w = await mountWater({ readingsFails: true });
-    await w.find('.postpone-btn').trigger('click');
+    await postponeButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).not.toHaveBeenCalled();

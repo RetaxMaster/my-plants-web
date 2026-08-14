@@ -17,6 +17,7 @@ import type {
   ClinicalRecordSummary, ClinicalRecordDetail,
   RepotSign, RepotSignsResponse, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
   OwnerInstruments, PlantSoilReadings, CreateSoilReading, InstrumentCalibration, SoilReadingPreview,
+  CareWriteResult,
 } from '../types/api.js';
 
 // Bounded wait for the two REPOT mutating submits (round-4 finding V2): a plain JSON POST via ofetch has NO
@@ -352,7 +353,7 @@ export function useApi() {
 
     /** A REPOT completion. Same stable-key discipline as the evaluation submit. */
     completeRepot: (plantId: string, occurredOn: string, payload: RepotDonePayload, idempotencyKey: string) =>
-      api<{ ok: true }>(`/plants/${plantId}/feedback`, {
+      api<CareWriteResult>(`/plants/${plantId}/feedback`, {
         method: 'POST',
         body: { task: 'REPOT', type: 'DONE', occurredOn, payload },
         headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
@@ -377,7 +378,7 @@ export function useApi() {
     recompute: () => api<{ ok: true }>('/care-plan/recompute', { method: 'POST' }),
 
     sendFeedback: (plantId: string, body: Feedback) =>
-      api<{ ok: true }>(`/plants/${plantId}/feedback`, { method: 'POST', body }),
+      api<CareWriteResult>(`/plants/${plantId}/feedback`, { method: 'POST', body }),
 
     // Care History
     getProgressCatalog: () => api<ProgressTag[]>('/progress/catalog'),

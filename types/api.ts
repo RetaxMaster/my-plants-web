@@ -205,6 +205,41 @@ export interface Feedback {
   payload?: Record<string, unknown>;
 }
 
+/**
+ * ONE DAY, ONE RECORD — AND THE RECORD SAYS SO (spec §3.2).
+ *
+ * A second same-day submission is still a SUCCESS and still writes no second care event (the 2026-08-10
+ * ruling stands: a 409 would turn a harmless repeat into an error the owner can do nothing about). What
+ * changed is that the result STATES what happened instead of being indistinguishable from a write.
+ *
+ * ⚠️ DAY-SCOPED, NOT TODAY-SCOPED. The server dedups against the day the submission NAMES, so a back-dated
+ * `Hecho` onto a past day that already carries the event comes back `already-recorded-on-day` too — that
+ * second case is the whole reason this payload exists (`docs/care-engine.md` §7.20.19's second residual).
+ *
+ * ⚠️ "ALREADY RECORDED" DESCRIBES THE CARE-EVENT WRITE, NOT THE WHOLE OPERATION. On a duplicate REPOT the
+ * server still runs the profile update, the substrate refresh and the recompute — only the care-event row
+ * is suppressed. No web copy may phrase this outcome as "nothing happened". `otherEffectsApplied` is
+ * exactly that distinction, made machine-readable instead of left for a reader to infer: `true` means real
+ * side effects ran even though no CareEvent was written. This plan does not render it as its own sentence
+ * yet — it arrives on the wire, available to a future task, and no copy is invented for it here.
+ *
+ * This is PIN 1 (spec §3.2), quoted byte-identically. It is declared here because `types/api.ts` is this
+ * app's single home for wire shapes, exactly as every other response type in this file is declared.
+ */
+export type CareWriteOutcome =
+  | { status: 'applied' }
+  | {
+      status: 'already-recorded-on-day';
+      task: CareActionTask;
+      occurredOn: string;
+      otherEffectsApplied: boolean;
+    };
+
+export interface CareWriteResult {
+  ok: true;
+  outcome: CareWriteOutcome;
+}
+
 export interface OwnerSummary {
   ownerId: string;
   username: string;

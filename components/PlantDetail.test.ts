@@ -34,6 +34,7 @@ import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttemp
 // own (the project's "no new forks" rule).
 import { todayYmd } from '../utils/localDate.js';
 import type { TodaysVerdict } from '../utils/waterSurvey.js';
+import type { CareWriteResult } from '../types/api.js';
 // The REAL row (spec §5.1) — imported directly and swapped in as the `UiTaskRow` stub value for the five
 // REPOT-attempt describes below, exactly like `pages/index.test.ts`'s identical technique (Task 2). Neither
 // `pages/index.vue` nor `PlantDetail.vue` imports `UiTaskRow` itself (it resolves via Nuxt's directory-based
@@ -638,7 +639,7 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
 
   let submitDeferreds: ReturnType<typeof deferred<{ evaluationId: string; verdict: string }>>[];
   let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
-  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotDeferreds: ReturnType<typeof deferred<CareWriteResult>>[];
   let completeRepotMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -689,7 +690,7 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
-    completeRepotDeferreds[0]!.resolve({ ok: true });
+    completeRepotDeferreds[0]!.resolve({ ok: true, outcome: { status: 'applied' } });
     await flushPromises();
     expect(w.find('.done-form').attributes('data-open')).toBe('false');
 
@@ -759,7 +760,7 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
     },
   };
 
-  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotDeferreds: ReturnType<typeof deferred<CareWriteResult>>[];
   let completeRepotMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -837,7 +838,7 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
-    completeRepotDeferreds[0]!.resolve({ ok: true });
+    completeRepotDeferreds[0]!.resolve({ ok: true, outcome: { status: 'applied' } });
     await flushPromises();
     const keyFirst = completeRepotMock.mock.calls[0]![3];
     expect(w.find('.done-form').attributes('data-open')).toBe('false');
@@ -902,7 +903,7 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
     },
   };
 
-  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotDeferreds: ReturnType<typeof deferred<CareWriteResult>>[];
   let completeRepotMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -1019,7 +1020,7 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
     },
   };
 
-  let completeRepotDeferreds: ReturnType<typeof deferred<{ ok: true }>>[];
+  let completeRepotDeferreds: ReturnType<typeof deferred<CareWriteResult>>[];
   let completeRepotMock: ReturnType<typeof vi.fn>;
   let careRef: ReturnType<typeof ref<RepotCare>>;
   let refreshCare: ReturnType<typeof vi.fn>;
@@ -1152,7 +1153,7 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
 
   let submitDeferred: ReturnType<typeof deferred<{ evaluationId: string; verdict: string }>>;
   let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
-  let completeRepotDeferred: ReturnType<typeof deferred<{ ok: true }>>;
+  let completeRepotDeferred: ReturnType<typeof deferred<CareWriteResult>>;
   let completeRepotMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -1294,7 +1295,7 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
   let completeRepotMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    completeRepotMock = vi.fn(async () => ({ ok: true }));
+    completeRepotMock = vi.fn(async () => ({ ok: true, outcome: { status: 'applied' } } as CareWriteResult));
   });
 
   async function mountRepot(pendingEvaluation: Pending) {
@@ -1459,7 +1460,7 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
     let call = 0;
     completeRepotMock = vi.fn(async () => {
       if (call++ === 0) throw firstFailure;
-      return { ok: true };
+      return { ok: true, outcome: { status: 'applied' } } as CareWriteResult;
     });
     vi.stubGlobal('useApi', () => ({
       getPlant: async () => repotPlant(),
@@ -1692,7 +1693,10 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     // The real server CLEARS the pending flag inside the repot transaction (`refreshSubstrateCore`), so
     // the double does too — otherwise the "affordance disappears" assertion below would be proving
     // nothing about the real system.
-    completeRepotMock = vi.fn(async () => { serverMixChangePending = false; return { ok: true }; });
+    completeRepotMock = vi.fn(async () => {
+      serverMixChangePending = false;
+      return { ok: true, outcome: { status: 'applied' } } as CareWriteResult;
+    });
     // A REFRESHING `useAsyncData` double (QA F10). The module-level stub's `refresh` is a no-op, which is
     // fine while every assertion is about the component's own memory — and useless the moment a value is
     // DERIVED FROM SERVER STATE, because the page would never see the state change. This one re-runs the
@@ -2416,7 +2420,9 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // Typed on its own parameters (rather than inferred from a zero-arg lambda) so `.mock.calls[n]` carries
   // the real `[plantId, body]` tuple — same technique SoilReadingModal.test.ts uses for `recordSoilReading`.
   const sendFeedbackMock = vi.fn(
-    async (_plantId: string, _body: Record<string, unknown>) => ({ ok: true }),
+    async (_plantId: string, _body: Record<string, unknown>) => (
+      { ok: true, outcome: { status: 'applied' } } as CareWriteResult
+    ),
   );
 
   // `readingsFails` drives the ONE thing under test in the W1 half: whether the page HOLDS this plant's

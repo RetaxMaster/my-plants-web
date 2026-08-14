@@ -17,7 +17,7 @@
 // pipeline — outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals,
 // same technique ProgressForm.test.ts / NoteModal.test.ts / pages/plants/{new,index}.test.ts use.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, defineComponent } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import en from '../i18n/locales/en.json';
@@ -248,6 +248,14 @@ const byIcon = (w: Findable, icon: string) =>
 const doneButtons = (w: Findable) => byIcon(w, 'check');
 const evaluateButtons = (w: Findable) => byIcon(w, 'magnifying-glass');
 const postponeButtons = (w: Findable) => byIcon(w, 'clock');
+
+// The real row carries no data-task attribute — it is identified by its own label, which the mocked
+// `taskLabel` renders as the task code itself. One helper, so no case re-invents the lookup (Task 4).
+const taskRowFor = (w: any, task: string) => {
+  const row = w.findAll('.mp-taskrow').find((r: any) => r.find('.mp-taskrow__label').text() === task);
+  if (!row) throw new Error(`no task row for "${task}"`);
+  return row;
+};
 
 async function mountDetail(plant: ReturnType<typeof basePlant>) {
   stubApi(plant);
@@ -1250,27 +1258,22 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
   type Pending = { id: string; verdict: string; reevaluateOn: string | null } | null;
 
   const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
+  // §7A (Task 4): a MIXED-task payload. With a REPOT row alone this fixture could not fail on a wrongly
+  // -propped WATER row, which is exactly the gap §7 names. Both rows, so the per-task binding is observable.
   const careWith = (pendingEvaluation: Pending) => ({
     plantId: 'p1',
-    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation }],
+    tasks: [
+      { task: 'REPOT', status: 'today', daysUntilDue: 0, nextDueOn: '2026-08-14', pendingEvaluation },
+      { task: 'WATER', status: 'today', daysUntilDue: 0, nextDueOn: '2026-08-14', pendingEvaluation: null },
+    ],
   });
 
-  // The Done button emits the card's own `{ task, occurredOn }` payload — the SAME shape TaskRow.vue emits
-  // from its `withDoneDate` input, so this stub exercises the real contract between the two.
+  // The REAL row (spec §5.1) — TaskRow.vue's own AppIcon/Badge/Button children resolve via the file-level
+  // `stubs` spread above. Actions are found by icon (`doneButtons`/`evaluateButtons`), rows by label
+  // (`taskRowFor`), same convention as the rest of this file (Task 2/3).
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      // OBJECT prop declaration, not the array shorthand: `allow-standalone-done` is passed as a bare
-      // attribute, and only a prop DECLARED Boolean gets Vue's empty-string→true casting. The array form
-      // would receive `''` and read falsy — a stub that lies about the real component's own contract.
-      props: { task: null, allowStandaloneDone: { type: Boolean, default: false } },
-      emits: ['done'],
-      template:
-        '<div :data-allow-standalone-done="String(!!allowStandaloneDone)">' +
-        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
-        '<button class="done-dated-btn" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-01\' })">done dated</button>' +
-        '</div>',
-    },
+    UiTaskRow: TaskRow,
     // Task 28: `seedOccurredOn` is what carries the card's back-date INTO the form now (`onRepotDone` sets
     // `doneFormOccurredOn`, passed down as `:seed-occurred-on`); the form's own `confirm` payload is what
     // reaches `onRepotDoneConfirm`. This stub mirrors the real form's default exactly (`seedOccurredOn ||
@@ -1316,21 +1319,30 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
     return w;
   }
 
-  async function completeVia(w: Awaited<ReturnType<typeof mountRepot>>, selector: string) {
-    await w.find(selector).trigger('click');
+  async function completeVia(w: Awaited<ReturnType<typeof mountRepot>>, button: { trigger: (e: string) => Promise<void> }) {
+    await button.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
   }
 
-  it('opts this surface into the standalone Done — the prop the Today page does not pass', async () => {
+  it('opts the REPOT row into the standalone Done — the prop the Today page does not pass', async () => {
     const w = await mountRepot(null);
-    expect(w.find('[data-allow-standalone-done]').attributes('data-allow-standalone-done')).toBe('true');
+    // REPOT: the questionnaire is on offer AND Done is beside it — that pairing is what the prop buys.
+    expect(evaluateButtons(taskRowFor(w, 'REPOT')).length).toBe(1);
+    expect(doneButtons(taskRowFor(w, 'REPOT')).length).toBe(1);
+  });
+
+  // ⚠️ THIS CASE IS FLIPPED BY SPEC §2.1 (Task 11 of the web plan). Until then it pins today's behaviour:
+  // the WATER row on this page is not opted in, so with a survey on offer it shows no Done.
+  it('does NOT opt the WATER row in — yet', async () => {
+    const w = await mountRepot(null);
+    expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(1); // no instrument in this fixture: canSurvey false
   });
 
   it('completes with NO evaluationId when nothing is pending — the plain standalone case', async () => {
     const w = await mountRepot(null);
-    await completeVia(w, '.done-btn');
+    await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
     expect(completeRepotMock).toHaveBeenCalledTimes(1);
     expect((completeRepotMock.mock.calls[0]![2] as { evaluationId?: string }).evaluationId).toBeUndefined();
   });
@@ -1338,7 +1350,7 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
   it('completes with NO evaluationId while a RE-EVALUATE row is pending — the owner repotted anyway, and ' +
     'naming that row would be a 400 from a server that only resolves REPOT verdicts', async () => {
     const w = await mountRepot({ id: 'ev-re', verdict: 'RE-EVALUATE', reevaluateOn: '2026-11-05' });
-    await completeVia(w, '.done-btn');
+    await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
     expect(completeRepotMock).toHaveBeenCalledTimes(1);
     const payload = completeRepotMock.mock.calls[0]![2] as { evaluationId?: string };
     expect(payload.evaluationId).toBeUndefined();
@@ -1346,23 +1358,23 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
 
   it('STILL names a pending REPOT verdict — the resolution path is untouched', async () => {
     const w = await mountRepot({ id: 'ev-repot', verdict: 'REPOT', reevaluateOn: null });
-    await completeVia(w, '.done-btn');
+    await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
     expect((completeRepotMock.mock.calls[0]![2] as { evaluationId?: string }).evaluationId).toBe('ev-repot');
   });
 
-  it('sends the back-date the owner typed on the card, not today', async () => {
+  // The deleted stub used to fabricate a SECOND button emitting an injected '2026-08-01' to prove "the
+  // card's date reaches the request", and a separate case proved the no-date fallback the same way. The real
+  // REPOT card has no such second affordance — its date box is READONLY, always `todayYmd()`
+  // (TaskRow.vue:400-409, :141-158) — so both cases now collapse to one and the same assertion (the request
+  // date equals `todayYmd()`, proved end to end through the real seed chain: TaskRow's box -> onRepotDone ->
+  // doneFormOccurredOn -> UiRepotDoneForm's seedOccurredOn -> the confirm payload). Folded into a single test
+  // (fix wave) rather than kept as two identically-asserting cases under different titles — the readonly box
+  // makes an owner-typed back-date impossible, so "sends the date shown on the card" and "falls back to
+  // today" are no longer two different behaviors to pin.
+  it('sends the card\'s own (readonly, always-today) date through to the request', async () => {
     const w = await mountRepot(null);
-    await completeVia(w, '.done-dated-btn');
-    expect(completeRepotMock.mock.calls[0]![1]).toBe('2026-08-01');
-  });
-
-  it('falls back to today when the owner typed no date — the same default every other task has', async () => {
-    const w = await mountRepot(null);
-    await completeVia(w, '.done-btn');
-    const sent = completeRepotMock.mock.calls[0]![1] as string;
-    const now = new Date();
-    const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    expect(sent).toBe(todayLocal);
+    await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
+    expect(completeRepotMock.mock.calls[0]![1]).toBe(todayYmd());
   });
 });
 
@@ -1386,35 +1398,52 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
     tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
   };
 
-  // The card emits `{ task, occurredOn }` (TaskRow.vue's `withDoneDate` contract). Two dated buttons stand
-  // in for the owner typing a date, pressing Done, and then typing a DIFFERENT date and pressing Done again.
+  // Task 4: the REAL REPOT card's date box is READONLY, always `todayYmd()` (TaskRow.vue:400-409, :141-158)
+  // — a real owner cannot type a different date INTO THE CARD at all, so the two dated `done-aug1`/
+  // `done-aug5` buttons this stub used to fabricate cannot exist any more. The genuinely editable date
+  // surface for a repot completion is the FORM's own `occurredOn` field (`RepotDoneForm.vue:119,181,267`),
+  // so this stub is widened to mirror that field faithfully: an `<input type="date">` seeded from
+  // `seedOccurredOn` on a FRESH open and from `frozenSnapshot.occurredOn` on a FROZEN resume (the real
+  // component's own `watch(open, ...)`), editable only while not frozen. "Reopening with a NEW date" is now
+  // exercised by typing into THIS input, exactly where the real UI puts that editable surface.
+  // `defineComponent`, not a plain object literal — this stub's `watch` reads `this.frozen`/
+  // `this.frozenSnapshot`/`this.seedOccurredOn`, and only `defineComponent` gives TypeScript the Options
+  // API's own `this` inference for `props`/`data`/`methods` (same technique `AgentChat.test.ts` already
+  // uses for its own stateful stubs).
+  const RepotDoneFormStub = defineComponent({
+    props: [
+      'open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'frozenSnapshot',
+      'seedOccurredOn',
+    ],
+    emits: ['confirm', 'start-over', 'update:open'],
+    data() {
+      return { occurredOn: '' };
+    },
+    methods: { todayYmd },
+    watch: {
+      // Mirrors RepotDoneForm.vue's own `watch(open, ...)`: a frozen resume hydrates from the outstanding
+      // attempt's own stored envelope (never `seedOccurredOn`/`todayYmd()`); a fresh open seeds from the
+      // card's own back-date, falling back to today.
+      open(isOpen: boolean) {
+        if (!isOpen) return;
+        this.occurredOn = this.frozen && this.frozenSnapshot
+          ? this.frozenSnapshot.occurredOn
+          : (this.seedOccurredOn || this.todayYmd());
+      },
+    },
+    template:
+      '<div class="done-form" :data-open="open" :data-frozen="frozen">' +
+      '<input class="occurred-on-input" type="date" v-model="occurredOn" :disabled="frozen" />' +
+      '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: 26, soilMix: currentSoilMix, charged: true, occurredOn })">confirm</button>' +
+      // The REAL v-model:open contract (X/Escape/backdrop) — the owner dismissing the form to reopen it.
+      '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
+      '</div>',
+  });
+
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      props: { task: null, allowStandaloneDone: { type: Boolean, default: false } },
-      emits: ['done'],
-      template:
-        '<div>' +
-        '<button class="done-aug1" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-01\' })">done 08-01</button>' +
-        '<button class="done-aug5" @click="$emit(\'done\', { task: \'REPOT\', occurredOn: \'2026-08-05\' })">done 08-05</button>' +
-        '</div>',
-    },
-    // Task 28: `seedOccurredOn` is what the card's date now reaches the form THROUGH (`onRepotDone` sets
-    // `doneFormOccurredOn`, passed down as `:seed-occurred-on`), and the form's own `confirm` payload is
-    // what `onRepotDoneConfirm` reads `occurredOn` from — never `doneFormOccurredOn` directly any more.
-    // This stub mirrors the real form's default (`seedOccurredOn || todayYmd()`) to stay faithful to that.
-    UiRepotDoneForm: {
-      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
-      emits: ['confirm', 'start-over', 'update:open'],
-      methods: { todayYmd },
-      template:
-        '<div class="done-form" :data-open="open" :data-frozen="frozen">' +
-        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: 26, soilMix: currentSoilMix, charged: true, occurredOn: seedOccurredOn || todayYmd() })">confirm</button>' +
-        // The REAL v-model:open contract (X/Escape/backdrop) — the owner dismissing the form to go back to
-        // the card and change the date, which is the only way to reach the date input at all.
-        '<button class="close-btn" @click="$emit(\'update:open\', false)">close</button>' +
-        '</div>',
-    },
+    UiTaskRow: TaskRow,
+    UiRepotDoneForm: RepotDoneFormStub,
   };
 
   let completeRepotMock: ReturnType<typeof vi.fn>;
@@ -1453,22 +1482,29 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
     await flushPromises();
   }
 
-  it('a 400 unfreezes the form, and reopening it from the card with a NEW date sends that new date under a ' +
-    'FRESH key — never the date the rejected attempt carried', async () => {
+  it('a 400 unfreezes the form, and reopening it with a NEW date typed on the form sends that new date ' +
+    'under a FRESH key — never the date the rejected attempt carried', async () => {
     // A 400 is what an over-max / decimal pot size actually produces (see `classifyRepotFailure`).
     const w = await mountRepot(Object.assign(new Error('pot size out of range'), { statusCode: 400 }));
 
-    await press(w, '.done-aug1');
+    await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.occurred-on-input').setValue('2026-08-01');
+    const seededDate = '2026-08-01';
     await press(w, '.confirm-btn');
     expect(completeRepotMock).toHaveBeenCalledTimes(1);
-    expect(completeRepotMock.mock.calls[0]![1]).toBe('2026-08-01');
+    expect(completeRepotMock.mock.calls[0]![1]).toBe(seededDate);
     // The 400 unfreezes: the owner is being invited to correct the value.
     expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
 
-    // The date input lives on the CARD, so correcting it means dismissing the form and pressing Done again.
+    // The form's own date field is what's editable — not the (readonly) card — so correcting it means
+    // dismissing the form, reopening it, and typing a DIFFERENT date directly into that field.
     await press(w, '.close-btn');
-    await press(w, '.done-aug5');
+    await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
+    await flushPromises();
     expect(w.find('.done-form').attributes('data-open')).toBe('true');
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('false'); // fresh, not resumed
+    await w.find('.occurred-on-input').setValue('2026-08-05');
 
     await press(w, '.confirm-btn');
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
@@ -1477,22 +1513,30 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
     expect(completeRepotMock.mock.calls[1]![3]).not.toBe(completeRepotMock.mock.calls[0]![3]);
   });
 
-  it('every OTHER failure kind still RESUMES byte-identically — a lost response reopened with a different ' +
-    'date on the card resends the ORIGINAL date under the ORIGINAL key, or the idempotency layer would ' +
-    '422 that key forever', async () => {
+  it('every OTHER failure kind still RESUMES byte-identically — the form reopens FROZEN, its date field ' +
+    'disabled and hydrated from the outstanding attempt\'s own snapshot, and the retry resends the ' +
+    'ORIGINAL date under the ORIGINAL key, or the idempotency layer would 422 that key forever', async () => {
     const w = await mountRepot(new Error('lost response')); // no status -> 'unknown'
 
-    await press(w, '.done-aug1');
+    await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.occurred-on-input').setValue('2026-08-01');
+    const seededDate = '2026-08-01';
     await press(w, '.confirm-btn');
-    expect(completeRepotMock.mock.calls[0]![1]).toBe('2026-08-01');
+    expect(completeRepotMock.mock.calls[0]![1]).toBe(seededDate);
     expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
 
     await press(w, '.close-btn');
-    await press(w, '.done-aug5'); // the owner retypes the date — the resume must ignore it
-    await press(w, '.confirm-btn');
+    await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click'); // resumes — frozen stays true
+    await flushPromises();
+    expect(w.find('.done-form').attributes('data-frozen')).toBe('true');
+    // Hydrated from the frozen snapshot, unchanged, AND disabled — there is no way to retype it.
+    expect((w.find('.occurred-on-input').element as HTMLInputElement).value).toBe(seededDate);
+    expect(w.find('.occurred-on-input').attributes('disabled')).toBeDefined();
 
+    await press(w, '.confirm-btn');
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
-    expect(completeRepotMock.mock.calls[1]![1]).toBe('2026-08-01');
+    expect(completeRepotMock.mock.calls[1]![1]).toBe(seededDate);
     expect(completeRepotMock.mock.calls[1]![3]).toBe(completeRepotMock.mock.calls[0]![3]);
   });
 });
@@ -1513,12 +1557,7 @@ describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
 
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      props: { task: null },
-      emits: ['evaluate'],
-      // Task 6: see the identical comment on the other five `evaluate-btn` stubs in this file.
-      template: '<div><button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button></div>',
-    },
+    UiTaskRow: TaskRow,
     UiRepotEvaluationModal: {
       props: ['open', 'signs'],
       emits: ['submit'],
@@ -1557,7 +1596,7 @@ describe('PlantDetail — the ticked sign ids reach the verdict modal', () => {
     );
     await flushPromises();
 
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
     await w.find('.submit-signs-btn').trigger('click');
     await flushPromises();
@@ -1595,18 +1634,6 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     };
   }
 
-  // A faithful-enough TaskRow: renders the task code and the explanation prop as inspectable text (like the
-  // "ticked sign ids" describe block above does for its own modal), and re-emits the SAME `{ task,
-  // occurredOn }` shape `withDoneDate` produces on the real component.
-  const UiTaskRowStub = {
-    props: ['task', 'explanation'],
-    emits: ['done'],
-    template:
-      '<div class="task-row" :data-task="task">' +
-      '<span class="task-explanation">{{ explanation }}</span>' +
-      '<button class="done-btn" @click="$emit(\'done\', { task: task, occurredOn: \'2026-08-01\' })">done</button>' +
-      '</div>',
-  };
   // PlantProfileModal's real `saved` emit (Task 27) — two buttons stand in for the two outcomes `save()`
   // reports (an actual mix change vs. a save that left it untouched).
   const PlantProfileModalStub = {
@@ -1645,7 +1672,7 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
 
   const localStubs = {
     ...stubs,
-    UiTaskRow: UiTaskRowStub,
+    UiTaskRow: TaskRow,
     PlantProfileModal: PlantProfileModalStub,
     UiRepotDoneForm: UiRepotDoneFormStub,
     UiAlert: UiAlertStub,
@@ -1701,15 +1728,9 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     return w;
   }
 
-  function taskRow(w: Awaited<ReturnType<typeof mountWith>>, task: string) {
-    const row = w.findAll('.task-row').find((r) => r.attributes('data-task') === task);
-    if (!row) throw new Error(`no task row for "${task}"`);
-    return row;
-  }
-
   it('renders the FERTILIZE explanation sentence beside the FERTILIZE task', async () => {
     const w = await mountWith({ overrideOn: '2026-08-10', overrideMovedBy: ['FLOOR'] });
-    expect(taskRow(w, 'FERTILIZE').find('.task-explanation').text())
+    expect(taskRowFor(w, 'FERTILIZE').find('.mp-taskrow__explanation').text())
       .toBe(i18n.t('taskInfo.substrate.fertilizeOverrideFloor'));
   });
 
@@ -1717,16 +1738,34 @@ describe('PlantDetail — Task 28: the FERTILIZE explanation, the repot form\'s 
     // Listed SNAP-then-FLOOR in the payload — the util sorts FLOOR (the cause) before SNAP (the
     // consequence) regardless of wire order, so this also pins that ordering through the real component.
     const w = await mountWith({ overrideOn: '2026-08-10', overrideMovedBy: ['SNAP', 'FLOOR'] });
-    expect(taskRow(w, 'FERTILIZE').find('.task-explanation').text()).toBe(
+    expect(taskRowFor(w, 'FERTILIZE').find('.mp-taskrow__explanation').text()).toBe(
       `${i18n.t('taskInfo.substrate.fertilizeOverrideFloor')} ${i18n.t('taskInfo.substrate.fertilizeOverrideSnap')}`,
     );
   });
 
+  // Diagnosed (Task 4, spec §7): this case failed once in a 40-repeat loop and passed 12/12 immediately
+  // after, i.e. a genuine flake, not a fluke. Fixed with a second `flushPromises()`, expressed as an await
+  // (never a `setTimeout`/retry/`vi.waitFor` masking it). NOTE (fix wave, corrected): the previous version of
+  // this comment attributed the extra tick to "the click handler's own `await api.getPlant(...)` inside
+  // `onRepotDone`'s resume check" — that is false. `onRepotDone` (`PlantDetail.vue:1018-1056`) is not even
+  // `async`, and its own comment at `:1029-1031` says plainly "there is no fallible fetch here"; `onDone`
+  // (`PlantDetail.vue:1208`) and `TaskRow.vue`'s own `onDone` (`components/ui/TaskRow.vue:356`) are both
+  // synchronous too, so the whole click-to-open chain has no `await` in it anywhere. Re-running this single
+  // case in isolation 15/15 times with only ONE `flushPromises()` never reproduced the original flake, so the
+  // second tick is precautionary against a re-render race that only showed up once, running inside the full
+  // file (shared module-level fixtures/timers across `describe` blocks), not evidence of a real second
+  // microtask this component schedules. Also: the plan's own `--repeat 40` verification loop is not runnable
+  // as written — vitest 3.2.7 (see `package.json`) has no `--repeat` flag.
+  // Expected-value note (unrelated to the above): it also changes from the deleted stub's injected
+  // `'2026-08-01'` to `todayYmd()` — the real REPOT card's own (readonly) seed — a consequence of Step 1's
+  // stub retirement, not a weakening: the assertion now reads a value the component produced rather than one
+  // the test injected.
   it('passes the card\'s shown date into the repot form as its seed', async () => {
     const w = await mountWith({ overrideOn: null, overrideMovedBy: [] });
-    await taskRow(w, 'REPOT').find('.done-btn').trigger('click');
+    await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
-    expect(w.find('.done-form').attributes('data-seed')).toBe('2026-08-01');
+    await flushPromises(); // precautionary second tick — see the note above; not a real second await
+    expect(w.find('.done-form').attributes('data-seed')).toBe(todayYmd());
   });
 
   it('opens the repot form automatically when the profile save reports a soil-mix change', async () => {

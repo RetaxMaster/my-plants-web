@@ -968,6 +968,14 @@ function openProgress(plantId: string) {
                `rowEffectiveStatus`. Applying the promotion to one and not the other is how the app would
                tell the owner to water now and then ask him why he is watering early. Why the value is
                `false` on THIS surface (and only here) is argued at the constant's own declaration. -->
+          <!-- `:applied-completions` below is INERT on Today, by owner decision 2: this row never passes
+               `with-done-date`, so `TaskRow`'s own back-date box never renders (`v-if="withDoneDate"`), and
+               its `watch(() => props.appliedCompletions, ...)` reset has no visible date field left to
+               clear. This is NOT a defect — Today is deliberately kept free of the back-date box — and the
+               counter is still maintained and bound here, rather than only on the plant page, for two
+               reasons: symmetry with `PlantDetail.vue`'s identical binding (one convention, not two), and
+               because the binding goes LIVE the instant Today ever gains its own date box, with no future
+               wiring left to remember. Do not remove it. -->
           <UiTaskRow
             v-for="t2 in plantTasks"
             :key="t2.task"

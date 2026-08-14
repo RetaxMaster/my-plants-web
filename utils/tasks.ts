@@ -55,7 +55,9 @@ export function groupByPlant(tasks: DueTask[]): Map<string, DueTask[]> {
  * The API is not touched by any of this: `care-plan.service.ts`'s urgency-group sort still decides which
  * PLANT comes first on Today, and `getCare()`'s `nextDueOn asc` is still the input this re-orders.
  */
-export const TASK_CARD_RANK: Readonly<Record<string, number>> = Object.freeze({
+// Module-local: read only by `taskCardRank` below, in this same file — no other module imports it (three-
+// condition check: no static reference, no basename grep hit outside this file, suite green afterwards).
+const TASK_CARD_RANK: Readonly<Record<string, number>> = Object.freeze({
   REPOT: 0,
   WATER: 1,
   FERTILIZE: 2,

@@ -1539,14 +1539,77 @@ describe('PlantDetail — FIX D1: after a 400, the reopened Done form must send 
     await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
     await flushPromises();
     expect(w.find('[data-modal-stub]').exists()).toBe(true);
-    expect(w.find('[data-modal-stub] input[type="date"]').attributes('disabled')).toBeUndefined(); // fresh, not resumed
+    // Unfrozen — but this does NOT prove the D1 guard resolved "fresh, not resumed": `isAttemptFrozen`
+    // reads `attempt.error !== 'invalid'` directly, independent of `onRepotDone`'s own resume-vs-fresh
+    // decision, so the fields un-disable after a 400 whichever way that guard is wired.
+    expect(w.find('[data-modal-stub] input[type="date"]').attributes('disabled')).toBeUndefined();
     await w.find('[data-modal-stub] input[type="date"]').setValue('2026-08-05');
 
     await press(w, findConfirmButton(w));
     expect(completeRepotMock).toHaveBeenCalledTimes(2);
     expect(completeRepotMock.mock.calls[1]![1]).toBe('2026-08-05');
-    // ...and under a genuinely new key, since the server committed nothing under the rejected one.
+    // A genuinely new key — but this ALSO does not prove the D1 guard resolved "fresh, not resumed": it is
+    // guaranteed independently by `begin()`'s own FIX C2 ("an 'invalid' attempt is never resumed"), which
+    // fires at CONFIRM time regardless of what `onRepotDone`'s early return decided when the form reopened.
+    // This inequality would hold identically even if `onRepotDone` regressed to the weaker "is a key
+    // outstanding?" predicate — see the dedicated discriminating case below, which is the one that actually
+    // fails under that regression.
     expect(completeRepotMock.mock.calls[1]![3]).not.toBe(completeRepotMock.mock.calls[0]![3]);
+  });
+
+  // FIX D1, restored discrimination (code-review round). The two tests above drive the reopened form's
+  // date through `setValue` AFTER it reopens — which overwrites whatever `onRepotDone` seeded either way,
+  // so neither one can actually tell the CORRECT predicate (`hasResumableDoneKeyFor`, "would `begin()`
+  // resume this?") apart from the WEAKER one it replaced ("is a key outstanding?", true here too — the key
+  // survives a 400). This case drives `onRepotDone` at the HANDLER SEAM instead, with a divergent
+  // `occurredOn` argument, and asserts the form's SEEDED date BEFORE any manual edit — the one place the two
+  // predicates actually disagree.
+  //
+  // The seam, not the card: the REPOT row's own date box is `:readonly="task === 'REPOT'"` and always
+  // `todayYmd()` (`TaskRow.vue:181`/`:439`), so a divergent `occurredOn` is not reachable by clicking the
+  // real Done button today — `onRepotDone`'s argument would just be `todayYmd()` again, identical to the
+  // first open, and the two predicates would agree by accident. `PlantDetail.vue`'s `@done` handler forwards
+  // WHATEVER `TaskRow` emits straight into `onDone` -> `onRepotDone` unmodified, so emitting `done` directly
+  // on the mounted row is that same real contract, exercised through the one seam a future row (or another
+  // caller) could reach.
+  it('reopening after a 400 seeds the form from the SEAM\'s own occurredOn argument, not from a stale ' +
+    'prior seed — the weaker "is a key outstanding?" predicate would leave it stale', async () => {
+    const w = await mountRepot(Object.assign(new Error('pot size out of range'), { statusCode: 400 }));
+
+    // First attempt: opened via the real row (occurredOn = todayYmd(), the row's only possible value),
+    // confirmed with the plant's own prefilled pot size, and rejected with a 400.
+    await doneButtons(taskRowFor(w, 'REPOT'))[0]!.trigger('click');
+    await flushPromises();
+    await press(w, findConfirmButton(w));
+    expect(completeRepotMock).toHaveBeenCalledTimes(1);
+    const firstKey = completeRepotMock.mock.calls[0]![3];
+
+    // The owner dismisses the now-unfrozen form without resolving it (X/Escape/backdrop) — the SAME
+    // dismissal both tests above drive.
+    w.findComponent(RealRepotDoneForm).vm.$emit('update:open', false);
+    await flushPromises();
+
+    // Reopen at the seam, with a divergent date the real card cannot produce today.
+    const repotRow = w.findAllComponents(TaskRow).find((r) => r.props('task') === 'REPOT');
+    if (!repotRow) throw new Error('no REPOT TaskRow found');
+    const divergentDate = '2026-08-05';
+    repotRow.vm.$emit('done', { task: 'REPOT', occurredOn: divergentDate });
+    await flushPromises();
+
+    expect(w.find('[data-modal-stub]').exists()).toBe(true);
+    // THE DISCRIMINATING ASSERTION — read BEFORE any `setValue`. Under the correct predicate
+    // (`hasResumableDoneKeyFor`, false after a 400) `onRepotDone` takes the non-resume branch and sets
+    // `doneFormOccurredOn.value = divergentDate` before opening, so the form's `watch(open, …)` (not frozen,
+    // since `error === 'invalid'`) seeds `occurredOn.value` from it: the date field shows `divergentDate`.
+    // Under the weaker predicate this guards against ("is a key outstanding?", still true — the key survives
+    // a 400) the early return fires, `doneFormOccurredOn` is never touched, and it stays at its stale
+    // FIRST-open value (`todayYmd()`) — so the form would seed `todayYmd()` instead, not `divergentDate`.
+    expect((w.find('[data-modal-stub] input[type="date"]').element as HTMLInputElement).value).toBe(divergentDate);
+
+    await press(w, findConfirmButton(w));
+    expect(completeRepotMock).toHaveBeenCalledTimes(2);
+    expect(completeRepotMock.mock.calls[1]![1]).toBe(divergentDate);
+    expect(completeRepotMock.mock.calls[1]![3]).not.toBe(firstKey);
   });
 
   it('every OTHER failure kind still RESUMES byte-identically — the form reopens FROZEN, its date field ' +

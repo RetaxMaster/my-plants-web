@@ -225,19 +225,44 @@ function openVoluntaryReading() {
  * what it says: on failure the owner sees exactly the data he saw a second earlier, plus the modal's own
  * 400 recovery underneath it. Blocking the dialog on a failed background fetch would trade a rare stale
  * field for a dead button; blanking it trades a rare stale field for a lie.
+ *
+ * ⚠️ THE FAILURE IS RESTORED-FROM, NOT REPORTED — UNTIL NOW (Task 13). The paragraphs above describe the
+ * restore; until this change the restore was also the ENTIRE response — an empty `catch` with a comment
+ * saying so, no `console.*` call anywhere. An owner who recorded a reading on another device saw a
+ * silently stale list with nothing to retry. `readingsRefreshFailed` below is what changed: still
+ * deliberately silent INSIDE the dialog (the owner is opening it, not asking about the network), but never
+ * silent about the DATA — the card now says so afterwards, beside the restored snapshot, with a retry.
  */
+const readingsRefreshFailed = ref(false);
+
 async function refreshReadingsBeforeOpening() {
   const previous = readings.value;
   try {
     await refreshReadings();
+    readingsRefreshFailed.value = false;
   } catch {
     // Deliberately silent about the FAILURE (the owner is opening a dialog, not asking about the network),
-    // but never silent about the DATA: put back what he already had.
+    // but never silent about the DATA: put back what he already had, and flag it below.
+    readingsRefreshFailed.value = true;
   }
   // Outside the catch on purpose. `refresh()` does not necessarily reject — it can resolve having recorded
-  // the error and reset `data` — so the restore has to be driven by the OBSERVED state, not by whether a
-  // rejection happened to be thrown.
-  if (readings.value == null && previous != null) readings.value = previous;
+  // the error and reset `data` — so the restore AND the flag have to be driven by the OBSERVED state, not by
+  // whether a rejection happened to be thrown.
+  if (readings.value == null && previous != null) {
+    readings.value = previous;
+    readingsRefreshFailed.value = true;
+  }
+}
+
+// The marker's own retry: a plain re-fetch that clears the flag when it lands. Reuses `refreshReadings`,
+// never a second fetch path.
+async function retryReadingsRefresh() {
+  try {
+    await refreshReadings();
+    readingsRefreshFailed.value = readings.value == null;
+  } catch {
+    readingsRefreshFailed.value = true;
+  }
 }
 
 /**
@@ -1746,6 +1771,20 @@ async function confirmRevive() {
                  a reading" stands down there — an empty list would be a false statement, not a fact. -->
             <template v-if="!readingsUnavailable && readings">
               <UiSectionTitle class="mp-detail__measurement-title">{{ $t('reading.historyTitle') }}</UiSectionTitle>
+              <!-- Non-blocking, and BESIDE the restored snapshot rather than instead of it: the list the
+                   owner is looking at is the last one we actually had, which is true and useful. Reuses
+                   UiAlert + UiButton, both already on this page — no new component for one sentence. -->
+              <UiAlert
+                v-if="readingsRefreshFailed"
+                color="amber"
+                :description="$t('reading.refreshFailed')"
+                announce
+                class="mp-detail__readings-stale"
+              >
+                <UiButton size="xs" variant="soft" color="neutral" @click="retryReadingsRefresh">
+                  {{ $t('reading.refreshRetry') }}
+                </UiButton>
+              </UiAlert>
               <UiSoilReadingList :data="readings" />
             </template>
             <UiAlert

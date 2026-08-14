@@ -2493,6 +2493,86 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
       expect(taskRowFor(w, 'WATER').find('.mp-taskrow__outcome-note').exists()).toBe(false);
     });
   });
+
+  // Task 13 — the pre-open readings refresh (`refreshReadingsBeforeOpening`) used to fail SILENTLY: an
+  // empty `catch` with a comment saying so, no `console.*` call either. The restored (possibly stale)
+  // snapshot was the ENTIRE response — an owner who recorded a reading on another device saw a silently
+  // stale list with nothing telling him it happened, let alone a way to retry.
+  //
+  // `UiAlert` renders its own DESCRIPTION now (the base map's `UiAlert: true` never renders slot content
+  // OR props — see the W1/W2 block's identical argument above), so this describe carries its own stub.
+  describe('the pre-open readings refresh reports a failure, with a retry (Task 13)', () => {
+    const UiAlertStub = {
+      props: ['color', 'description', 'announce'],
+      template: '<div class="stub-alert"><span class="alert-desc">{{ description }}</span><slot /></div>',
+    };
+    const readingsLocalStubs = { ...localStubs, UiAlert: UiAlertStub };
+
+    afterEach(() => {
+      // Restore the module's default stub for every other describe block in this file.
+      vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => ({
+        data: ref(await fn()),
+        refresh: vi.fn(async () => {}),
+      }));
+    });
+
+    // `mountWater` above (the block's own helper) never captures the readings key's `refresh` — every case
+    // that uses it relies on the module-level no-op default. This mount is `mountWater`'s twin with ONE
+    // difference: the `soil-readings-*` key's `refresh` delegates to the passed spy, so a case can drive
+    // exactly what a real rejected/resolved refresh would do. One selected instrument + a non-null readings
+    // snapshot, same as `mountWater([...])`, so "Add a reading" renders and the click path is real.
+    async function mountWaterWithRefresh(refreshSpy: ReturnType<typeof vi.fn>) {
+      vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => {
+        const data = ref(await fn());
+        return { data, refresh: key.startsWith('soil-readings-') ? refreshSpy : vi.fn(async () => {}) };
+      });
+      vi.stubGlobal('useApi', () => ({
+        getPlant: async () => basePlant(),
+        getPlantCare: async () => waterCare(),
+        listPlaces: async () => [],
+        getPlantHistory: async () => [],
+        getPlantPhotos: async () => [],
+        getRepotSigns: async () => ({ signs: [] }),
+        getSoilReadings: async () => ({
+          acquiredOn: '2020-01-01', instruments: [{ id: 'galvanic-probe' }], protocol: null, readings: [],
+          wateringDays: [],
+        }),
+        getOwnerInstruments: async () => ({ available: [], selected: ['galvanic-probe'] }),
+        invalidatePlant: vi.fn(),
+      }));
+      const PlantDetail = (await import('./PlantDetail.vue')).default;
+      const w = mount(
+        { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+        { global: { stubs: readingsLocalStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+      );
+      await flushPromises();
+      return w;
+    }
+
+    it('marks the readings card when the pre-open refresh failed, and the retry clears it', async () => {
+      let failNext = true;
+      const refreshSpy = vi.fn(async () => { if (failNext) throw new Error('offline'); });
+      const w = await mountWaterWithRefresh(refreshSpy);
+      await w.find('.mp-detail__measurement-add').trigger('click');
+      await flushPromises();
+
+      const marker = w.find('.mp-detail__readings-stale');
+      expect(marker.exists()).toBe(true);
+      expect(marker.text()).toContain(i18n.t('reading.refreshFailed'));
+
+      failNext = false;
+      await marker.find('button').trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-detail__readings-stale').exists()).toBe(false);
+    });
+
+    it('says nothing when the refresh succeeded — the marker is a failure state, not a status line', async () => {
+      const w = await mountWaterWithRefresh(vi.fn(async () => {}));
+      await w.find('.mp-detail__measurement-add').trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-detail__readings-stale').exists()).toBe(false);
+    });
+  });
 });
 
 // FIX W1 + FIX W2 on the plant page — the SAME two rules pages/index.vue carries (see pages/index.test.ts's

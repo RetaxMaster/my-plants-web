@@ -24,6 +24,11 @@ import type { TodaysVerdict } from '../utils/waterSurvey.js';
 // X2: the parent-level integration test near the end of this file mounts the REAL RepotDoneForm.vue (never a
 // re-implemented stub of its hydration watcher — see that describe block's own header comment for why).
 import RealRepotDoneForm from '../components/ui/RepotDoneForm.vue';
+// Task 2 (spec §5.1): the real row, imported directly and swapped in as the `UiTaskRow` stub VALUE below —
+// the tag has nothing else to resolve to under plain vitest (neither this file's mounted `pages/index.vue`
+// nor `PlantDetail.vue` imports it; Nuxt's directory-based auto-import only registers it at build time). Same
+// technique `PlantDetail.test.ts` (Task 3) and `TaskRow.test.ts` already use.
+import TaskRow from '../components/ui/TaskRow.vue';
 // W1 moved the two REPOT-attempt stores (`'evaluation'` / `'done'`) to MODULE scope, so — unlike the
 // per-component-instance Maps this file's tests used to exercise — they now persist across every `it()` in
 // THIS file (the module is imported once and cached for the whole file). Without an explicit reset, an
@@ -47,6 +52,20 @@ vi.stubGlobal('useHead', () => {});
 vi.stubGlobal('useSeoMeta', () => {});
 vi.stubGlobal('navigateTo', vi.fn());
 vi.stubGlobal('useTaskMeta', () => ({ dueLabel: () => 'Today' }));
+// The real `TaskRow.vue` is mounted in this file now (spec §5.1), and it imports `useTaskMeta` through an
+// EXPLICIT `~/composables/useTaskMeta` path — `vi.stubGlobal` only intercepts a global reference, never an
+// import statement, so the module itself has to be mocked. Same technique as `TaskRow.test.ts`.
+vi.mock('~/composables/useTaskMeta', () => ({
+  useTaskMeta: () => ({
+    TASK_ICONS: {
+      WATER: 'droplet', FERTILIZE: 'beaker', REPOT: 'magnifying-glass',
+      ROTATE: 'arrow-path', CLEAN_LEAVES: 'sparkles', MIST: 'cloud', PROGRESS: 'camera',
+    },
+    taskLabel: (t: string) => t,
+    dueLabel: () => 'Today',
+    dueLabelLong: () => 'Today',
+  }),
+}));
 vi.stubGlobal('useFeedbackReasons', () => ({
   earlyWaterOptions: computed(() => []),
   postponeOptions: computed(() => []),
@@ -78,10 +97,18 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const TASKS = [
-  { plantId: 'A', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: null },
-  { plantId: 'B', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: null },
+type Verdict = { id: string; verdict: 'REPOT' | 'RE-EVALUATE'; reevaluateOn: string | null } | null;
+// ⚠️ THE FIXTURE THE STUB MADE UNNECESSARY (spec §5.1). Today offers a REPOT Done ONLY once a verdict has
+// decided the repot is needed — with `pendingEvaluation: null` the real row shows the questionnaire and
+// NOTHING else. The deleted stub rendered a Done button unconditionally, so every Done-flow case in this
+// file was driving an affordance production never offers for that state. The flows below are unchanged;
+// the plant they describe is now one the API can actually produce.
+const repotTasks = (verdict: Verdict) => [
+  { plantId: 'A', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: verdict && { ...verdict } },
+  { plantId: 'B', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: verdict && { ...verdict } },
 ];
+const RESOLVED: Verdict = { id: 'ev-resolved', verdict: 'REPOT', reevaluateOn: null };
+let tasksFixture: ReturnType<typeof repotTasks> = repotTasks(RESOLVED);
 
 const PLANT_PROFILES: Record<string, { potSizeCm: number; soilMix: string }> = {
   A: { potSizeCm: 20, soilMix: 'potting-mix' },
@@ -107,6 +134,11 @@ beforeEach(() => {
   // Store-isolation (W1): reset BOTH module-scope attempt stores before every test so no test's outstanding
   // key/body/error survives into the next one.
   __resetRepotAttemptStoresForTests();
+  // Task 2, step 3: the DEFAULT fixture is a RESOLVED verdict — the state in which Today actually offers
+  // Done — since that is the shape most of this file's Done-form tests describe. A test whose subject is
+  // the QUESTIONNAIRE itself (onEvaluate, the verdict modal, the signs) sets `tasksFixture = repotTasks(null)`
+  // at the top of its own `it`.
+  tasksFixture = repotTasks(RESOLVED);
   submitDeferreds = { A: deferred<RepotEvaluationResult>(), B: deferred<RepotEvaluationResult>() };
   completeRepotDeferreds = { A: deferred<{ ok: true }>(), B: deferred<{ ok: true }>() };
   getRepotSignsMock = vi.fn(async () => ({ signs: [] as RepotSign[] }));
@@ -122,7 +154,7 @@ beforeEach(() => {
   // UiSoilReadingModal reads the route to decide push-vs-replace for its calibration link.
 vi.stubGlobal('useRoute', () => ({ path: '/', query: {} }));
 vi.stubGlobal('useApi', () => ({
-    todaysTasks: async () => TASKS,
+    todaysTasks: async () => tasksFixture,
     listPlants: async () => [],
     listPlaces: async () => [],
     getRepotSigns: getRepotSignsMock,
@@ -194,55 +226,15 @@ const stubs = {
       '<div class="verdict-modal" :data-open="open" :data-verdict="result && result.verdict" ' +
       ':data-checked="checkedSignIds && checkedSignIds.join(\',\')" :data-signs="signs && signs.length" />',
   },
-  UiTaskRow: {
-    // OBJECT prop declaration for `allowStandaloneDone`/`canSurvey`, not the array shorthand: only a prop
-    // DECLARED Boolean gets Vue's bare-attribute casting, so the array form would read `''` (falsy) even
-    // from a caller that DID pass it — a stub that could never fail the "Done must not leak onto Today"
-    // test, nor Plan 3 T5's WATER canSurvey wiring tests below.
-    props: {
-      task: null,
-      allowStandaloneDone: { type: Boolean, default: false },
-      canSurvey: { type: Boolean, default: false },
-      // QA 2026-08-11, finding 3 — declared so the wiring test below can read what the page actually
-      // BOUND, not merely what it happened to compute internally. A stray attribute would render on the
-      // root div anyway, which is exactly the kind of accidental pass this file's stubs are written to
-      // avoid: an undeclared prop makes `data-todays-verdict` true of the DOM without being true of the
-      // component contract.
-      todaysVerdict: { type: String, default: null },
-      // QA round 5, F1 — declared, defaulted `false`, and READ by the Done gate below even though this
-      // page never passes it. That is the point: the stub must not be able to offer a Done the real
-      // component withholds, and the day pages/index.vue starts binding `:watered-today` (the day the
-      // Today payload carries it — see `WATERED_TODAY_NOT_ON_THE_TODAY_ROW`) this stub is already honest.
-      // A stub that re-derives a component's rule is a second implementation of it, and DEF-3 shipped
-      // green precisely because one of them was wrong.
-      wateredToday: { type: Boolean, default: false },
-    },
-    // Plan 3 T5: `evaluate` now carries a payload ({ task }), mirroring the REAL TaskRow.vue's own
-    // `emit('evaluate', { task: props.task })` — pages/index.vue routes on it to tell a REPOT evaluate from
-    // a WATER survey, reusing the ONE event rather than adding a parallel one. Every pre-existing REPOT test
-    // below still passes: their stubbed click already resolves to `task: 'REPOT'` off the real `:task`
-    // binding, which routes to the unchanged `onEvaluate` branch.
-    emits: ['evaluate', 'done', 'postpone'],
-    template:
-      '<div :data-allow-standalone-done="String(!!allowStandaloneDone)" :data-can-survey="String(!!canSurvey)" ' +
-      ':data-todays-verdict="String(todaysVerdict)">' +
-      // Mirrors TaskRow.vue's OWN `showEvaluate` gate for WATER (`canSurvey === true`) — never re-derives
-      // REPOT's gate (that stays ungated here, exactly as before this row existed; REPOT's own state
-      // machine is TaskRow.vue's job and is covered by TaskRow.test.ts, not this wiring-level file).
-      '<button v-if="task !== \'WATER\' || canSurvey" class="evaluate-btn" @click="$emit(\'evaluate\', { task })">evaluate</button>' +
-      // ⚠️ UPDATED 2026-08-11 (QA round 4, DEF-3; owner-ruled): a WATER survey withholds **Hecho** and NOT
-      // **Posponer**. "No tengo tiempo ahorita" is an answer about the owner's own availability, which no
-      // measurement can supply; recording a watering while the app is still offering to tell you whether to
-      // water is the opposite case. THIS STUB WAS PINNING THE DEFECT — it gated Posponer on `!canSurvey`,
-      // so the whole surface stayed green while the real component shipped the bug. Mirrors TaskRow.vue's
-      // rule now, minus its `effectiveStatus !== 'upcoming'` clause, which is TaskRow.test.ts's own concern
-      // (this file is about which PROPS the page sends).
-      // ⚠️ AND UPDATED AGAIN 2026-08-11 (QA round 5, F1): a WATER row on a pot already watered today
-      // withholds Hecho too — this stub has no date box, so its Done can only ever be dated TODAY, which
-      // is the exact post the API's one-`WATER DONE`-per-day dedup discards.
-      '<button v-if="(task !== \'WATER\' || !canSurvey) && !(task === \'WATER\' && wateredToday)" class="done-btn" @click="$emit(\'done\', { task })">done</button>' +
-      '<button class="postpone-btn" @click="$emit(\'postpone\', { task })">postpone</button>' +
-      '</div>',
+  // Task 2 (spec §5.1): the REAL row — never a re-implemented copy of its own `showEvaluate`/`showDone` rules.
+  // `TaskRow.vue`'s own three imports resolve via the `AppIcon`/`Badge`/`Button` keys just below (the LOCAL
+  // names its own `<script setup>` uses, so they never collide with this file's `UiButton`/`UiAppIcon`).
+  UiTaskRow: TaskRow,
+  AppIcon: true,
+  Badge: { template: '<span class="stub-badge"><slot /></span>' },
+  Button: {
+    props: ['size', 'color', 'variant', 'icon', 'disabled', 'loading'],
+    template: '<button class="stub-btn" :data-icon="icon" :data-variant="variant"><slot /></button>',
   },
   // Plan 3 T5: stands in for the real SoilReadingModal.vue (covered by its own test file) — this file's only
   // concern is that pages/index.vue opens it for the right plant, in the right MODE, and reconciles Today
@@ -298,6 +290,17 @@ const stubs = {
   NuxtLink: { template: '<a><slot /></a>' },
 };
 
+// One place that knows how an action is named on a real row, so a future assertion cannot invent a second
+// convention. Scoped to a card when a card is passed, whole-page otherwise. `Button` exposes `data-icon`,
+// which is how every assertion in this file now names an action: `check` = Done, `magnifying-glass` = the
+// survey/questionnaire, `clock` = Postpone. Exactly the convention `TaskRow.test.ts` already uses.
+type Findable = { findAll: (s: string) => Array<{ attributes: (a: string) => string | undefined }> };
+const byIcon = (w: Findable, icon: string) =>
+  (w.findAll('.stub-btn') as any[]).filter((b) => b.attributes('data-icon') === icon);
+const doneButtons = (w: Findable) => byIcon(w, 'check');
+const evaluateButtons = (w: Findable) => byIcon(w, 'magnifying-glass');
+const postponeButtons = (w: Findable) => byIcon(w, 'clock');
+
 async function mountPage() {
   const TodayPage = (await import('./index.vue')).default;
   const w = mount(
@@ -310,8 +313,9 @@ async function mountPage() {
 
 describe('pages/index.vue — a late response from an ABANDONED evaluation submit (Y1)', () => {
   it('never clobbers the now-active plant\'s outstanding key, open modal, or verdict', async () => {
+    tasksFixture = repotTasks(null); // this test's subject is the evaluate/questionnaire flow
     const w = await mountPage();
-    const evaluateButtons = w.findAll('.evaluate-btn');
+    const evaluateButtons = byIcon(w, 'magnifying-glass');
     expect(evaluateButtons).toHaveLength(2); // one card per plant — A first, B second
 
     // Open + submit for plant A: mints a key, the request is now in flight (never resolved yet).
@@ -360,8 +364,9 @@ describe('pages/index.vue — a late response from an ABANDONED evaluation submi
 describe('pages/index.vue — round-4 finding V1: the submitting flag must never get stuck (failure 1)', () => {
   it('onEvaluationSubmit: opening a DIFFERENT plant while a submit is still in flight must not leave the ' +
     'new modal stuck "submitting" forever', async () => {
+    tasksFixture = repotTasks(null); // this test's subject is the evaluate/questionnaire flow
     const w = await mountPage();
-    const evaluateButtons = w.findAll('.evaluate-btn');
+    const evaluateButtons = byIcon(w, 'magnifying-glass');
 
     // Start a submit for A and leave it in flight — never resolved.
     await evaluateButtons[0]!.trigger('click');
@@ -383,7 +388,7 @@ describe('pages/index.vue — round-4 finding V1: the submitting flag must never
   it('onRepotDoneConfirm: opening a DIFFERENT plant\'s Done form while a confirm is still in flight must ' +
     'not leave the new form stuck "submitting" forever', async () => {
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     // Start a confirm for A and leave it in flight — never resolved.
     await doneButtons[0]!.trigger('click');
@@ -404,6 +409,7 @@ describe('pages/index.vue — round-4 finding V1: the submitting flag must never
 describe('pages/index.vue — round-4 finding V1: the submitting flag must never get stuck (failure 2)', () => {
   it('onEvaluationSubmit: a stale success must not clear a NEWER attempt\'s submitting flag when its own ' +
     'refresh() resolves late', async () => {
+    tasksFixture = repotTasks(null); // this test's subject is the evaluate/questionnaire flow
     // A controllable `refresh()` lets the test hold A's success mid-flight (past the point where it has
     // already closed its own modal) so a newer attempt (B) can start DURING that window — exactly the gap
     // where the old code's `finally` clobbered B's flag once A's refresh() finally resolved.
@@ -414,7 +420,7 @@ describe('pages/index.vue — round-4 finding V1: the submitting flag must never
     }));
 
     const w = await mountPage();
-    const evaluateButtons = w.findAll('.evaluate-btn');
+    const evaluateButtons = byIcon(w, 'magnifying-glass');
 
     // Submit A; it succeeds, but its refresh() is held open.
     await evaluateButtons[0]!.trigger('click');
@@ -450,7 +456,7 @@ describe('pages/index.vue — round-4 finding V1: the submitting flag must never
     }));
 
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     // Confirm A; it succeeds, but its refresh() is held open.
     await doneButtons[0]!.trigger('click');
@@ -480,8 +486,9 @@ describe('pages/index.vue — round-4 finding V2: a failed submit (including a r
   'out instead of letting hang forever) must leave a way out', () => {
   it('onEvaluationSubmit: a rejection clears submitting, keeps the key (frozen stays true), surfaces the ' +
     'error, and leaves the modal open — never a dead end', async () => {
+    tasksFixture = repotTasks(null); // this test's subject is the evaluate/questionnaire flow
     const w = await mountPage();
-    await w.findAll('.evaluate-btn')[0]!.trigger('click');
+    await byIcon(w, 'magnifying-glass')[0]!.trigger('click');
     await flushPromises();
     await w.find('.submit-btn').trigger('click');
     await flushPromises();
@@ -501,7 +508,7 @@ describe('pages/index.vue — round-4 finding V2: a failed submit (including a r
   it('onRepotDoneConfirm: a rejection clears submitting, keeps the key (frozen stays true), surfaces the ' +
     'error, and leaves the form open — never a dead end', async () => {
     const w = await mountPage();
-    await w.findAll('.done-btn')[0]!.trigger('click');
+    await byIcon(w, 'check')[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -520,7 +527,7 @@ describe('pages/index.vue — a late response from an ABANDONED Done-form confir
   'in the same pass)', () => {
   it('never clobbers the now-active plant\'s outstanding doneKey or open Done form', async () => {
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
     expect(doneButtons).toHaveLength(2); // one card per plant — A first, B second
 
     // Open + confirm for plant A: mints a doneKey, the request is now in flight (never resolved yet).
@@ -583,7 +590,7 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
   it('a failed confirm keeps the key; closing the form via its own update:open contract and reopening ' +
     'resumes it — the retry sends the SAME idempotency key, and the form is still frozen', async () => {
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     // Open + confirm for A: the confirm fails, so the key is retained and the form freezes.
     await doneButtons[0]!.trigger('click');
@@ -636,7 +643,7 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
   it("plant A's outstanding key survives opening plant B's form and returning to A; the retry resends A's " +
     'ORIGINAL key and body (U1 — the per-plant attempt map)', async () => {
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     // A confirms. Its response is LOST — indistinguishable, client-side, from any other rejection, from a
     // case where the server-side commit actually SUCCEEDED and only the reply never arrived — so the key
@@ -682,8 +689,9 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
   // The same shape exists on the evaluation flow (its own useRepotAttempt instance, same per-plant map).
   it("plant A's outstanding evaluation key survives opening plant B's evaluation modal and returning to A; " +
     "the retry resends A's ORIGINAL key and body (U1)", async () => {
+    tasksFixture = repotTasks(null); // this test's subject is the evaluate/questionnaire flow
     const w = await mountPage();
-    const evaluateButtons = w.findAll('.evaluate-btn');
+    const evaluateButtons = byIcon(w, 'magnifying-glass');
 
     await evaluateButtons[0]!.trigger('click');
     await flushPromises();
@@ -718,7 +726,7 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
   it('a successful confirm leaves no outstanding key — reopening the SAME plant afterwards is a fresh ' +
     'attempt (re-fetches the profile, mints a new key), not a resume', async () => {
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     await doneButtons[0]!.trigger('click');
     await flushPromises();
@@ -752,7 +760,7 @@ describe('pages/index.vue — B1: the Done form must resume its outstanding atte
   it('after a 400, reopening the Done form is a FRESH attempt — the prefill is re-fetched and the next ' +
     'confirm mints a new key, never a resume of the rejected one', async () => {
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     await doneButtons[0]!.trigger('click');
     await flushPromises();
@@ -793,7 +801,7 @@ describe('pages/index.vue — B3: a failed getPlant fetch must not leave the Don
     'successfully on the second call', async () => {
     getPlantMock.mockRejectedValueOnce(new Error('network error'));
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     await doneButtons[0]!.trigger('click');
     await flushPromises();
@@ -823,7 +831,7 @@ describe('pages/index.vue — B3: a failed getPlant fetch must not leave the Don
     const deferredA = deferred<{ profile: { potSizeCm: number; soilMix: string } }>();
     getPlantMock.mockImplementationOnce(() => deferredA.promise);
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     await doneButtons[0]!.trigger('click'); // A's getPlant is now GENUINELY in flight — held open, not settled.
     await flushPromises();
@@ -877,7 +885,7 @@ describe("pages/index.vue — U2: a retry resends the ORIGINAL evaluationId even
 
     const w = await mountPage();
 
-    await w.find('.done-btn').trigger('click');
+    await byIcon(w, 'check')[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -909,8 +917,9 @@ describe("pages/index.vue — U2: a retry resends the ORIGINAL evaluationId even
 describe('pages/index.vue — W2: the mutation-failure state lives on the attempt, never a shared flag', () => {
   it('A is still genuinely in flight, B fails: returning to A shows NO error and NO "start over" — A\'s ' +
     'own in-flight state must never be overwritten by B\'s unrelated failure', async () => {
+    tasksFixture = repotTasks(null); // this test's subject is the evaluate/questionnaire flow
     const w = await mountPage();
-    const evaluateButtons = w.findAll('.evaluate-btn');
+    const evaluateButtons = byIcon(w, 'magnifying-glass');
 
     // A: open + submit, left GENUINELY in flight — never resolved for the rest of this test.
     await evaluateButtons[0]!.trigger('click');
@@ -942,8 +951,9 @@ describe('pages/index.vue — W2: the mutation-failure state lives on the attemp
 
   it('A fails, the owner opens B instead of retrying: returning to A still shows ITS OWN error and its ' +
     'OWN "start over" — visiting B must never silently clear A\'s genuine failure', async () => {
+    tasksFixture = repotTasks(null); // this test's subject is the evaluate/questionnaire flow
     const w = await mountPage();
-    const evaluateButtons = w.findAll('.evaluate-btn');
+    const evaluateButtons = byIcon(w, 'magnifying-glass');
 
     // A: open + submit + FAIL.
     await evaluateButtons[0]!.trigger('click');
@@ -990,7 +1000,12 @@ describe("pages/index.vue — W3: the frozen Done form displays what the retry w
       props: ['modelValue', 'title'],
       template: '<div data-modal-stub v-if="modelValue"><slot /><slot name="footer" /></div>',
     },
-    Button: { props: ['disabled', 'icon', 'loading'], template: '<button :disabled="disabled"><slot /></button>' },
+    // Task 2, step 4: the SAME icon-based hooks as the base `stubs.Button` above, so `doneButtons(w)` also
+    // finds this describe's own Confirm button (and the real TaskRow's Done button, still mounted here too).
+    Button: {
+      props: ['disabled', 'icon', 'loading'],
+      template: '<button class="stub-btn" :data-icon="icon" :disabled="disabled"><slot /></button>',
+    },
     FormGroup: { props: ['label', 'hint'], template: '<div><slot /></div>' },
     AppIcon: true,
   };
@@ -1013,7 +1028,7 @@ describe("pages/index.vue — W3: the frozen Done form displays what the retry w
     "values (never B's leftover ones) — and the retry then resends the EXACT rendered values, byte-identical " +
     "to the original request", async () => {
     const w = await mountPageWithRealDoneForm();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     // Open A: the REAL form's fields hydrate to A's OWN profile (PLANT_PROFILES.A = potSizeCm 20 / soilMix
     // 'potting-mix') — rendered DOM values, not an internal ref.
@@ -1095,7 +1110,10 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
     // the real fetcher, and this override makes `refresh()` do that (mirrors the cross-renderer test file's
     // own `useAsyncData` stub, documented there as the generic reason to assert on the underlying api mock's
     // call count, never on the refresh() wrapper itself).
-    const todaysTasksMock = vi.fn(async () => TASKS);
+    // This test's own subject is the evaluate/questionnaire flow (Task 2, step 3), so the fixture must
+    // describe a plant awaiting the questionnaire — the RESOLVED default the rest of this file uses would
+    // leave no evaluate affordance to click at all.
+    const todaysTasksMock = vi.fn(async () => repotTasks(null));
     vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
       const data = ref(await fn());
       return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
@@ -1113,7 +1131,7 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
     }));
 
     const w = await mountPage();
-    const evaluateButtons = w.findAll('.evaluate-btn');
+    const evaluateButtons = byIcon(w, 'magnifying-glass');
 
     // Confirm plant A: open + submit — mints a key, the request is in flight (never resolved yet).
     await evaluateButtons[0]!.trigger('click');
@@ -1151,7 +1169,10 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
 
   it('Done flow: plant A\'s confirm settles while plant B\'s UNSUBMITTED Done form is open — Today ' +
     'refreshes, B stays open and untouched, and reopening A is a genuinely FRESH attempt', async () => {
-    const todaysTasksMock = vi.fn(async () => TASKS);
+    // This test's own subject is the Done-confirm flow (Task 2, step 3), so the fixture must describe a
+    // plant with a RESOLVED verdict — the default shape the rest of this file uses, spelled out explicitly
+    // here since this test overrides `useApi` wholesale for its own `todaysTasksMock` spy.
+    const todaysTasksMock = vi.fn(async () => repotTasks(RESOLVED));
     vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
       const data = ref(await fn());
       return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
@@ -1169,7 +1190,7 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
     }));
 
     const w = await mountPage();
-    const doneButtons = w.findAll('.done-btn');
+    const doneButtons = byIcon(w, 'check');
 
     // Confirm plant A: open + confirm — mints a key, the request is in flight (never resolved yet).
     await doneButtons[0]!.trigger('click');
@@ -1209,11 +1230,15 @@ describe('Z1 — the REFRESH must never be gated on modal ownership', () => {
 // per card, and Done appears only once a verdict has decided the repot is needed. This is the guard that
 // goes RED if that ever leaks here.
 describe('pages/index.vue — Today must NOT offer the standalone REPOT Done (owner requirement 2026-08-07)', () => {
-  it('never passes allowStandaloneDone to any task row', async () => {
+  // Task 2, step 5: `allowStandaloneDone` is a declared PROP of the real `TaskRow.vue` now, so it never falls
+  // through to a `data-*` attribute the way it did on the deleted stub's own root div — the claim moves to the
+  // behaviour the prop actually gates. Today never opts in (`pages/index.vue` omits `allow-standalone-done`
+  // entirely), so a REPOT with no verdict shows the questionnaire ALONE: no standalone Done sits beside it.
+  it('Today never offers a standalone Done — a REPOT with no verdict shows the questionnaire ALONE', async () => {
+    tasksFixture = repotTasks(null);
     const w = await mountPage();
-    const rows = w.findAll('[data-allow-standalone-done]');
-    expect(rows.length).toBeGreaterThan(0); // a vacuous pass on zero rows would prove nothing
-    expect(rows.map((r) => r.attributes('data-allow-standalone-done'))).toEqual(rows.map(() => 'false'));
+    expect(evaluateButtons(w).length).toBeGreaterThan(0); // a vacuous pass on zero rows proves nothing
+    expect(doneButtons(w).length).toBe(0);
   });
 });
 
@@ -1229,7 +1254,8 @@ describe('pages/index.vue — the ticked sign ids reach the verdict modal', () =
       typicalIntervalMonths: null,
     }));
     vi.stubGlobal('useApi', () => ({
-      todaysTasks: async () => TASKS,
+      // Evaluate-flow subject (Task 2, step 3): needs a plant awaiting the questionnaire.
+      todaysTasks: async () => repotTasks(null),
       listPlants: async () => [],
       listPlaces: async () => [],
       getRepotSigns: getRepotSignsMock,
@@ -1241,7 +1267,7 @@ describe('pages/index.vue — the ticked sign ids reach the verdict modal', () =
     }));
 
     const w = await mountPage();
-    await w.findAll('.evaluate-btn')[0]!.trigger('click');
+    await byIcon(w, 'magnifying-glass')[0]!.trigger('click');
     await flushPromises();
     await w.find('.submit-signs-btn').trigger('click');
     await flushPromises();
@@ -1281,7 +1307,8 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
       throw new Error('signs fetch failed');
     });
     vi.stubGlobal('useApi', () => ({
-      todaysTasks: async () => TASKS,
+      // Evaluate-flow subject (Task 2, step 3): needs a plant awaiting the questionnaire.
+      todaysTasks: async () => repotTasks(null),
       listPlants: async () => [],
       listPlaces: async () => [],
       getRepotSigns: getRepotSignsMock,
@@ -1293,11 +1320,11 @@ describe('pages/index.vue — FIX D3: the signs catalogue is looked up BY PLANT,
     }));
     const w = await mountPage();
     // A's fetch succeeds: the catalogue on hand belongs to A.
-    await w.findAll('.evaluate-btn')[0]!.trigger('click');
+    await byIcon(w, 'magnifying-glass')[0]!.trigger('click');
     await flushPromises();
     expect(w.find('.eval-modal').attributes('data-sign-ids')).toBe('A-s1,A-s2');
     // B's fetch FAILS: `evaluationPlantId` has already moved to B, and nothing updated the catalogue.
-    await w.findAll('.evaluate-btn')[1]!.trigger('click');
+    await byIcon(w, 'magnifying-glass')[1]!.trigger('click');
     await flushPromises();
     return w;
   }
@@ -1376,15 +1403,16 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     stubApiWithWaterTask();
 
     const w = await mountPage();
-    const row = w.find('[data-can-survey]');
-    expect(row.attributes('data-can-survey')).toBe('true');
     // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3). The old line read "Done/Postpone stay withheld until the
     // survey answers", and the Postpone half of that was the defect: an owner who had selected an
     // instrument could not defer a watering AT ALL — the row offered "¿Necesitas regar?" and nothing else,
     // and his only escape was to switch his probe off in Settings. Hecho stays withheld, unchanged.
-    expect(row.find('.evaluate-btn').exists()).toBe(true);
-    expect(row.find('.done-btn').exists()).toBe(false);
-    expect(row.find('.postpone-btn').exists()).toBe(true);
+    // Task 2, step 5: `canSurvey` is a declared PROP of the real `TaskRow.vue` now, so it never falls through
+    // to a `data-*` attribute — the claim moves to the behaviour the prop actually gates (the props are
+    // pinned by the two new cases below and by `TaskRow.test.ts`).
+    expect(evaluateButtons(w).length).toBe(1);
+    expect(doneButtons(w).length).toBe(0);   // Hecho stays withheld — unchanged, DEF-3's kept half
+    expect(postponeButtons(w).length).toBe(1); // Posponer is BACK — DEF-3 proper
   });
 
   // THE LOAD-BEARING CASE — an owner who selected no instrument has no way to satisfy a survey; the row
@@ -1395,11 +1423,10 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     stubApiWithWaterTask();
 
     const w = await mountPage();
-    const row = w.find('[data-can-survey]');
-    expect(row.attributes('data-can-survey')).toBe('false');
-    expect(row.find('.evaluate-btn').exists()).toBe(false);
-    expect(row.find('.done-btn').exists()).toBe(true);
-    expect(row.find('.postpone-btn').exists()).toBe(true);
+    // The mirror of the case above (Task 2, step 5): no evaluate, Hecho and Posponer both back.
+    expect(evaluateButtons(w).length).toBe(0);
+    expect(doneButtons(w).length).toBe(1);
+    expect(postponeButtons(w).length).toBe(1);
   });
 
   // measured-verdict-gap spec (Task 47/T6b) — the ground truth is the READING, not session memory: once
@@ -1410,11 +1437,9 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     stubApiWithWaterTask([WATER_TASK_A_MEASURED_TODAY]);
 
     const w = await mountPage();
-    const row = w.find('[data-can-survey]');
-    expect(row.attributes('data-can-survey')).toBe('false');
-    expect(row.find('.evaluate-btn').exists()).toBe(false);
-    expect(row.find('.done-btn').exists()).toBe(true);
-    expect(row.find('.postpone-btn').exists()).toBe(true);
+    expect(evaluateButtons(w).length).toBe(0);
+    expect(doneButtons(w).length).toBe(1);
+    expect(postponeButtons(w).length).toBe(1);
   });
 
   it('opens the modal in SURVEY mode', async () => {
@@ -1422,7 +1447,7 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     stubApiWithWaterTask();
 
     const w = await mountPage();
-    await w.find('.evaluate-btn').trigger('click');
+    await byIcon(w, 'magnifying-glass')[0]!.trigger('click');
     await flushPromises();
 
     const modal = w.find('.soil-modal');
@@ -1462,7 +1487,7 @@ describe('pages/index.vue — Plan 3 T5: the WATER row asks before it instructs,
     }));
 
     const w = await mountPage();
-    await w.find('.evaluate-btn').trigger('click');
+    await byIcon(w, 'magnifying-glass')[0]!.trigger('click');
     await flushPromises();
 
     const tasksReadsBeforeSave = todaysTasksMock.mock.calls.length;
@@ -1488,19 +1513,20 @@ describe('pages/index.vue — W1: a failed catalogue fetch must not lock the wat
       stubApiWithWaterTask();
 
       const w = await mountPage();
-      // Before the click the survey IS on offer — the owner owns an instrument.
-      expect(w.find('[data-can-survey]').attributes('data-can-survey')).toBe('true');
+      // Before the click the survey IS on offer — the owner owns an instrument. `canSurvey` is a declared
+      // PROP of the real `TaskRow.vue` now (Task 2, step 5), so its only observable effect is the button it
+      // gates — never a `data-*` attribute on the deleted stub's own root div.
+      expect(evaluateButtons(w).length).toBe(1);
 
-      await w.find('.evaluate-btn').trigger('click');
+      await byIcon(w, 'magnifying-glass')[0]!.trigger('click');
       await flushPromises();
 
       // 1. The modal never opened on the empty state.
       expect(w.find('.soil-modal').attributes('data-open')).toBe('false');
       // 2. The row is actionable again: this is the half that made the task unusable.
-      const row = w.find('[data-can-survey]');
-      expect(row.attributes('data-can-survey')).toBe('false');
-      expect(row.find('.done-btn').exists()).toBe(true);
-      expect(row.find('.postpone-btn').exists()).toBe(true);
+      expect(evaluateButtons(w).length).toBe(0);
+      expect(doneButtons(w).length).toBe(1);
+      expect(postponeButtons(w).length).toBe(1);
       // 3. And the owner is told the truth — the load failed — never "you have no instruments".
       const banner = w.find('.repot-error-banner');
       expect(banner.exists()).toBe(true);
@@ -1514,7 +1540,7 @@ describe('pages/index.vue — W1: a failed catalogue fetch must not lock the wat
     stubApiWithWaterTask();
 
     const w = await mountPage();
-    await w.find('.evaluate-btn').trigger('click');
+    await byIcon(w, 'magnifying-glass')[0]!.trigger('click');
     await flushPromises();
     expect(w.find('.repot-error-banner').exists()).toBe(true);
 
@@ -1528,7 +1554,7 @@ describe('pages/index.vue — W1: a failed catalogue fetch must not lock the wat
 
     expect(w.find('.soil-modal').attributes('data-open')).toBe('true');
     expect(w.find('.soil-modal').attributes('data-mode')).toBe('survey');
-    expect(w.find('[data-can-survey]').attributes('data-can-survey')).toBe('true');
+    expect(evaluateButtons(w).length).toBe(1);
     expect(w.find('.repot-error-banner').exists()).toBe(false);
   });
 });
@@ -1546,7 +1572,7 @@ describe('pages/index.vue — W2: a postpone after today\'s measurement sends no
 
     const w = await mountPage();
     // Today's reading already answered, so the row is back to its ordinary pair — the Posponer under test.
-    await w.find('.postpone-btn').trigger('click');
+    await byIcon(w, 'clock')[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
@@ -1563,7 +1589,7 @@ describe('pages/index.vue — W2: a postpone after today\'s measurement sends no
     stubApiWithWaterTask();
 
     const w = await mountPage();
-    await w.find('.postpone-btn').trigger('click');
+    await byIcon(w, 'clock')[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).not.toHaveBeenCalled();
@@ -1582,7 +1608,7 @@ describe('pages/index.vue — W2: a postpone after today\'s measurement sends no
     ]);
 
     const w = await mountPage();
-    await w.find('.postpone-btn').trigger('click');
+    await byIcon(w, 'clock')[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
@@ -1611,10 +1637,11 @@ describe('pages/index.vue — finding 3: a measured WATER_NOW is acted on as a t
     stubApiWithWaterTask([{ ...FUTURE_WATER, measuredToday: true, todaysVerdict: 'WATER_NOW' }]);
 
     const w = await mountPage();
-    const row = w.find('[data-can-survey]');
-    // The verdict closed the survey affordance, so the ordinary pair is what is on the card.
-    expect(row.attributes('data-todays-verdict')).toBe('WATER_NOW');
-    await row.find('.done-btn').trigger('click');
+    // The verdict closed the survey affordance, so the ordinary pair is what is on the card. `todaysVerdict`
+    // is a declared PROP of the real `TaskRow.vue` now (Task 2, step 5) — its only observable effect is the
+    // affordance it closes, never a `data-*` attribute on the deleted stub's own root div.
+    expect(evaluateButtons(w).length).toBe(0);
+    await byIcon(w, 'check')[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
@@ -1631,7 +1658,7 @@ describe('pages/index.vue — finding 3: a measured WATER_NOW is acted on as a t
     stubApiWithWaterTask([{ ...FUTURE_WATER, measuredToday: false, todaysVerdict: null }]);
 
     const w = await mountPage();
-    await w.find('.done-btn').trigger('click');
+    await byIcon(w, 'check')[0]!.trigger('click');
     await flushPromises();
 
     expect(sendFeedbackMock).not.toHaveBeenCalled();

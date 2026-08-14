@@ -88,7 +88,7 @@ export default defineNuxtConfig({
       // API's PLANT_DOCTOR_CHAT_ENGINE_PORT. If §2 collapses the two engines into one, this equals
       // knowledgeChatSocketUrl.
       plantDoctorSocketUrl: process.env.NUXT_PUBLIC_PLANT_DOCTOR_SOCKET_URL ?? 'http://127.0.0.1:8400',
-      // Third engine. The default MUST equal dev 8401 — the port claimed in /home/retaxmaster/projects/PORTS.md
+      // Third engine. The default MUST equal dev 8401 — the port claimed in /Users/retaxmaster/projects/PORTS.md
       // and the API's GARDENER_CHAT_ENGINE_PORT default. A mismatch is a socket that silently never connects.
       gardenerSocketUrl: process.env.NUXT_PUBLIC_GARDENER_SOCKET_URL ?? 'http://127.0.0.1:8401',
     },

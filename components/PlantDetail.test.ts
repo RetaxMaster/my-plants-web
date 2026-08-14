@@ -1336,13 +1336,6 @@ describe('PlantDetail — the standalone REPOT Done (owner request 2026-08-07)',
     expect(doneButtons(taskRowFor(w, 'REPOT')).length).toBe(1);
   });
 
-  // ⚠️ THIS CASE IS FLIPPED BY SPEC §2.1 (Task 11 of the web plan). Until then it pins today's behaviour:
-  // the WATER row on this page is not opted in, so with a survey on offer it shows no Done.
-  it('does NOT opt the WATER row in — yet', async () => {
-    const w = await mountRepot(null);
-    expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(1); // no instrument in this fixture: canSurvey false
-  });
-
   it('completes with NO evaluationId when nothing is pending — the plain standalone case', async () => {
     const w = await mountRepot(null);
     await completeVia(w, doneButtons(taskRowFor(w, 'REPOT'))[0]!);
@@ -2147,36 +2140,52 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect(postponeButtons(row).length).toBe(1);
   });
 
-  // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3; owner-ruled). Its old title was "...and keeps standalone
-  // Done", and BOTH of its action assertions were the defect, in opposite directions:
+  // ⚠️ REWRITTEN 2026-08-11 (QA round 4, DEF-3; owner-ruled), then REWRITTEN AGAIN 2026-08-14 (spec §2.1,
+  // Task 11 — see below). The 2026-08-11 title was "...and keeps standalone Done", and BOTH of its action
+  // assertions were the defect, in opposite directions:
   //
   //   • `.postpone-btn` false — an owner with an instrument could not defer a watering at all. That is
-  //     DEF-3 proper, and it is now `true`.
+  //     DEF-3 proper, and it is now `true`, and stays `true`.
   //   • `.done-btn` true — this page passed `allow-standalone-done` unconditionally, so it offered a
-  //     Hecho the Today list never did. Two surfaces disagreeing about one row, in the opposite direction
-  //     to DEF-3 itself; the owner's ruling settles both halves at once, and it is now `false`.
+  //     Hecho the Today list never did. The owner's 2026-08-11 ruling made it `false` for a beat, but the
+  //     2026-08-14 reversal below brings it back to `true` — see that ruling's own reasoning.
   //
-  // WITH THE SURVEY ON OFFER, A WATER ROW NOW READS THE SAME ON BOTH SURFACES: measure + Posponer, no
-  // Hecho. The consequence, recorded rather than discovered: back-dating a watering from this page means
-  // taking today's reading first — any reading closes the survey and hands the ordinary Hecho + date box
-  // back (the case directly below is exactly that state).
-  it('the WATER row offers the survey, keeps Posponer, and withholds Hecho', async () => {
+  // ⚠️ REWRITTEN 2026-08-14 (spec §2.1). The owner's 2026-08-11 ruling ("a plant that can be measured
+  // should be measured rather than declared") is REVERSED, and the reversal's reason is consistency: REPOT
+  // already offers its questionnaire AND a dated Hecho on the same row, and two tasks with the same shape
+  // behaving differently costs more than the risk that the owner measures less often. The cost this
+  // removes is real and was measured: an owner who genuinely watered two days ago had NO field to say so,
+  // and neither of the two escape routes (measure today, or turn instruments off in /settings) is stated
+  // on screen. THE ROW IS NOW: Medir | <date> | Hecho | Posponer.
+  it('the WATER row offers the survey AND a dated Hecho, and keeps Posponer', async () => {
     const w = await mountWater(['galvanic-probe']);
     const row = taskRowFor(w, 'WATER');
     expect(evaluateButtons(row).length).toBe(1);
-    // The real button's text is the ACTUAL i18n translation (this file's `useI18n` stub resolves through
-    // the real `i18n` instance below `en.json`/`es.json`, unlike the deleted stub's own hardcoded literal).
-    expect(evaluateButtons(row)[0]!.text()).toBe(i18n.t('reading.surveyQuestion'));
-    expect(doneButtons(row).length).toBe(0);   // ⚠️ FLIPPED BY §2.1 — Task 11
+    expect(doneButtons(row).length).toBe(1);
+    expect(row.find('input[type="date"]').exists()).toBe(true);
     expect(postponeButtons(row).length).toBe(1);
   });
 
-  // ⚠️ REWRITTEN BY §2.1 IN TASK 11 (the prop becomes true for WATER on this page). Until then this is the
-  // DEF-3 guard exactly as it stands, observed on the real row rather than on a stub's data attribute.
-  it('DEF-3: the WATER row is not opted into the standalone Done', async () => {
+  it('opts the WATER row into the standalone Done on THIS page', async () => {
     const w = await mountWater(['galvanic-probe']);
-    expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(0);
+    // Observed as behaviour, not as a stub attribute: with the survey on offer, only the opted-in surface
+    // renders Done beside it.
+    expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(1);
   });
+
+  // ⚠️ THE HALF THAT MUST NOT MOVE (owner decision 3). `wateredToday` withholding is a DIFFERENT rule —
+  // "never offer a button whose click the server discards" — and A1 does not touch it. With the pot
+  // already watered today and the date box empty (an empty box means TODAY), Hecho stays withheld even
+  // though the row is now opted in; typing an earlier day brings it straight back, which is the whole
+  // back-dating flow A1 exists to restore.
+  it('A1 does NOT re-open the dead Hecho on a pot already watered today', async () => {
+    const w = await mountWater(['galvanic-probe'], null, { wateredToday: true });
+    const row = taskRowFor(w, 'WATER');
+    expect(doneButtons(row).length).toBe(0);
+    await row.find('input[type="date"]').setValue('2026-08-12');
+    expect(doneButtons(taskRowFor(w, 'WATER')).length).toBe(1);
+  });
+
   // The REPOT half — that the prop is still passed, and still opts the row in — is pinned in this file's
   // own REPOT blocks above ("...opts the REPOT row into the standalone Done"), which mount a care payload
   // that HAS a REPOT task. Restating it here would need a second fixture for no new information; a change

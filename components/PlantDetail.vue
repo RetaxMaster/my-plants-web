@@ -1626,25 +1626,22 @@ async function confirmRevive() {
           </UiCard>
           <UiCard v-else :padded="false">
             <div class="mp-detail__rows">
-              <!-- ⚠️ `allow-standalone-done` IS NOW REPOT-ONLY (QA round 4, DEF-3; owner-ruled 2026-08-11).
-                   It used to be passed unconditionally, so a WATER row with the survey on offer kept a
-                   standalone "Hecho" HERE that the Today list never offered — the two surfaces disagreeing
-                   about one row, in the opposite direction to the defect DEF-3 is mainly about. The owner's
-                   ruling settles both halves at once: with the survey on offer a WATER row reads the same
-                   everywhere — measure + Posponer, no Hecho — because recording a watering while the app is
-                   still offering to tell you whether to water defeats the feature. Posponer is what came
-                   BACK (TaskRow's `verdictWithholdsPostpone`), and it never depended on this prop.
-                   THE CONSEQUENCE, NAMED RATHER THAN DISCOVERED: back-dating a watering from this page now
-                   requires taking today's reading first (any reading closes the survey and hands the row's
-                   ordinary Hecho + date box back). That is the ruling working as intended, not a gap.
-                   REPOT keeps it exactly as it was: a repot the owner already did is recorded here without
-                   first answering the questionnaire. `can-survey` mirrors pages/index.vue's own WATER wiring
-                   (commit ff75f51) exactly:
-                   true only when the owner has selected an instrument — an owner with none renders this row
-                   BYTE-IDENTICAL to its pre-survey shape (TaskRow.vue's own contract for `canSurvey: false`).
-                   The `@measure` affordance that used to sit on this row is GONE (Task 6): recording a
-                   back-dated reading is not part of deciding today's watering, so it moved to the
-                   measurement-history block below (`openVoluntaryReading`). -->
+              <!-- ⚠️ `allow-standalone-done` COVERS REPOT **AND** WATER ON THIS PAGE (spec §2.1, owner
+                   ruling of 2026-08-14 REVERSING his own ruling of 2026-08-11). The reversal's reason is
+                   consistency: a questionnaire-bearing task that also lets the owner DECLARE is already
+                   this app's established shape, and REPOT is the precedent. The cost the 2026-08-11 ruling
+                   carried was measured — an owner who watered two days ago had no field to say so, and
+                   neither escape route (measure today, or switch instruments off in /settings) is stated on
+                   screen. The row is now Medir | <date> | Hecho | Posponer.
+                   SCOPED TO THIS PAGE. `pages/index.vue` passes this prop to nothing, for either task, and
+                   that stays true: Today is a dispatch list, the plant page is where records get kept.
+                   AND `doneWouldBeDiscarded` IS UNTOUCHED — a pot already watered today still withholds
+                   Hecho, and typing an earlier day still brings it straight back. That is a DIFFERENT rule
+                   ("never offer a button whose click the server discards") and it is what stops A1
+                   re-opening the dead-button defect QA round 5 closed.
+                   `can-survey` mirrors pages/index.vue's own WATER wiring exactly: true only when the owner
+                   has selected an instrument — an owner with none renders this row BYTE-IDENTICAL to its
+                   pre-survey shape, and already had its date box before this change. -->
               <UiTaskRow
                 v-for="t3 in orderedTasks"
                 :key="t3.task"
@@ -1663,7 +1660,7 @@ async function confirmRevive() {
                 :applied-completions="appliedCompletions[t3.task] ?? 0"
                 with-done-date
                 show-info
-                :allow-standalone-done="t3.task === 'REPOT'"
+                :allow-standalone-done="t3.task === 'REPOT' || t3.task === 'WATER'"
                 @done="e => onDone(e.task, careEffectiveStatus(e.task, t3.status), e.occurredOn)"
                 @postpone="e => onPostpone(e.task)"
                 @info="openTaskInfo"

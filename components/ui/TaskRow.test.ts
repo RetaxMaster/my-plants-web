@@ -508,6 +508,19 @@ describe('UiTaskRow — the survey shape is task-agnostic (spec §5.1)', () => {
     expect(icons).toContain('clock'); // ⚠️ DEF-3: Posponer is BACK
   });
 
+  // §2.1's opted-in surface, beside the case above which pins Today's default. Same row, same instrument,
+  // one prop apart — which is the entire difference between the two surfaces.
+  it('the OPTED-IN surface offers the survey AND Done on the same WATER row', () => {
+    const w = mountRow({
+      task: 'WATER', status: 'today', canSurvey: true, allowStandaloneDone: true, withDoneDate: true,
+    });
+    const icons = w.findAll('.stub-btn').map((b) => b.attributes('data-icon'));
+    expect(icons).toContain('magnifying-glass');
+    expect(icons).toContain('check');
+    expect(icons).toContain('clock');
+    expect(w.find('input[type="date"]').exists()).toBe(true);
+  });
+
   // ⚠️ THE SCOPE OF DEF-3, AND THE HALF THAT MUST NOT MOVE. REPOT's own withholding is untouched: a REPOT
   // Posponer means "yes, it needs it, but I can't right now" — a CONCLUSION — and there is no such thing as
   // postponing a repot nobody has established is needed. A fix written as "the survey never withholds

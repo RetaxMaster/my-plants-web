@@ -34,6 +34,13 @@ import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttemp
 // own (the project's "no new forks" rule).
 import { todayYmd } from '../utils/localDate.js';
 import type { TodaysVerdict } from '../utils/waterSurvey.js';
+// The REAL row (spec §5.1) — imported directly and swapped in as the `UiTaskRow` stub value for the five
+// REPOT-attempt describes below, exactly like `pages/index.test.ts`'s identical technique (Task 2). Neither
+// `pages/index.vue` nor `PlantDetail.vue` imports `UiTaskRow` itself (it resolves via Nuxt's directory-based
+// auto-import in production), so under plain vitest — no Nuxt build pipeline — the tag has nothing to
+// resolve to on its own; `@vue/test-utils` registers whatever `stubs.UiTaskRow` names as the component that
+// tag renders, real or fake. Passing the real import there is what makes the row genuinely mount.
+import TaskRow from './ui/TaskRow.vue';
 
 const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en, es } }).global;
 
@@ -45,6 +52,22 @@ vi.stubGlobal('useHead', () => {});
 vi.stubGlobal('useSeoMeta', () => {});
 vi.stubGlobal('useIsDesktop', () => ref(true));
 vi.stubGlobal('useTaskMeta', () => ({ dueLabelLong: () => '', healthLabel: () => '' }));
+// The real `TaskRow.vue` is mounted in this file now (spec §5.1), and it imports `useTaskMeta` through an
+// EXPLICIT `~/composables/useTaskMeta` path — `vi.stubGlobal` only intercepts a global reference, never an
+// import statement, so the module itself has to be mocked. Same technique `pages/index.test.ts` (Task 2)
+// and `TaskRow.test.ts` use. `PlantDetail.vue` itself keeps reading `dueLabelLong`/`healthLabel` off the
+// `vi.stubGlobal('useTaskMeta', …)` above (it calls the auto-imported global, not this explicit path).
+vi.mock('~/composables/useTaskMeta', () => ({
+  useTaskMeta: () => ({
+    TASK_ICONS: {
+      WATER: 'droplet', FERTILIZE: 'beaker', REPOT: 'magnifying-glass',
+      ROTATE: 'arrow-path', CLEAN_LEAVES: 'sparkles', MIST: 'cloud', PROGRESS: 'camera',
+    },
+    taskLabel: (t: string) => t,
+    dueLabelLong: () => 'Today',
+    healthLabel: () => '',
+  }),
+}));
 vi.stubGlobal('useFeedbackReasons', () => ({
   earlyWaterOptions: computed(() => []),
   postponeOptions: computed(() => []),
@@ -178,6 +201,17 @@ const stubs = {
   UiMeter: true,
   UiInfoItem: true,
   UiTaskRow: true,
+  // The real TaskRow's own three imports (LOCAL names it resolves via its own `<script setup>` imports —
+  // distinct from the `UiAppIcon`/`UiButton` entries above, which are THIS file's auto-imported names for
+  // its own top-level markup). `Button` exposes `data-icon`, which is how `doneButtons`/`evaluateButtons`/
+  // `postponeButtons` below name an action: `check` = Done, `magnifying-glass` = the survey/questionnaire,
+  // `clock` = Postpone — the same convention `TaskRow.test.ts` and `pages/index.test.ts` (Task 2) use.
+  AppIcon: true,
+  Badge: { template: '<span class="stub-badge"><slot /></span>' },
+  Button: {
+    props: ['size', 'color', 'variant', 'icon', 'disabled', 'loading'],
+    template: '<button class="stub-btn" :data-icon="icon" :data-variant="variant"><slot /></button>',
+  },
   HistoryTimeline: true,
   UiImageDropzone: true,
   UiAutosizeTextarea: true,
@@ -204,6 +238,16 @@ const stubs = {
   UiFormGroup: UiFormGroupStub,
   UiSelectField: UiSelectFieldStub,
 };
+
+// One place that knows how an action is named on a real row, so a future assertion cannot invent a second
+// convention. Scoped to a card when a card is passed, whole-page otherwise. Same names/semantics as
+// `pages/index.test.ts`'s identical helpers (Task 2), deliberately.
+type Findable = { findAll: (s: string) => Array<{ attributes: (a: string) => string | undefined }> };
+const byIcon = (w: Findable, icon: string) =>
+  (w.findAll('.stub-btn') as any[]).filter((b) => b.attributes('data-icon') === icon);
+const doneButtons = (w: Findable) => byIcon(w, 'check');
+const evaluateButtons = (w: Findable) => byIcon(w, 'magnifying-glass');
+const postponeButtons = (w: Findable) => byIcon(w, 'clock');
 
 async function mountDetail(plant: ReturnType<typeof basePlant>) {
   stubApi(plant);
@@ -510,18 +554,11 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
 
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      props: ['task'],
-      emits: ['evaluate', 'done'],
-      template:
-        '<div>' +
-        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
-        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
-        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
-        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
-        '</div>',
-    },
+    // The REAL row (spec §5.1) — TaskRow.vue's own AppIcon/Badge/Button children resolve via the
+    // file-level `stubs` spread above (AppIcon/Badge/Button entries added for exactly this). `evaluate-btn`/
+    // `done-btn` no longer exist as classes; the real row's actions are found by icon
+    // (`evaluateButtons`/`doneButtons` below), same convention as `pages/index.test.ts` (Task 2).
+    UiTaskRow: TaskRow,
     UiRepotEvaluationModal: {
       props: ['open', 'signs', 'submitting', 'error', 'frozen'],
       emits: ['submit', 'start-over'],
@@ -610,7 +647,7 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
     const w = await mountRepot();
 
     // First attempt: open + submit, succeeds, but the care refresh() is held open.
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.submit-btn').trigger('click');
     await flushPromises();
@@ -621,7 +658,7 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
     expect(w.find('.eval-modal').attributes('data-open')).toBe('false');
 
     // While the first attempt's refresh() is still pending, the owner reopens and submits AGAIN.
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.submit-btn').trigger('click');
     await flushPromises();
@@ -640,7 +677,7 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
     const w = await mountRepot();
 
     // First attempt: open + confirm, succeeds, but the care refresh() is held open.
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -649,7 +686,7 @@ describe('PlantDetail — round-5 finding V1: the submitting flag must never get
     expect(w.find('.done-form').attributes('data-open')).toBe('false');
 
     // While the first attempt's refresh() is still pending, the owner reopens and confirms AGAIN.
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -693,18 +730,11 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
 
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      props: ['task'],
-      emits: ['evaluate', 'done'],
-      template:
-        '<div>' +
-        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
-        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
-        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
-        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
-        '</div>',
-    },
+    // The REAL row (spec §5.1) — TaskRow.vue's own AppIcon/Badge/Button children resolve via the
+    // file-level `stubs` spread above (AppIcon/Badge/Button entries added for exactly this). `evaluate-btn`/
+    // `done-btn` no longer exist as classes; the real row's actions are found by icon
+    // (`evaluateButtons`/`doneButtons` below), same convention as `pages/index.test.ts` (Task 2).
+    UiTaskRow: TaskRow,
     UiRepotDoneForm: {
       props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
       emits: ['confirm', 'start-over', 'update:open'],
@@ -758,7 +788,7 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
     'resumes it — the retry sends the SAME idempotency key, and the form is still frozen', async () => {
     const w = await mountRepot();
 
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -778,7 +808,7 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
 
     // Reopen via the Done button: must RESUME, not reset — this component is pinned to one plant, so a
     // resume just means "a key is already outstanding".
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     expect(w.find('.done-form').attributes('data-open')).toBe('true');
     expect(w.find('.done-form').attributes('data-frozen')).toBe('true'); // still frozen — resumed, not reset
@@ -795,7 +825,7 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
   it('a successful confirm leaves no outstanding key — reopening afterwards is a fresh attempt, not a resume', async () => {
     const w = await mountRepot();
 
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -804,7 +834,7 @@ describe('PlantDetail — B1: the Done form must resume its outstanding attempt 
     const keyFirst = completeRepotMock.mock.calls[0]![3];
     expect(w.find('.done-form').attributes('data-open')).toBe('false');
 
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     expect(w.find('.done-form').attributes('data-frozen')).toBe('false'); // fresh attempt, not resumed
 
@@ -844,18 +874,11 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
 
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      props: ['task'],
-      emits: ['evaluate', 'done'],
-      template:
-        '<div>' +
-        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
-        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
-        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
-        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
-        '</div>',
-    },
+    // The REAL row (spec §5.1) — TaskRow.vue's own AppIcon/Badge/Button children resolve via the
+    // file-level `stubs` spread above (AppIcon/Badge/Button entries added for exactly this). `evaluate-btn`/
+    // `done-btn` no longer exist as classes; the real row's actions are found by icon
+    // (`evaluateButtons`/`doneButtons` below), same convention as `pages/index.test.ts` (Task 2).
+    UiTaskRow: TaskRow,
     UiRepotDoneForm: {
       props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen', 'seedOccurredOn'],
       emits: ['confirm', 'start-over', 'update:open'],
@@ -914,7 +937,7 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
 
     const w = await mountRepot();
 
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -973,18 +996,11 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
 
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      props: ['task'],
-      emits: ['evaluate', 'done'],
-      template:
-        '<div>' +
-        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
-        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
-        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
-        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
-        '</div>',
-    },
+    // The REAL row (spec §5.1) — TaskRow.vue's own AppIcon/Badge/Button children resolve via the
+    // file-level `stubs` spread above (AppIcon/Badge/Button entries added for exactly this). `evaluate-btn`/
+    // `done-btn` no longer exist as classes; the real row's actions are found by icon
+    // (`evaluateButtons`/`doneButtons` below), same convention as `pages/index.test.ts` (Task 2).
+    UiTaskRow: TaskRow,
     UiRepotDoneForm: {
       props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
       emits: ['confirm', 'start-over', 'update:open'],
@@ -1048,7 +1064,7 @@ describe('PlantDetail — U2: a retry resends the ORIGINAL evaluationId even aft
     'the FIRST evaluationId', async () => {
     const w = await mountRepot();
 
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -1103,18 +1119,11 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
 
   const repotStubs = {
     ...stubs,
-    UiTaskRow: {
-      props: ['task'],
-      emits: ['evaluate', 'done'],
-      template:
-        '<div>' +
-        // Task 6: PlantDetail.vue's `@evaluate` handler now branches on `e.task` (WATER routes to the
-        // survey, everything else — REPOT here — still routes to `onEvaluate`), so the emitted payload
-        // must carry it, exactly like the REAL TaskRow.vue's own `emit('evaluate', { task: props.task })`.
-        '<button class="evaluate-btn" @click="$emit(\'evaluate\', { task: \'REPOT\' })">evaluate</button>' +
-        '<button class="done-btn" @click="$emit(\'done\', { task: \'REPOT\' })">done</button>' +
-        '</div>',
-    },
+    // The REAL row (spec §5.1) — TaskRow.vue's own AppIcon/Badge/Button children resolve via the
+    // file-level `stubs` spread above (AppIcon/Badge/Button entries added for exactly this). `evaluate-btn`/
+    // `done-btn` no longer exist as classes; the real row's actions are found by icon
+    // (`evaluateButtons`/`doneButtons` below), same convention as `pages/index.test.ts` (Task 2).
+    UiTaskRow: TaskRow,
     UiRepotEvaluationModal: {
       props: ['open', 'signs', 'submitting', 'error', 'frozen'],
       emits: ['submit', 'start-over'],
@@ -1175,14 +1184,14 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
     const w = await mountRepot();
 
     // Evaluation: open + submit, left GENUINELY in flight — never resolved for the rest of this test.
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.submit-btn').trigger('click');
     await flushPromises();
     expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
 
     // Done: open + confirm + FAIL.
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.confirm-btn').trigger('click');
     await flushPromises();
@@ -1191,7 +1200,7 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
     expect(w.find('.done-form').attributes('data-error')).toBeTruthy();
 
     // Return to the evaluation flow: it is STILL in flight — no error, still submitting, never Done's.
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(w)[0]!.trigger('click');
     await flushPromises();
     expect(w.find('.eval-modal').attributes('data-error')).toBeFalsy();
     expect(w.find('.eval-modal').attributes('data-submitting')).toBe('true');
@@ -1202,7 +1211,7 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
     const w = await mountRepot();
 
     // Evaluation: open + submit + FAIL.
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(w)[0]!.trigger('click');
     await flushPromises();
     await w.find('.submit-btn').trigger('click');
     await flushPromises();
@@ -1213,13 +1222,13 @@ describe('PlantDetail — W2: a failure in ONE flow must never leak into the OTH
 
     // The owner does NOT choose "start over" — they simply open the Done flow instead (a genuinely fresh,
     // unrelated attempt for this plant).
-    await w.find('.done-btn').trigger('click');
+    await doneButtons(w)[0]!.trigger('click');
     await flushPromises();
     expect(w.find('.done-form').attributes('data-error')).toBeFalsy();
     expect(w.find('.done-form').attributes('data-frozen')).toBe('false');
 
     // Return to the evaluation flow: its OWN failure must still show, exactly as the owner left it.
-    await w.find('.evaluate-btn').trigger('click');
+    await evaluateButtons(w)[0]!.trigger('click');
     await flushPromises();
     expect(w.find('.eval-modal').attributes('data-error')).toBeTruthy();
     expect(w.find('.eval-modal').attributes('data-frozen')).toBe('true');

@@ -73,7 +73,11 @@
       "fertilizeSameDay": "This plant was already fertilized today. Do not fertilize it again on the same day: the excess salts burn the roots.",
       "fertilizeBackDated": "That day already had a fertilizing on record. If you really did fertilize twice, keep it in mind: excess salts burn the roots."
     },
-    "partialOutcomeSummary": "{applied} of {total} change was applied | {applied} of {total} changes were applied"
+    "outcomeSummary": {
+      "applied": "{count} applied | {count} applied",
+      "partial": "{count} partial | {count} partial",
+      "alreadyRecorded": "{count} already recorded | {count} already recorded"
+    }
   },
   "taskInfo": {
     "aria": "About this task",

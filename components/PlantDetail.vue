@@ -12,7 +12,7 @@ import { orderTasksForCard, type TaskCode, type DueState } from '../utils/tasks.
 // Task 10 — the one-per-day outcome sentence, decided ONCE and shared with pages/index.vue (Task 8's own
 // rule): never a second, per-renderer copy of "which sentence does this outcome earn".
 import {
-  careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay, SUBSTRATE_ANCHOR_KEPT_KEY,
+  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
@@ -905,16 +905,20 @@ function recordOutcome(task: TaskCode, result: RepotDoneResult, occurredOn?: str
 // Resolves the stored KEY through `t()` at RENDER time (called from the template below), so a locale
 // switch after a submit re-renders the sentence in the new language instead of freezing it in the old one.
 function outcomeNoteFor(task: TaskCode): string | null {
-  const key = outcomeNotes.value[task] ?? null;
-  const anchorDay = anchorKeptDays.value[task] ?? null;
   // BOTH sentences, in the one notice zone, when both are true — the 197-day case the API measured is
   // exactly a duplicate that ALSO left the clock standing, and rendering only one of the two would tell
   // the owner half of what happened. `$d(..., 'short')` is how every other date on this page is rendered.
-  const parts = [
-    key ? t(key) : null,
-    anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: d(ymdToLocalDate(anchorDay), 'short') }) : null,
-  ].filter((part): part is string => !!part);
-  return parts.length ? parts.join(' ') : null;
+  //
+  // F13 — the combining RULE now lives once in `careOutcomeNoteText`, shared with Today and with the agent
+  // proposal-approval surface, which reaches this same outcome by a different route (the owner approving a
+  // repot an AGENT proposed). Three private copies of one rule is exactly how that third surface came to
+  // answer this question with silence while these two answered it with a sentence.
+  return careOutcomeNoteText(
+    outcomeNotes.value[task] ?? null,
+    anchorKeptDays.value[task] ?? null,
+    t,
+    (day) => d(ymdToLocalDate(day), 'short'),
+  );
 }
 
 // The care endpoint returns { daysUntilDue, status }; map it to the shared DueState

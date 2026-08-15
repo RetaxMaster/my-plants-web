@@ -78,7 +78,7 @@
       "partial": "{count} parcial | {count} parciales",
       "alreadyRecorded": "{count} ya registrado | {count} ya registrados"
     },
-    "substrateAnchorKept": "El evento se guardó, pero el reloj de la tierra sigue en {date} (hay un trasplante más reciente)."
+    "substrateAnchorKept": "El evento se guardó, pero el reloj de la tierra sigue en {date} (ya hay un registro más reciente)."
   },
   "taskInfo": {
     "aria": "Acerca de esta tarea",

@@ -22,15 +22,11 @@ import { CHAT_ATTACHMENT_CAPS } from '../utils/chatSend.js';
 // E2 fix — the SAME one-per-day outcome helper the Today/plant pages already use (pages/index.vue,
 // components/PlantDetail.vue), reused here rather than re-derived: a second mapping from `CareWriteOutcome`
 // to an i18n key is exactly the parallel-copy bug class this project calls out.
-//
-// V1 fix (code review) — the SAME substrate-anchor seam too (`substrateAnchorKeptDay`/
-// `SUBSTRATE_ANCHOR_KEPT_KEY`), for the identical reason: Today and PlantDetail already render the
-// "the substrate clock stayed on <date>" sentence through this exact pair; this was the one renderer of an
-// approved-proposal outcome that consulted `outcome.status` alone and never looked at `outcome.substrate`,
-// so an approved `substrate.refresh`/REPOT dated before the stored anchor read as an ordinary, silent
-// success on this surface while the other two already told the owner the truth.
+// F13 adds two more from the SAME module, for the same reason: the substrate clock's refusal is a fact this
+// surface can produce and was not stating, and `careOutcomeNoteText` is the ONE combiner all three
+// surfaces now share (see its own doc-comment for why a third private copy was the defect, not the fix).
 import {
-  careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay, SUBSTRATE_ANCHOR_KEPT_KEY,
+  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
 import { todayYmd, ymdToLocalDate } from '../utils/localDate.js';
 
@@ -75,7 +71,9 @@ const emit = defineEmits<{
   (e: 'changed'): void;
 }>();
 
-const { t, te, locale, d } = useI18n();
+// `d` is the i18n DATE formatter — pulled in for the approved-outcome notes' anchor sentence, the same
+// `$d(…, 'short')` every other date in this app is rendered through (see `approvedOutcomeNoteText`).
+const { t, te, d, locale } = useI18n();
 const sessions = props.sessions;
 const runs = props.runs;
 const socketUrl = props.socketUrl;
@@ -831,20 +829,37 @@ const proposalError = ref<string | null>(null);
 // `approveProposal` below awaited it and threw it away. Populated the moment approval succeeds, at the
 // SAME point `pendingProposal` is torn down, so it renders where the banner used to be.
 //
-// STORES i18n KEYS (and the RAW substrate anchor day, never a formatted string), never translated
-// strings/dates — the SAME reason `outcomeNotes`/`anchorKeptDays` do in pages/index.vue and PlantDetail.vue
-// (F11 fix, 2026-08-14; V1 fix): freezing either at write time would leave the note stuck in the old
-// language/format after a locale switch. `outcomeNoteText` below (template-called) resolves both at render.
-//
-// V1 fix — `anchorDay` is the SECOND, INDEPENDENT fact `substrateAnchorKeptDay` answers (never a
-// replacement for `noteKey`: both can be true of the SAME operation — a same-day duplicate REPOT naming an
-// older day is `already-recorded-on-day` AND anchor-`kept` at once, the exact combination the API's finding
-// E8 measured). An entry is kept whenever EITHER half is non-null, so a `status: 'applied'` operation whose
-// anchor was nonetheless kept still earns its own line here, even though `careOutcomeNoteKey` itself has
-// nothing to say about an `applied` outcome.
+// STORES i18n KEYS, never translated strings — the SAME reason `outcomeNotes` does in pages/index.vue and
+// PlantDetail.vue (F11 fix, 2026-08-14): freezing the translated string at write time would leave this note
+// stuck in the old language after a locale switch. `approvedOutcomeNoteText(note)` in the template
+// resolves it at render.
 //
 // The per-operation notes only. The proposal's AGGREGATE breakdown is `approvedOutcomeCounts` below.
-const approvedOutcomeNoteKeys = ref<{ noteKey: string | null; anchorDay: string | null }[]>([]);
+//
+// F13 — EACH ENTRY NOW CARRIES TWO INDEPENDENT HALVES, because the server states two independent facts per
+// operation and this surface was reporting only one of them. The second is the SUBSTRATE CLOCK's own
+// outcome (`CareWriteOutcome.substrate`): under the owner's newest-wins ruling a repot older than the
+// stored anchor is recorded as an event but leaves the clock — and every calibrated reading hanging off it
+// — exactly where it was, AND THE OWNER IS TOLD. He was told when he recorded the repot himself
+// (pages/index.vue, PlantDetail.vue) and NOT when he approved one an agent proposed, which is the very path
+// the ruling was about. Same question, two surfaces, two different answers.
+//
+// STILL a raw i18n KEY on the first half and a raw `YYYY-MM-DD` on the second — never translated prose and
+// never a formatted date. Both are resolved at RENDER time by `approvedOutcomeNoteText` below, so a locale
+// switch after the approval re-renders the sentence AND re-formats the date instead of freezing either in
+// whatever language was active when the response landed.
+//
+// An entry survives the filter when EITHER half exists, never only when the first does: an `applied` REPOT
+// whose anchor was kept earns no `alreadyRecorded` sentence at all, and dropping it would silence exactly
+// the case this fix exists for.
+const approvedOutcomeNotes = ref<{ noteKey: string | null; anchorDay: string | null }[]>([]);
+
+/** Called from the template so `t`/`d` re-resolve on every render (the locale-switch reason above). The
+ *  combining rule itself — order, separator, and WHICH date — lives once in `utils/careOutcome.ts`, shared
+ *  with the Today and plant-page renderers that answer this same question. */
+function approvedOutcomeNoteText(note: { noteKey: string | null; anchorDay: string | null }): string | null {
+  return careOutcomeNoteText(note.noteKey, note.anchorDay, t, (day) => d(ymdToLocalDate(day), 'short'));
+}
 
 // THE AGGREGATE SUMMARY (owner ruling 2026-08-14, REVISED the same day by code-review finding AF-8).
 // The per-operation notes say what happened to each operation; nothing said how much of the proposal as a
@@ -873,9 +888,9 @@ const approvedOutcomeNoteKeys = ref<{ noteKey: string | null; anchorDay: string 
 //     plural mechanism CAN express — so each segment simply carries its own count as its own choice.
 //
 // COUNTS, not a pre-built sentence, and one i18n key PER SEGMENT — for the same reason
-// `approvedOutcomeNoteKeys` stores keys rather than prose: a sentence frozen at write time is stuck in the
-// old language after a locale switch. Each segment is a complete, independently pluralised noun phrase the
-// translator owns end to end; only the ⚠ marker and the `·` separator are added by the template, and both
+// `approvedOutcomeNotes` stores keys and raw calendar days rather than prose: a sentence frozen at write
+// time is stuck in the old language after a locale switch. Each segment is a complete, independently
+// pluralised noun phrase the translator owns end to end; only the ⚠ marker and the `·` separator are added by the template, and both
 // are punctuation, not words (the same inline `·` convention `HistoryTimeline.vue` already uses).
 const approvedOutcomeCounts = ref<{ applied: number; partial: number; alreadyRecorded: number } | null>(null);
 
@@ -944,13 +959,13 @@ function outcomeNoteText(note: { noteKey: string | null; anchorDay: string | nul
 // call site that reassigns `currentSessionId` (a brand-new session at `:235`, a resumed one at `:248`).
 // Without this, an approved-outcome block from session A survives into session B: the owner approves in
 // A, the note/summary render, he starts (or resumes) a different chat WITHOUT pressing Close on the
-// block, and A's stale sentences keep showing as though they belonged to B. `approvedOutcomeNoteKeys` had
+// block, and A's stale sentences keep showing as though they belonged to B. `approvedOutcomeNotes` had
 // this same staleness from the earlier E2 fix — it is not new to `approvedOutcomeCounts` — so both are
 // fixed in this one change rather than splitting the parallel-copy fix in two. A watcher (not per-call-site
 // clearing) is deliberate: a future THIRD path that reassigns `currentSessionId` inherits the clear for
 // free instead of needing to remember it.
 watch(currentSessionId, () => {
-  approvedOutcomeNoteKeys.value = [];
+  approvedOutcomeNotes.value = [];
   approvedOutcomeCounts.value = null;
 });
 
@@ -1018,7 +1033,7 @@ async function approveProposal() {
   if (!props.proposals || !currentSessionId.value || !pendingProposal.value) return;
   proposalBusy.value = true;
   proposalError.value = null;
-  approvedOutcomeNoteKeys.value = [];
+  approvedOutcomeNotes.value = [];
   approvedOutcomeCounts.value = null;
   try {
     // THE RESPONSE — no longer discarded. `outcome` is `null` whenever the proposal genuinely was not
@@ -1050,21 +1065,23 @@ async function approveProposal() {
     }
     const today = todayYmd();
     const perOperation = result.outcome?.perOperation ?? [];
-    approvedOutcomeNoteKeys.value = perOperation
+    approvedOutcomeNotes.value = perOperation
       .map((outcome) => ({
         noteKey: careOutcomeNoteKey(
           outcome,
           doneSubmitPath(outcome.status === 'already-recorded-on-day' ? outcome.occurredOn : undefined, today),
         ),
-        // V1 fix — the substrate clock's own outcome, the SAME shared seam `pages/index.vue`'s
-        // `recordOutcome` and `PlantDetail.vue`'s twin already read. Independent of `noteKey` above: an
-        // operation can be `already-recorded-on-day` AND anchor-`kept` at once (API finding E8), or
-        // `applied` and STILL anchor-`kept` (an ordinary REPOT write whose day happened to be older than
-        // the stored anchor) — `careOutcomeNoteKey` has nothing to say about that second case at all, which
-        // is why this is a second, independently-filtered field rather than folded into the first.
+        // Read STRAIGHT OFF the server's payload through the shared reader, never recomputed here: the
+        // status is the API's answer about its own write, and the surviving anchor is a date only the API
+        // knows. `substrateAnchorKeptDay` answers `null` for a `refreshed` clock and for an ABSENT
+        // `substrate` alike — absent means the write said nothing about the anchor (every non-REPOT
+        // operation, and any proposal stored before the field existed), which must stay SILENT rather than
+        // be defaulted into a status.
         anchorDay: substrateAnchorKeptDay(outcome.substrate),
       }))
-      .filter((note) => note.noteKey !== null || note.anchorDay !== null);
+      // EITHER half is enough to earn a line — see the ref's own comment for why "only when the first
+      // exists" would drop the exact case this reports.
+      .filter((note) => !!note.noteKey || !!note.anchorDay);
     // Gated on the SERVER's derived `global`, never on a status recomputed here: the shared contract derives
     // that status once (`deriveProposalOutcomeStatus`) precisely so no surface holds a second answer that
     // could disagree with it. The counts below are only the numbers the segments print.
@@ -1086,7 +1103,7 @@ async function approveProposal() {
 
 /** One dismissal for the whole approved-outcome block — the summary line and the notes it introduces. */
 function dismissApprovedOutcome() {
-  approvedOutcomeNoteKeys.value = [];
+  approvedOutcomeNotes.value = [];
   approvedOutcomeCounts.value = null;
 }
 
@@ -1296,17 +1313,20 @@ defineExpose({
          text is resolved through `outcomeNoteText` (both the `already-recorded-on-day` sentence AND the
          anchor-kept one, when both are true of the same operation), never `$t(noteKey)` directly. -->
     <p
-      v-for="(note, idx) in approvedOutcomeNoteKeys"
+      v-for="(note, idx) in approvedOutcomeNotes"
       :key="`outcome-note-${idx}`"
       class="mp-kchat__note"
       role="status"
     >
-      {{ outcomeNoteText(note) }}
+      <!-- F13 — the SAME notice zone and the SAME `.mp-kchat__note` shape as before; only the sentence it
+           can now carry is richer. `approvedOutcomeNoteText` renders the already-recorded half, the
+           substrate-anchor half, or BOTH, through the one combiner the Today and plant pages also call. -->
+      {{ approvedOutcomeNoteText(note) }}
       <!-- Close clears the summary too. The summary can only ever appear alongside at least one note
            (every `already-recorded-on-day`/anchor-kept outcome earns an entry), so this one button owns the
            whole block — a second close on the summary would be a second control for one dismissal. -->
       <button
-        v-if="idx === approvedOutcomeNoteKeys.length - 1"
+        v-if="idx === approvedOutcomeNotes.length - 1"
         type="button"
         class="mp-kchat__recheck"
         @click="dismissApprovedOutcome()"

@@ -124,7 +124,7 @@ import AgentChat from './AgentChat.vue';
 import type { ChatProposalsAdapter } from '../types/api';
 // Names "today" the SAME way the component itself does (`utils/localDate.js`'s `todayYmd()`) so a fixture
 // `occurredOn` lands on the same-day path deterministically, mirroring pages/index.test.ts's own convention.
-import { todayYmd, ymdToLocalDate } from '../utils/localDate.js';
+import { todayYmd, ymdFromLocalDate } from '../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -144,18 +144,24 @@ const KNOWN_ERROR_CODES = new Set([
   'attachment_type_not_allowed', 'attachment_write_failed', 'attachments_unavailable', 'message_too_long',
   'payload_too_large', 'request_failed', 'send_network', 'send_no_response', 'send_stalled',
 ]);
-// `d` (V1 fix): AgentChat.vue now destructures it off `useI18n()` to format the substrate anchor's
-// surviving day (`d(ymdToLocalDate(day), 'short')`) — a bare `() => ''` here, mirroring the OTHER two
-// renderers' own test files' default stub (`pages/index.test.ts`, `PlantDetail.test.ts`), keeps every
-// EXISTING test in this file byte-identical (the date is simply blanked out, same as `t`'s identity
-// passthrough drops params it is never asked to observe). The two tests that actually need to OBSERVE the
-// formatted date override BOTH `t` and `d` locally, the same way `pages/index.test.ts`'s own
-// "a locale switch AFTER the submit" test does.
+// A DATE FORMATTER THAT ROUND-TRIPS. `$d(date, 'short')` in a real run produces locale prose; here it must
+// instead produce something a test can compare a specific CALENDAR DAY against — otherwise "the notice
+// shows the SURVIVING anchor and not the day the operation asked for" is unassertable, and a renderer that
+// interpolated the wrong one would stay green. `ymdFromLocalDate` is the exact inverse of the
+// `ymdToLocalDate` the component feeds in, so the day survives the round trip with no UTC shift.
+const fakeShortDate = (ymd: string) => `D(${ymd})`;
+
 vi.stubGlobal('useI18n', () => ({
-  t: (k: string) => k,
+  // Identity on the KEY (Ruling 1 above), but the INTERPOLATION PARAMS are appended when there are any —
+  // the SAME rule (and the same reason) as the `$t` mock in `mountChatInner` below. The `Object.keys`
+  // guard is load-bearing rather than tidiness: `tns()` calls `t(key, named ?? {})`, so it ALWAYS passes an
+  // object, and a bare truthiness check would append `|{}` to every namespaced string in this file and
+  // break every assertion that reads one.
+  t: (k: string, named?: Record<string, unknown>) =>
+    (named && Object.keys(named).length ? `${k}|${JSON.stringify(named)}` : k),
+  d: (value: Date) => fakeShortDate(ymdFromLocalDate(value)),
   te: (k: string) => KNOWN_ERROR_CODES.has(k.split('.').pop() ?? ''),
   locale: ref('en'),
-  d: () => '',
 }));
 
 const PENDING = {
@@ -751,60 +757,43 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.text()).not.toContain('tasks.outcomeSummary');
   });
 
-  // ── V1(a) fix (code review) — the substrate "kept" verdict, on the AGENT path ─────────────────────────
+  // ── THE SUBSTRATE CLOCK REFUSED TO MOVE, AND THE AGENT PATH HAS TO SAY SO TOO ──────────────────────
   //
-  // `PlantDetail.vue` and `pages/index.vue` already render "the substrate clock stayed on <date>" (API
-  // finding E8) through `substrateAnchorKeptDay`/`SUBSTRATE_ANCHOR_KEPT_KEY`. This component was the one
-  // renderer of an APPROVED proposal's outcome that never consulted `outcome.substrate` at all, so an
-  // approved REPOT dated before the stored anchor read as an ordinary success here while the other two
-  // surfaces already told the owner the truth. This proves it now renders — through the SAME shared seam,
-  // never a second copy of the mapping — and that it does so with the SURVIVING anchor day, never the
-  // submitted `occurredOn` (this fixture deliberately sets them to different days so confusing the two is
-  // detectable), and that it renders even while `outcome.global` still reads `ALL_APPLIED` — the state a
-  // companion API change is expected to correct separately; this component must not depend on that landing.
-  describe('the substrate anchor stayed, and the AgentChat approval surface says so (V1)', () => {
-    // The module-level `useI18n` stub's `t` is an identity function and `d: () => ''` returns the same
-    // constant regardless of input — exactly the weakness V8 names for `pages/index.test.ts`'s twin. This
-    // override makes `t` append the named params it was called with and `d` echo its input back (the SAME
-    // technique `PlantDetail.test.ts`/`pages/index.test.ts` use), so the assertions below can tell a correct
-    // interpolation from a dropped one, a raw ISO string, or the wrong day.
-    const localizedT = (k: string, named?: Record<string, unknown>) =>
-      (named ? `${k}|${JSON.stringify(named)}` : k);
-    const DEFAULT_USE_I18N = () => ({
-      t: (k: string) => k,
-      te: (k: string) => KNOWN_ERROR_CODES.has(k.split('.').pop() ?? ''),
-      locale: ref('en'),
-      d: () => '',
-    });
-    function stubLocalizedI18n() {
-      vi.stubGlobal('useI18n', () => ({
-        t: localizedT,
-        te: (k: string) => KNOWN_ERROR_CODES.has(k.split('.').pop() ?? ''),
-        locale: ref('en'),
-        d: (v: unknown) => String(v),
-      }));
-    }
-    afterEach(() => {
-      vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
-    });
+  // The owner's newest-wins ruling (2026-08-14; API finding E8) has three clauses, and the third is the
+  // ruling, not a nicety: a repot older than the stored anchor is RECORDED as an event, the soil clock does
+  // NOT move, no calibrated reading is retracted — AND THE OWNER IS TOLD.
+  //
+  // He was told on exactly ONE of the two surfaces that can produce that outcome. When he records the repot
+  // himself, `pages/index.vue` / `PlantDetail.vue` render `tasks.substrateAnchorKept` (their own tests pin
+  // it). When an AGENT proposes the repot and he APPROVES it, the API attaches the identical fact to the
+  // approval response (`outcome.perOperation[i].substrate`) and this component dropped it on the floor: the
+  // clock silently refused to move on the exact path the ruling was written about.
+  //
+  // Same question, two surfaces, two different answers — the parallel-copy class this project calls its
+  // highest-yield bug. The fix reuses the EXISTING key and the EXISTING notice zone; there is no new copy
+  // and no new component here.
+  describe('the substrate anchor stayed, and the approval surface says so', () => {
+    // `refreshedOn` is the SURVIVING anchor — the newer repot's day — never the older day the operation
+    // asked for. Printing the requested day would be worse than silence: a reassuring sentence carrying the
+    // wrong date. The two are deliberately far apart in these fixtures so one cannot be mistaken for the
+    // other.
+    const SURVIVING_ANCHOR = '2026-08-11';
+    const REQUESTED_DAY = '2026-01-30';
 
-    it('renders the anchor-kept sentence alongside the already-recorded note, with the SURVIVING anchor day, even while global is still ALL_APPLIED', async () => {
-      stubLocalizedI18n();
+    it('renders the anchor-kept notice with the SURVIVING date on an otherwise ordinary approval', async () => {
       const proposals = makeProposals({
         approve: vi.fn(async () => ({
           ...PENDING,
           status: 'APPROVED' as const,
           outcome: {
+            // `applied` + `kept` is a REAL pairing, not a contrived one: the shared contract puts
+            // `substrate` on BOTH arms precisely because a REPOT that DID write its care event can still
+            // have had its anchor kept. It is also the sharpest case for this fix — `careOutcomeNoteKey`
+            // answers `null` here, so the anchor sentence is the ONLY thing standing between the owner and
+            // a completely silent refusal.
             perOperation: [
-              {
-                status: 'already-recorded-on-day' as const, task: 'REPOT' as const, occurredOn: todayYmd(),
-                otherEffectsApplied: true,
-                substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' },
-              },
+              { status: 'applied' as const, substrate: { status: 'kept' as const, refreshedOn: SURVIVING_ANCHOR } },
             ],
-            // Deliberately ALL_APPLIED — the companion contract change that would flip this has not landed.
-            // The note below must render regardless: this block is gated on the notes array, never on
-            // `global` (see the component's own comment).
             global: 'ALL_APPLIED' as const,
           },
         })),
@@ -814,23 +803,33 @@ describe('AgentChat — the doctor approval surface', () => {
       w.findComponent(BannerStub).vm.$emit('approve');
       await flushPromises();
       const text = w.text();
-      expect(text).toContain('tasks.alreadyRecorded.otherEffectsApplied');
-      expect(text).toContain(
-        `tasks.substrateAnchorKept|${JSON.stringify({ date: String(ymdToLocalDate('2026-08-11')) })}`,
-      );
+      expect(text).toContain('tasks.substrateAnchorKept');
+      // THE DATE, not merely the key. The `useI18n` stub appends interpolation params for exactly this
+      // reason — without it this assertion could not tell the surviving anchor from the requested day, or
+      // from no date at all.
+      expect(text).toContain(fakeShortDate(SURVIVING_ANCHOR));
+      // ALL_APPLIED, so the aggregate summary stays absent: the anchor notice is its own, independent fact
+      // and must not drag a summary line in with it.
+      expect(text).not.toContain('tasks.outcomeSummary');
     });
 
-    it('renders the anchor-kept sentence for an operation whose `status` is `applied` on its own (no `already-recorded` note at all)', async () => {
-      stubLocalizedI18n();
+    it('renders BOTH sentences for the duplicate repot that dragged the clock backwards', async () => {
       const proposals = makeProposals({
         approve: vi.fn(async () => ({
           ...PENDING,
           status: 'APPROVED' as const,
           outcome: {
-            perOperation: [
-              { status: 'applied' as const, substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' } },
-            ],
-            global: 'ALL_APPLIED' as const,
+            // THE CASE THE API ACTUALLY MEASURED: a duplicate REPOT naming an older day — so
+            // `already-recorded-on-day` with its other effects still applied, AND the anchor kept. Rendering
+            // only one of the two tells the owner half of what happened.
+            perOperation: [{
+              status: 'already-recorded-on-day' as const,
+              task: 'REPOT' as const,
+              occurredOn: REQUESTED_DAY,
+              otherEffectsApplied: true,
+              substrate: { status: 'kept' as const, refreshedOn: SURVIVING_ANCHOR },
+            }],
+            global: 'ALL_ALREADY_RECORDED' as const,
           },
         })),
       });
@@ -838,9 +837,75 @@ describe('AgentChat — the doctor approval surface', () => {
       await flushPromises();
       w.findComponent(BannerStub).vm.$emit('approve');
       await flushPromises();
-      expect(w.text()).toContain(
-        `tasks.substrateAnchorKept|${JSON.stringify({ date: String(ymdToLocalDate('2026-08-11')) })}`,
-      );
+      const text = w.text();
+      expect(text).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+      expect(text).toContain('tasks.substrateAnchorKept');
+      // ⚠️ THE SURVIVING ANCHOR, AND NOT THE DAY THE OPERATION ASKED FOR. This is the assertion that makes
+      // the pair discriminating: a renderer that interpolated `occurredOn` would satisfy every check above.
+      expect(text).toContain(fakeShortDate(SURVIVING_ANCHOR));
+      expect(text).not.toContain(fakeShortDate(REQUESTED_DAY));
+    });
+
+    // ── ABSENCE, WITH A POSITIVE CONTROL ────────────────────────────────────────────────────────────
+    // "No anchor notice" is ALSO what a component that never mounted, never approved, or rendered nothing
+    // at all produces. Each absence case below therefore pairs its `not.toContain` with proof that the
+    // component IS on screen, that the approval DID run, and that the per-operation array was genuinely
+    // POPULATED — the sibling operation's own note is on screen in both.
+    it('renders no anchor notice when the clock was REFRESHED', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              // The refreshed one: the clock moved, which is an ordinary success and earns no sentence.
+              { status: 'applied' as const, substrate: { status: 'refreshed' as const, refreshedOn: SURVIVING_ANCHOR } },
+              // THE POSITIVE CONTROL, in the same array: a note that MUST appear, proving the array was
+              // read and rendered rather than silently dropped.
+              { status: 'already-recorded-on-day' as const, task: 'WATER' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+            ],
+            global: 'PARTIALLY_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.find('.mp-kchat').exists()).toBe(true);
+      expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1', expect.any(String));
+      expect(w.text()).toContain('tasks.alreadyRecorded.neutral');
+      expect(w.text()).not.toContain('tasks.substrateAnchorKept');
+      // Not even the date leaking in through some other sentence.
+      expect(w.text()).not.toContain(fakeShortDate(SURVIVING_ANCHOR));
+    });
+
+    it('renders no anchor notice for an operation carrying no substrate key at all', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              // ABSENT means SILENT, never "refreshed": every non-REPOT write legitimately says nothing
+              // about the anchor, and a proposal stored before the field existed replays without it. A
+              // reader that defaulted absence to a status would invent a fact the server never stated.
+              { status: 'applied' as const },
+              { status: 'already-recorded-on-day' as const, task: 'ROTATE' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+            ],
+            global: 'PARTIALLY_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.find('.mp-kchat').exists()).toBe(true);
+      expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1', expect.any(String));
+      // POSITIVE CONTROL: the array WAS populated and rendered — this sentence comes from the second entry.
+      expect(w.text()).toContain('tasks.alreadyRecorded.neutral');
+      expect(w.text()).not.toContain('tasks.substrateAnchorKept');
     });
   });
 

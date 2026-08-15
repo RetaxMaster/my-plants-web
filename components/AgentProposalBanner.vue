@@ -254,6 +254,12 @@ watch(() => props.proposal.id, async () => {
   flex: 1 1 auto;
   min-height: 8rem;
   overflow-y: auto;
+  /* `UiAlert`'s body stopped stretching its slot children on 2026-08-15 (a soft button spanning the whole
+     alert read as a disabled input). This region is the one child of that slot that genuinely IS a
+     viewport: a scroll container narrower than the alert would reflow its own content and strand the
+     reserved scrollbar gutter mid-banner. So it opts back in explicitly, here, where the reason is
+     visible — never by weakening the shared rule for everyone. */
+  align-self: stretch;
   /* Keep the scrollbar's space reserved so the content does not reflow the moment the region becomes
      scrollable, and show a thin one where the platform draws them at all. The visible cue below is what
      carries the message on the platforms that hide scrollbars entirely. */

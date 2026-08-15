@@ -937,6 +937,26 @@ const surveyUnavailableFor = ref<string[]>([]);
 const surveyLoadFailed = ref(false);
 const surveyRetry = ref<null | (() => void)>(null);
 
+/**
+ * ⚠️ TODAY FETCHES THE CATALOGUE ON CLICK, AND THAT IS NOT A CROSS-SURFACE DISAGREEMENT — RULED NOT A
+ * DEFECT, 2026-08-15. DO NOT "FIX" IT WITH A PRE-FETCH.
+ *
+ * QA observed this and it looks alarming: with `GET /plants/:id/soil-readings` failing, the plant page has
+ * already withdrawn "¿Necesitas regar?" for that plant and says so, while Today goes on offering the button
+ * for the SAME plant at the SAME moment. Two surfaces, two answers, one fact.
+ *
+ * They are not two answers. The plant page loads that plant's catalogue as part of loading the plant; Today
+ * renders every due task for the whole garden and asks for a catalogue only when the owner asks for a check
+ * — one plant, one click, at the moment of the click. So Today has not disagreed about a known fact: it has
+ * not asked yet, and it discovers the failure exactly when it does ask, whereupon the handler below closes
+ * the survey for that plant, hands the classic Hecho | Posponer back, and shows the retryable banner. No
+ * owner can ever observe a contradiction: reaching the second surface is what produces the first surface's
+ * answer.
+ *
+ * Making the two LOOK synchronised would mean pre-fetching the catalogue for every plant on every render of
+ * Today — one request per plant per render, permanently, to prevent a state nobody can see. The cost is
+ * real and the defect is not, so Today keeps asking on click.
+ */
 async function onWaterEvaluate(plantId: string) {
   readingModalPlantId.value = plantId;
   readingModalData.value = EMPTY_SOIL_READINGS;

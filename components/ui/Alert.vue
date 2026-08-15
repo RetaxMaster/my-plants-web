@@ -70,6 +70,17 @@ const resolvedIcon = computed(() =>
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* CROSS-AXIS: CONTENT WIDTH, NEVER FULL WIDTH (2026-08-15).
+     `stretch` is the flex default, and it made every control a call site puts in this slot span the whole
+     alert: measured on the running plant page, two "Reintentar" buttons stretched to 650px and 412px
+     against an 84px label. A full-bleed, soft-filled button reads as a disabled input rather than an action,
+     and a full-bleed `<a>` (the `tooSlowLink` finding) hands the owner a click target the width of the
+     page. Fixed HERE, once, because every alert on every surface inherits it — that is what the shared
+     component is for.
+     Text is unaffected: a paragraph's max-content already exceeds the alert, so `flex-start` still resolves
+     to the full width and wraps exactly where it did. The one slot child that genuinely IS a viewport —
+     `AgentProposalBanner`'s scroll region — says so locally with its own `align-self: stretch`. */
+  align-items: flex-start;
 }
 
 .mp-alert__title {

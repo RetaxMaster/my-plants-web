@@ -253,7 +253,7 @@ const readingsRefreshFailed = ref(false);
  * THE ONE READINGS REFRESH THIS PAGE GOES THROUGH (F4.1 fix, 2026-08-15) — every caller that refreshes
  * `readings` calls THIS, never `refreshReadings()` (the raw `useAsyncData` refresher) directly:
  * `refreshReadingsBeforeOpening`, `retryReadingsRefresh`, `onReadingSaved`, `sendDone`'s own refresh batch,
- * and the `readingsUnavailable` alert's retry button in the template. A refresh that bypassed this function
+ * and the `readingsLoadFailed` notice's retry button in the template. A refresh that bypassed this function
  * would silently exempt itself from `readingsRefreshFailed`'s own contract — which is exactly how the F4.1
  * defect above shipped.
  *
@@ -323,6 +323,18 @@ async function openReading(mode: 'survey' | 'voluntary') {
   readingOpening.value = true;
   try {
     await refreshReadingsBeforeOpening();
+    // ⚠️ THE DIALOG NEEDS THE PAYLOAD, AND THE REFRESH ABOVE IS THE ATTEMPT TO GET IT (2026-08-15).
+    // `readings` is what decides every question the modal asks — which instruments are pickable, whether
+    // today already carries a reading to EDIT rather than duplicate, whether the pot was watered today,
+    // and how far back the date box may go. With none of it the modal opens on the "you have no
+    // instruments" empty state, which for an owner who owns one is a false statement and a save he cannot
+    // complete. So the open is refused rather than shown, and the page's own failure notice — already on
+    // screen, since `readingsLoadFailed` is the very condition that let this button be pressed while the
+    // catalogue was missing — is the standing answer for why nothing opened.
+    // NOT a regression for the survey path: its button only exists when the catalogue loaded, and
+    // `refreshReadingsBeforeOpening` restores the previous snapshot on a failed refresh, so `readings` is
+    // non-null there by construction. This guard fires only for the case it was written for.
+    if (readings.value == null) return;
     readingMode.value = mode;
     readingModalOpen.value = true;
   } finally {
@@ -511,35 +523,57 @@ const waterSurveyFacts = computed(() => ({
 const canSurveyWater = computed(() => canOfferWaterSurvey(waterSurveyFacts.value));
 
 /**
- * THE CHECK THE FAILED CATALOGUE TOOK AWAY, SAID OUT LOUD (2026-08-15).
+ * ONE FAILED FETCH GETS ONE NOTICE (owner-ruled 2026-08-15).
  *
- * When `getSoilReadings` fails, `canSurveyWater` above goes false and the WATER row's "¿Necesitas regar?"
- * button simply disappears. F4.2 was right to stop the readings card from explaining that — that card's
- * banner is about the reading HISTORY, a different fact, and borrowing the survey sentence there named the
- * wrong noun. But re-homing one of the two facts left the OTHER one homeless: measured on the running app,
- * the whole plant page carried no sentence about instruments, about the check, or about why the button had
- * gone. `TaskRow.vue`'s own governing rule for a withheld control is explicit that this is a defect — *"a
- * button that simply vanishes reads as a bug"* — so the fact gets stated, in the page's existing notice
- * zone, in the SAME words and the SAME alert+retry shape `pages/index.vue` already uses for this exact
- * fetch's failure. No new sentence: `reading.surveyLoadError` is that sentence, and it is honest here for
- * the same reason it is honest there — the failing payload IS the instrument list (`PlantSoilReadings.
- * instruments`), and Hecho | Posponer really are still on offer.
+ * `getSoilReadings` is a SINGLE request, and when it fails it takes away two different things at once: the
+ * WATER row's "¿Necesitas regar?" check, and the reading history further down. Between 2026-08-15's two
+ * fixes the page said so TWICE — a red banner here and a second red banner inside the readings card, each
+ * with its own "Reintentar", each an `aria-live="assertive"` region, and (measured on the running app)
+ * with buttons of two different sizes, 650px and 412px wide. Both retries called the same function, so
+ * either one cleared both. That is one problem offered as two, announced twice to a screen reader, with two
+ * recovery paths for one recovery.
  *
- * ⚠️ GATED ON THE SURVEY HAVING BEEN OFFERABLE AT ALL, NEVER ON THE FAILURE ALONE. An owner who selected no
- * instrument never had the button, so telling him we could not load "tus instrumentos" would be precisely
- * the false statement W1 and F4.2 were each written to delete — and `TaskRow`'s `canSurvey` contract
- * requires that owner's row to stay byte-identical to its pre-survey shape. So the condition is the shared
- * rule re-asked with the one broken fact repaired: WOULD the check be on offer if the catalogue had loaded?
- * Only then is a check actually missing, and only then is there anything to explain.
+ * ⚠️ THE RULING, AND WHY THIS BANNER IS THE ONE THAT SURVIVED. It is the only one of the two that can carry
+ * the retry honestly, because it is the only one that renders on EVERY failure. Its sibling in the readings
+ * card was reachable only while that card was, and the card is hidden for a frozen plant — the survivor has
+ * to be the notice with the wider condition, or a failure exists with no way back from it. It also sits in
+ * the page's own notice zone, ABOVE the care rows, which is where the first thing the owner loses (the
+ * check on the WATER row) actually is. The readings card now claims no error at all: it is not the
+ * authority on this fetch, and a card restating a failure the page has already reported is the defect
+ * above wearing quieter clothes.
  *
- * The WATER row itself must exist too — a frozen plant renders no rows at all, and a banner explaining a
- * button on a row that is not on screen would be a statement about nothing.
+ * ⚠️ THE CONDITION IS THE BARE FAILURE — deliberately WIDER than the survey-only gate it replaces. An owner
+ * who selected no instrument, or who already watered today, never had the check; but he did lose his
+ * reading history, and before this he was told about it by the card's banner. Narrowing to the survey case
+ * would have left exactly those owners with a silently empty card, which is the same class of defect
+ * ("a thing that simply vanishes reads as a bug") pointed at a different surface. Frozen is the one
+ * exclusion, unchanged: a frozen plant renders no care rows AND no readings card, so there is nothing on
+ * screen for the sentence to be about.
+ */
+const readingsLoadFailed = computed(() => readingsUnavailable.value && !isFrozen.value);
+
+/**
+ * WHICH OF THE TWO EXISTING SENTENCES THAT ONE BANNER CARRIES — never a third, newly written one.
+ *
+ * `reading.surveyLoadError` names the instruments, says the pot cannot be checked right now, and promises
+ * Hecho | Posponer are still on offer. Every clause of that is true only when the check WOULD have been
+ * offered had the catalogue loaded — for an owner with no instrument it is precisely the false statement
+ * W1 and F4.2 were each written to delete, and `TaskRow`'s `canSurvey` contract requires that owner's row
+ * to stay byte-identical to its pre-survey shape, so there is nothing missing to explain to him.
+ *
+ * So the survey sentence is asked for with the shared `canOfferWaterSurvey` rule re-asked with the one
+ * broken fact repaired — WOULD the check be on offer if the catalogue had loaded? — and everyone else gets
+ * `reading.historyLoadError`, which is true in every case: the history really did fail to load, and the
+ * readings really are still saved. The WATER row must also exist for the survey sentence, since a banner
+ * explaining a button on a row that is not on screen would be a statement about nothing.
  */
 const surveyLostToFailedCatalogue = computed(() =>
-  readingsUnavailable.value
-  && !isFrozen.value
+  readingsLoadFailed.value
   && orderedTasks.value.some((t) => t.task === 'WATER')
   && canOfferWaterSurvey({ ...waterSurveyFacts.value, catalogueAvailable: true }));
+
+const readingsLoadErrorKey = computed(() =>
+  (surveyLostToFailedCatalogue.value ? 'reading.surveyLoadError' : 'reading.historyLoadError'));
 
 const { data: history, refresh: refreshHistory } =
   useLazyAsyncData(`history-${id}`, () => api.getPlantHistory(id), { server: false });
@@ -1815,23 +1849,21 @@ async function confirmRevive() {
             </UiButton>
           </UiAlert>
 
-          <!-- The WATER survey's own load failure, in the SAME words and the same alert+retry shape
-               `pages/index.vue` gives it (its `surveyLoadFailed` banner) — one failure, one sentence,
-               across both surfaces. Without this the button vanished from the row below with nothing
-               anywhere on the page accounting for it; see `surveyLostToFailedCatalogue` for why the
-               condition is "the check WOULD have been on offer", never the bare failure.
+          <!-- THE ONE NOTICE THIS PAGE GIVES THE SOIL-READINGS FETCH (owner ruling, 2026-08-15) — read
+               `readingsLoadFailed` for why this banner is the survivor and why the readings card below
+               now claims no error of its own. One failure, one sentence, one Reintentar, one assertive
+               region. The sentence itself is chosen by `readingsLoadErrorKey` (the survey wording only
+               where the check was really taken away); both are pre-existing strings, and this is the same
+               alert+retry shape `pages/index.vue` gives this exact fetch's failure.
                DELIBERATELY NOT INSIDE THE ROW: `TaskRow`'s `canSurvey: false` contract requires the row to
                stay byte-identical to its pre-survey shape, so the explanation belongs to the page, in the
-               notice zone the repot failure above already uses.
-               It reads ALONGSIDE the measurement card's own `reading.historyLoadError` further down, never
-               instead of it: one fetch failed, but it took away two different things, and F4.2's whole
-               point is that those are two facts. -->
+               notice zone the repot failure above already uses. -->
           <UiAlert
-            v-if="surveyLostToFailedCatalogue"
+            v-if="readingsLoadFailed"
             color="red"
-            :description="$t('reading.surveyLoadError')"
+            :description="$t(readingsLoadErrorKey)"
             announce
-            class="mp-detail__survey-error"
+            class="mp-detail__readings-error"
           >
             <UiButton size="sm" variant="soft" color="neutral" @click="refreshReadingsTracked()">
               {{ $t('reading.surveyRetry') }}
@@ -1904,31 +1936,22 @@ async function confirmRevive() {
                the soil. Mutually exclusive: a flat series makes drying-rate confidence meaningless, so it
                takes priority when both would otherwise apply. -->
           <div v-if="!isFrozen" class="mp-detail__measurement">
-            <!-- FIX W1: with no catalogue in hand there is nothing honest either affordance can do — the
-                 modal would open on the "you have no instruments" empty state, which for this owner is a
-                 false statement. So "Add a reading" stands down and the retryable failure takes its place;
-                 the WATER row above has already fallen back to Hecho | Posponer through the same
-                 `readingsUnavailable` flag, so nothing is locked.
-                 ⚠️ F4.2 (2026-08-15) — `reading.historyLoadError`, NOT `reading.surveyLoadError`. That
-                 sentence was written for TODAY's SURVEY failure ("¿Necesitas regar?") — it names
-                 *instruments* and offers watering advice. Inside THIS card, the measurement-HISTORY block,
-                 it named the wrong noun and gave advice about a different control entirely; the failure here
-                 is "we couldn't load your past readings", not "we couldn't check whether to water".
-                 `pages/index.vue`'s own use of `reading.surveyLoadError` (its actual survey-fetch failure)
-                 is correct and stays untouched — this fix is scoped to this card alone. Retried through the
-                 SAME shared refresh (`refreshReadingsTracked`, Task 3) every other readings refresh on this
-                 page now uses. -->
-            <UiAlert
-              v-if="readingsUnavailable"
-              color="red"
-              :description="$t('reading.historyLoadError')"
-              announce
-              class="mp-detail__alert"
-            >
-              <UiButton size="xs" variant="soft" color="neutral" @click="refreshReadingsTracked()">
-                {{ $t('reading.surveyRetry') }}
-              </UiButton>
-            </UiAlert>
+            <!-- ⚠️ THIS CARD NO LONGER REPORTS THE FETCH FAILURE, AND "AGREGAR LECTURA" NO LONGER STANDS
+                 DOWN FOR IT (owner ruling, 2026-08-15). Two banners about one failed request is the defect
+                 `readingsLoadFailed` documents; the page-level notice above is the single authority, and a
+                 card that restated it would be that defect in quieter clothes. What the card owes the owner
+                 instead is its ESCAPE HATCH: FIX W1 withdrew "Agregar lectura" here on the same failure,
+                 which told him in one breath that "tus lecturas siguen guardadas" and that he could no
+                 longer add to them — for a READ failure, on a WRITE affordance.
+                 W1's reasoning was right about the DIALOG and wrong about the BUTTON: the modal genuinely
+                 cannot open on a missing catalogue (it would show the "you have no instruments" empty
+                 state, a false statement for this owner). But pressing this button does not open the modal
+                 with what the page holds — `openReading` re-fetches FIRST (`refreshReadingsBeforeOpening`),
+                 so the press is a real attempt at the thing the owner asked for, and `openReading`'s own
+                 guard is what refuses to open on a payload that is still missing. See that function.
+                 The rest of the card (the list, the history title, the calibration entry) stays hidden on
+                 failure exactly as before: those RENDER data we do not have, where this button GOES AND
+                 GETS it. -->
             <!-- `:loading` is not decoration here: opening AWAITS a readings refresh, and a button that
                  stays idle through it invites the second tap that used to swallow the dialog entirely
                  (QA round 4, B1). `readingOpening` also makes it inert, so the guard holds even if a
@@ -1943,7 +1966,6 @@ async function confirmRevive() {
                  owner ruled that only Medir disappears; taking this one with it would leave a wrong reading
                  uncorrectable until tomorrow. -->
             <UiButton
-              v-else
               size="xs"
               variant="soft"
               color="neutral"
@@ -2444,7 +2466,7 @@ async function confirmRevive() {
 /* Shares the notice zone's rhythm with `.mp-detail__alert` and `.mp-detail__repot-error` above it — the
    two can be on screen together, so an odd gap here would show. Spacing only; every colour, border and
    radius comes from `UiAlert`'s own `color="red"` treatment, never from here. */
-.mp-detail__survey-error {
+.mp-detail__readings-error {
   margin-bottom: 14px;
 }
 

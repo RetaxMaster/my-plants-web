@@ -3058,9 +3058,18 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
   // The base map collapses UiAlert to `true` (its slot never renders), so the retry button inside the
   // load-failure banner would be unreachable — a real stub that renders its slot AND names which banner
   // it is, the same `data-description` hook pages/index.test.ts uses.
+  // `announce` is surfaced as an attribute (2026-08-15): it is what the real UiAlert turns into
+  // `role="alert" aria-live="assertive"`, so counting the alerts that carry it is how F4.4 counts the
+  // interruptions one failed fetch costs a screen-reader user. The stub FORWARDS the prop and derives
+  // nothing — `type: Boolean` is there only because Vue's valueless-attribute casting (`announce` with no
+  // value ⇒ `true`) is a property of the declaration, so an untyped prop would read `''` and report every
+  // announcing alert as silent. The other half of the chain — that `announce` really does become
+  // `role="alert" aria-live="assertive"` — is asserted on the REAL component in `components/ui/Alert.test.ts`,
+  // because a stub asserting it would be a private second copy of the rule under test.
   const UiAlertStub = {
-    props: ['color', 'description', 'announce'],
-    template: '<div class="detail-alert" :data-description="description"><slot /></div>',
+    props: { color: String, description: String, announce: { type: Boolean, default: false } },
+    template: '<div class="detail-alert" :data-description="description" '
+      + ':data-announce="String(announce)"><slot /></div>',
   };
   const UiReasonPickerStub = {
     props: ['open', 'title', 'options', 'confirmLabel'],
@@ -3147,54 +3156,58 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       expect(postponeButtons(row).length).toBe(1);
     });
 
-  // ⚠️ F4.2 (2026-08-15) — SUPERSEDES the original `reading.surveyLoadError` assertion here. That sentence
-  // was written for TODAY's survey failure ("¿Necesitas regar?") — it names *instruments* and offers
-  // watering advice — and this card is the measurement-HISTORY block, not the survey: it named the wrong
-  // noun and gave advice about a different control. `pages/index.vue`'s own `reading.surveyLoadError` usage
-  // (its actual survey-fetch failure) is unaffected and stays pinned separately in `pages/index.test.ts`.
-  //
-  // ⚠️ REWRITTEN 2026-08-15 (the survey-explanation fix) — the ORIGINAL negative control below scanned
-  // EVERY alert on the page. Its comment above says what it actually meant ("this card"), and the page-wide
-  // scan silently claimed something stronger: that the sentence may not appear ANYWHERE on the plant page.
-  // That over-claim was not idle — it pinned a measured gap. F4.2 re-homed the history fact and left the
-  // SURVEY fact homeless: the button vanished from the WATER row with nothing on the page explaining it.
-  // The assertion is now scoped to the readings card's own banner, which is the only thing it ever meant,
-  // and the sentence's new home in the care notice zone is asserted positively in its own test below.
-  it('W1/F4.2: says the HISTORY load failed (not the survey sentence), and never offers a voluntary ' +
-    'reading it could only answer with the "you have no instruments" lie', async () => {
-    const w = await mountWater({ readingsFails: true });
-    const banner = w.findAll('.detail-alert')
-      .find((a) => a.attributes('data-description') === i18n.t('reading.historyLoadError'));
-    expect(banner).toBeTruthy();
-    // The readings card's banner carries the HISTORY sentence...
-    expect(banner!.classes()).toContain('mp-detail__alert');
-    // ...and NOT the survey one. Scoped to the readings card's own class, because that card is the whole
-    // subject of this test — the same sentence in the CARE notice zone is correct and is asserted below.
-    expect(w.findAll('.mp-detail__alert')
-      .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
-    // The retry lives inside it.
-    expect(banner!.find('button').exists()).toBe(true);
-    // "Add a reading" stands down — it opens the SAME modal onto the SAME empty state.
-    expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(false);
-  });
+  // The gap F4.2 opened, closed (2026-08-15), then folded into ONE notice the same day. Both defects were
+  // reproduced on the running app before either fix was built: first the plant page carried no sentence at
+  // all about the instruments or the vanished check, then it carried two banners about one fetch. These
+  // cases pin the surviving notice, its sentence per case, its single retry, and its single announcement.
+  const readingsErrorBanner = (w: ReturnType<typeof mount>) =>
+    w.findAll('.mp-detail__readings-error')[0];
+  const retryButtons = (w: ReturnType<typeof mount>) =>
+    w.findAll('button').filter((b) => b.text() === i18n.t('reading.surveyRetry'));
 
-  // The gap F4.2 opened, closed (2026-08-15). Reproduced on the running app before it was built: with the
-  // catalogue fetch failing, the plant page's ENTIRE text carried no sentence about the instruments, the
-  // check, or why "¿Necesitas regar?" had gone — only the history banner, which says the opposite ("your
-  // readings are still saved"). These four cases pin the sentence, its placement, its retry, and — the
-  // half that actually matters — the three states where it must stay silent.
-  const surveyErrorBanner = (w: ReturnType<typeof mount>) =>
-    w.findAll('.mp-detail__survey-error')
-      .find((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'));
+  // ⚠️ REWRITTEN 2026-08-15 (the one-notice ruling) — this case ASSERTS THE OPPOSITE OF TWO OF ITS OWN
+  // CLAUSES, deliberately, and both inversions are behaviour changes the owner ruled, never a weakening.
+  //
+  //  1. It used to require the HISTORY sentence to live in the READINGS CARD (`.mp-detail__alert`). That
+  //     banner is gone. `getSoilReadings` is ONE request, and between F4.2 and F4.3 the page reported its
+  //     failure TWICE — two red alerts, two "Reintentar" (either one clearing both), two `aria-live=
+  //     "assertive"` regions, buttons measured at 650px and 412px on the running app. One failure now gets
+  //     one notice, in the page's care notice zone, and the card claims no error it is not the authority
+  //     on. The sentence itself is unchanged and still asserted, one home further up.
+  //  2. It used to require "Agregar lectura" to be ABSENT. That withdrawal told the owner "tus lecturas
+  //     siguen guardadas" and simultaneously took away his only way to add to them — on a READ failure.
+  //     The affordance stays; `openReading`'s own guard is what keeps the dialog from opening onto a
+  //     catalogue that is still missing, and that guard has its own case below.
+  //
+  // What SURVIVES unchanged is the assertion this test was written for and which no ruling touched: the
+  // SURVEY sentence must not be the one an owner in this state is shown. It is now asserted page-wide
+  // again — legitimately this time, because with a single notice "not this sentence anywhere" and "not
+  // this sentence in that card" are the same claim.
+  it('W1/F4.2: says the HISTORY load failed, not the survey sentence — this owner kept his check',
+    async () => {
+      // `wateredToday` is what makes this the history case: the check had already closed for the day, so
+      // the failure took nothing from the WATER row and the survey wording would be a false statement.
+      const w = await mountWater({ readingsFails: true, wateredToday: true });
+      const banner = readingsErrorBanner(w);
+      expect(banner).toBeTruthy();
+      expect(banner!.attributes('data-description')).toBe(i18n.t('reading.historyLoadError'));
+      // POSITIVE CONTROL for the negative assertion below — the page really does render a notice here, so
+      // `toBe(false)` is the component choosing the other sentence, not a selector matching nothing.
+      expect(w.findAll('.detail-alert')
+        .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
+      // The retry lives inside it, and it is the only one on the page.
+      expect(banner!.find('button').exists()).toBe(true);
+      expect(retryButtons(w).length).toBe(1);
+    });
 
   it('F4.3: a failed catalogue explains the check it took away, in the care notice zone, with a retry',
     async () => {
       const w = await mountWater({ readingsFails: true });
-      const banner = surveyErrorBanner(w);
+      const banner = readingsErrorBanner(w);
       expect(banner).toBeTruthy();
-      // POSITIVE CONTROL for the negative assertions below: this same mount really does render the
-      // sentence, so a later `toBeUndefined()` is a decision the component made, not a selector that
-      // never matched anything in the first place.
+      // The sentence, not merely a banner: this is the one state where the survey wording is true, and it
+      // is also the positive control the two "says the OTHER sentence" cases below lean on — the selector
+      // demonstrably matches a real notice here, so their different answer is a choice and not a miss.
       expect(banner!.attributes('data-description')).toBe(i18n.t('reading.surveyLoadError'));
       // The retry routes through the page's ONE tracked refresh, so pressing it is a real way back.
       expect(banner!.find('button').text()).toBe(i18n.t('reading.surveyRetry'));
@@ -3206,35 +3219,73 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       expect(postponeButtons(row).length).toBe(1);
     });
 
+  // ONE FAILURE, ONE NOTICE — the owner ruling itself, asserted directly rather than inferred from the
+  // per-case wording tests above. All three counts are page-wide on the mount where the page has the MOST
+  // to say (the survey really was taken away AND the history really did fail), which is exactly the state
+  // that used to render two of each.
+  it('F4.4: one failed fetch renders one banner, one retry and one assertive region — never two',
+    async () => {
+      const w = await mountWater({ readingsFails: true });
+      // Positive control: the failure is live and the page is speaking, so the `toBe(1)`s below are a
+      // single notice rather than a page that rendered nothing at all.
+      expect(readingsErrorBanner(w)!.attributes('data-description')).toBe(i18n.t('reading.surveyLoadError'));
+      expect(w.findAll('.mp-detail__readings-error').length).toBe(1);
+      expect(retryButtons(w).length).toBe(1);
+      // The `announce` prop is what becomes `role="alert" aria-live="assertive"` on the real UiAlert, so
+      // counting the alerts that ASK to interrupt is counting the interruptions a screen reader gets.
+      expect(w.findAll('.detail-alert').filter((a) => a.attributes('data-announce') === 'true').length)
+        .toBe(1);
+    });
+
   it('F4.3: a catalogue that loaded says nothing — the check is on offer, so nothing was taken away',
     async () => {
       const w = await mountWater();
       // Positive control: the survey button IS there, so this mount is the "nothing to explain" world and
       // not a mount that silently failed to render the row at all.
       expect(evaluateButtons(taskRowFor(w, 'WATER')).length).toBe(1);
-      expect(surveyErrorBanner(w)).toBeUndefined();
+      expect(readingsErrorBanner(w)).toBeUndefined();
+      expect(retryButtons(w).length).toBe(0);
     });
 
   it('F4.3: an owner with NO instrument is never told we could not load instruments he does not have',
     async () => {
       const w = await mountWater({ readingsFails: true, ownerInstruments: [] });
-      // Positive control: the failure really is active on this mount — the history banner is rendered.
-      expect(w.findAll('.detail-alert')
-        .some((a) => a.attributes('data-description') === i18n.t('reading.historyLoadError'))).toBe(true);
+      // He IS told about the history — that fact is true for him and he did lose it. Positive control and
+      // subject in one: the notice exists, so the assertion below is about which sentence it chose.
+      expect(readingsErrorBanner(w)!.attributes('data-description'))
+        .toBe(i18n.t('reading.historyLoadError'));
       // The row is byte-identical to its pre-survey shape (TaskRow's own `canSurvey: false` contract), so
-      // NOTHING was taken away from this owner and there is nothing to explain.
+      // NOTHING was taken away from this owner and the survey wording would be a lie.
       expect(evaluateButtons(taskRowFor(w, 'WATER')).length).toBe(0);
-      expect(surveyErrorBanner(w)).toBeUndefined();
+      expect(w.findAll('.detail-alert')
+        .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
     });
 
-  it('F4.3: a plant already watered today is not told the check failed — it had closed anyway',
-    async () => {
-      const w = await mountWater({ readingsFails: true, wateredToday: true });
-      // Positive control: the failure is active here too.
-      expect(w.findAll('.detail-alert')
-        .some((a) => a.attributes('data-description') === i18n.t('reading.historyLoadError'))).toBe(true);
-      expect(surveyErrorBanner(w)).toBeUndefined();
-    });
+  // FIX 5 (owner ruling, 2026-08-15) — the card's own escape hatch survives a READ failure. W1 withdrew
+  // this button on the same flag that withdrew the list, which told the owner his readings were safe and
+  // took away his way to add to them in the same breath.
+  it('F5: "Agregar lectura" stays on offer when the READ failed — and the dialog still refuses to open '
+    + 'onto a catalogue it does not have', async () => {
+    const w = await mountWater({ readingsFails: true });
+    const addBtn = w.findAll('button').find((b) => b.text() === i18n.t('reading.addReading'));
+    expect(addBtn).toBeTruthy();
+    await addBtn!.trigger('click');
+    await flushPromises();
+    // The refresh this page's stub performs cannot recover the payload (the stubbed `refresh` is a no-op
+    // and `readings` stays null), which is the "it failed again" branch — so no dialog, rather than a
+    // dialog on the "you have no instruments" lie. POSITIVE CONTROL below proves the same click DOES open
+    // it once there is a catalogue, so this `false` is the guard and not a click that never landed.
+    expect(w.findComponent({ name: 'UiSoilReadingModal' }).props('open')).toBe(false);
+  });
+
+  it('F5 (positive control): the same button opens the dialog when the catalogue IS in hand', async () => {
+    const w = await mountWater();
+    const addBtn = w.findAll('button').find((b) => b.text() === i18n.t('reading.addReading'));
+    expect(addBtn).toBeTruthy();
+    await addBtn!.trigger('click');
+    await flushPromises();
+    expect(w.findComponent({ name: 'UiSoilReadingModal' }).props('open')).toBe(true);
+  });
 
   it('W1: a catalogue we DO hold changes neither — the survey is offered and the reading stays addable',
     async () => {

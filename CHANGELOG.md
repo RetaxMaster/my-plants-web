@@ -23,6 +23,7 @@ All notable, user-facing changes to the MyPlants web app. Newest first.
 
 ### Fixed
 
+- **When a repot you record does not move the soil clock, the app says so.** The date the app tracks as "when this pot was last filled" only ever moves forward now. If you log a repot you had forgotten — dated before one already recorded — the event is still saved to the plant's history, and the notice under the task tells you the soil clock stays where the more recent repot put it, naming that date. Previously this happened silently: the clock jumped backwards, and every soil reading taken from the older date onwards was quietly withdrawn along with it.
 - **Readings that failed to refresh are no longer silent.** Previously an empty catch handler swallowed refresh failures entirely — an owner who had recorded a reading on another device would see a silently stale list with nothing to signal the problem or offer a retry. The failure is now visible and retryable on the card itself.
 
 ## Unreleased — Measure your soil moisture, and your plant's care explains itself

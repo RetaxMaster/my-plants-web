@@ -17,7 +17,7 @@ import type {
   ClinicalRecordSummary, ClinicalRecordDetail,
   RepotSign, RepotSignsResponse, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload,
   OwnerInstruments, PlantSoilReadings, CreateSoilReading, InstrumentCalibration, SoilReadingPreview,
-  CareWriteResult,
+  CareWriteResult, RepotDoneResult,
 } from '../types/api.js';
 
 // Bounded wait for the two REPOT mutating submits (round-4 finding V2): a plain JSON POST via ofetch has NO
@@ -351,9 +351,14 @@ export function useApi() {
         timeout: REPOT_SUBMIT_TIMEOUT_MS,
       }),
 
-    /** A REPOT completion. Same stable-key discipline as the evaluation submit. */
+    /** A REPOT completion. Same stable-key discipline as the evaluation submit.
+     *
+     *  Answers with `RepotDoneResult`, not the plain `CareWriteResult` every other care write returns: a
+     *  completion also reports what the SUBSTRATE CLOCK did (`substrate`), because that clock only ever
+     *  moves forward and a completion dated before the stored anchor leaves it standing. The two outcomes
+     *  are independent — see `SubstrateAnchorOutcome`. */
     completeRepot: (plantId: string, occurredOn: string, payload: RepotDonePayload, idempotencyKey: string) =>
-      api<CareWriteResult>(`/plants/${plantId}/feedback`, {
+      api<RepotDoneResult>(`/plants/${plantId}/feedback`, {
         method: 'POST',
         body: { task: 'REPOT', type: 'DONE', occurredOn, payload },
         headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },

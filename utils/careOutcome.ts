@@ -1,4 +1,4 @@
-import type { CareWriteOutcome } from '../types/api.js';
+import type { CareWriteOutcome, SubstrateAnchorOutcome } from '../types/api.js';
 
 /**
  * WHICH SENTENCE A ONE-PER-DAY OUTCOME EARNS (spec §3.2, consumer 1) — decided ONCE, for both renderers.
@@ -62,4 +62,36 @@ export function careOutcomeNoteKey(
   // dedup at all and can never reach this branch — misting twice on a hot day is a genuine second event
   // (owner decision 7).
   return 'tasks.alreadyRecorded.neutral';
+}
+
+/**
+ * ---- THE SUBSTRATE CLOCK'S OWN SENTENCE (owner ruling, 2026-08-14; API finding E8) -------------------
+ *
+ * The substrate anchor — the day the app tracks as "when this pot was last filled" — only ever moves
+ * FORWARD. A repot completion dated strictly BEFORE the stored anchor is still recorded as a real event
+ * (the owner logged something that happened), but the clock stays where the newer repot put it and no
+ * calibrated reading is retracted. That refusal is invisible in the write's other outcome, so it earns its
+ * own sentence.
+ *
+ * ⚠️ A SECOND, INDEPENDENT NOTE — NOT a replacement for `careOutcomeNoteKey`'s. Both can be true at once,
+ * and the case where they are is the sharpest one this fix exists for: a same-day DUPLICATE completion
+ * naming an older day is `already-recorded-on-day` AND anchor-kept (the API measured that combination
+ * dragging the clock 197 days backwards). Rendering only one of the two tells the owner half of what
+ * happened, so both callers render both, in the one notice zone they already have.
+ *
+ * `null` means "say nothing": a `refreshed` anchor is an ordinary success, and an ABSENT `substrate` is an
+ * API that did not state the fact (a rolling deploy) — never invent a sentence about either.
+ *
+ * Returns the surviving anchor as a RAW `YYYY-MM-DD`, deliberately unformatted: the caller formats it at
+ * RENDER time with the live locale (`$d(ymdToLocalDate(day), 'short')`, the same way every other date on
+ * these surfaces is rendered), so a locale switch after the submit re-renders the date instead of freezing
+ * it in the language that was active when the request returned.
+ */
+export const SUBSTRATE_ANCHOR_KEPT_KEY = 'tasks.substrateAnchorKept';
+
+export function substrateAnchorKeptDay(
+  substrate: SubstrateAnchorOutcome | undefined,
+): string | null {
+  if (!substrate || substrate.status !== 'kept') return null;
+  return substrate.refreshedOn;
 }

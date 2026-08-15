@@ -3,7 +3,7 @@ import { groupByPlant, orderTasksForCard, dueState, type DueTask } from '../util
 // Task 10 — the one-per-day outcome sentence, decided ONCE and shared with PlantDetail.vue (Task 8's own
 // rule): never a second, per-renderer copy of "which sentence does this outcome earn".
 import {
-  careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay, SUBSTRATE_ANCHOR_KEPT_KEY,
+  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
@@ -382,12 +382,14 @@ function outcomeNoteFor(plantId: string, task: DueTask['task']): string | null {
 // combination is the case this fix exists for. Shared by the per-row renderer and the page-level standalone
 // notice below, so the two can never come to render a different pair. `$d(..., 'short')` is how every other
 // date in this app is rendered.
+//
+// F13 — the combining RULE itself (order, separator, and which date the anchor sentence gets) now lives in
+// `careOutcomeNoteText`, because a THIRD surface reaches this same outcome: the owner approving a repot an
+// AGENT proposed (`components/AgentChat.vue`). Two private copies were already one too many; three is the
+// parallel-per-surface class this project calls its highest-yield bug. This wrapper stays because the local
+// `t`/`d` bindings are what make it re-resolve at render time.
 function noteTextFor(noteKey: string | null, anchorDay: string | null): string | null {
-  const parts = [
-    noteKey ? t(noteKey) : null,
-    anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: d(ymdToLocalDate(anchorDay), 'short') }) : null,
-  ].filter((part): part is string => !!part);
-  return parts.length ? parts.join(' ') : null;
+  return careOutcomeNoteText(noteKey, anchorDay, t, (day) => d(ymdToLocalDate(day), 'short'));
 }
 
 // code review AF-23 — a note recorded by `recordOutcome` is rendered as a PROP on the `UiTaskRow` that

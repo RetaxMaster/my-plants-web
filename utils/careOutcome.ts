@@ -86,6 +86,12 @@ export function careOutcomeNoteKey(
  * RENDER time with the live locale (`$d(ymdToLocalDate(day), 'short')`, the same way every other date on
  * these surfaces is rendered), so a locale switch after the submit re-renders the date instead of freezing
  * it in the language that was active when the request returned.
+ *
+ * `SUBSTRATE_ANCHOR_KEPT_KEY` STAYS EXPORTED even though `careOutcomeNoteText` below is now its only
+ * caller (F13 collapsed the three surfaces' private copies onto that one combiner). It is the app's single
+ * NAME for this sentence, and a grep for the key has to land on a declaration rather than on a string
+ * buried inside a function body — the same reason `AgentChat.vue` spells its `OUTCOME_SUMMARY_KEYS` out
+ * instead of building them from a template literal. It is not dead: un-exporting it would only hide it.
  */
 export const SUBSTRATE_ANCHOR_KEPT_KEY = 'tasks.substrateAnchorKept';
 
@@ -94,4 +100,45 @@ export function substrateAnchorKeptDay(
 ): string | null {
   if (!substrate || substrate.status !== 'kept') return null;
   return substrate.refreshedOn;
+}
+
+/**
+ * THE ONE PLACE THE TWO SENTENCES ARE COMBINED — for all THREE surfaces that can produce them.
+ *
+ * Both notes are independent facts and both can be true at once (see `substrateAnchorKeptDay` above for
+ * the case that pairing exists for), so every surface has to render "the one, the other, both, or
+ * nothing". That is a rule, not a formatting detail: the order the owner reads them in, the separator,
+ * and — most of all — WHICH DATE goes into the anchor sentence.
+ *
+ * It lives here because there are now THREE callers, not two: Today (`pages/index.vue`), the plant page
+ * (`components/PlantDetail.vue`), and the agent proposal-approval surface (`components/AgentChat.vue`),
+ * which reached the same outcome by a different route — the owner approving a repot an AGENT proposed. The
+ * first two had a copy each; a third copy is exactly the parallel-per-surface drift this project names as
+ * its highest-yield bug class, and it is also how the agent path came to answer this question with SILENCE
+ * while the owner's own path answered it with a sentence.
+ *
+ * ⚠️ THE DATE IS ALWAYS THE SURVIVING ANCHOR, never the day the completion asked for. `refreshedOn` on a
+ * `kept` outcome IS the surviving one (the shared contract says so at the declaration) — which is why this
+ * function takes the already-extracted day from `substrateAnchorKeptDay` rather than the raw outcome: there
+ * is one place that picks the date, and it cannot pick the other one.
+ *
+ * `t` and `formatDay` are INJECTED rather than imported: this is a plain util with no Vue/i18n context of
+ * its own, and each caller already holds its own `useI18n()` binding. `formatDay` is `$d(ymdToLocalDate(d),
+ * 'short')` at every call site — resolved at RENDER time, so a locale switch after the submit re-formats
+ * the date instead of freezing it in the language that was active when the request returned.
+ *
+ * `null` means "render no notice at all" — which is what an absent `substrate` and an ordinary `applied`
+ * outcome both legitimately produce.
+ */
+export function careOutcomeNoteText(
+  noteKey: string | null,
+  anchorDay: string | null,
+  t: (key: string, named?: Record<string, unknown>) => string,
+  formatDay: (day: string) => string,
+): string | null {
+  const parts = [
+    noteKey ? t(noteKey) : null,
+    anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: formatDay(anchorDay) }) : null,
+  ].filter((part): part is string => !!part);
+  return parts.length ? parts.join(' ') : null;
 }

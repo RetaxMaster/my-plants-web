@@ -2,8 +2,10 @@
 import { groupByPlant, orderTasksForCard, dueState, type DueTask } from '../utils/tasks.js';
 // Task 10 — the one-per-day outcome sentence, decided ONCE and shared with PlantDetail.vue (Task 8's own
 // rule): never a second, per-renderer copy of "which sentence does this outcome earn".
-import { careOutcomeNoteKey, doneSubmitPath } from '../utils/careOutcome.js';
-import { todayYmd, addDaysYmd } from '../utils/localDate.js';
+import {
+  careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay, SUBSTRATE_ANCHOR_KEPT_KEY,
+} from '../utils/careOutcome.js';
+import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
 // One implementation of "which pending evaluation may an action name" and of "which sign is worth
 // suggesting next", shared with PlantDetail.vue — never a second copy in each renderer.
@@ -22,7 +24,7 @@ import {
 } from '../composables/useRepotAttempt';
 import type {
   Plant, RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload, PendingRepotEvaluation,
-  PlantSoilReadings, CareWriteResult,
+  PlantSoilReadings, RepotDoneResult,
 } from '../types/api.js';
 
 const { t, d, locale } = useI18n();
@@ -338,6 +340,13 @@ function canSurveyWaterFor(plantId: string): boolean {
 // rest of the UI switched and this one sentence didn't. `outcomeNoteFor` below re-resolves the key through
 // `t()` on every render, so a locale switch re-renders it like every other piece of UI copy.
 const outcomeNotes = ref<Record<string, string | null>>({});
+// The substrate clock's own outcome, keyed identically and stored the SAME way: the RAW `YYYY-MM-DD` of the
+// surviving anchor, never a formatted string — `outcomeNoteFor` renders it through `$d` on every render, so
+// a locale switch re-formats the date instead of freezing it (owner ruling, 2026-08-14; API finding E8). A
+// SECOND record rather than a field on the first, because the two notes are independent facts: a completion
+// can be `already-recorded-on-day` AND have left the clock standing, which is exactly the case the API
+// measured dragging the anchor 197 days backwards.
+const anchorKeptDays = ref<Record<string, string | null>>({});
 const appliedCompletions = ref<Record<string, number>>({});
 const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${task}`;
 
@@ -350,10 +359,13 @@ const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${tas
 // `{ ok: true }` and nothing else — so reading `.status` off it would throw here, inside `sendDone`,
 // before `refresh()`. The card would never reconcile and the press would read as a dead button over a
 // write the server actually performed.
-function recordOutcome(plantId: string, task: DueTask['task'], result: CareWriteResult, occurredOn?: string) {
+function recordOutcome(plantId: string, task: DueTask['task'], result: RepotDoneResult, occurredOn?: string) {
   const k = outcomeKey(plantId, task);
   const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today()));
   outcomeNotes.value = { ...outcomeNotes.value, [k]: key };
+  // Absent on every non-REPOT write, and on a REPOT whose clock really did move — `substrateAnchorKeptDay`
+  // answers null for both, which is what makes this one line safe to run unconditionally.
+  anchorKeptDays.value = { ...anchorKeptDays.value, [k]: substrateAnchorKeptDay(result.substrate) };
   if (result.outcome?.status === 'applied') {
     appliedCompletions.value = { ...appliedCompletions.value, [k]: (appliedCompletions.value[k] ?? 0) + 1 };
   }
@@ -362,8 +374,20 @@ function recordOutcome(plantId: string, task: DueTask['task'], result: CareWrite
 // Resolves the stored KEY through `t()` at RENDER time (called from the template below), so a locale
 // switch after a submit re-renders the sentence in the new language instead of freezing it in the old one.
 function outcomeNoteFor(plantId: string, task: DueTask['task']): string | null {
-  const key = outcomeNotes.value[outcomeKey(plantId, task)] ?? null;
-  return key ? t(key) : null;
+  const k = outcomeKey(plantId, task);
+  return noteTextFor(outcomeNotes.value[k] ?? null, anchorKeptDays.value[k] ?? null);
+}
+
+// BOTH sentences, in the one notice zone, when both are true — see `anchorKeptDays` above for why that
+// combination is the case this fix exists for. Shared by the per-row renderer and the page-level standalone
+// notice below, so the two can never come to render a different pair. `$d(..., 'short')` is how every other
+// date in this app is rendered.
+function noteTextFor(noteKey: string | null, anchorDay: string | null): string | null {
+  const parts = [
+    noteKey ? t(noteKey) : null,
+    anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: d(ymdToLocalDate(anchorDay), 'short') }) : null,
+  ].filter((part): part is string => !!part);
+  return parts.length ? parts.join(' ') : null;
 }
 
 // code review AF-23 — a note recorded by `recordOutcome` is rendered as a PROP on the `UiTaskRow` that
@@ -382,15 +406,29 @@ function outcomeNoteFor(plantId: string, task: DueTask['task']): string | null {
 // than inventing a second shape. It reuses the EXISTING `tasks.alreadyRecorded.*` keys verbatim — no new
 // copy, no new sentence — `outcomeNoteFor`'s per-row rendering is UNCHANGED for the (more common) case
 // where the row does survive.
-const standaloneOutcomeNotes = ref<{ key: string; noteKey: string }[]>([]);
+//
+// A promoted note carries the ANCHOR half too (owner ruling, 2026-08-14; API finding E8), and it must: the
+// case where the clock refused to move is a duplicate REPOT naming an older day, and a duplicate is
+// PRECISELY the case whose row is gone by the next fetch. Promoting only the `alreadyRecorded` half would
+// drop the one sentence the owner needed, on the one path he was guaranteed to take. A note is promoted
+// when EITHER half exists — never only when the first does.
+const standaloneOutcomeNotes = ref<{ key: string; noteKey: string | null; anchorDay: string | null }[]>([]);
 
 function reconcileOutcomeNotesAfterRefresh() {
   const live = new Set((tasks.value ?? []).map((entry) => outcomeKey(entry.plantId, entry.task)));
   const kept = standaloneOutcomeNotes.value.filter((n) => !live.has(n.key));
   const keptKeys = new Set(kept.map((n) => n.key));
-  const added = Object.entries(outcomeNotes.value)
-    .filter((entry): entry is [string, string] => !!entry[1] && !live.has(entry[0]) && !keptKeys.has(entry[0]))
-    .map(([key, noteKey]) => ({ key, noteKey }));
+  // The union of both maps' keys: a back-dated completion that was `applied` records NO `alreadyRecorded`
+  // note at all, so iterating `outcomeNotes` alone would never see its anchor sentence.
+  const candidates = new Set([...Object.keys(outcomeNotes.value), ...Object.keys(anchorKeptDays.value)]);
+  const added = [...candidates]
+    .filter((key) => !live.has(key) && !keptKeys.has(key))
+    .map((key) => ({
+      key,
+      noteKey: outcomeNotes.value[key] ?? null,
+      anchorDay: anchorKeptDays.value[key] ?? null,
+    }))
+    .filter((n) => !!n.noteKey || !!n.anchorDay);
   standaloneOutcomeNotes.value = added.length || kept.length !== standaloneOutcomeNotes.value.length
     ? [...kept, ...added]
     : standaloneOutcomeNotes.value;
@@ -988,7 +1026,7 @@ function openProgress(plantId: string) {
         class="mp-today__standalone-note"
         aria-live="polite"
       >
-        <span>{{ $t(n.noteKey) }}</span>
+        <span>{{ noteTextFor(n.noteKey, n.anchorDay) }}</span>
         <button
           type="button"
           class="mp-today__standalone-note-dismiss"

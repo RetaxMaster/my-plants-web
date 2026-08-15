@@ -32,7 +32,7 @@ import { __resetRepotAttemptStoresForTests } from '../composables/useRepotAttemp
 // Task 28 — several `UiRepotDoneForm` stubs below mimic the REAL component's own default (`seedOccurredOn
 // || todayYmd()`, see components/ui/RepotDoneForm.vue), never a second ad-hoc "today" computation of their
 // own (the project's "no new forks" rule).
-import { todayYmd } from '../utils/localDate.js';
+import { todayYmd, ymdToLocalDate } from '../utils/localDate.js';
 import type { TodaysVerdict } from '../utils/waterSurvey.js';
 import type { CareWriteResult } from '../types/api.js';
 // The REAL row (spec §5.1) — imported directly and swapped in as the `UiTaskRow` stub value for the five
@@ -1048,6 +1048,58 @@ describe('PlantDetail — AF-20: a duplicate REPOT whose otherEffectsApplied is 
     const note = w.find('.mp-taskrow__outcome-note').text();
     expect(note).toBe(i18n.t('tasks.alreadyRecorded.otherEffectsApplied'));
     expect(note).not.toBe(i18n.t('tasks.alreadyRecorded.neutral'));
+  });
+
+  // ---- THE SUBSTRATE CLOCK REFUSED TO MOVE (owner ruling, 2026-08-14; API finding E8) -----------------
+  //
+  // The API's `substrate` outcome is a SECOND, independent fact. The case below is the exact one measured
+  // against real MariaDB: a duplicate completion naming an older day, which is BOTH
+  // `already-recorded-on-day` AND an anchor that stayed put. The owner must read both, in the one notice
+  // zone this page already has.
+  it('renders the anchor-kept sentence ALONGSIDE the already-recorded one, with the surviving date', async () => {
+    const completeRepotMock = vi.fn(async () => ({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: '2026-08-14',
+        otherEffectsApplied: true,
+      },
+      substrate: { status: 'kept', refreshedOn: '2026-08-11' },
+    }));
+    const w = await mountRepotOutcome(completeRepotMock);
+
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+
+    const note = w.find('.mp-taskrow__outcome-note').text();
+    // BOTH, never one instead of the other.
+    expect(note).toContain(i18n.t('tasks.alreadyRecorded.otherEffectsApplied'));
+    // The date is the SURVIVING anchor, interpolated — never concatenated, and never the day submitted.
+    // `d` is stubbed to `String(v)` in this file, so the expected string is built through the SAME shared
+    // `ymdToLocalDate` helper the component uses rather than a second parse of its own.
+    expect(note).toContain(
+      i18n.t('tasks.substrateAnchorKept', { date: String(ymdToLocalDate('2026-08-11')) }),
+    );
+  });
+
+  it('says NOTHING about the clock when the anchor really moved — a refreshed outcome is an ordinary success', async () => {
+    const completeRepotMock = vi.fn(async () => ({
+      ok: true,
+      outcome: { status: 'applied' },
+      substrate: { status: 'refreshed', refreshedOn: '2026-08-14' },
+    }));
+    const w = await mountRepotOutcome(completeRepotMock);
+
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+
+    // POSITIVE CONTROL for this absence: the confirm really was submitted, so the empty note is a decision
+    // rather than a flow that never ran.
+    expect(completeRepotMock).toHaveBeenCalled();
+    expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
   });
 });
 

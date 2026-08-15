@@ -77,7 +77,8 @@
       "applied": "{count} applied | {count} applied",
       "partial": "{count} partial | {count} partial",
       "alreadyRecorded": "{count} already recorded | {count} already recorded"
-    }
+    },
+    "substrateAnchorKept": "The event was saved, but the soil clock stays at {date} (there is a more recent repot)."
   },
   "taskInfo": {
     "aria": "About this task",

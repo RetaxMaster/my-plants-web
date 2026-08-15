@@ -11,7 +11,9 @@ import { onUnmounted } from 'vue';
 import { orderTasksForCard, type TaskCode, type DueState } from '../utils/tasks.js';
 // Task 10 — the one-per-day outcome sentence, decided ONCE and shared with pages/index.vue (Task 8's own
 // rule): never a second, per-renderer copy of "which sentence does this outcome earn".
-import { careOutcomeNoteKey, doneSubmitPath } from '../utils/careOutcome.js';
+import {
+  careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay, SUBSTRATE_ANCHOR_KEPT_KEY,
+} from '../utils/careOutcome.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 import { repotExplanation } from '../utils/repotExplanation.js';
@@ -33,7 +35,7 @@ import {
 } from '../composables/useRepotAttempt';
 import type {
   RepotSign, RepotEvaluationSubmit, RepotEvaluationResult, RepotDonePayload, PlantSoilReadings,
-  CareWriteResult,
+  RepotDoneResult,
 } from '../types/api.js';
 
 const props = defineProps<{ id: string }>();
@@ -868,6 +870,12 @@ const today = () => todayYmd();
 // language while the rest of the UI switches. `outcomeNoteFor` below re-resolves the key through `t()` on
 // every render instead.
 const outcomeNotes = ref<Partial<Record<TaskCode, string | null>>>({});
+// The substrate clock's own outcome, stored the SAME way and for the same reason: the RAW `YYYY-MM-DD` of
+// the surviving anchor, never a formatted string — `outcomeNoteFor` renders it through `$d` on every render,
+// so a locale switch re-formats the date instead of freezing it (owner ruling, 2026-08-14; API finding E8).
+// A SECOND record rather than a field on the first, because the two notes are independent facts with
+// independent lifetimes: a completion can be `already-recorded-on-day` AND leave the clock standing.
+const anchorKeptDays = ref<Partial<Record<TaskCode, string | null>>>({});
 const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
 
 // ⚠️ THE RESET IS KEYED TO AN *APPLIED* OUTCOME AND NOTHING ELSE (spec §2.4/§3.2). Bumping the counter on
@@ -880,9 +888,12 @@ const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
 // batch — so the row would never reconcile and the press would read as a dead button over a write the
 // server actually performed. Absent outcome ⇒ no sentence and no bump, which is exactly what the two
 // rules above already state.
-function recordOutcome(task: TaskCode, result: CareWriteResult, occurredOn?: string) {
+function recordOutcome(task: TaskCode, result: RepotDoneResult, occurredOn?: string) {
   const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today()));
   outcomeNotes.value = { ...outcomeNotes.value, [task]: key };
+  // Absent on every non-REPOT write, and on a REPOT whose clock really did move — `substrateAnchorKeptDay`
+  // answers null for both, which is what makes this one line safe to run unconditionally.
+  anchorKeptDays.value = { ...anchorKeptDays.value, [task]: substrateAnchorKeptDay(result.substrate) };
   if (result.outcome?.status === 'applied') {
     appliedCompletions.value = {
       ...appliedCompletions.value,
@@ -895,7 +906,15 @@ function recordOutcome(task: TaskCode, result: CareWriteResult, occurredOn?: str
 // switch after a submit re-renders the sentence in the new language instead of freezing it in the old one.
 function outcomeNoteFor(task: TaskCode): string | null {
   const key = outcomeNotes.value[task] ?? null;
-  return key ? t(key) : null;
+  const anchorDay = anchorKeptDays.value[task] ?? null;
+  // BOTH sentences, in the one notice zone, when both are true — the 197-day case the API measured is
+  // exactly a duplicate that ALSO left the clock standing, and rendering only one of the two would tell
+  // the owner half of what happened. `$d(..., 'short')` is how every other date on this page is rendered.
+  const parts = [
+    key ? t(key) : null,
+    anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: d(ymdToLocalDate(anchorDay), 'short') }) : null,
+  ].filter((part): part is string => !!part);
+  return parts.length ? parts.join(' ') : null;
 }
 
 // The care endpoint returns { daysUntilDue, status }; map it to the shared DueState

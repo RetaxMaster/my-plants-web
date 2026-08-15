@@ -325,6 +325,36 @@ export interface RepotDonePayload {
   evaluationId?: string;
 }
 
+/**
+ * WHAT THE SUBSTRATE CLOCK DID — the second, INDEPENDENT outcome a REPOT completion answers with.
+ *
+ * The substrate anchor (`plants.substrate_refreshed_on` — "when this pot was last filled") only ever moves
+ * FORWARD (owner ruling, 2026-08-14; API finding E8). A completion dated strictly BEFORE the stored anchor
+ * is still recorded as a real event, but the clock stays where the newer repot put it and no calibrated
+ * reading is retracted — so the response has to say which of the two happened, or the owner cannot tell a
+ * write from a refusal.
+ *
+ * ⚠️ INDEPENDENT OF `CareWriteOutcome`, never derived from it. A submission can be BOTH
+ * `already-recorded-on-day` AND anchor-`kept` — that combination is exactly the case the API measured
+ * (a duplicate that dragged the clock 197 days backwards). Read the two separately; never infer one from
+ * the other.
+ *
+ * `refreshedOn` is a `YYYY-MM-DD` calendar day. On `kept` it is the SURVIVING, newer anchor — the date the
+ * owner-facing notice interpolates.
+ *
+ * Declared here rather than imported from `@retaxmaster/my-plants-species-schema` (unlike `CareWriteOutcome`
+ * a few types up) for ONE reason, and it is a scheduling one, not a design one: adding it to the shared
+ * package repacks a tarball five repos pin by integrity hash, which cannot be done while other branches of
+ * this wave are in flight. Its proper home is `care-outcome.ts`, beside `CareWriteResult`.
+ */
+export interface SubstrateAnchorOutcome {
+  status: 'refreshed' | 'kept';
+  refreshedOn: string;
+}
+
+/** A REPOT completion's response: the shared care-write result PLUS the substrate clock's own outcome. */
+export type RepotDoneResult = CareWriteResult & { substrate?: SubstrateAnchorOutcome };
+
 export interface PlantCareTask {
   task: TaskCode;
   nextDueOn: string;        // YYYY-MM-DD

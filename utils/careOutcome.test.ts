@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { careOutcomeNoteKey, doneSubmitPath } from './careOutcome.js';
-import type { CareWriteOutcome } from '../types/api.js';
+import { careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay } from './careOutcome.js';
+import type { CareWriteOutcome, SubstrateAnchorOutcome } from '../types/api.js';
 
 const applied: CareWriteOutcome = { status: 'applied' };
 const already = (
@@ -78,5 +78,33 @@ describe('doneSubmitPath', () => {
 
   it('reads any other day as back-dated', () => {
     expect(doneSubmitPath('2026-08-12', '2026-08-14')).toBe('back-dated');
+  });
+});
+
+// ---- THE SUBSTRATE CLOCK'S OWN OUTCOME (owner ruling, 2026-08-14; API finding E8) --------------------
+//
+// A SECOND, independent fact from the one-per-day outcome above — the two are never derived from each
+// other, and the case this fix exists for is the one where both are true at once.
+describe('substrateAnchorKeptDay', () => {
+  const kept: SubstrateAnchorOutcome = { status: 'kept', refreshedOn: '2026-08-11' };
+  const refreshed: SubstrateAnchorOutcome = { status: 'refreshed', refreshedOn: '2026-08-14' };
+
+  it('returns the SURVIVING anchor when the clock refused to move', () => {
+    expect(substrateAnchorKeptDay(kept)).toBe('2026-08-11');
+  });
+
+  it('says nothing when the clock really moved — an ordinary success needs no sentence', () => {
+    expect(substrateAnchorKeptDay(refreshed)).toBeNull();
+  });
+
+  it('says nothing when the server stated no substrate outcome at all (an older API mid rolling deploy)', () => {
+    expect(substrateAnchorKeptDay(undefined)).toBeNull();
+    // POSITIVE CONTROL for the two nulls above: the same function does return a day when there is one, so
+    // these are decisions rather than a function that can only ever answer null.
+    expect(substrateAnchorKeptDay(kept)).not.toBeNull();
+  });
+
+  it('returns a RAW YYYY-MM-DD — formatting is the renderer\'s job, at render time, in the live locale', () => {
+    expect(substrateAnchorKeptDay(kept)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

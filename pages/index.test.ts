@@ -19,7 +19,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
-import type { CareWriteResult, PlantSoilReadings, RepotEvaluationResult, RepotSign } from '../types/api.js';
+import type { CareWriteResult, PlantSoilReadings, RepotDoneResult, RepotEvaluationResult, RepotSign } from '../types/api.js';
 import type { TodaysVerdict } from '../utils/waterSurvey.js';
 // Task 10: names "today" the same way the page itself does (`utils/localDate.js`'s `todayYmd()`), so the
 // fixture's `occurredOn` genuinely lands on the SAME-DAY path rather than an accidental back-dated one.
@@ -122,7 +122,9 @@ let getRepotSignsMock: ReturnType<typeof vi.fn>;
 let submitDeferreds: Record<string, ReturnType<typeof deferred<RepotEvaluationResult>>>;
 let submitRepotEvaluationMock: ReturnType<typeof vi.fn>;
 let getPlantMock: ReturnType<typeof vi.fn>;
-let completeRepotDeferreds: Record<string, ReturnType<typeof deferred<CareWriteResult>>>;
+// `RepotDoneResult`, not `CareWriteResult`: a REPOT completion also reports what the substrate clock did
+// (owner ruling, 2026-08-14; API finding E8), and the fixtures below carry that second outcome.
+let completeRepotDeferreds: Record<string, ReturnType<typeof deferred<RepotDoneResult>>>;
 let completeRepotMock: ReturnType<typeof vi.fn>;
 // Plan 3 T5: the WATER survey's own two api calls. Defaulted to "the owner selected nothing" / "an empty
 // per-plant reading catalogue" so every PRE-EXISTING (REPOT-focused) test in this file — which never touches
@@ -143,7 +145,7 @@ beforeEach(() => {
   // at the top of its own `it`.
   tasksFixture = repotTasks(RESOLVED);
   submitDeferreds = { A: deferred<RepotEvaluationResult>(), B: deferred<RepotEvaluationResult>() };
-  completeRepotDeferreds = { A: deferred<CareWriteResult>(), B: deferred<CareWriteResult>() };
+  completeRepotDeferreds = { A: deferred<RepotDoneResult>(), B: deferred<RepotDoneResult>() };
   getRepotSignsMock = vi.fn(async () => ({ signs: [] as RepotSign[] }));
   submitRepotEvaluationMock = vi.fn(async (plantId: string) => submitDeferreds[plantId].promise);
   getPlantMock = vi.fn(async (plantId: string) => ({ profile: PLANT_PROFILES[plantId] }));
@@ -1924,5 +1926,86 @@ describe('pages/index.vue — AF-23: an outcome note survives the refresh that r
     // But the note survives, in the page-level notice — the sentence owner decision 9 promises is not
     // silently withdrawn the instant the list catches up.
     expect(w.find('.mp-today__standalone-note').text()).toContain('tasks.alreadyRecorded.fertilizeSameDay');
+  });
+});
+
+// ---- THE SUBSTRATE CLOCK REFUSED TO MOVE (owner ruling, 2026-08-14; API finding E8) -------------------
+//
+// A repot completion dated strictly BEFORE the plant's stored substrate anchor is recorded as an event but
+// leaves the clock — and every calibrated reading depending on it — alone. That refusal travels as a
+// SECOND, independent outcome (`substrate`), and Today has to say it.
+//
+// The AF-23 promotion above is not an optional extra here: the case where the clock refuses to move is a
+// DUPLICATE repot naming an older day, and a duplicate is precisely the row that is gone by the next fetch.
+// So the standalone notice is the surface the owner actually reads this sentence on, every time.
+describe('pages/index.vue — the substrate anchor stayed, and Today says so', () => {
+  it('renders the anchor-kept sentence on the row, alongside the already-recorded one', async () => {
+    tasksFixture = repotTasks(RESOLVED);
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    completeRepotDeferreds.A!.resolve({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
+        otherEffectsApplied: true,
+      },
+      substrate: { status: 'kept', refreshedOn: '2026-08-11' },
+    });
+    await flushPromises();
+    const note = w.find('.mp-taskrow__outcome-note').text();
+    // BOTH facts, never one instead of the other. (`t` is the identity stub in this file, so the assertion
+    // is on the KEYS; `PlantDetail.test.ts` pins the interpolated date against real messages.)
+    expect(note).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+    expect(note).toContain('tasks.substrateAnchorKept');
+  });
+
+  it('promotes the anchor sentence into the page-level notice when the row is gone after the refresh', async () => {
+    tasksFixture = repotTasks(RESOLVED);
+    const todaysTasksMock = vi.fn()
+      .mockResolvedValueOnce(repotTasks(RESOLVED))
+      // The refresh that follows the completion: the REPOT row has moved out of "due today".
+      .mockResolvedValueOnce([]);
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref(await fn());
+      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+    });
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: todaysTasksMock,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
+      sendFeedback: vi.fn(),
+      // Resolved immediately — this case is about what survives the refresh, not about the in-flight race
+      // the deferred harness above exists for.
+      completeRepot: vi.fn(async () => ({
+        ok: true,
+        outcome: {
+          status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
+          otherEffectsApplied: true,
+        },
+        substrate: { status: 'kept', refreshedOn: '2026-08-11' },
+      })),
+    }));
+
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+
+    // The row is genuinely gone — the same shape AF-23 pins.
+    expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
+    const standalone = w.find('.mp-today__standalone-note').text();
+    expect(standalone).toContain('tasks.substrateAnchorKept');
+    // POSITIVE CONTROL: the other half was promoted too, so this is a note carrying BOTH sentences rather
+    // than a promotion that happened to drop one of them.
+    expect(standalone).toContain('tasks.alreadyRecorded.otherEffectsApplied');
   });
 });

@@ -12,7 +12,7 @@ import { parseCommandInput } from '@retaxmaster/agents-realtime-protocol';
 import type { AgentProvider, AgentProviderStatus, CommandDescriptor } from '@retaxmaster/agents-realtime-protocol';
 import type {
   ChatProposalsAdapter, ChatRunsAdapter, ChatSessionsAdapter, AgentProposal,
-  AgentProposalConflictStatus, KnowledgeChatProvider, KnowledgeChatTurn,
+  AgentProposalConflictStatus, CareWriteOutcome, KnowledgeChatProvider, KnowledgeChatTurn,
 } from '../types/api';
 // Explicit, not via Nuxt's `utils/` auto-import: this component is mounted under plain Vitest (no Nuxt
 // module graph), so an auto-imported helper would be `undefined` at runtime in exactly the tests that
@@ -826,42 +826,92 @@ const proposalError = ref<string | null>(null);
 // PlantDetail.vue (F11 fix, 2026-08-14): freezing the translated string at write time would leave this note
 // stuck in the old language after a locale switch. `$t(key)` in the template resolves it at render.
 //
-// The per-operation notes only. The proposal's AGGREGATE status is `approvedOutcomeSummary` below.
+// The per-operation notes only. The proposal's AGGREGATE breakdown is `approvedOutcomeCounts` below.
 const approvedOutcomeNoteKeys = ref<string[]>([]);
 
-// THE AGGREGATE SUMMARY (owner ruling 2026-08-14). The per-operation notes say what happened to each
-// operation; nothing said how much of the proposal as a whole landed. The owner ruled ONE line, shown
-// ONLY when something did not apply:
+// THE AGGREGATE SUMMARY (owner ruling 2026-08-14, REVISED the same day by code-review finding AF-8).
+// The per-operation notes say what happened to each operation; nothing said how much of the proposal as a
+// whole landed. The owner ruled ONE line, shown ONLY when something did not apply — rendered as a
+// THREE-WAY BREAKDOWN of the outcome states:
 //
-//   ALL_APPLIED                 → null. The per-operation ticks already say it, and a line that adds no
-//                                 information is noise in by far the most common case.
-//   PARTIALLY_ALREADY_RECORDED  → "2 of 4 changes were applied".
-//   ALL_ALREADY_RECORDED        → the same shape at zero, "0 of 2 changes were applied". One sentence, not
-//                                 two: the numbers already distinguish the two cases, and a second string
-//                                 would be a second thing to keep translated for no reader benefit.
+//   ⚠ 2 aplicados · 1 parcial · 1 ya registrado
+//   ⚠ 2 applied · 1 partial · 1 already recorded
 //
-// COUNTS, not a pre-built sentence. The line is interpolated at render (`$t(key, { applied, total },
-// total)`) for the same reason `approvedOutcomeNoteKeys` stores keys rather than prose: a sentence frozen
-// at write time is stuck in the old language after a locale switch. It is also why the two numbers are
-// never concatenated into copy here — a sentence assembled from fragments cannot be translated correctly,
-// since word order is the translator's to choose.
+// ⚠️ WHY THREE COUNTS AND NOT TWO NUMBERS — this shape replaces a MEASURED DEFECT, and reverting to
+// "{applied} of {total}" reintroduces both halves of it:
 //
-// `total` doubles as the plural choice so the noun agrees with it: a one-operation proposal that was
-// already recorded must read "0 of 1 change was applied", not "0 of 1 changes".
-const approvedOutcomeSummary = ref<{ applied: number; total: number } | null>(null);
+//  1. THE PARTIAL STATE IS REAL AND WAS BEING MISCOUNTED. The first implementation counted an operation as
+//     applied only for `status === 'applied'`. An `already-recorded-on-day` outcome carrying
+//     `otherEffectsApplied: true` is NEITHER applied nor unapplied: on a duplicate REPOT the care-event
+//     write is suppressed but the profile write, the substrate refresh and the recompute all still run
+//     (the shared contract says so outright — see `care-outcome.ts`, and the API's
+//     `proposal-render.service.ts` warns against exactly this phrasing). So a duplicate REPOT printed
+//     "Se aplicaron 0 de 1 cambio" DIRECTLY ABOVE its own note saying "…pero el resto de la actualización,
+//     como el tamaño de la maceta y la tierra, sí se aplicó". The summary contradicted the sentence beneath
+//     it. Three counted states cannot: every outcome lands in exactly one of them.
+//  2. ONE PLURAL CHOICE CANNOT SATISFY TWO AGREEMENTS. In Spanish the verb agrees with the APPLIED count
+//     while the noun "cambios" agrees with the TOTAL, so `applied=1, total=4` rendered "Se aplicaron 1 de 4
+//     cambios" where correct Spanish is "Se aplicó". vue-i18n offers ONE plural choice per message, so the
+//     sentence was unfixable as written. A bare count plus a participle has a single agreement — which the
+//     plural mechanism CAN express — so each segment simply carries its own count as its own choice.
+//
+// COUNTS, not a pre-built sentence, and one i18n key PER SEGMENT — for the same reason
+// `approvedOutcomeNoteKeys` stores keys rather than prose: a sentence frozen at write time is stuck in the
+// old language after a locale switch. Each segment is a complete, independently pluralised noun phrase the
+// translator owns end to end; only the ⚠ marker and the `·` separator are added by the template, and both
+// are punctuation, not words (the same inline `·` convention `HistoryTimeline.vue` already uses).
+const approvedOutcomeCounts = ref<{ applied: number; partial: number; alreadyRecorded: number } | null>(null);
+
+/** The three states, and their full i18n keys — spelled out rather than built as `outcomeSummary.${kind}`
+ *  so a grep for the key finds this file. Order is the owner's: applied, then partial, then already
+ *  recorded. */
+const OUTCOME_SUMMARY_KEYS = {
+  applied: 'tasks.outcomeSummary.applied',
+  partial: 'tasks.outcomeSummary.partial',
+  alreadyRecorded: 'tasks.outcomeSummary.alreadyRecorded',
+} as const;
+
+/**
+ * Every outcome lands in EXACTLY ONE bucket — which is the whole point (see 1. above). `partial` is keyed
+ * on the contract member `otherEffectsApplied`, never on `task === 'REPOT'`: REPOT is the only task that
+ * carries side effects today, but the member exists precisely so no surface has to hardcode which task that
+ * is. `utils/careOutcome.ts` branches the same way for the same reason.
+ */
+function countOutcomeStates(outcomes: readonly CareWriteOutcome[]) {
+  let applied = 0;
+  let partial = 0;
+  let alreadyRecorded = 0;
+  for (const outcome of outcomes) {
+    if (outcome.status === 'applied') applied += 1;
+    else if (outcome.otherEffectsApplied) partial += 1;
+    else alreadyRecorded += 1;
+  }
+  return { applied, partial, alreadyRecorded };
+}
+
+/** ONLY THE NON-ZERO SEGMENTS (owner requirement): a proposal with nothing partial must not render an
+ *  empty "0 parcial". An empty array renders no line at all, which is also how `null` (ALL_APPLIED, or no
+ *  outcome recorded) reaches the template. */
+const approvedOutcomeSegments = computed(() => {
+  const counts = approvedOutcomeCounts.value;
+  if (!counts) return [];
+  return (['applied', 'partial', 'alreadyRecorded'] as const)
+    .map((kind) => ({ kind, key: OUTCOME_SUMMARY_KEYS[kind], count: counts[kind] }))
+    .filter((segment) => segment.count > 0);
+});
 
 // code review AF-21 — BOTH refs above are cleared here, in ONE watcher, rather than hand-clearing at each
 // call site that reassigns `currentSessionId` (a brand-new session at `:235`, a resumed one at `:248`).
 // Without this, an approved-outcome block from session A survives into session B: the owner approves in
 // A, the note/summary render, he starts (or resumes) a different chat WITHOUT pressing Close on the
 // block, and A's stale sentences keep showing as though they belonged to B. `approvedOutcomeNoteKeys` had
-// this same staleness from the earlier E2 fix — it is not new to `approvedOutcomeSummary` — so both are
+// this same staleness from the earlier E2 fix — it is not new to `approvedOutcomeCounts` — so both are
 // fixed in this one change rather than splitting the parallel-copy fix in two. A watcher (not per-call-site
 // clearing) is deliberate: a future THIRD path that reassigns `currentSessionId` inherits the clear for
 // free instead of needing to remember it.
 watch(currentSessionId, () => {
   approvedOutcomeNoteKeys.value = [];
-  approvedOutcomeSummary.value = null;
+  approvedOutcomeCounts.value = null;
 });
 
 const skipPermissions = ref(false);
@@ -929,7 +979,7 @@ async function approveProposal() {
   proposalBusy.value = true;
   proposalError.value = null;
   approvedOutcomeNoteKeys.value = [];
-  approvedOutcomeSummary.value = null;
+  approvedOutcomeCounts.value = null;
   try {
     // THE RESPONSE — no longer discarded. `outcome` is `null` whenever the proposal genuinely was not
     // applied (a stale/never-reached row); `?? []` in that case renders nothing, which is exactly
@@ -950,15 +1000,12 @@ async function approveProposal() {
         ),
       )
       .filter((key): key is string => key !== null);
-    // Gated on the SERVER's derived `global`, never on a count recomputed here: the shared contract derives
+    // Gated on the SERVER's derived `global`, never on a status recomputed here: the shared contract derives
     // that status once (`deriveProposalOutcomeStatus`) precisely so no surface holds a second answer that
-    // could disagree with it. The counts below are only the numbers the sentence prints.
-    approvedOutcomeSummary.value =
+    // could disagree with it. The counts below are only the numbers the segments print.
+    approvedOutcomeCounts.value =
       result.outcome && result.outcome.global !== 'ALL_APPLIED'
-        ? {
-            applied: perOperation.filter((outcome) => outcome.status === 'applied').length,
-            total: perOperation.length,
-          }
+        ? countOutcomeStates(perOperation)
         : null;
     pendingProposal.value = null;
     dismissedProposalId.value = null;
@@ -975,7 +1022,7 @@ async function approveProposal() {
 /** One dismissal for the whole approved-outcome block — the summary line and the notes it introduces. */
 function dismissApprovedOutcome() {
   approvedOutcomeNoteKeys.value = [];
-  approvedOutcomeSummary.value = null;
+  approvedOutcomeCounts.value = null;
 }
 
 async function declineProposal() {
@@ -1146,12 +1193,27 @@ defineExpose({
     </Teleport>
 
     <!-- The aggregate line, ABOVE the per-operation notes (owner ruling 2026-08-14): the owner reads how
-         much of the proposal landed first, then why. It is absent for `ALL_APPLIED` on purpose — see
-         `approvedOutcomeSummary`. Same `.mp-kchat__note` shape as every other notice in this zone, which
-         already carries the design system's caution tone (`--care-caution-text`); the modifier only lifts
-         the weight so the summary reads as the heading of the list it introduces. -->
-    <p v-if="approvedOutcomeSummary" class="mp-kchat__note mp-kchat__note--summary" role="status">
-      {{ $t('tasks.partialOutcomeSummary', approvedOutcomeSummary, approvedOutcomeSummary.total) }}
+         much of the proposal landed first, then why. It is absent for `ALL_APPLIED` on purpose, and each
+         zero-count segment is dropped rather than printed — see `approvedOutcomeSegments`. Same
+         `.mp-kchat__note` shape as every other notice in this zone, which already carries the design
+         system's caution tone (`--care-caution-text`); the modifier only lifts the weight so the summary
+         reads as the heading of the list it introduces.
+
+         The ⚠ marker and the ` · ` separator are INTERPOLATED, not written as static template text: Vue's
+         `condense` whitespace handling deletes a whitespace-only text node that spans a newline, so a
+         separator written between two elements would silently lose its spaces and render "1 parcial·1 ya
+         registrado". A mustache emits its string verbatim. Neither is a word — no locale owns them, and
+         each segment stays one complete, independently pluralised phrase (never a sentence assembled from
+         translated fragments). -->
+    <p
+      v-if="approvedOutcomeSegments.length"
+      class="mp-kchat__note mp-kchat__note--summary"
+      role="status"
+    >
+      <span
+        v-for="(segment, index) in approvedOutcomeSegments"
+        :key="segment.kind"
+      >{{ index === 0 ? '⚠ ' : ' · ' }}{{ $t(segment.key, { count: segment.count }, segment.count) }}</span>
     </p>
 
     <!-- E2 fix (owner decision 9) — the banner is gone because the proposal was just APPROVED, and what

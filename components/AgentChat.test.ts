@@ -512,15 +512,112 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.text()).not.toContain('tasks.alreadyRecorded');
   });
 
-  // ── The aggregate summary line (owner ruling 2026-08-14) ────────────────────────────────────────────
+  // ── The aggregate summary line (owner ruling 2026-08-14, REVISED by AF-8 the same day) ──────────────
   //
   // The per-operation notes say WHAT happened to each operation; none of them says how much of the
   // proposal as a whole landed. The owner ruled one line, shown ONLY when something did not apply.
   //
-  // These three cases together are what makes the assertion discriminating: a test that only checked the
-  // absence for ALL_APPLIED is satisfied by a world where the summary was never implemented at all, and a
-  // test that only checked presence would not catch the line leaking into the ordinary success.
-  it('states how much of the proposal applied when only some operations did', async () => {
+  // ⚠️ THE SHAPE CHANGED, AND THE OLD ONE WAS A MEASURED DEFECT (AF-8). The first implementation printed
+  // two numbers — "{applied} of {total} changes were applied" — counting an operation as applied only for
+  // `status === 'applied'`. An `already-recorded-on-day` outcome carrying `otherEffectsApplied: true` is
+  // NEITHER: the care-event write was suppressed but the profile write, the substrate refresh and the
+  // recompute all landed. So a duplicate REPOT rendered "Se aplicaron 0 de 1 cambio" DIRECTLY ABOVE its own
+  // note saying "…pero el resto de la actualización, como el tamaño de la maceta y la tierra, sí se aplicó."
+  // The summary contradicted the sentence beneath it — precisely what the shared contract's own doc-comment
+  // (`care-outcome.ts`, and the API's `proposal-render.service.ts`) forbids in writing.
+  //
+  // The owner ruled a THREE-WAY BREAKDOWN — "⚠ 2 aplicados · 1 parcial · 1 ya registrado" — which fixes a
+  // SECOND, independent defect in the same line: the Spanish verb "Se aplicaron" agrees with the APPLIED
+  // count while the noun "cambios" agrees with the TOTAL, and one vue-i18n plural choice cannot satisfy two
+  // agreements ("Se aplicaron 1 de 4 cambios" was wrong Spanish). A count + participle agrees with exactly
+  // one number, which the plural mechanism CAN express.
+  //
+  // These cases together are what makes the assertions discriminating: a test that only checked the absence
+  // for ALL_APPLIED is satisfied by a world where the summary was never implemented at all, and a test that
+  // only checked presence would not catch the line leaking into the ordinary success.
+  it('breaks the outcome into applied / partial / already-recorded counts', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [
+            { status: 'applied' as const },
+            { status: 'applied' as const },
+            // The PARTIAL one: no second care event, but the pot size and soil did land.
+            { status: 'already-recorded-on-day' as const, task: 'REPOT' as const, occurredOn: todayYmd(), otherEffectsApplied: true },
+            { status: 'already-recorded-on-day' as const, task: 'ROTATE' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+          ],
+          global: 'PARTIALLY_ALREADY_RECORDED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    // The COUNTS, not merely the keys — the `$t` mock appends interpolation params for exactly this reason.
+    expect(w.text()).toContain('tasks.outcomeSummary.applied|{"count":2}');
+    expect(w.text()).toContain('tasks.outcomeSummary.partial|{"count":1}');
+    expect(w.text()).toContain('tasks.outcomeSummary.alreadyRecorded|{"count":1}');
+  });
+
+  // ⚠️ THE CASE THAT PRODUCED THE CONTRADICTION. One duplicate REPOT, `otherEffectsApplied: true`: the old
+  // line called it "0 of 1 applied" while its own note said the rest of the update DID apply. It is one
+  // PARTIAL and nothing else — no applied segment, no already-recorded segment — and the note it
+  // contradicted must still be on screen, since the whole point is that the two now agree.
+  it('counts a duplicate REPOT that still applied its other effects as PARTIAL, never as unapplied', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [
+            { status: 'already-recorded-on-day' as const, task: 'REPOT' as const, occurredOn: todayYmd(), otherEffectsApplied: true },
+          ],
+          global: 'ALL_ALREADY_RECORDED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.text()).toContain('tasks.outcomeSummary.partial|{"count":1}');
+    // The two segments it is NOT. A zero segment is omitted entirely, so neither key may appear at all.
+    expect(w.text()).not.toContain('tasks.outcomeSummary.applied');
+    expect(w.text()).not.toContain('tasks.outcomeSummary.alreadyRecorded');
+    // The sentence the summary used to contradict, still rendered — the agreement is the fix.
+    expect(w.text()).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+  });
+
+  it('states an already-recorded-only outcome without an applied or partial segment', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [
+            { status: 'already-recorded-on-day' as const, task: 'WATER' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+            { status: 'already-recorded-on-day' as const, task: 'FERTILIZE' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+          ],
+          global: 'ALL_ALREADY_RECORDED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.text()).toContain('tasks.outcomeSummary.alreadyRecorded|{"count":2}');
+    expect(w.text()).not.toContain('tasks.outcomeSummary.applied');
+    expect(w.text()).not.toContain('tasks.outcomeSummary.partial');
+  });
+
+  // ONLY THE NON-ZERO SEGMENTS APPEAR (owner requirement). Two applied and two already-recorded must read
+  // "2 aplicados · 2 ya registrados" — an empty "0 parcial" segment is noise about a thing that did not
+  // happen. This is the case a naive three-segment render gets wrong.
+  it('omits a segment whose count is zero', async () => {
     const proposals = makeProposals({
       approve: vi.fn(async () => ({
         ...PENDING,
@@ -540,21 +637,26 @@ describe('AgentChat — the doctor approval surface', () => {
     await flushPromises();
     w.findComponent(BannerStub).vm.$emit('approve');
     await flushPromises();
-    // The COUNTS, not merely the key: 2 applied out of 4 operations.
-    expect(w.text()).toContain('tasks.partialOutcomeSummary|{"applied":2,"total":4}');
+    expect(w.text()).toContain('tasks.outcomeSummary.applied|{"count":2}');
+    expect(w.text()).toContain('tasks.outcomeSummary.alreadyRecorded|{"count":2}');
+    expect(w.text()).not.toContain('tasks.outcomeSummary.partial');
   });
 
-  it('states a zero count when no operation applied', async () => {
+  // THE SINGULAR/PLURAL BOUNDARY, at exactly one of each state. Each segment carries its OWN count as its
+  // OWN plural choice — the whole reason the two-number sentence could not be conjugated correctly. What
+  // the words then become in each locale is pinned in i18n/messages.test.ts against the real catalogues.
+  it('gives every segment its own count at exactly one of each state', async () => {
     const proposals = makeProposals({
       approve: vi.fn(async () => ({
         ...PENDING,
         status: 'APPROVED' as const,
         outcome: {
           perOperation: [
+            { status: 'applied' as const },
+            { status: 'already-recorded-on-day' as const, task: 'REPOT' as const, occurredOn: todayYmd(), otherEffectsApplied: true },
             { status: 'already-recorded-on-day' as const, task: 'WATER' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
-            { status: 'already-recorded-on-day' as const, task: 'FERTILIZE' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
           ],
-          global: 'ALL_ALREADY_RECORDED' as const,
+          global: 'PARTIALLY_ALREADY_RECORDED' as const,
         },
       })),
     });
@@ -562,7 +664,9 @@ describe('AgentChat — the doctor approval surface', () => {
     await flushPromises();
     w.findComponent(BannerStub).vm.$emit('approve');
     await flushPromises();
-    expect(w.text()).toContain('tasks.partialOutcomeSummary|{"applied":0,"total":2}');
+    expect(w.text()).toContain('tasks.outcomeSummary.applied|{"count":1}');
+    expect(w.text()).toContain('tasks.outcomeSummary.partial|{"count":1}');
+    expect(w.text()).toContain('tasks.outcomeSummary.alreadyRecorded|{"count":1}');
   });
 
   // ⚠️ THE ABSENCE CASE NEEDS A POSITIVE CONTROL. "The summary is not in the text" is also true of a
@@ -587,7 +691,9 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.find('.mp-kchat').exists()).toBe(true);
     // AF-12: see the sibling test above — a third argument (the stable idempotency key) now travels too.
     expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1', expect.any(String));
-    expect(w.text()).not.toContain('tasks.partialOutcomeSummary');
+    // The gate is the SERVER's `global`, so an ALL_APPLIED proposal shows no line at all — not even the
+    // applied segment, which would otherwise be true and still unwanted.
+    expect(w.text()).not.toContain('tasks.outcomeSummary');
   });
 
   // Constraint 4: `null` means "no outcome recorded" — never render a sentence about a fact the server did
@@ -603,7 +709,7 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.find('.mp-kchat').exists()).toBe(true);
     expect(w.text()).not.toContain('tasks.alreadyRecorded');
     // The summary is derived from the same `outcome` object: a null outcome must produce no line either.
-    expect(w.text()).not.toContain('tasks.partialOutcomeSummary');
+    expect(w.text()).not.toContain('tasks.outcomeSummary');
   });
 
   // Dismiss is NOT a decline (§5.3): it closes the banner and sends nothing.

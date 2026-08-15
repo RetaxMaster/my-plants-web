@@ -73,7 +73,11 @@
       "fertilizeSameDay": "Ya se fertilizó hoy. No vuelvas a fertilizar el mismo día: el exceso de sales quema la raíz.",
       "fertilizeBackDated": "Ya había un fertilizado registrado ese día. Si de verdad fertilizaste dos veces, tenlo presente: el exceso de sales quema la raíz."
     },
-    "partialOutcomeSummary": "Se aplicaron {applied} de {total} cambio | Se aplicaron {applied} de {total} cambios"
+    "outcomeSummary": {
+      "applied": "{count} aplicado | {count} aplicados",
+      "partial": "{count} parcial | {count} parciales",
+      "alreadyRecorded": "{count} ya registrado | {count} ya registrados"
+    }
   },
   "taskInfo": {
     "aria": "Acerca de esta tarea",

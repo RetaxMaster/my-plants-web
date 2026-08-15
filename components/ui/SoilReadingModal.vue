@@ -949,13 +949,33 @@ const canSubmit = computed(() =>
 // interchangeable copy for the same button.
 const primaryLabel = computed(() => (props.mode === 'survey' ? t('reading.calculate') : t('reading.save')));
 
-// The chosen date spelled out in the APP's locale (QA UX-5). The `<input type="date">` above renders in the
-// BROWSER's, which is a different setting entirely — `08/10/2026` is 10 August to one reader and 8 October
-// to another, and nothing on screen said which. Built through `ymdToLocalDate` rather than `new Date(ymd)`:
-// the bare string parses as UTC midnight and renders one day early west of Greenwich, which would make the
-// clarification itself the lie.
-const measuredOnHint = computed(() =>
-  (measuredOn.value ? d(ymdToLocalDate(measuredOn.value), 'short') : undefined));
+// The chosen date spelled out in the APP's locale (QA UX-5) — but ONLY when the native rendering is
+// genuinely AMBIGUOUS (F7b, QA 2026-08-15). UX-5 is a REAL, PRESERVED fix: `<input type="date">` renders in
+// the BROWSER's locale, not the app's, so a Mexican owner reading the interface in Spanish could see
+// `08/10/2026` and reasonably parse it as 8 October. Restating the date in the app's own locale disambiguates
+// that. But stating it UNCONDITIONALLY, beside a native field already showing e.g. `15/08/2026`, reads as the
+// same date said twice — QA's own report — because most dates are not actually ambiguous: `15/08/2026` has
+// only one legal reading (day/month or month/day) once the day-of-month exceeds 12, since no month runs past
+// 12. So the restatement is now shown ONLY when the day-of-month is 12 or lower — the exact set of dates a
+// d/m vs m/d reader could genuinely disagree about — and hidden otherwise, which is where UX-5's disambiguation
+// is no longer needed because there is nothing left to disambiguate.
+//
+// The day-of-month is read from the `YYYY-MM-DD` STRING's own third component, never from a `Date` object —
+// `new Date('2026-08-15')` parses as UTC midnight and renders one day early west of Greenwich (the same trap
+// `acquiredOnLabel` below and this file's other date helpers already warn about), which would misjudge the
+// boundary itself. The formatted value, when shown, still goes through the existing
+// `d(ymdToLocalDate(...), 'short')` call — only WHETHER it renders changed, never HOW.
+const measuredOnDayOfMonth = computed(() => {
+  if (!measuredOn.value) return null;
+  const day = Number.parseInt(measuredOn.value.slice(8, 10), 10);
+  return Number.isNaN(day) ? null : day;
+});
+const measuredOnHint = computed(() => {
+  if (!measuredOn.value || measuredOnDayOfMonth.value == null || measuredOnDayOfMonth.value > 12) {
+    return undefined;
+  }
+  return d(ymdToLocalDate(measuredOn.value), 'short');
+});
 
 /**
  * THE ACQUISITION DAY, SPELLED THE WAY EVERY OTHER DATE IN THIS DIALOG IS (QA round 5, F3).
@@ -1602,7 +1622,11 @@ const holdDateLabel = computed(() => {
       <!-- QA UX-5: `<input type="date">` renders in the BROWSER's locale, not the app's, so a Mexican
            owner reading the interface in Spanish saw `08/10/2026` and could reasonably parse it as
            8 October. The native control cannot be steered, so the resolved date is stated beside it in the
-           app's own locale — the unambiguous reading, next to the ambiguous one. -->
+           app's own locale — the unambiguous reading, next to the ambiguous one.
+           F7b (QA 2026-08-15): that restatement now renders ONLY when it disambiguates something — see
+           `measuredOnHint`'s own comment. UX-5's fix is PRESERVED exactly where a d/m vs m/d reader could
+           still genuinely disagree (day-of-month <= 12); it is simply not shown where there is nothing left
+           to disambiguate. -->
       <FormGroup
         v-if="mode === 'voluntary'"
         :label="t('reading.measuredOn')"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue';
+import { FORM_GROUP_ERROR_KEY } from './FormGroup.vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -43,7 +44,16 @@ function onInput(event: Event) {
 const fieldId = inject<string | undefined>('mpFieldId', undefined);
 
 const focused = ref(false);
-const invalid = computed(() => !!props.error);
+
+// F7a (QA 2026-08-15) — an explicit `error` prop ALWAYS wins over a FormGroup-provided one, which is what
+// keeps the two existing double-passing call sites (SoilReadingModal.vue's value field, RepotDoneForm.vue's
+// pot-size field — both pass `:error` to the FormGroup AND to the Input inside it) byte-identical after
+// this change. Without the explicit prop — e.g. SoilReadingModal.vue's `measuredOn` date field, which only
+// ever passed `:error` to its surrounding FormGroup — the field now inherits the group's error instead of
+// silently staying dressed as valid under a visible error message. See `FormGroup.vue`'s own half of this
+// comment for why the provided value is a computed rather than a plain string.
+const injectedError = inject(FORM_GROUP_ERROR_KEY, undefined);
+const invalid = computed(() => !!(props.error ?? injectedError?.value));
 </script>
 
 <template>
@@ -124,8 +134,14 @@ const invalid = computed(() => !!props.error);
   border-color: var(--red-500);
 }
 
+/* F7a (QA 2026-08-15) — this rule used to override ONLY border-color, so `box-shadow: var(--shadow-focus)`
+   (built from the brand ring token) survived on a focused invalid field: an owner reading a validation
+   error under the field still saw the same green glow a valid, focused field shows. `--shadow-focus-danger`
+   is the danger twin of `--shadow-focus`, built from `--ring-danger` the same way (see tokens/colors.css
+   and tokens/spacing.css). */
 .mp-input__field--invalid:focus {
   border-color: var(--red-500);
+  box-shadow: var(--shadow-focus-danger);
 }
 
 .mp-input__field:disabled {

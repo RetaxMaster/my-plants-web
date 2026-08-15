@@ -46,7 +46,13 @@ const isLink = computed(() => !!props.to);
     :to="isLink ? to : undefined"
     :type="isLink ? undefined : type"
     :disabled="isLink ? undefined : isDisabled"
-    :class="['mp-btn', `mp-btn--${size}`, `mp-btn--${color}-${variant}`, { 'mp-btn--block': block }, props.class]"
+    :class="[
+      'mp-btn',
+      `mp-btn--${size}`,
+      `mp-btn--${color}-${variant}`,
+      { 'mp-btn--block': block, 'mp-btn--disabled': isDisabled },
+      props.class,
+    ]"
     v-bind="$attrs"
     @click="$emit('click', $event)"
   >
@@ -101,7 +107,6 @@ const isLink = computed(() => !!props.to);
 
 .mp-btn:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
 }
 
 /* Sizes */
@@ -173,6 +178,43 @@ const isLink = computed(() => !!props.to);
   background: transparent;
   color: var(--text-muted);
   border: 1px solid transparent;
+}
+
+/* F7c (QA 2026-08-15) — a disabled button used to be "the live button at half opacity"
+   (`.mp-btn:disabled { opacity: 0.5 }` above): at 50% opacity a saturated brand green still reads as an
+   enabled call to action, especially in dark theme, where QA measured it on "Calcular riego". A disabled
+   button is now a genuinely INERT treatment on EVERY variant × colour combination the component supports,
+   never only primary-solid, which is why every combination is listed rather than a single catch-all
+   `.mp-btn:disabled`. Purely token-driven, so light and dark stay in lockstep with no explicit branch. A
+   dedicated class (`.mp-btn--disabled`, bound to the same `isDisabled` the native `disabled` attribute
+   already uses) rather than the `:disabled` pseudo-class, so this overrides each variant rule by
+   SPECIFICITY (two classes beat one) instead of relying on source order.
+
+   SPLIT IN TWO, because "inert surface" is not one recipe for every variant. `solid`/`soft` paint a real
+   background, so muting them means swapping that background for a sunken one — `--surface-sunken` /
+   `--text-faint` / `--border-subtle`, the same tokens the rest of the design system already uses for a
+   sunken/inactive surface. `ghost`'s whole identity IS the absent surface (`background: transparent` by
+   definition) — painting one on disable would not mute a ghost button, it would turn it into a DIFFERENT
+   kind of control, a visual change nobody asked for. The finding was that a disabled button reads as an
+   active call to action; a ghost button never read as one in the first place, so its disabled treatment
+   mutes only the ink and leaves the (already absent) surface alone. */
+.mp-btn--primary-solid.mp-btn--disabled,
+.mp-btn--primary-soft.mp-btn--disabled,
+.mp-btn--cafe-solid.mp-btn--disabled,
+.mp-btn--cafe-soft.mp-btn--disabled,
+.mp-btn--neutral-solid.mp-btn--disabled,
+.mp-btn--neutral-soft.mp-btn--disabled {
+  background: var(--surface-sunken);
+  color: var(--text-faint);
+  border-color: var(--border-subtle);
+}
+
+.mp-btn--primary-ghost.mp-btn--disabled,
+.mp-btn--cafe-ghost.mp-btn--disabled,
+.mp-btn--neutral-ghost.mp-btn--disabled {
+  background: transparent;
+  color: var(--text-faint);
+  border-color: transparent;
 }
 
 .mp-btn__spinner {

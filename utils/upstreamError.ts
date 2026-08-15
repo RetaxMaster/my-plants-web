@@ -49,13 +49,20 @@ export function upstreamErrorStatus(err: unknown): string | undefined {
  *
  * MEASURED, not assumed — `server/api/proxy.wire.test.ts` drives the real proxy over a real socket and
  * pins this. A 400 whose API body is `{ message: 'wateringRelation is required: …' }` reaches the browser
- * as an error whose `data` is `{ statusCode, statusMessage, stack, data: <the API body> }`. Note what is
- * NOT there: the envelope has **no `message` key at all**. So a caller reading `err.data.message` gets
- * `undefined`, and the usual `?? err.message` fallback lands on ofetch's own summary —
- * `[GET] "http://…/api/…": 400 Bad Request` — which names the method, the URL and the status, and none of
- * the API's words. A caller that tests either one against anything (`.includes('wateringRelation')`, a
- * code, a substring) gets a confident `false` and falls through to its generic branch. Nothing throws;
- * nothing is logged; the recovery code simply never runs.
+ * as an error whose `data` is `{ statusCode, statusMessage, stack, data: <the API body> }`.
+ *
+ * ⚠️ CORRECTED 2026-08-15 — this paragraph used to say the envelope "has no `message` key at all". That
+ * was measured FALSE on the running stack: the envelope also carries its OWN `message` (equal to
+ * `statusMessage`, the bare HTTP status phrase — `"Bad Request"`, never the API's words) and its own `url`
+ * naming the request that failed. That correction makes the defect this module exists to prevent WORSE,
+ * not better: `err.data.message` does not return `undefined` for a caller to notice — it returns a string
+ * that LOOKS like a real message and says nothing at all. So the usual `?? err.message` fallback is never
+ * even reached; the naive read already "succeeds", silently, on the wrong value. A caller that tests that
+ * value against anything (`.includes('wateringRelation')`, a code, a substring) still gets a confident
+ * `false` and falls through to its generic branch — nothing throws, nothing is logged, the recovery code
+ * simply never runs, for the same reason as before, reached by a different door. `ownerFacingError.ts`
+ * (`../utils/ownerFacingError.ts`) is the surface this second fact now protects: its own status-phrase
+ * guard exists specifically to catch this envelope-level `message`/`url` pair before it reaches an owner.
  *
  * That is not hypothetical. `SoilReadingModal.vue` carried TWO such branches — reveal the same-day-watering
  * question the server says is missing, and explain a future `measuredOn` — and QA (2026-08-10) found the

@@ -242,6 +242,15 @@ function rawValueError(w: ReturnType<typeof mount>) {
   return group?.props('error');
 }
 
+// F7b (QA 2026-08-15) — the `measuredOn` field's own FormGroup, located by its exact (param-less) label so
+// it can never be confused with the reading-value FormGroup above (whose label always carries `|unit`
+// params under this file's stubbed `t()`).
+function measuredOnHintValue(w: ReturnType<typeof mount>) {
+  const group = w.findAllComponents({ name: 'FormGroup' })
+    .find((g) => g.props('label') === 'reading.measuredOn');
+  return group?.props('hint');
+}
+
 /**
  * THE READING'S OWN number input, located by its FormGroup rather than by `w.find('input[type="number"]')`.
  *
@@ -555,6 +564,30 @@ describe('SoilReadingModal', () => {
     await w.setProps({ open: true });
 
     expect((measuredOnInput().element as HTMLInputElement).value).toBe(todayYmd());
+  });
+
+  // F7b (QA 2026-08-15) — QA read the date restatement under `measuredOn` as a DUPLICATED date: the native
+  // `<input type="date">` already showed e.g. `15/08/2026`, and the hint below it restated the exact same
+  // date in the app's locale. The restatement is UX-5 (a real, still-necessary fix for the browser-locale
+  // ambiguity) and stays — but only where a d/m vs m/d reader could genuinely disagree, i.e. day-of-month
+  // <= 12. Day 13 has only one legal reading in either order, so nothing is left to disambiguate there.
+  //
+  // Both literal dates are supplied directly (day-of-month 12 and 13) rather than built through `addDaysYmd`
+  // or any date arithmetic, and the expectation is the literal date string itself — never a value produced
+  // by calling `measuredOnHint`/`d(ymdToLocalDate(...))` here, which would just be testing the computed
+  // against itself. day-12 is the POSITIVE CONTROL proving this code path CAN still render the hint; without
+  // it, day-13 asserting `undefined` would be a vacuous truth that also passes if the hint silently stopped
+  // rendering altogether.
+  it('shows the date restatement only when the day-of-month is ambiguous (<=12), hides it at 13+ ' +
+    '(voluntary mode)', async () => {
+    const w = mountModal(makeData(), { mode: 'voluntary' });
+    const measuredOnInput = () => w.findAll('input[type="date"]')[0]!;
+
+    await measuredOnInput().setValue('2026-08-12');
+    expect(measuredOnHintValue(w)).toBe('2026-08-12');
+
+    await measuredOnInput().setValue('2026-08-13');
+    expect(measuredOnHintValue(w)).toBeUndefined();
   });
 
   // RETRACTED 2026-08-10 — `resets the calibration anchors too on close/reopen (fix wave 1, item 1a)`.

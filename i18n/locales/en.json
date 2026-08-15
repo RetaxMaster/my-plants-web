@@ -14,7 +14,8 @@
     "saving": "Saving…",
     "saveChanges": "Save changes",
     "remove": "Remove",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "errorGeneric": "Something went wrong. Please try again."
   },
   "nav": {
     "today": "Today",
@@ -198,7 +199,8 @@
     "freshSubstrateTitle": "Did it go into fresh substrate?",
     "freshSubstrateYes": "Yes — fresh, charged mix",
     "freshSubstrateNo": "No — reused or inert medium",
-    "freshSubstrateUnknown": "I don't know"
+    "freshSubstrateUnknown": "I don't know",
+    "earlyWaterTitlePast": "Why did you water early?"
   },
   "history": {
     "today": "today",
@@ -1488,7 +1490,8 @@
       "WATER_NOW": "Water now",
       "POSTPONE": "Don't water yet"
     },
-    "verdictNowBadge": "Water now"
+    "verdictNowBadge": "Water now",
+    "historyLoadError": "We couldn't load the reading history. Your readings are still saved."
   },
   "settings": {
     "title": "Settings",

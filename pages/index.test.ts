@@ -1671,6 +1671,66 @@ describe('pages/index.vue — finding 3: a measured WATER_NOW is acted on as a t
   });
 });
 
+// Task 2 (early-water tense, 2026-08-15) — the SAME comparison PlantDetail.vue's identical picker uses
+// (`doneSubmitPath`, `utils/careOutcome.ts`), never a second date check. Today's own rows carry NO date box
+// at all (owner decision 2 — see TaskRow.vue's `applied-completions` comment), so `pending.occurredOn` is
+// always undefined here and the title can only ever read PRESENT tense on this page — this pins that this
+// stays true (never accidentally reads past tense with nothing to compare against) rather than pinning an
+// unreachable back-dated case that has no UI path to reach on Today.
+describe('pages/index.vue — Task 2: the early-water picker title on Today (no date box, always same-day)', () => {
+  it('stays PRESENT tense — Today never offers a back-date input to make it otherwise', async () => {
+    const FUTURE_WATER = { plantId: 'A', task: 'WATER' as const, nextDueOn: '2099-01-01', pendingEvaluation: null };
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: [] as string[] }));
+    stubApiWithWaterTask([{ ...FUTURE_WATER, measuredToday: false, todaysVerdict: null }]);
+
+    const w = await mountPage();
+    await byIcon(w, 'check')[0]!.trigger('click');
+    await flushPromises();
+
+    const picker = w.findComponent(stubs.UiReasonPicker);
+    // The module-level `useI18n` stub's `t` is an identity function (`k => k`), so the RENDERED title is
+    // the i18n KEY itself — the same technique every other `t()`-reading assertion in this file uses.
+    expect(picker.props('title')).toBe('feedback.earlyWaterTitle');
+    expect(picker.props('title')).not.toBe('feedback.earlyWaterTitlePast');
+  });
+
+  /**
+   * ⚠️ THE POSITIVE CONTROL FOR THE CASE ABOVE, AND IT EXISTS BECAUSE A BREAK PROOF FAILED (QA fix round,
+   * 2026-08-15). Rewriting `feedback.earlyWaterTitlePast` to `feedback.earlyWaterTitle` in `index.vue` —
+   * deleting the whole past-tense rule from this surface — left this file GREEN. It had to: Today renders
+   * no date box, so `occurredOn` is `undefined` on every submit it produces today, the back-dated branch
+   * is never entered, and an assertion that the title *stays* present tense is satisfied by a world where
+   * the rule was simply deleted.
+   *
+   * That is not an argument for deleting it. `PlantDetail.vue` and this page are the documented parallel
+   * pair this project treats as its highest-yield bug class, and the rule is carried identically on both
+   * precisely so that the day Today gains a back-date input it is already correct rather than quietly
+   * one release behind. What was missing was a test that can tell the two states apart.
+   *
+   * So this drives the page's OWN contract rather than the row's: `UiTaskRow` emits `done` with an
+   * `occurredOn`, exactly as the plant page's row does, and the page must answer with the past tense. It
+   * asserts what `index.vue` does with a back-dated submit — not that Today currently produces one.
+   */
+  it('WOULD read past tense if a back-dated submit ever reached this page — the rule is live, not decorative', async () => {
+    const FUTURE_WATER = { plantId: 'A', task: 'WATER' as const, nextDueOn: '2099-01-01', pendingEvaluation: null };
+    getOwnerInstrumentsMock = vi.fn(async () => ({ available: [], selected: [] as string[] }));
+    stubApiWithWaterTask([{ ...FUTURE_WATER, measuredToday: false, todaysVerdict: null }]);
+
+    const w = await mountPage();
+    // The REAL `TaskRow.vue` is what this file mounts under the `UiTaskRow` key (spec §5.1), so the row is
+    // found by its own component definition — never by a name string, which the real SFC does not declare.
+    const row = w.findAllComponents(TaskRow).find((r) => r.props('task') === 'WATER');
+    expect(row, 'the WATER row must be mounted for this test to mean anything').toBeTruthy();
+    // A day that is unambiguously earlier than any real "today" this suite can run on, so the expectation
+    // is derived from the literal date — never by calling `doneSubmitPath`, the function under test.
+    row!.vm.$emit('done', { task: 'WATER', occurredOn: '2020-03-04' });
+    await flushPromises();
+
+    const picker = w.findComponent(stubs.UiReasonPicker);
+    expect(picker.props('title')).toBe('feedback.earlyWaterTitlePast');
+  });
+});
+
 describe('pages/index.vue — row order within a card, card order untouched (spec §2.2)', () => {
   it('orders each card REPOT > WATER > FERTILIZE without moving the PLANTS', async () => {
     // Plant B leads the API's list (its watering is the most overdue). Its REPOT is last in the payload
@@ -1816,6 +1876,77 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
       expect(w.find('.mp-taskrow__outcome-note').text()).toBe('ES: sin cambios');
     } finally {
       vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, d: () => '', locale: ref('en') }));
+    }
+  });
+});
+
+// F1+F3 (2026-08-15) — the row-level REFUSAL note. Mirrors `PlantDetail.test.ts`'s own describe block of the
+// same name: the two pages carry PARALLEL copies of `sendDone`/`sendPostpone`, so both are held to the
+// identical standard.
+describe('pages/index.vue — a REFUSED write renders the row-level error note (F1+F3, 2026-08-15)', () => {
+  it('shows the server\'s own sentence, and records no outcome', async () => {
+    tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+    sendFeedbackMock = vi.fn(async () => {
+      throw { statusCode: 400, data: { data: { message: 'wateringRelation is required: …' } } };
+    });
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.mp-taskrow__error-note').text()).toBe('wateringRelation is required: …');
+    expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
+  });
+
+  // POSITIVE CONTROL + the per-row CLEAR: the SAME row, after a failed attempt, succeeds on the next press.
+  it('clears once a LATER submit of the same row succeeds', async () => {
+    tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+    let attempt = 0;
+    sendFeedbackMock = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) throw { statusCode: 400, data: { data: { message: 'wateringRelation is required: …' } } };
+      return { ok: true, outcome: { status: 'applied' } };
+    });
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.mp-taskrow__error-note').exists()).toBe(true);
+
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.mp-taskrow__error-note').exists()).toBe(false);
+  });
+
+  it('falls back to the generic sentence for a bare network failure', async () => {
+    tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+    sendFeedbackMock = vi.fn(async () => { throw new Error('network'); });
+    const w = await mountPage();
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.mp-taskrow__error-note').text()).toBe('common.errorGeneric');
+  });
+
+  // ⚠️ THE REFRESH FAILING IS NOT THE SAME FACT AS THE WRITE FAILING (owner ruling). The write here
+  // resolves normally; only the post-write `refresh()` (Today's own `useAsyncData('today', …)` refresher)
+  // rejects. The row must render NO error note — only `console.warn`.
+  it('a write that SUCCEEDS but whose refresh FAILS renders no error note, only warns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+      sendFeedbackMock = vi.fn(async () => ({ ok: true, outcome: { status: 'applied' } }));
+      const refreshTasks = vi.fn(async () => { throw new Error('refresh down'); });
+      vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => ({
+        data: ref(await fn()),
+        refresh: key === 'today' ? refreshTasks : vi.fn(async () => {}),
+      }));
+      const w = await mountPage();
+      await doneButtons(w)[0]!.trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-taskrow__error-note').exists()).toBe(false);
+      // Vue's own dev-mode warnings (unrelated component-resolution notices from this mount's stub map)
+      // also go through `console.warn`, so the assertion searches every call rather than trusting index 0.
+      expect(warn.mock.calls.some((call) =>
+        String(call[0]).match(/write succeeded but the post-write refresh failed/))).toBe(true);
+    } finally {
+      warn.mockRestore();
     }
   });
 });

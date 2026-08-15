@@ -14,7 +14,8 @@
     "saving": "Guardando…",
     "saveChanges": "Guardar cambios",
     "remove": "Quitar",
-    "refresh": "Actualizar"
+    "refresh": "Actualizar",
+    "errorGeneric": "Algo salió mal. Por favor intenta de nuevo."
   },
   "nav": {
     "today": "Hoy",
@@ -198,7 +199,8 @@
     "freshSubstrateTitle": "¿Sustrato fresco?",
     "freshSubstrateYes": "Sí — mezcla nueva con alimento",
     "freshSubstrateNo": "No — sustrato reusado o inerte",
-    "freshSubstrateUnknown": "No sé"
+    "freshSubstrateUnknown": "No sé",
+    "earlyWaterTitlePast": "¿Por qué regaste antes de tiempo?"
   },
   "history": {
     "today": "hoy",
@@ -674,7 +676,7 @@
     "next": "Foto siguiente"
   },
   "login": {
-    "welcome": "Bienvenida de nuevo",
+    "welcome": "Te damos la bienvenida de nuevo",
     "subtitle": "Inicia sesión para cuidar tus plantas.",
     "username": "Usuario",
     "usernamePlaceholder": "sofia",
@@ -1488,7 +1490,8 @@
       "WATER_NOW": "Regar ahora",
       "POSTPONE": "No regar todavía"
     },
-    "verdictNowBadge": "Riega ahora"
+    "verdictNowBadge": "Riega ahora",
+    "historyLoadError": "No pudimos cargar el historial de lecturas. Tus lecturas siguen guardadas."
   },
   "settings": {
     "title": "Ajustes",

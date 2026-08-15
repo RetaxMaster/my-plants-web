@@ -389,6 +389,40 @@ describe('UiTaskRow — the back-date does not survive a recorded completion', (
   });
 });
 
+// F1+F3, 2026-08-15 — the row-level refusal note. A SEPARATE prop from `outcomeNote`, both in state and in
+// accessibility semantics: see the prop's own doc comment for why the two facts can never be conflated.
+describe('UiTaskRow — errorNote: the owner\'s action was REFUSED', () => {
+  it('renders nothing when there is no error — the same "absent means silent" contract outcomeNote uses', () => {
+    const w = mountRow({ task: 'WATER', status: 'today' });
+    expect(w.find('.mp-taskrow__error-note').exists()).toBe(false);
+  });
+
+  // POSITIVE CONTROL for the case above: the same component, same task, DOES render the note once the
+  // parent supplies one — so the absence above is a real decision, not the only thing this markup can do.
+  it('renders the ALREADY-TRANSLATED sentence the parent hands it, verbatim', () => {
+    const w = mountRow({ task: 'WATER', status: 'today', errorNote: 'common.errorGeneric' });
+    expect(w.find('.mp-taskrow__error-note').exists()).toBe(true);
+    expect(w.find('.mp-taskrow__error-note').text()).toBe('common.errorGeneric');
+  });
+
+  it('renders as role="alert", never aria-live="polite" — a refusal interrupts, an outcome merely informs', () => {
+    const w = mountRow({ task: 'WATER', status: 'today', errorNote: 'common.errorGeneric' });
+    expect(w.find('.mp-taskrow__error-note').attributes('role')).toBe('alert');
+    expect(w.find('.mp-taskrow__error-note').attributes('aria-live')).toBeUndefined();
+  });
+
+  it('renders BEFORE outcomeNote, as a sibling — the two are independent facts with independent slots', () => {
+    const w = mountRow({
+      task: 'WATER', status: 'today', errorNote: 'common.errorGeneric',
+      outcomeNote: 'tasks.alreadyRecorded.neutral',
+    });
+    const notes = w.findAll('.mp-taskrow__error-note, .mp-taskrow__outcome-note');
+    expect(notes).toHaveLength(2);
+    expect(notes[0]!.classes()).toContain('mp-taskrow__error-note');
+    expect(notes[1]!.classes()).toContain('mp-taskrow__outcome-note');
+  });
+});
+
 // Task 26 (substrate plan): once RepotDoneForm owns its own editable `occurredOn` (Task 25), this row's
 // back-date becomes the ONE thing it seeds the form with — not a second live input the owner could edit
 // independently. Two editable date surfaces for one submission is a disagreement, not a redundancy.

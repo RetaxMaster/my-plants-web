@@ -1,3 +1,22 @@
+<script lang="ts">
+import type { ComputedRef, InjectionKey } from 'vue';
+
+// F7a (QA 2026-08-15) — THE MISSING WIRE BETWEEN FormGroup's ERROR AND ITS SLOTTED FIELD.
+//
+// FormGroup has always taken an `error` prop and rendered the message under the field, but the field
+// itself is a SLOT CHILD — a plain `<slot />` hands it nothing. So `Input.vue`'s own `--invalid` styling
+// and `aria-invalid` (both driven off its own `error` prop) were dead code on every FormGroup call site
+// that relied on the group alone: the message showed, the field stayed dressed as valid, including its
+// FOCUS RING, which stayed the brand green even while sitting under a visible error.
+//
+// FIXED by providing the error here, reactively — a computed, not a snapshot, so a validation error that
+// arrives after first render (most of them) still reaches the field — under this typed Symbol key. A
+// Symbol (never a bare string like `'error'`) means a second, unrelated `provide('error', …)` elsewhere in
+// the tree can never collide with this one. See `Input.vue`'s own half of this comment for the injection
+// side and why an explicit `error` prop on the field still wins.
+export const FORM_GROUP_ERROR_KEY: InjectionKey<ComputedRef<string | undefined>> = Symbol('mp-form-group-error');
+</script>
+
 <script setup lang="ts">
 defineOptions({ inheritAttrs: false });
 
@@ -12,6 +31,12 @@ const props = withDefaults(
     required: false,
   },
 );
+
+// See the FORM_GROUP_ERROR_KEY comment above (top `<script>` block) for why this exists and why it must be
+// a computed. Scope: `Input.vue` is the only consumer today — SelectField/SegmentedControl/Slider/
+// AutosizeTextarea/OrdinalReadingPicker are NOT wired to this, on purpose; that is a separate decision this
+// change does not make.
+provide(FORM_GROUP_ERROR_KEY, computed(() => props.error));
 
 // Generate one stable id (SSR-safe via useId) and both (a) target it from our
 // <label for> and (b) provide it so the slotted control (Input/SelectField/Switch)

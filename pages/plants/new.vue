@@ -3,6 +3,9 @@ import type { CreatePlant, SpeciesSummary } from '../../types/api.js';
 import type { CompressedUpload } from '../../composables/useImageCompression.js';
 import { todayYmd } from '../../utils/localDate.js';
 import { pickLocalized } from '../../utils/localizedField.js';
+// F1+F3 (2026-08-15) — the ONE seam every mutating write on this page reads its owner-facing failure
+// message through; see its own file-header comment for the three rules and the measured envelope shape.
+import { ownerFacingErrorMessage } from '../../utils/ownerFacingError.js';
 
 const { t, locale } = useI18n();
 const api = useApi();
@@ -187,7 +190,10 @@ async function submit() {
       `/plants/${plantId}`;
     await router.push(dest);
   } catch (e) {
-    error.value = (e as Error).message;
+    // F1+F3 (2026-08-15) — was `(e as Error).message`, which on a proxied failure is ofetch's own summary
+    // line (`[POST] "…": 400 Bad Request`), never the API's own words (see `ownerFacingError.ts`'s own
+    // file-header comment for the measured envelope shape this replaces it with).
+    error.value = ownerFacingErrorMessage(e, t);
   } finally {
     submitting.value = false;
   }

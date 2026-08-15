@@ -14,6 +14,9 @@ import { orderTasksForCard, type TaskCode, type DueState } from '../utils/tasks.
 import {
   careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, potDetailsDiscardedNoteKey, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
+// F1+F3 (2026-08-15) — the ONE seam every mutating write on this page reads its owner-facing failure
+// message through; see its own file-header comment for the three rules and the measured envelope shape.
+import { ownerFacingErrorMessage } from '../utils/ownerFacingError.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
 import { repotExplanation } from '../utils/repotExplanation.js';
@@ -234,37 +237,69 @@ function openVoluntaryReading() {
  * silently stale list with nothing to retry. `readingsRefreshFailed` below is what changed: still
  * deliberately silent INSIDE the dialog (the owner is opening it, not asking about the network), but never
  * silent about the DATA — the card now says so afterwards, beside the restored snapshot, with a retry.
+ *
+ * ⚠️ THE FLAG USED TO BE MAINTAINED BY ONLY TWO OF THIS PAGE'S FIVE READINGS REFRESHES (F4.1 fix,
+ * 2026-08-15). QA reproduced it directly: fail a readings refresh (the banner appears, correctly), then
+ * SAVE a reading through the modal — `onReadingSaved`'s own `refreshReadings()` call succeeds, fresh data
+ * renders, and the banner STAYS, because that path never touched this flag. The bug was never any ONE
+ * refresh; it was that "which refreshes own this flag" was a fact repeated at every call site instead of
+ * stated once. `refreshReadingsTracked` below is the fix — the ONE function every `readings` refresh on
+ * this page now goes through, so the flag is a property of THE REFRESH ITSELF rather than of whichever
+ * caller remembered to set it.
  */
 const readingsRefreshFailed = ref(false);
 
-async function refreshReadingsBeforeOpening() {
+/**
+ * THE ONE READINGS REFRESH THIS PAGE GOES THROUGH (F4.1 fix, 2026-08-15) — every caller that refreshes
+ * `readings` calls THIS, never `refreshReadings()` (the raw `useAsyncData` refresher) directly:
+ * `refreshReadingsBeforeOpening`, `retryReadingsRefresh`, `onReadingSaved`, `sendDone`'s own refresh batch,
+ * and the `readingsUnavailable` alert's retry button in the template. A refresh that bypassed this function
+ * would silently exempt itself from `readingsRefreshFailed`'s own contract — which is exactly how the F4.1
+ * defect above shipped.
+ *
+ * `restoreOnFail` is the ONE thing that genuinely differs between callers, and it stays an OPTION on this
+ * shared function rather than a second copy of it: `refreshReadingsBeforeOpening` needs the "capture and
+ * restore the previous snapshot" fail-open behaviour (see this ref's own comment above for why blanking the
+ * list would be a lie), because it runs silently before a dialog opens on data the owner is about to read.
+ * Every other caller here already HOLDS a `readings` snapshot the owner can see failing to update — for
+ * those, restoring a stale copy over a `null` would hide the very failure `readingsUnavailable`
+ * (`readings.value == null`) exists to surface, so they leave `restoreOnFail` at its default `false`.
+ *
+ * ⚠️ THE FLAG IS DRIVEN BY BOTH A THROWN REJECTION AND THE OBSERVED STATE — NEVER ONLY EITHER ONE ALONE.
+ * `refresh()` does not ALWAYS reject on failure: `useAsyncData`'s `refresh()` can resolve having recorded
+ * the error and reset `data` to `null` with nothing thrown at all, which is why `readings.value == null` is
+ * read directly after the awaited call, outside the catch. But a genuinely thrown rejection is a real
+ * failure signal too, and not every caller's `refresh()` necessarily nulls `data` when it rejects (a fake
+ * `refresh()` that only throws, never touching `data`, is exactly what this file's own test doubles do) —
+ * so a thrown exception ALSO marks the attempt failed, independent of what `readings.value` ends up being.
+ * Dropping either half re-opens a real gap: relying on the throw alone misses the "resolved but nulled"
+ * case QA measured; relying on the observed state alone misses a reject that never touches `data`.
+ */
+async function refreshReadingsTracked(options: { restoreOnFail?: boolean } = {}) {
   const previous = readings.value;
+  let threw = false;
   try {
     await refreshReadings();
-    readingsRefreshFailed.value = false;
   } catch {
-    // Deliberately silent about the FAILURE (the owner is opening a dialog, not asking about the network),
-    // but never silent about the DATA: put back what he already had, and flag it below.
-    readingsRefreshFailed.value = true;
+    // Deliberately silent about the FAILURE here (recorded via `threw` instead) — the owner is not asking
+    // about the network at this point; see the two call sites for what, if anything, surfaces it.
+    threw = true;
   }
-  // Outside the catch on purpose. `refresh()` does not necessarily reject — it can resolve having recorded
-  // the error and reset `data` — so the restore AND the flag have to be driven by the OBSERVED state, not by
-  // whether a rejection happened to be thrown.
-  if (readings.value == null && previous != null) {
+  const failed = threw || readings.value == null;
+  if (failed && options.restoreOnFail && previous != null) {
     readings.value = previous;
-    readingsRefreshFailed.value = true;
   }
+  readingsRefreshFailed.value = failed;
 }
 
-// The marker's own retry: a plain re-fetch that clears the flag when it lands. Reuses `refreshReadings`,
-// never a second fetch path.
+async function refreshReadingsBeforeOpening() {
+  await refreshReadingsTracked({ restoreOnFail: true });
+}
+
+// The marker's own retry: a plain re-fetch that clears the flag when it lands. Routes through the SAME
+// shared function every other readings refresh on this page uses, never a second fetch path.
 async function retryReadingsRefresh() {
-  try {
-    await refreshReadings();
-    readingsRefreshFailed.value = readings.value == null;
-  } catch {
-    readingsRefreshFailed.value = true;
-  }
+  await refreshReadingsTracked();
 }
 
 /**
@@ -307,7 +342,11 @@ async function openReading(mode: 'survey' | 'voluntary') {
 // himself, separately, once he has actually watered — so a WATER_NOW save changes the readings list and the
 // measurement block, but never adds a History entry on its own.
 async function onReadingSaved() {
-  await Promise.all([refresh(), refreshReadings(), refreshHistory()]);
+  // Routed through `refreshReadingsTracked` (Task 3, F4.1) rather than the raw `refreshReadings()` — this
+  // was the ONE call site the flag never used to track at all, which is the shape of the defect that fix
+  // exists for: fail a readings refresh, then save a reading successfully here, and the stale banner used
+  // to survive a refresh that had just proven the data was fresh again.
+  await Promise.all([refresh(), refreshReadingsTracked(), refreshHistory()]);
 }
 
 /**
@@ -882,6 +921,11 @@ const anchorKeptDays = ref<Partial<Record<TaskCode, string | null>>>({});
 // 197-day case. The parallel-copy pair with pages/index.vue — both surfaces gain this together.
 const potDetailsDiscardedKeys = ref<Partial<Record<TaskCode, string | null>>>({});
 const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
+// F1+F3 (2026-08-15) — the row-level REFUSAL note, keyed by task exactly like the three notice maps above,
+// and independent of all three: those describe what a write the server ACCEPTED did; this describes a
+// write the server REFUSED, which produced none of them. Cleared the instant a later submit of the SAME
+// task either succeeds or fails again (never accumulated across tasks) — see `sendDone`/`sendPostpone`.
+const rowErrors = ref<Partial<Record<TaskCode, string | null>>>({});
 
 // ⚠️ THE RESET IS KEYED TO AN *APPLIED* OUTCOME AND NOTHING ELSE (spec §2.4/§3.2). Bumping the counter on
 // an "already recorded on that day" result would clear the owner's typed date over a submission that wrote
@@ -951,25 +995,56 @@ const pendingRepotEvaluation = computed(() => care.value?.tasks.find((t) => t.ta
 // plant here, so "within the card" is the whole rendered list.
 const orderedTasks = computed(() => orderTasksForCard(care.value?.tasks ?? []));
 
+// F1+F3 (2026-08-15) — the try/catch wraps ONLY the write. A write the server REFUSED sets this row's
+// `rowErrors` entry and returns immediately: no outcome to record, no refresh to run, no `appliedCompletions`
+// bump — the row must not read as though something happened when nothing did.
+//
+// ⚠️ THE REFRESH BATCH IS NOT PART OF THE ERROR (owner ruling, 2026-08-15). A write the server ACCEPTED is a
+// genuine success even if the FOLLOW-UP reads that refresh the page fail — a failed refresh must never
+// render "your action failed" for a write that landed. So the refresh batch below has its OWN try/catch
+// that never touches `rowErrors`; on failure it only `console.warn`s, naming that the write succeeded and
+// only the refresh did not, which is the honest and complete story for that case.
 async function sendDone(task: TaskCode, occurredOn?: string, reason?: string) {
-  const result = await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
+  let result;
+  try {
+    result = await api.sendFeedback(id, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
+  } catch (e) {
+    rowErrors.value = { ...rowErrors.value, [task]: ownerFacingErrorMessage(e, t) };
+    return;
+  }
+  rowErrors.value = { ...rowErrors.value, [task]: null };
   recordOutcome(task, result, occurredOn);
-  // A completed action becomes a history item (kind:'action', e.g. "Watered today"), so refresh the
-  // timeline in place too — not just the care rows — consistent with the progress-log path.
-  //
-  // ⚠️ AND `readings` — because `readings.wateringDays` is what tells the measuring modal whether a given
-  // day carries the same-day question at all. Watering here and then measuring is the OWNER'S OWN FLOW for
-  // the saturated anchor (spec §4.6: ask "when a WATER DONE exists for that plant on that date, OR THE
-  // OWNER RECORDS A WATERING IN THE SAME SESSION"), and without this refresh that list is stale: the modal
-  // never renders the question, sends no answer, and the API's honest 400 surfaces as a generic "save
-  // failed" the owner cannot clear without reloading the page. The short-cycle plant this ruling was made
-  // for is exactly the one that hits it.
-  await Promise.all([refresh(), refreshHistory(), refreshReadings()]);
+  try {
+    // A completed action becomes a history item (kind:'action', e.g. "Watered today"), so refresh the
+    // timeline in place too — not just the care rows — consistent with the progress-log path.
+    //
+    // ⚠️ AND `readings` — because `readings.wateringDays` is what tells the measuring modal whether a given
+    // day carries the same-day question at all. Watering here and then measuring is the OWNER'S OWN FLOW for
+    // the saturated anchor (spec §4.6: ask "when a WATER DONE exists for that plant on that date, OR THE
+    // OWNER RECORDS A WATERING IN THE SAME SESSION"), and without this refresh that list is stale: the modal
+    // never renders the question, sends no answer, and the API's honest 400 surfaces as a generic "save
+    // failed" the owner cannot clear without reloading the page. The short-cycle plant this ruling was made
+    // for is exactly the one that hits it. Routed through `refreshReadingsTracked` (Task 3, F4.1) so this
+    // refresh drives the SAME `readingsRefreshFailed` flag every other readings refresh on this page does.
+    await Promise.all([refresh(), refreshHistory(), refreshReadingsTracked()]);
+  } catch (e) {
+    console.warn(`sendDone(${task}): the write succeeded but the post-write refresh failed`, e);
+  }
 }
 
 async function sendPostpone(task: TaskCode, reason?: string) {
-  await api.sendFeedback(id, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1), reason });
-  await refresh();
+  try {
+    await api.sendFeedback(id, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1), reason });
+  } catch (e) {
+    rowErrors.value = { ...rowErrors.value, [task]: ownerFacingErrorMessage(e, t) };
+    return;
+  }
+  rowErrors.value = { ...rowErrors.value, [task]: null };
+  try {
+    await refresh();
+  } catch (e) {
+    console.warn(`sendPostpone(${task}): the write succeeded but the post-write refresh failed`, e);
+  }
 }
 
 // Evaluate: opens the signs checklist. Fetches the species' repotting signs fresh every time the modal
@@ -1365,6 +1440,22 @@ function onWaterVerdictDone() {
   return onDone('WATER', careEffectiveStatus('WATER', status));
 }
 
+// Task 2 (early-water tense, 2026-08-15) — the picker's title reads in the PAST tense when the watering it
+// asks about is BACK-DATED, and stays present tense on a same-day submission. Uses the SAME comparison the
+// row's own submit already relies on (`doneSubmitPath`, `utils/careOutcome.ts`) rather than a second date
+// check invented here — the title and the write can never describe different days, because they read the
+// same `occurredOn` off the same `pending` state the picker submits with.
+//
+// ⚠️ THE QUESTION IS KEPT ON A BACK-DATED WATERING, ONLY THE TENSE CHANGES. Suppressing it was considered
+// and REFUSED: the reason a watering happened early is just as informative about a watering three days ago
+// as it is about one today — it still feeds `adapt()` — and dropping the question on that path would
+// silently degrade the care engine's adaptation input for every back-dated early watering.
+const earlyWaterTitle = computed(() =>
+  doneSubmitPath(pending.value?.occurredOn, today()) === 'back-dated'
+    ? t('feedback.earlyWaterTitlePast')
+    : t('feedback.earlyWaterTitle'),
+);
+
 function confirmEarly(reason: string) {
   const p = pending.value;
   pending.value = null;
@@ -1729,6 +1820,7 @@ async function confirmRevive() {
                 :prompt-answered-today="t3.task === 'WATER' && care.watering?.promptAnsweredToday === true"
                 :watered-today="t3.task === 'WATER' && care.watering?.wateredToday === true"
                 :outcome-note="outcomeNoteFor(t3.task)"
+                :error-note="rowErrors[t3.task] ?? null"
                 :applied-completions="appliedCompletions[t3.task] ?? 0"
                 with-done-date
                 show-info
@@ -1757,15 +1849,24 @@ async function confirmRevive() {
                  modal would open on the "you have no instruments" empty state, which for this owner is a
                  false statement. So "Add a reading" stands down and the retryable failure takes its place;
                  the WATER row above has already fallen back to Hecho | Posponer through the same
-                 `readingsUnavailable` flag, so nothing is locked. -->
+                 `readingsUnavailable` flag, so nothing is locked.
+                 ⚠️ F4.2 (2026-08-15) — `reading.historyLoadError`, NOT `reading.surveyLoadError`. That
+                 sentence was written for TODAY's SURVEY failure ("¿Necesitas regar?") — it names
+                 *instruments* and offers watering advice. Inside THIS card, the measurement-HISTORY block,
+                 it named the wrong noun and gave advice about a different control entirely; the failure here
+                 is "we couldn't load your past readings", not "we couldn't check whether to water".
+                 `pages/index.vue`'s own use of `reading.surveyLoadError` (its actual survey-fetch failure)
+                 is correct and stays untouched — this fix is scoped to this card alone. Retried through the
+                 SAME shared refresh (`refreshReadingsTracked`, Task 3) every other readings refresh on this
+                 page now uses. -->
             <UiAlert
               v-if="readingsUnavailable"
               color="red"
-              :description="$t('reading.surveyLoadError')"
+              :description="$t('reading.historyLoadError')"
               announce
               class="mp-detail__alert"
             >
-              <UiButton size="xs" variant="soft" color="neutral" @click="refreshReadings()">
+              <UiButton size="xs" variant="soft" color="neutral" @click="refreshReadingsTracked()">
                 {{ $t('reading.surveyRetry') }}
               </UiButton>
             </UiAlert>
@@ -1987,7 +2088,7 @@ async function confirmRevive() {
 
     <UiReasonPicker
       v-model:open="earlyPickerOpen"
-      :title="$t('feedback.earlyWaterTitle')"
+      :title="earlyWaterTitle"
       :options="earlyWaterOptions"
       @confirm="confirmEarly"
     />

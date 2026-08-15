@@ -143,9 +143,19 @@ describe('potDetailsDiscardedNoteKey', () => {
     expect(potDetailsDiscardedNoteKey(already('REPOT', false))).toBeNull();
   });
 
-  it('says nothing for an applied outcome, or for an absent one (an older API mid rolling deploy)', () => {
+  it('says nothing for an ORDINARY applied outcome (no flag set), or for an absent one (an older API mid rolling deploy)', () => {
     expect(potDetailsDiscardedNoteKey(applied)).toBeNull();
     expect(potDetailsDiscardedNoteKey(undefined)).toBeNull();
+  });
+
+  // ⚠️ F5 AMENDMENT (owner ruling, 2026-08-15) — the status gate this function used to carry
+  // (`outcome.status !== 'already-recorded-on-day'`) is GONE. A refused REPOT day that is NOT a same-day
+  // duplicate still writes a `CareEvent` (`status: 'applied'`), but the values it carries sit in a payload
+  // the app renders nowhere — the visible profile is untouched either way, so the sentence now fires on
+  // this arm too whenever the server's own flag says so.
+  it('DOES earn the sentence on an APPLIED outcome now, when the server\'s flag is set (F5 amendment)', () => {
+    const appliedAndDiscarded: CareWriteOutcome = { status: 'applied', potDetailsDiscarded: true };
+    expect(potDetailsDiscardedNoteKey(appliedAndDiscarded)).toBe(POT_DETAILS_DISCARDED_KEY);
   });
 });
 

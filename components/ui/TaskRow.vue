@@ -131,6 +131,23 @@ const props = withDefaults(
      */
     outcomeNote?: string | null;
     /**
+     * THE OWNER'S ACTION WAS REFUSED (F1+F3, 2026-08-15) — ALREADY TRANSLATED by the parent through
+     * `ownerFacingErrorMessage` (`utils/ownerFacingError.ts`); this component decides nothing about it and
+     * renders it as-is, exactly like `outcomeNote` below.
+     *
+     * ⚠️ A SEPARATE PROP FROM `outcomeNote`, NOT A REUSE OF IT — the two states can never be true at once
+     * (a submit either failed or produced an outcome), but they are different FACTS: `outcomeNote` states
+     * something true about a write the server ACCEPTED; this one states that the write was REFUSED and
+     * nothing happened. Collapsing them into one prop would force a caller to pick one meaning for a slot
+     * that means two different things, and a screen reader needs the distinction too — this is why it
+     * carries `role="alert"` below (an interruption worth announcing immediately) where `outcomeNote` stays
+     * `aria-live="polite"` (a fact worth mentioning, not worth interrupting for).
+     *
+     * `null`/omitted renders nothing, which is every row whose last submit either succeeded or has not
+     * been tried yet.
+     */
+    errorNote?: string | null;
+    /**
      * A COUNTER THE PARENT BUMPS ONLY WHEN A SUBMIT RESOLVED *APPLIED* (spec §2.4).
      *
      * ⚠️ THIS REPLACED A `watch(() => props.dueLabel, …)`, AND RE-ADDING ONE WOULD REOPEN THE DEFECT. The
@@ -160,6 +177,7 @@ const props = withDefaults(
     promptAnsweredToday: false,
     wateredToday: false,
     outcomeNote: null,
+    errorNote: null,
     appliedCompletions: 0,
   },
 );
@@ -527,6 +545,11 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
         </Button>
       </template>
     </div>
+    <!-- The owner's action was REFUSED (F1+F3, 2026-08-15) — rendered BEFORE `outcomeNote` below, since the
+         two can never be true at once and this is the more urgent of the two when it is. `role="alert"`,
+         not `aria-live="polite"`: this is an interruption the owner needs, not a fact worth mentioning in
+         passing. NO animation of any kind — this app composites on the CPU on the owner's machine. -->
+    <p v-if="errorNote" class="mp-taskrow__error-note" role="alert">{{ errorNote }}</p>
     <!-- The one-per-day outcome (spec §3.2). `aria-live` because it appears in response to the owner's own
          action and a screen reader must HEAR it, exactly as `ModalBlockedReason` does for a blocked save.
          A statement of fact, not an alert: same muted treatment as the discarded-Done note above. NO
@@ -571,6 +594,18 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
   color: var(--text-muted);
 }
 
+/* F1+F3, 2026-08-15 — mirrors `.mp-taskrow__outcome-note` below, with the app's semantic "poor" red text
+   token (`--care-poor-text`, `assets/css/tokens/colors.css`) rather than a hex literal, so this reads
+   correctly in both light and dark without a media query of its own — the token already carries both. NO
+   animation, same reasoning as every other note in this component. */
+.mp-taskrow__error-note {
+  flex-basis: 100%;
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--care-poor-text);
+}
+
 .mp-taskrow__outcome-note {
   flex-basis: 100%;
   margin: var(--space-1) 0 0;
@@ -579,9 +614,28 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
   color: var(--text-muted);
 }
 
+/* ⚠️ `flex-wrap: wrap` IS THE WHOLE OF F2, AND IT IS NOT A COSMETIC PREFERENCE (QA 2026-08-15).
+   MEASURED in real Chrome, plant page, a WATER row carrying all four controls
+   (`¿Necesitas regar?` | date | Hecho | Posponer) because the owner has an instrument selected:
+
+     viewport   360    390    414    430    480    768
+     scrollWidth 486    486    486    486    486    768
+     overflow   +126    +96    +72    +56     +6    none
+
+   `Posponer` sat off-screen on every phone width. The cause is that this element was a `display: flex`
+   with NO wrap, which makes its MIN-CONTENT width the SUM of its four children (430 px measured, against
+   137–309 px for every other row on the page) — so it could not shrink, and it dragged the whole card past
+   the viewport. `.mp-taskrow` above has always wrapped; this child never did, which is why only the row
+   with four controls was affected and no other page in the app overflows at 390.
+
+   Wrapping is the fix rather than hiding a control or shrinking the type below the design system's
+   minimum: every control stays reachable, at its own size, and the row simply takes a second line on a
+   narrow screen. The existing `gap` token already covers the row axis as well as the column axis (`gap` is
+   both), so no second spacing value is introduced and none is needed. */
 .mp-taskrow__actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
@@ -618,11 +672,38 @@ const onEvaluate = () => emit('evaluate', { task: props.task });
 }
 
 /* REPOT's back-date is display-only (Task 26): it seeds the completion form and stops being editable
-   here, so it reads as inert rather than as an active input the owner might still type into. */
+   here, so it reads as inert rather than as an active input the owner might still type into.
+
+   ⚠️ F6 (QA 2026-08-15) — THE SIGNAL WAS TOO WEAK TO BE ONE, AND THAT IS A MEASURED CLAIM, not a taste
+   call. Computed styles read out of real Chrome, this row beside the editable rows directly under it:
+
+     REPOT  color rgb(120,113,108)  background rgb(245,245,244)  border rgb(214,211,209)  cursor default
+     WATER  color rgb(28,25,23)     background rgb(255,255,255)  border rgb(214,211,209)  cursor default
+
+   The border was IDENTICAL, the cursor was identical (a date input's default cursor is `default` whether or
+   not it is readonly, so that line never signalled anything), and the only difference was a faint tone
+   shift between two near-white greys. Two boxes of the same size, same shape, same border, one field-shaped
+   and clickable-looking — QA typed into it, watched nothing happen and the value snap back, which is
+   exactly what a control that looks editable and is not will produce.
+
+   FIXED BY REMOVING THE BOX, not by tinting it harder. The editable siblings are what a field looks like on
+   this row: a filled surface, a visible border, and the native calendar picker. This one keeps none of the
+   three — transparent surface, transparent border (`border-color`, so the 1px is still reserved and nothing
+   shifts by a pixel), muted ink, and the picker indicator suppressed — so it reads as the DISPLAYED DATE it
+   is rather than as a field the owner is invited to argue with. It stays a real, focusable `<input>`: the
+   value still seeds `RepotDoneForm`'s own editable date field, which remains the one place a repot's day is
+   actually chosen. Tokens only, both themes, no new colour. */
 .mp-taskrow__date--readonly {
   color: var(--text-muted);
-  background: var(--surface-sunken);
+  background: transparent;
+  border-color: transparent;
   cursor: default;
+}
+
+/* The native calendar button is the last affordance that says "you may change this" — a readonly input
+   still renders it, and clicking it does nothing. Suppressed for this variant only. */
+.mp-taskrow__date--readonly::-webkit-calendar-picker-indicator {
+  display: none;
 }
 
 .mp-taskrow__date--readonly:focus {

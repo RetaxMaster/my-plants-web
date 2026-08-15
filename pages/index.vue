@@ -5,6 +5,9 @@ import { groupByPlant, orderTasksForCard, dueState, type DueTask } from '../util
 import {
   careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, potDetailsDiscardedNoteKey, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
+// F1+F3 (2026-08-15) — the ONE seam every mutating write on this page reads its owner-facing failure
+// message through; see its own file-header comment for the three rules and the measured envelope shape.
+import { ownerFacingErrorMessage } from '../utils/ownerFacingError.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
 // One implementation of "which pending evaluation may an action name" and of "which sign is worth
@@ -356,6 +359,11 @@ const anchorKeptDays = ref<Record<string, string | null>>({});
 const potDetailsDiscardedKeys = ref<Record<string, string | null>>({});
 const appliedCompletions = ref<Record<string, number>>({});
 const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${task}`;
+// F1+F3 (2026-08-15) — the row-level REFUSAL note, keyed the SAME way `outcomeNotes` above is (this page
+// renders many plants at once, so plantId+task, unlike PlantDetail.vue's task-only map). Independent of the
+// three outcome maps: those describe what a write the server ACCEPTED did; this describes a write the
+// server REFUSED, which produced none of them.
+const rowErrors = ref<Record<string, string | null>>({});
 
 // The SAME rule the plant page applies, through the SAME helper — never a second copy of the mapping.
 // Today's rows carry no date box, so `doneSubmitPath` answers `same-day` here by construction; it is still
@@ -494,16 +502,45 @@ function dismissStandaloneOutcomeNote(key: string) {
   potDetailsDiscardedKeys.value = restPotDetails;
 }
 
+// F1+F3 (2026-08-15) — the try/catch wraps ONLY the write, exactly like PlantDetail.vue's identical
+// `sendDone`/`sendPostpone` (see that file's comment for the full reasoning). A refused write sets this
+// row's `rowErrors` entry and returns immediately: no outcome recorded, no refresh, no reconcile. A write
+// the server ACCEPTED clears the error first, then a SEPARATE try/catch owns the refresh batch — its own
+// failure never touches `rowErrors`, only `console.warn`s, because a failed follow-up read must never be
+// shown as though the owner's action itself failed.
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
-  const result = await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
+  const key = outcomeKey(plantId, task);
+  let result;
+  try {
+    result = await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
+  } catch (e) {
+    rowErrors.value = { ...rowErrors.value, [key]: ownerFacingErrorMessage(e, t) };
+    return;
+  }
+  rowErrors.value = { ...rowErrors.value, [key]: null };
   recordOutcome(plantId, task, result, occurredOn);
-  await refresh();
-  reconcileOutcomeNotesAfterRefresh();
+  try {
+    await refresh();
+    reconcileOutcomeNotesAfterRefresh();
+  } catch (e) {
+    console.warn(`sendDone(${plantId}, ${task}): the write succeeded but the post-write refresh failed`, e);
+  }
 }
 
 async function sendPostpone(plantId: string, task: DueTask['task'], reason?: string) {
-  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1), reason });
-  await refresh();
+  const key = outcomeKey(plantId, task);
+  try {
+    await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1), reason });
+  } catch (e) {
+    rowErrors.value = { ...rowErrors.value, [key]: ownerFacingErrorMessage(e, t) };
+    return;
+  }
+  rowErrors.value = { ...rowErrors.value, [key]: null };
+  try {
+    await refresh();
+  } catch (e) {
+    console.warn(`sendPostpone(${plantId}, ${task}): the write succeeded but the post-write refresh failed`, e);
+  }
 }
 
 // Evaluate: opens the signs checklist. Fetches the species' repotting signs fresh every time the modal
@@ -1020,6 +1057,16 @@ function onPostpone(plantId: string, task: DueTask['task']) {
   return sendPostpone(plantId, task);
 }
 
+// Task 2 (early-water tense, 2026-08-15) — the SAME rule PlantDetail.vue applies, through the SAME
+// comparison (`doneSubmitPath`, `utils/careOutcome.ts`), never a second date check invented here. See that
+// component's identical comment for why the question is KEPT on a back-dated watering (only the tense
+// changes) and why suppressing it was refused.
+const earlyWaterTitle = computed(() =>
+  doneSubmitPath(pending.value?.occurredOn, today()) === 'back-dated'
+    ? t('feedback.earlyWaterTitlePast')
+    : t('feedback.earlyWaterTitle'),
+);
+
 function confirmEarly(reason: string) {
   const p = pending.value;
   pending.value = null;
@@ -1163,6 +1210,7 @@ function openProgress(plantId: string) {
             :todays-verdict="t2.task === 'WATER' ? todaysVerdictFor(plantId) : null"
             :prompt-answered-today="PROMPT_ANSWERED_NOT_ON_THE_TODAY_ROW"
             :outcome-note="outcomeNoteFor(plantId, t2.task)"
+            :error-note="rowErrors[outcomeKey(plantId, t2.task)] ?? null"
             :applied-completions="appliedCompletions[outcomeKey(plantId, t2.task)] ?? 0"
             @done="e => onDone(plantId, e.task, rowEffectiveStatus(plantId, e.task, t2.nextDueOn), e.occurredOn)"
             @postpone="e => onPostpone(plantId, e.task)"
@@ -1175,7 +1223,7 @@ function openProgress(plantId: string) {
 
     <UiReasonPicker
       v-model:open="earlyPickerOpen"
-      :title="$t('feedback.earlyWaterTitle')"
+      :title="earlyWaterTitle"
       :options="earlyWaterOptions"
       @confirm="confirmEarly"
     />

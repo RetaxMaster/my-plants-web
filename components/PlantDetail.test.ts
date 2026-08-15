@@ -2287,6 +2287,32 @@ describe('PlantDetail — a saved measurement also refreshes History (fix wave 1
     expect(careRefresh).toHaveBeenCalled();
     expect(historyRefresh).toHaveBeenCalled();
   });
+
+  // ⚠️ F1+F3 (2026-08-15) — THE REFRESH FAILING IS NOT THE SAME FACT AS THE WRITE FAILING (owner ruling).
+  // `sendFeedback` here resolves normally (the write landed); only the POST-write `refresh()` rejects. The
+  // row must render NO error — rendering one would tell the owner his action failed when the server
+  // accepted it — and the failure is only ever `console.warn`ed, naming that the write succeeded and only
+  // the refresh did not.
+  it('a write that SUCCEEDS but whose refresh FAILS renders no error note, only warns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      careRefresh.mockRejectedValueOnce(new Error('refresh down'));
+      const w = await mountDetailForReading(basePlant(), {
+        tasks: [{ task: 'WATER', nextDueOn: '2026-08-08', daysUntilDue: 0, status: 'due', pendingEvaluation: null }],
+        viability: null, soilDrynessBeforeWatering: 'half-dry', crowding: null, juvenile: null,
+        substrate: null, measurement: null, fertilize: { overrideOn: null, overrideMovedBy: [] },
+      });
+      await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
+      await flushPromises();
+      expect(taskRowFor(w, 'WATER').find('.mp-taskrow__error-note').exists()).toBe(false);
+      // Vue's own dev-mode warnings (unrelated component-resolution notices from this mount's stub map)
+      // also go through `console.warn`, so the assertion searches every call rather than trusting index 0.
+      expect(warn.mock.calls.some((call) =>
+        String(call[0]).match(/write succeeded but the post-write refresh failed/))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 // Task 6 (watering-survey-web plan): the WATER row joins the survey shape pages/index.vue's own WATER row
@@ -2775,6 +2801,60 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     expect((taskRowFor(w, 'WATER').find('input[type="date"]').element as HTMLInputElement).value).toBe('');
   });
 
+  // F1+F3 (2026-08-15) — a REFUSED write renders `errorNote`, never `outcomeNote`: no outcome was ever
+  // recorded, because the try/catch this fix introduces wraps ONLY the write and returns before
+  // `recordOutcome` is reached. Built from a real owner-readable server sentence, exercising
+  // `ownerFacingErrorMessage`'s rule 2 (passthrough) through the real component, not a unit call.
+  describe('a REFUSED write renders the row-level error note (F1+F3, 2026-08-15)', () => {
+    it('shows the server\'s own sentence, and records no outcome', async () => {
+      const w = await mountWater([], null, {}, {
+        sendFeedback: async () => {
+          throw { statusCode: 400, data: { data: { message: 'wateringRelation is required: …' } } };
+        },
+      });
+      const row = taskRowFor(w, 'WATER');
+      await doneButtons(row)[0]!.trigger('click');
+      await flushPromises();
+      const reRow = taskRowFor(w, 'WATER');
+      expect(reRow.find('.mp-taskrow__error-note').text()).toBe('wateringRelation is required: …');
+      expect(reRow.find('.mp-taskrow__outcome-note').exists()).toBe(false);
+    });
+
+    // POSITIVE CONTROL + the per-task CLEAR: the SAME row, after a failed attempt, succeeds on the next
+    // press — the error must disappear and the ordinary outcome must render, proving `rowErrors` is not
+    // sticky across a later successful submit of the SAME task.
+    it('clears once a LATER submit of the same task succeeds', async () => {
+      let attempt = 0;
+      const w = await mountWater([], null, {}, {
+        sendFeedback: async () => {
+          attempt += 1;
+          if (attempt === 1) throw { statusCode: 400, data: { data: { message: 'wateringRelation is required: …' } } };
+          return { ok: true, outcome: { status: 'applied' } };
+        },
+      });
+      const row = taskRowFor(w, 'WATER');
+      await doneButtons(row)[0]!.trigger('click');
+      await flushPromises();
+      expect(taskRowFor(w, 'WATER').find('.mp-taskrow__error-note').exists()).toBe(true);
+
+      await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
+      await flushPromises();
+      expect(taskRowFor(w, 'WATER').find('.mp-taskrow__error-note').exists()).toBe(false);
+    });
+
+    // A bare Error (no proxied envelope at all — e.g. a genuine network drop) falls through
+    // `ownerFacingErrorMessage`'s rules to `common.errorGeneric`, never a stack trace or "[object Object]".
+    it('falls back to the generic sentence for a bare network failure', async () => {
+      const w = await mountWater([], null, {}, {
+        sendFeedback: async () => { throw new Error('network'); },
+      });
+      const row = taskRowFor(w, 'WATER');
+      await doneButtons(row)[0]!.trigger('click');
+      await flushPromises();
+      expect(taskRowFor(w, 'WATER').find('.mp-taskrow__error-note').text()).toBe(i18n.t('common.errorGeneric'));
+    });
+  });
+
   // Task 10, the rolling-deploy half of the contract Task 8 already honours in its own unit case
   // (`careOutcomeNoteKey(undefined, 'same-day') === null` — "say nothing about a fact the server did not
   // state"). An API that predates the outcome answers `{ ok: true }` and nothing else, so the call site
@@ -2881,6 +2961,61 @@ describe('PlantDetail — Task 6: the plant page surveys too, and the voluntary 
     it('says nothing when the refresh succeeded — the marker is a failure state, not a status line', async () => {
       const w = await mountWaterWithRefresh(vi.fn(async () => {}));
       await w.find('.mp-detail__measurement-add').trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-detail__readings-stale').exists()).toBe(false);
+    });
+
+    // ⚠️ F4.1 (2026-08-15) — THE MEASURED DEFECT THIS FIX EXISTS FOR. Before it, `readingsRefreshFailed` was
+    // maintained by only two of this page's several readings refreshes, and `onReadingSaved` was NOT one of
+    // them: fail the pre-open refresh (marker appears), then SAVE A READING through the modal — the save's
+    // own refresh succeeds and fresh data renders, but the marker used to STAY, because that path never
+    // touched the flag. `refreshReadingsTracked` (the shared function every refresh on this page now routes
+    // through) closes it structurally: a save's refresh is no different from any other refresh as far as the
+    // flag is concerned.
+    it('a SUCCESSFUL reading save clears a marker left by an earlier FAILED pre-open refresh', async () => {
+      const interactiveModalStub = {
+        props: ['open', 'plantId', 'data', 'mode', 'watered-today'],
+        emits: ['saved', 'water-done', 'water-postpone'],
+        template: '<button class="reading-saved-btn" @click="$emit(\'saved\')" />',
+      };
+      let failNext = true;
+      const refreshSpy = vi.fn(async () => { if (failNext) throw new Error('offline'); });
+      vi.stubGlobal('useAsyncData', async (key: string, fn: () => Promise<unknown>) => {
+        const data = ref(await fn());
+        return { data, refresh: key.startsWith('soil-readings-') ? refreshSpy : vi.fn(async () => {}) };
+      });
+      vi.stubGlobal('useApi', () => ({
+        getPlant: async () => basePlant(),
+        getPlantCare: async () => waterCare(),
+        listPlaces: async () => [],
+        getPlantHistory: async () => [],
+        getPlantPhotos: async () => [],
+        getRepotSigns: async () => ({ signs: [] }),
+        getSoilReadings: async () => ({
+          acquiredOn: '2020-01-01', instruments: [{ id: 'galvanic-probe' }], protocol: null, readings: [],
+          wateringDays: [],
+        }),
+        getOwnerInstruments: async () => ({ available: [], selected: ['galvanic-probe'] }),
+        invalidatePlant: vi.fn(),
+      }));
+      const PlantDetail = (await import('./PlantDetail.vue')).default;
+      const w = mount(
+        { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+        {
+          global: {
+            stubs: { ...readingsLocalStubs, UiSoilReadingModal: interactiveModalStub },
+            mocks: { $t: i18n.t, $d: (v: unknown) => String(v) },
+          },
+        },
+      );
+      await flushPromises();
+
+      await w.find('.mp-detail__measurement-add').trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-detail__readings-stale').exists()).toBe(true); // the pre-open refresh failed
+
+      failNext = false; // the SAVE's own refresh now succeeds
+      await w.find('.reading-saved-btn').trigger('click'); // fires @saved -> onReadingSaved
       await flushPromises();
       expect(w.find('.mp-detail__readings-stale').exists()).toBe(false);
     });
@@ -3008,12 +3143,20 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       expect(postponeButtons(row).length).toBe(1);
     });
 
-  it('W1: says the load failed, and never offers a voluntary reading it could only answer with the ' +
-    '"you have no instruments" lie', async () => {
+  // ⚠️ F4.2 (2026-08-15) — SUPERSEDES the original `reading.surveyLoadError` assertion here. That sentence
+  // was written for TODAY's survey failure ("¿Necesitas regar?") — it names *instruments* and offers
+  // watering advice — and this card is the measurement-HISTORY block, not the survey: it named the wrong
+  // noun and gave advice about a different control. `pages/index.vue`'s own `reading.surveyLoadError` usage
+  // (its actual survey-fetch failure) is unaffected and stays pinned separately in `pages/index.test.ts`.
+  it('W1/F4.2: says the HISTORY load failed (not the survey sentence), and never offers a voluntary ' +
+    'reading it could only answer with the "you have no instruments" lie', async () => {
     const w = await mountWater({ readingsFails: true });
     const banner = w.findAll('.detail-alert')
-      .find((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'));
+      .find((a) => a.attributes('data-description') === i18n.t('reading.historyLoadError'));
     expect(banner).toBeTruthy();
+    // POSITIVE CONTROL — the OLD sentence must not be the one rendered.
+    expect(w.findAll('.detail-alert')
+      .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
     // The retry lives inside it, and it is the only route back to the check.
     expect(banner!.find('button').exists()).toBe(true);
     // "Add a reading" stands down — it opens the SAME modal onto the SAME empty state.
@@ -3026,7 +3169,7 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
       expect(evaluateButtons(taskRowFor(w, 'WATER')).length).toBe(1);
       expect(w.findAll('button').some((b) => b.text() === i18n.t('reading.addReading'))).toBe(true);
       expect(w.findAll('.detail-alert')
-        .some((a) => a.attributes('data-description') === i18n.t('reading.surveyLoadError'))).toBe(false);
+        .some((a) => a.attributes('data-description') === i18n.t('reading.historyLoadError'))).toBe(false);
     });
 
   it('W2: a postpone after today\'s measurement submits no-time without opening the picker', async () => {
@@ -3204,6 +3347,43 @@ describe('PlantDetail — W1/W2: the failed catalogue, and the postpone that sto
 
     expect(sendFeedbackMock).not.toHaveBeenCalled();
     expect(w.findAll('.reason-picker').some((p) => p.attributes('data-open') === 'true')).toBe(true);
+  });
+
+  // Task 2 (early-water tense, 2026-08-15) — the picker's TITLE, never a new date comparison of its own:
+  // it reads the SAME `doneSubmitPath` verdict `sendDone`'s own path already uses, off the SAME `pending`
+  // state the Done click captured, so the title and the eventual write can never describe different days.
+  describe('Task 2: the early-water picker title matches the day it is ASKING about', () => {
+    it('stays PRESENT tense on a same-day early watering (no date typed — an empty box means today)', async () => {
+      const w = await mountWater({ status: 'upcoming', daysUntilDue: 9 });
+      await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
+      await flushPromises();
+      const picker = w.findComponent(UiReasonPickerStub);
+      expect(picker.props('title')).toBe(i18n.t('feedback.earlyWaterTitle'));
+      expect(picker.props('title')).not.toBe(i18n.t('feedback.earlyWaterTitlePast'));
+    });
+
+    it('switches to PAST tense once the owner types an earlier day into the row\'s own back-date box', async () => {
+      const w = await mountWater({ status: 'upcoming', daysUntilDue: 9 });
+      const row = taskRowFor(w, 'WATER');
+      await row.find('input[type="date"]').setValue('2020-01-01');
+      await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
+      await flushPromises();
+      const picker = w.findComponent(UiReasonPickerStub);
+      expect(picker.props('title')).toBe(i18n.t('feedback.earlyWaterTitlePast'));
+      expect(picker.props('title')).not.toBe(i18n.t('feedback.earlyWaterTitle'));
+    });
+
+    // ⚠️ THE QUESTION SURVIVES THE TENSE CHANGE — it is still OFFERED, never skipped, on a back-dated
+    // watering (see `earlyWaterTitle`'s own doc comment for why suppressing it was refused).
+    it('a back-dated early watering still OPENS the picker at all', async () => {
+      const w = await mountWater({ status: 'upcoming', daysUntilDue: 9 });
+      const row = taskRowFor(w, 'WATER');
+      await row.find('input[type="date"]').setValue('2020-01-01');
+      await doneButtons(taskRowFor(w, 'WATER'))[0]!.trigger('click');
+      await flushPromises();
+      expect(w.findComponent(UiReasonPickerStub).props('open')).toBe(true);
+      expect(sendFeedbackMock).not.toHaveBeenCalled(); // it is still ASKING, not sending straight through
+    });
   });
 });
 

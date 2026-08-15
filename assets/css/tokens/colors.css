@@ -129,6 +129,9 @@
 
   /* Focus ring */
   --ring-brand: color-mix(in oklch, var(--green-500) 45%, transparent);
+  /* F7a (QA 2026-08-15) — same recipe/percentage as --ring-brand above (45% light), built from --red-500
+     (already used for the invalid border on Input.vue) rather than a new colour. */
+  --ring-danger: color-mix(in oklch, var(--red-500) 45%, transparent);
 
   /* ---- Photo banners & over-photo chips (Plant Photos & Profile) ---- */
   /* Translucent dark pill drawn OVER a photo — must stay legible on any image. */
@@ -250,6 +253,10 @@
 
   /* Focus ring */
   --ring-brand: color-mix(in oklch, var(--green-400) 50%, transparent);
+  /* F7a (QA 2026-08-15) — same recipe/percentage as --ring-brand above (50% dark), built from --red-500
+     (the same token this file's dark `--care-poor` already reuses, and the border color Input.vue's
+     invalid state already draws in both themes). */
+  --ring-danger: color-mix(in oklch, var(--red-500) 50%, transparent);
 
   /* ---- Photo banners & over-photo chips ---- */
   --photo-chip-surface: rgba(12, 10, 9, 0.62);

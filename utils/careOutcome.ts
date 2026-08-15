@@ -107,18 +107,31 @@ export function substrateAnchorKeptDay(
 }
 
 /**
- * ---- THE POT DETAILS THAT WENT NOWHERE (F4, nothing-left-open code review, 2026-08-14) ----------------
+ * ---- THE POT DETAILS THAT WENT NOWHERE VISIBLE (F4, nothing-left-open code review, 2026-08-14; AMENDED
+ * F5, 2026-08-15) -------------------------------------------------------------------------------------
  *
  * A REPOT completion carries the NEW pot's diameter and soil mix. When the day it names is older than the
- * stored anchor, the profile write is skipped — the event does not describe the pot's CURRENT fill — and
- * when that submission is ALSO a same-day duplicate, the one-per-day rule writes no `CareEvent` either. In
- * that one combination the values the owner typed have no home at all, and nothing on any surface said so.
+ * stored anchor, the profile write is skipped — the event does not describe the pot's CURRENT fill.
  *
- * ⚠️ THIS IS NOT THE RARE BRANCH. It is finding E8's own measured 197-day case — a duplicate naming a stale
- * day — which is the shape an owner actually produces. So the sentence is written to stand ALONE: it names
- * its own subject (the pot details), its own reason (they describe an earlier repot) and the fact that
- * makes it true (the plant already has a more recent one). It is never a footnote to the anchor sentence,
- * even though it renders after it.
+ * ⚠️ F5 AMENDMENT (owner ruling, 2026-08-15) — THE `already-recorded-on-day` STATUS GATE IS GONE. The
+ * original F4 ruling (kept below for the record) reasoned that a NON-duplicate refused day "loses nothing"
+ * because the values ride on the CareEvent's own payload — true, and not the whole story: that payload has
+ * no surface the owner can read on this app, so a value that survives only there is, to him, a value that
+ * vanished. The visible profile still shows the OLD diameter either way. So the sentence now fires whenever
+ * the server's own flag is set, regardless of whether the write was a duplicate — the flag itself already
+ * carries that distinction server-side (see the shared contract's own doc-comment,
+ * `@retaxmaster/my-plants-species-schema`'s `care-outcome.ts`, for exactly which combinations set it).
+ *
+ * ---- THE ORIGINAL F4 REASONING (2026-08-14), for the record -----------------------------------------
+ * "when that submission is ALSO a same-day duplicate, the one-per-day rule writes no `CareEvent` either. In
+ * that one combination the values the owner typed have no home at all, and nothing on any surface said so.
+ * THIS IS NOT THE RARE BRANCH. It is finding E8's own measured 197-day case — a duplicate naming a stale
+ * day — which is the shape an owner actually produces." F5 above is why the sentence no longer waits for
+ * that second condition.
+ *
+ * So the sentence is written to stand ALONE: it names its own subject (the pot details), its own reason
+ * (they describe an earlier repot) and the fact that makes it true (the plant already has a more recent
+ * one). It is never a footnote to the anchor sentence, even though it renders after it.
  *
  * ⚠️ READ STRAIGHT OFF THE SERVER'S OWN FLAG — never re-derived from `status`/`otherEffectsApplied`/`task`.
  * That trio looks equivalent and is not: an owner may legitimately answer "I don't know" to BOTH fields, and
@@ -131,7 +144,7 @@ export function substrateAnchorKeptDay(
 export const POT_DETAILS_DISCARDED_KEY = 'tasks.potDetailsDiscarded';
 
 export function potDetailsDiscardedNoteKey(outcome: CareWriteOutcome | undefined): string | null {
-  if (!outcome || outcome.status !== 'already-recorded-on-day') return null;
+  if (!outcome) return null;
   return outcome.potDetailsDiscarded ? POT_DETAILS_DISCARDED_KEY : null;
 }
 

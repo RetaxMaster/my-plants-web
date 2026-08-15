@@ -465,13 +465,14 @@ describe('UiTaskRow — the REPOT back-date is display-only, seeding the complet
     try {
       vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 50));
       const w = mountRow({ withDoneDate: true, pendingVerdict: 'REPOT' });
-      expect(w.find('input[type="date"]').element.value).toBe('2026-01-01'); // positive control: it started correct
+      const dateBox = () => (w.find('input[type="date"]').element as HTMLInputElement).value;
+      expect(dateBox()).toBe('2026-01-01'); // positive control: it started correct
       vi.setSystemTime(new Date(2026, 0, 2, 0, 0, 10));
       // The owner returns to the tab — the only moment the divergence can first be SEEN, and the trigger
       // the component listens on.
       document.dispatchEvent(new Event('visibilitychange'));
       await w.vm.$nextTick();
-      const shown = w.find('input[type="date"]').element.value;
+      const shown = dateBox();
       await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
       const submitted = (w.emitted('done')![0] as [{ occurredOn: string }])[0].occurredOn;
       expect(shown).toBe(submitted);

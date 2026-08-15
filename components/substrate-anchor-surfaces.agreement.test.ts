@@ -4,7 +4,7 @@
 //
 // "What does the app tell the owner when a repot did NOT move the substrate anchor?" is answered by THREE
 // independent renderers — `pages/index.vue` (Today, `noteTextFor`), `components/PlantDetail.vue` (the plant
-// page, `outcomeNoteFor`), and `components/AgentChat.vue` (an approved agent proposal, `outcomeNoteText`).
+// page, `outcomeNoteFor`), and `components/AgentChat.vue` (an approved agent proposal, `approvedOutcomeNoteText`).
 // All three are SUPPOSED to resolve the answer through one shared seam, `utils/careOutcome.ts`'s
 // `substrateAnchorKeptDay()` / `SUBSTRATE_ANCHOR_KEPT_KEY`, and render it identically:
 // `t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: d(ymdToLocalDate(day), 'short') })`.

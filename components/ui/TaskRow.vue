@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// EXPLICIT vue imports, not Nuxt's auto-import — the same thing `components/PlantDetail.vue` does, and for
+// the same reason: `components/ui/*.vue` are mounted by plain-Vitest tests that stub only the auto-imports
+// they already knew about (`ref`/`computed`/`watch`), so a component reaching for an un-stubbed auto-imported
+// hook dies with `onMounted is not defined` in every test that mounts it. Importing it makes the component
+// self-contained instead of making every future test file responsible for knowing what it uses.
+import { onMounted, onUnmounted } from 'vue';
 import AppIcon from './AppIcon.vue';
 import Badge from './Badge.vue';
 import Button from './Button.vue';
@@ -394,13 +400,22 @@ const evaluateLabel = computed(() =>
 // REPOT completion on the day it is submitted, not the day the row happened to mount. Every OTHER task
 // still reads `doneDate.value` as-is — that box is a live, owner-editable `v-model` (WATER's back-date),
 // and reading it live here would discard whatever the owner typed into it.
-// V3 fix — REPOT's date box is READONLY (line 171 above), so `doneDate.value` is never something the
-// owner typed; it is only ever the SEED this component set at mount/reset time, which can go stale across
-// local midnight exactly the way AF-1 found `today` itself going stale. `repotDoneDateDefault()` re-reads
-// `todayYmd()` live, at the moment Done is actually pressed, so a tab left open across midnight anchors a
-// REPOT completion on the day it is submitted, not the day the row happened to mount. Every OTHER task
-// still reads `doneDate.value` as-is — that box is a live, owner-editable `v-model` (WATER's back-date),
-// and reading it live here would discard whatever the owner typed into it.
+//
+// ⚠️ THE DISPLAY MUST BE RE-SEEDED TOO, OR THE FIX ABOVE CREATES A WORSE BUG THAN IT CLOSES (N7). Reading
+// the day live at press time while the readonly box still renders the mount-time seed means that after
+// local midnight the card SHOWS one day and SUBMITS another — and this file's own contract is that exactly
+// ONE date surface exists per submission, precisely so the owner can never be shown a date the write does
+// not use. `visibilitychange` is the honest trigger and the only one that covers the real scenario: the
+// divergence needs a tab left open ACROSS midnight, so the moment it can first be seen is the moment the
+// owner comes back to that tab. A timer would burn wakeups on every row for a case that arises once a day.
+function reseedRepotDoneDate() {
+  if (props.task === 'REPOT' && document.visibilityState === 'visible') {
+    doneDate.value = repotDoneDateDefault();
+  }
+}
+onMounted(() => document.addEventListener('visibilitychange', reseedRepotDoneDate));
+onUnmounted(() => document.removeEventListener('visibilitychange', reseedRepotDoneDate));
+
 const onDone = () => emit('done', {
   task: props.task,
   occurredOn: (props.task === 'REPOT' ? repotDoneDateDefault() : doneDate.value) || undefined,

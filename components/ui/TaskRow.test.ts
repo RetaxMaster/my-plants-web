@@ -450,6 +450,37 @@ describe('UiTaskRow — the REPOT back-date is display-only, seeding the complet
     }
   });
 
+  // N7 (code review, 2026-08-14) — THE OTHER HALF OF THE MIDNIGHT FIX, and without it the fix above is a
+  // WORSE bug than the one it closed. Reading the day live at press time while the READONLY box still
+  // renders the mount-time seed means the card SHOWS one day and SUBMITS another — and this component's own
+  // contract is that exactly ONE date surface exists per submission, precisely so the owner is never shown a
+  // date the write does not use. The test above asserts only on `emitted('done')` and never reads the
+  // rendered input, which is exactly why it could not see this.
+  //
+  // The assertion is the INVARIANT, not a literal: the displayed value must equal the submitted one. Written
+  // that way on purpose — a future change that alters BOTH consistently is allowed to pass, and any change
+  // that moves only one of them fails, which is the whole property worth pinning.
+  it('REPOT: after the tab crosses midnight and comes back into view, the box SHOWS the same day it SUBMITS', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 50));
+      const w = mountRow({ withDoneDate: true, pendingVerdict: 'REPOT' });
+      expect(w.find('input[type="date"]').element.value).toBe('2026-01-01'); // positive control: it started correct
+      vi.setSystemTime(new Date(2026, 0, 2, 0, 0, 10));
+      // The owner returns to the tab — the only moment the divergence can first be SEEN, and the trigger
+      // the component listens on.
+      document.dispatchEvent(new Event('visibilitychange'));
+      await w.vm.$nextTick();
+      const shown = w.find('input[type="date"]').element.value;
+      await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
+      const submitted = (w.emitted('done')![0] as [{ occurredOn: string }])[0].occurredOn;
+      expect(shown).toBe(submitted);
+      expect(submitted).toBe('2026-01-02');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('every OTHER task keeps an editable back-date, unchanged', () => {
     const w = mountRow({ task: 'WATER', withDoneDate: true });
     const input = w.find('input[type="date"]');

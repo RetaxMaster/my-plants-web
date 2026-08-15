@@ -498,12 +498,48 @@ const readingsUnavailable = computed(() => readings.value == null);
 // `measurement` on the same payload this page already holds — never a second fetch, and never read off
 // `measurement`, where it does not belong (a watering is not a measurement fact). The RULE, including why
 // this cannot be folded into `todaysVerdict`, lives in `utils/waterSurvey.ts`.
-const canSurveyWater = computed(() => canOfferWaterSurvey({
+// The four facts THIS page holds, gathered ONCE. Both readers below ask `canOfferWaterSurvey` — the shared
+// rule in `utils/waterSurvey.ts` — the same question about the same facts; the second one repairs exactly
+// one of them. Written as one object rather than two literals so a fifth fact added to the rule can never
+// reach one reader and miss the other.
+const waterSurveyFacts = computed(() => ({
   hasInstrument: (ownerInstruments.value?.selected.length ?? 0) > 0,
   todaysVerdict: care.value?.measurement?.todaysVerdict ?? null,
   catalogueAvailable: !readingsUnavailable.value,
   wateredToday: care.value?.watering?.wateredToday === true,
 }));
+const canSurveyWater = computed(() => canOfferWaterSurvey(waterSurveyFacts.value));
+
+/**
+ * THE CHECK THE FAILED CATALOGUE TOOK AWAY, SAID OUT LOUD (2026-08-15).
+ *
+ * When `getSoilReadings` fails, `canSurveyWater` above goes false and the WATER row's "¿Necesitas regar?"
+ * button simply disappears. F4.2 was right to stop the readings card from explaining that — that card's
+ * banner is about the reading HISTORY, a different fact, and borrowing the survey sentence there named the
+ * wrong noun. But re-homing one of the two facts left the OTHER one homeless: measured on the running app,
+ * the whole plant page carried no sentence about instruments, about the check, or about why the button had
+ * gone. `TaskRow.vue`'s own governing rule for a withheld control is explicit that this is a defect — *"a
+ * button that simply vanishes reads as a bug"* — so the fact gets stated, in the page's existing notice
+ * zone, in the SAME words and the SAME alert+retry shape `pages/index.vue` already uses for this exact
+ * fetch's failure. No new sentence: `reading.surveyLoadError` is that sentence, and it is honest here for
+ * the same reason it is honest there — the failing payload IS the instrument list (`PlantSoilReadings.
+ * instruments`), and Hecho | Posponer really are still on offer.
+ *
+ * ⚠️ GATED ON THE SURVEY HAVING BEEN OFFERABLE AT ALL, NEVER ON THE FAILURE ALONE. An owner who selected no
+ * instrument never had the button, so telling him we could not load "tus instrumentos" would be precisely
+ * the false statement W1 and F4.2 were each written to delete — and `TaskRow`'s `canSurvey` contract
+ * requires that owner's row to stay byte-identical to its pre-survey shape. So the condition is the shared
+ * rule re-asked with the one broken fact repaired: WOULD the check be on offer if the catalogue had loaded?
+ * Only then is a check actually missing, and only then is there anything to explain.
+ *
+ * The WATER row itself must exist too — a frozen plant renders no rows at all, and a banner explaining a
+ * button on a row that is not on screen would be a statement about nothing.
+ */
+const surveyLostToFailedCatalogue = computed(() =>
+  readingsUnavailable.value
+  && !isFrozen.value
+  && orderedTasks.value.some((t) => t.task === 'WATER')
+  && canOfferWaterSurvey({ ...waterSurveyFacts.value, catalogueAvailable: true }));
 
 const { data: history, refresh: refreshHistory } =
   useLazyAsyncData(`history-${id}`, () => api.getPlantHistory(id), { server: false });
@@ -1779,6 +1815,29 @@ async function confirmRevive() {
             </UiButton>
           </UiAlert>
 
+          <!-- The WATER survey's own load failure, in the SAME words and the same alert+retry shape
+               `pages/index.vue` gives it (its `surveyLoadFailed` banner) — one failure, one sentence,
+               across both surfaces. Without this the button vanished from the row below with nothing
+               anywhere on the page accounting for it; see `surveyLostToFailedCatalogue` for why the
+               condition is "the check WOULD have been on offer", never the bare failure.
+               DELIBERATELY NOT INSIDE THE ROW: `TaskRow`'s `canSurvey: false` contract requires the row to
+               stay byte-identical to its pre-survey shape, so the explanation belongs to the page, in the
+               notice zone the repot failure above already uses.
+               It reads ALONGSIDE the measurement card's own `reading.historyLoadError` further down, never
+               instead of it: one fetch failed, but it took away two different things, and F4.2's whole
+               point is that those are two facts. -->
+          <UiAlert
+            v-if="surveyLostToFailedCatalogue"
+            color="red"
+            :description="$t('reading.surveyLoadError')"
+            announce
+            class="mp-detail__survey-error"
+          >
+            <UiButton size="sm" variant="soft" color="neutral" @click="refreshReadingsTracked()">
+              {{ $t('reading.surveyRetry') }}
+            </UiButton>
+          </UiAlert>
+
           <UiSectionTitle>{{ $t('plantDetail.care') }}</UiSectionTitle>
 
           <!-- A frozen plant's care payload always carries tasks:[] (no recompute), so this empty state is
@@ -2379,6 +2438,13 @@ async function confirmRevive() {
 }
 
 .mp-detail__repot-error {
+  margin-bottom: 14px;
+}
+
+/* Shares the notice zone's rhythm with `.mp-detail__alert` and `.mp-detail__repot-error` above it — the
+   two can be on screen together, so an odd gap here would show. Spacing only; every colour, border and
+   radius comes from `UiAlert`'s own `color="red"` treatment, never from here. */
+.mp-detail__survey-error {
   margin-bottom: 14px;
 }
 

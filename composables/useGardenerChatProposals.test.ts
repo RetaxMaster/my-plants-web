@@ -33,10 +33,12 @@ describe('useGardenerChatProposals', () => {
     expect(spies.getGardenerPendingProposal).toHaveBeenCalledWith('S1');
   });
 
-  it('forwards approve and decline with the session and proposal ids only', async () => {
+  it('forwards approve and decline with the session and proposal ids (approve also forwards the idempotency key)', async () => {
     const a = useGardenerChatProposals();
-    await a.approve('S1', 'PR1');
-    expect(spies.approveGardenerProposal).toHaveBeenCalledWith('S1', 'PR1');
+    // AF-12: `approve` takes a THIRD argument, the caller-minted stable idempotency key — the adapter's
+    // job is just to forward it, never to mint or alter it.
+    await a.approve('S1', 'PR1', 'idem-key-1');
+    expect(spies.approveGardenerProposal).toHaveBeenCalledWith('S1', 'PR1', 'idem-key-1');
 
     await a.decline('S1', 'PR1');
     expect(spies.declineGardenerProposal).toHaveBeenCalledWith('S1', 'PR1');
@@ -54,7 +56,7 @@ describe('useGardenerChatProposals', () => {
   it('never calls a plant-scoped (doctor) endpoint', async () => {
     const a = useGardenerChatProposals();
     await a.pending('S1');
-    await a.approve('S1', 'PR1');
+    await a.approve('S1', 'PR1', 'idem-key-1');
     await a.decline('S1', 'PR1');
     await a.getSettings('S1');
     await a.setSettings('S1', false);
@@ -66,8 +68,9 @@ describe('useGardenerChatProposals', () => {
       'getGardenerSessionSettings',
       'updateGardenerSessionSettings',
     ]);
-    // Every call closes over the session/proposal ids alone — never a plantId prepended, which is exactly
-    // what distinguishes this from useDoctorChatProposals's equivalent test.
-    expect(calls.every((c) => c.args.length <= 2)).toBe(true);
+    // Every call closes over the session/proposal ids alone (approve ALSO carries the idempotency key,
+    // AF-12) — never a plantId prepended, which is exactly what distinguishes this from
+    // useDoctorChatProposals's equivalent test.
+    expect(calls.every((c) => c.args.length <= 3)).toBe(true);
   });
 });

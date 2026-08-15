@@ -826,7 +826,9 @@ export interface DoctorSessionSettings {
 // know. See its comment for why the raw shape is a trap.
 export interface ChatProposalsAdapter {
   pending: (sessionId: string) => Promise<AgentProposal | null>;
-  approve: (sessionId: string, proposalId: string) => Promise<AgentProposal>;
+  // `idempotencyKey` — code review AF-12: a STABLE key minted ONCE per (session, proposal) at the submit
+  // boundary and reused across retries, never a fresh one per call. See useApi.ts's `approveDoctorProposal`.
+  approve: (sessionId: string, proposalId: string, idempotencyKey: string) => Promise<AgentProposal>;
   decline: (sessionId: string, proposalId: string) => Promise<AgentProposal>;
   getSettings: (sessionId: string) => Promise<DoctorSessionSettings>;
   setSettings: (sessionId: string, skipPermissions: boolean) => Promise<DoctorSessionSettings>;

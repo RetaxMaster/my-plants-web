@@ -793,6 +793,22 @@ function attachActiveRun() {
 // The agent cannot write anything. It files a proposal; the owner approves it here. Everything rendered
 // comes from the SERVER (the canonical operation list), never from the agent's prose summary.
 
+// code review AF-12 — the STABLE idempotency key for an approve submission, minted ONCE per (session,
+// proposal) at the submit boundary (`approveProposal` below) and reused across every retry of that same
+// submission — same discipline `completeRepot`'s callers already follow, never a fresh key per call
+// (`ChatProposalsAdapter.approve`'s own comment). A plain Map keyed on `${sessionId}:${proposalId}` is
+// enough here: unlike a REPOT attempt there is no request BODY to freeze (approve/decline take an empty
+// body by contract), so there is nothing else for a retry to disagree with — only the key needs pinning.
+const approveKeys = new Map<string, string>();
+function approveKeyFor(sessionId: string, proposalId: string): string {
+  const cacheKey = `${sessionId}:${proposalId}`;
+  const existing = approveKeys.get(cacheKey);
+  if (existing) return existing;
+  const minted = crypto.randomUUID();
+  approveKeys.set(cacheKey, minted);
+  return minted;
+}
+
 const pendingProposal = ref<AgentProposal | null>(null);
 // The id the owner dismissed. Dismiss is NOT a decline (§5.3): it only closes the banner. The proposal
 // stays PENDING server-side and the server expires it when the next run starts — so we track WHICH id was
@@ -833,6 +849,21 @@ const approvedOutcomeNoteKeys = ref<string[]>([]);
 // `total` doubles as the plural choice so the noun agrees with it: a one-operation proposal that was
 // already recorded must read "0 of 1 change was applied", not "0 of 1 changes".
 const approvedOutcomeSummary = ref<{ applied: number; total: number } | null>(null);
+
+// code review AF-21 — BOTH refs above are cleared here, in ONE watcher, rather than hand-clearing at each
+// call site that reassigns `currentSessionId` (a brand-new session at `:235`, a resumed one at `:248`).
+// Without this, an approved-outcome block from session A survives into session B: the owner approves in
+// A, the note/summary render, he starts (or resumes) a different chat WITHOUT pressing Close on the
+// block, and A's stale sentences keep showing as though they belonged to B. `approvedOutcomeNoteKeys` had
+// this same staleness from the earlier E2 fix — it is not new to `approvedOutcomeSummary` — so both are
+// fixed in this one change rather than splitting the parallel-copy fix in two. A watcher (not per-call-site
+// clearing) is deliberate: a future THIRD path that reassigns `currentSessionId` inherits the clear for
+// free instead of needing to remember it.
+watch(currentSessionId, () => {
+  approvedOutcomeNoteKeys.value = [];
+  approvedOutcomeSummary.value = null;
+});
+
 const skipPermissions = ref(false);
 const skipBusy = ref(false);
 const skipError = ref<string | null>(null);
@@ -903,7 +934,12 @@ async function approveProposal() {
     // THE RESPONSE — no longer discarded. `outcome` is `null` whenever the proposal genuinely was not
     // applied (a stale/never-reached row); `?? []` in that case renders nothing, which is exactly
     // constraint 4 ("a `null` outcome must render nothing at all").
-    const result = await props.proposals.approve(currentSessionId.value, pendingProposal.value.id);
+    //
+    // AF-12 — the STABLE key, reused verbatim if this is a retry of the SAME (session, proposal): a lost
+    // response now replays the stored 201 (outcome included) instead of the server treating it as a
+    // brand-new approval it has never seen.
+    const idempotencyKey = approveKeyFor(currentSessionId.value, pendingProposal.value.id);
+    const result = await props.proposals.approve(currentSessionId.value, pendingProposal.value.id, idempotencyKey);
     const today = todayYmd();
     const perOperation = result.outcome?.perOperation ?? [];
     approvedOutcomeNoteKeys.value = perOperation

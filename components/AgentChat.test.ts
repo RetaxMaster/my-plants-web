@@ -436,9 +436,38 @@ describe('AgentChat — the doctor approval surface', () => {
     await flushPromises();
     w.findComponent(BannerStub).vm.$emit('approve');
     await flushPromises();
-    expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1');
+    // AF-12: a THIRD argument now travels alongside the session/proposal ids — the stable idempotency key
+    // minted at the submit boundary. Its exact value is not the point here (see AF-12's own test file for
+    // that); only that ONE was sent.
+    expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1', expect.any(String));
     expect(w.find('.stub-banner').exists()).toBe(false);
     expect(w.text()).not.toContain('diagnose.proposal.applyError');
+  });
+
+  // AF-12 (code review, adversarial pass) — a lost/failed approve response must be RETRIABLE without
+  // minting a new idempotency key each time, or the interceptor's dedup can never see the retry as the
+  // SAME submission. A failed approve leaves `pendingProposal` untouched (the catch branch above never
+  // clears it), so pressing Approve again after a failure is a genuine retry of the SAME (session,
+  // proposal) — this drives exactly that: fail once, retry, and assert BOTH calls carried the IDENTICAL
+  // key. With the old per-call `crypto.randomUUID()` mint this goes red (two different keys).
+  it('reuses the SAME idempotency key across a retry of the same proposal, and mints a NEW one for a different proposal', async () => {
+    const approve = vi.fn()
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ ...PENDING, status: 'APPROVED' as const });
+    const proposals = makeProposals({ approve });
+    const w = mountChat(proposals);
+    await flushPromises();
+
+    w.findComponent(BannerStub).vm.$emit('approve'); // first attempt: fails
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve'); // retry: succeeds
+    await flushPromises();
+
+    expect(approve).toHaveBeenCalledTimes(2);
+    const firstKey = approve.mock.calls[0]![2];
+    const secondKey = approve.mock.calls[1]![2];
+    expect(typeof firstKey).toBe('string');
+    expect(secondKey).toBe(firstKey);
   });
 
   // E2 fix: the response `approve()` just returned was discarded — the owner who pressed Approve never
@@ -556,7 +585,8 @@ describe('AgentChat — the doctor approval surface', () => {
     w.findComponent(BannerStub).vm.$emit('approve');
     await flushPromises();
     expect(w.find('.mp-kchat').exists()).toBe(true);
-    expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1');
+    // AF-12: see the sibling test above — a third argument (the stable idempotency key) now travels too.
+    expect(proposals.approve).toHaveBeenCalledWith('sess-1', 'prop-1', expect.any(String));
     expect(w.text()).not.toContain('tasks.partialOutcomeSummary');
   });
 

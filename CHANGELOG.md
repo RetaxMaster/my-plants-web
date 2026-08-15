@@ -4,7 +4,7 @@ All notable, user-facing changes to the MyPlants web app. Newest first.
 
 ## Unreleased — Nothing left open: the care engine's full story reaches your plants (2026-08-14)
 
-**The app now shows you every task your plant needs in the order it should be done, records each task only once per day, tells you when a measurement failed so you can retry it, and lets you record care actions from days past.**
+**The app now shows you every task your plant needs in the order it should be done, records watering, repotting, fertilizing, rotating and cleaning leaves only once per day (misting is deliberately exempt — a second misting on a hot day is a genuine second event, not a duplicate), tells you when a measurement failed so you can retry it, and lets you record care actions from days past.**
 
 ### Added
 

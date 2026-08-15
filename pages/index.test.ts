@@ -16,7 +16,7 @@
 // `ref`/`computed` are Vue's own reactivity primitives, normally auto-imported by Nuxt's build pipeline —
 // outside it (plain vitest + @vue/test-utils, no auto-import shim) they don't exist as globals, same
 // technique PlantDetail.test.ts / pages/plants/index.test.ts use.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { computed, inject, ref, shallowRef, watch } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { CareWriteResult, PlantSoilReadings, RepotEvaluationResult, RepotSign } from '../types/api.js';
@@ -1815,5 +1815,114 @@ describe('pages/index.vue — Task 10: the one-per-day outcome reaches the row',
     } finally {
       vi.stubGlobal('useI18n', () => ({ t: (k: string) => k, d: () => '', locale: ref('en') }));
     }
+  });
+});
+
+// AF-1 (code review, adversarial pass) — `today` used to be `const today = todayYmd();`, evaluated ONCE at
+// setup, so a tab left open across local midnight kept sending the OLD day in every DONE/POSTPONE payload
+// that falls back to it — precisely the dedup's own key (B2's one-per-day rule). The fix makes `today` a
+// FUNCTION, re-read at every call site, byte-for-byte the shape PlantDetail.vue's twin already used
+// (`const today = () => todayYmd();`). This block proves the mechanism: mount the page BEFORE midnight, roll
+// the fake clock PAST it, THEN submit — and assert the request PAYLOAD carries the NEW day, never the day
+// the tab happened to load on. Asserting the payload (not the response, not the rendered note) is the
+// project's own lesson (`docs/retax-skills/findings/...`: "asserting the payload per branch — rather than
+// the response — is a lesson this workspace has already paid for").
+describe('pages/index.vue — AF-1: `today` is read LIVE at submit time, never frozen at page setup', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a DONE sent after the tab crossed local midnight carries the NEW day, not the day the page loaded on', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 50)); // Jan 1, 23:59:50 local — the page mounts here
+
+    tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+    const w = await mountPage();
+
+    // The clock rolls over past midnight while the tab sits open, unattended.
+    vi.setSystemTime(new Date(2026, 0, 2, 0, 0, 5)); // Jan 2, 00:00:05 local
+
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
+    // With the frozen module-level constant this reads '2026-01-01' — the day the page happened to load on.
+    expect(sendFeedbackMock.mock.calls[0]![1]).toMatchObject({ task: 'FERTILIZE', occurredOn: '2026-01-02' });
+  });
+
+  it('a POSTPONE sent after the tab crossed local midnight sends the NEW day for BOTH occurredOn and postponeToOn', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 50)); // Jan 1, 23:59:50 local — the page mounts here
+
+    tasksFixture = [{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }] as any;
+    const w = await mountPage();
+
+    // The clock rolls over past midnight while the tab sits open, unattended.
+    vi.setSystemTime(new Date(2026, 0, 2, 0, 0, 5)); // Jan 2, 00:00:05 local
+
+    await postponeButtons(w)[0]!.trigger('click');
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledTimes(1);
+    const body = sendFeedbackMock.mock.calls[0]![1];
+    // occurredOn must name the postpone's own day (Jan 2) — with the frozen constant this reads '2026-01-01'.
+    expect(body).toMatchObject({ task: 'FERTILIZE', type: 'POSTPONED', occurredOn: '2026-01-02' });
+    // And postponeToOn (addDaysYmd(1), always a LIVE read) must land exactly one day after — never two days
+    // ahead of a stale occurredOn, which is the "frozen occurredOn + live addDaysYmd" gap AF-1 also named.
+    expect(body.postponeToOn).toBe('2026-01-03');
+  });
+});
+
+// AF-23 (code review, adversarial pass) — the outcome note is rendered as a PROP on the `UiTaskRow` that
+// produced it, inside the `v-for` over the live due-today list. For an `already-recorded-on-day` outcome
+// the task was, by definition, already recorded that day, so the row's `nextDueOn` had ALREADY advanced
+// out of "due today" on the FIRST successful completion — meaning `GET /care-plan/today`'s very next fetch
+// (the `refresh()` every submission triggers) omits the row. `outcomeNotes` (the STATE) survives; the row
+// that RENDERS it does not. Every other test in this file mocks `todaysTasks` as a constant, so the row
+// always comes back after `refresh()` and this defect is structurally invisible to them — this is the one
+// test in the file whose `todaysTasks` mock genuinely differs between the pre-submit and post-submit read.
+describe('pages/index.vue — AF-23: an outcome note survives the refresh that removes its own row', () => {
+  it('keeps the note visible in a page-level notice once the row is gone from the post-submit refresh', async () => {
+    const todaysTasksMock = vi.fn()
+      .mockResolvedValueOnce([{ plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null }])
+      // The refresh that follows the submit: the FERTILIZE row has moved out of "due today".
+      .mockResolvedValueOnce([]);
+    // Unlike the file's DEFAULT `useAsyncData` stub (a no-op `refresh`), this one genuinely re-invokes
+    // `fn` — the same technique the pre-existing "reconciles Today through the existing refresh() seam"
+    // case above uses — because THIS test's whole point is what happens once the refresh actually lands.
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref(await fn());
+      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+    });
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: todaysTasksMock,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      completeRepot: completeRepotMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
+      sendFeedback: vi.fn(async () => ({
+        ok: true,
+        outcome: {
+          status: 'already-recorded-on-day', task: 'FERTILIZE', occurredOn: todayYmd(),
+          otherEffectsApplied: false,
+        },
+      })),
+    }));
+
+    const w = await mountPage();
+    expect(doneButtons(w).length).toBe(1);
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+
+    // The row itself is genuinely gone — the refresh removed it, exactly as production does.
+    expect(doneButtons(w).length).toBe(0);
+    expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
+    // But the note survives, in the page-level notice — the sentence owner decision 9 promises is not
+    // silently withdrawn the instant the list catches up.
+    expect(w.find('.mp-today__standalone-note').text()).toContain('tasks.alreadyRecorded.fertilizeSameDay');
   });
 });

@@ -982,6 +982,75 @@ describe('PlantDetail — U2: a retry sends a byte-identical occurredOn across a
   });
 });
 
+// code review AF-20 (adversarial pass) — this file had NO case at all with `otherEffectsApplied: true`;
+// every existing fixture (the WATER/FERTILIZE cases above) sets it `false`. That gap matters specifically
+// HERE: a duplicate REPOT is the scenario F2's fix exists for (a second same-day completion still runs the
+// profile write, the substrate refresh and the recompute — only the CareEvent row is suppressed), and
+// PlantDetail — unlike Today, which removes the row once its due date advances — is the surface where that
+// duplicate REPOT actually stays reachable and visible. This proves the SAME renderer picks the
+// `otherEffectsApplied` key over the neutral one for the task where it is not just theoretical.
+describe('PlantDetail — AF-20: a duplicate REPOT whose otherEffectsApplied is true gets the effects-applied sentence', () => {
+  const repotPlant = () => ({ ...basePlant(), profile: { potSizeCm: 20, soilMix: 'potting-mix' } });
+  const repotCare = {
+    plantId: 'p1',
+    tasks: [{ task: 'REPOT', status: 'today', daysUntilDue: 0, pendingEvaluation: null }],
+  };
+  const repotStubs = {
+    ...stubs,
+    UiTaskRow: TaskRow,
+    UiRepotDoneForm: {
+      props: ['open', 'currentPotSizeCm', 'currentSoilMix', 'submitting', 'error', 'frozen'],
+      emits: ['confirm', 'start-over', 'update:open'],
+      template:
+        '<div class="done-form" :data-open="open" :data-frozen="frozen" :data-error="error">' +
+        '<button class="confirm-btn" @click="$emit(\'confirm\', { potSizeCm: currentPotSizeCm, soilMix: currentSoilMix, charged: true, occurredOn: \'2026-08-14\' })">confirm</button>' +
+        '</div>',
+    },
+  };
+
+  async function mountRepotOutcome(completeRepot: ReturnType<typeof vi.fn>) {
+    vi.stubGlobal('useApi', () => ({
+      getPlant: async () => repotPlant(),
+      getPlantCare: async () => repotCare,
+      listPlaces: async () => [],
+      getPlantHistory: async () => [],
+      getPlantPhotos: async () => [],
+      getRepotSigns: async () => ({ signs: [] }),
+      getSoilReadings: async () => ({ instruments: [], protocol: null, readings: [] }),
+      getOwnerInstruments: async () => ({ available: [], selected: [] as string[] }),
+      invalidatePlant: vi.fn(),
+      completeRepot,
+    }));
+    const PlantDetail = (await import('./PlantDetail.vue')).default;
+    const w = mount(
+      { components: { PlantDetail }, template: '<Suspense><PlantDetail id="p1" /></Suspense>' },
+      { global: { stubs: repotStubs, mocks: { $t: i18n.t, $d: (v: unknown) => String(v) } } },
+    );
+    await flushPromises();
+    return w;
+  }
+
+  it('renders tasks.alreadyRecorded.otherEffectsApplied, never the neutral key', async () => {
+    const completeRepotMock = vi.fn(async () => ({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: '2026-08-14',
+        otherEffectsApplied: true,
+      },
+    }));
+    const w = await mountRepotOutcome(completeRepotMock);
+
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+
+    const note = w.find('.mp-taskrow__outcome-note').text();
+    expect(note).toBe(i18n.t('tasks.alreadyRecorded.otherEffectsApplied'));
+    expect(note).not.toBe(i18n.t('tasks.alreadyRecorded.neutral'));
+  });
+});
+
 // U2's sibling case: `evaluationId` is read fresh off `pendingRepotEvaluation` (sourced from the `care-${id}`
 // read) at EVERY confirm click too. An intervening `refresh()` — from any other flow that re-reads this
 // plant's care — must not let a retry carry a DIFFERENT evaluationId than the one its key was minted for.

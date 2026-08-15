@@ -227,7 +227,7 @@ const grouped = computed(() => {
 });
 const dueCount = computed(() => (tasks.value ?? []).length);
 
-const today = todayYmd();
+const today = () => todayYmd();
 const dateLabel = computed(() => d(new Date(), 'long'));
 const subtitle = computed(() =>
   dueCount.value
@@ -352,7 +352,7 @@ const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${tas
 // write the server actually performed.
 function recordOutcome(plantId: string, task: DueTask['task'], result: CareWriteResult, occurredOn?: string) {
   const k = outcomeKey(plantId, task);
-  const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today));
+  const key = careOutcomeNoteKey(result.outcome, doneSubmitPath(occurredOn, today()));
   outcomeNotes.value = { ...outcomeNotes.value, [k]: key };
   if (result.outcome?.status === 'applied') {
     appliedCompletions.value = { ...appliedCompletions.value, [k]: (appliedCompletions.value[k] ?? 0) + 1 };
@@ -366,14 +366,49 @@ function outcomeNoteFor(plantId: string, task: DueTask['task']): string | null {
   return key ? t(key) : null;
 }
 
+// code review AF-23 — a note recorded by `recordOutcome` is rendered as a PROP on the `UiTaskRow` that
+// produced it (`:outcome-note` below), inside the `v-for` over `plantTasks` — which is DERIVED from
+// `tasks.value`, the live due-today list. `recordOutcome`'s own state (`outcomeNotes`) survives the
+// `refresh()` that follows every submission; the ROW THAT RENDERS IT does not. For an
+// `already-recorded-on-day` outcome the task was, by definition, already recorded that day — the FIRST
+// successful completion already advanced its `nextDueOn` into the future, so `GET /care-plan/today`'s own
+// due-date filter excludes it from the very next fetch. The owner reaches that button only from a STALE
+// list in the first place (two devices, or a rapid double-press) — precisely the scenario the dedup exists
+// for — so this is not a rare edge: it is the SHAPE of the case, every time.
+//
+// The fix promotes any note whose row did not survive the refresh into a page-level notice
+// (`standaloneOutcomeNotes`, rendered below the header) — the SAME pattern `AgentChat.vue` already uses
+// for its own approved-proposal outcome sentences (independent of any transient list membership), rather
+// than inventing a second shape. It reuses the EXISTING `tasks.alreadyRecorded.*` keys verbatim — no new
+// copy, no new sentence — `outcomeNoteFor`'s per-row rendering is UNCHANGED for the (more common) case
+// where the row does survive.
+const standaloneOutcomeNotes = ref<{ key: string; noteKey: string }[]>([]);
+
+function reconcileOutcomeNotesAfterRefresh() {
+  const live = new Set((tasks.value ?? []).map((entry) => outcomeKey(entry.plantId, entry.task)));
+  const kept = standaloneOutcomeNotes.value.filter((n) => !live.has(n.key));
+  const keptKeys = new Set(kept.map((n) => n.key));
+  const added = Object.entries(outcomeNotes.value)
+    .filter((entry): entry is [string, string] => !!entry[1] && !live.has(entry[0]) && !keptKeys.has(entry[0]))
+    .map(([key, noteKey]) => ({ key, noteKey }));
+  standaloneOutcomeNotes.value = added.length || kept.length !== standaloneOutcomeNotes.value.length
+    ? [...kept, ...added]
+    : standaloneOutcomeNotes.value;
+}
+
+function dismissStandaloneOutcomeNote(key: string) {
+  standaloneOutcomeNotes.value = standaloneOutcomeNotes.value.filter((n) => n.key !== key);
+}
+
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
-  const result = await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today, reason });
+  const result = await api.sendFeedback(plantId, { task, type: 'DONE', occurredOn: occurredOn || today(), reason });
   recordOutcome(plantId, task, result, occurredOn);
   await refresh();
+  reconcileOutcomeNotesAfterRefresh();
 }
 
 async function sendPostpone(plantId: string, task: DueTask['task'], reason?: string) {
-  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today, postponeToOn: addDaysYmd(1), reason });
+  await api.sendFeedback(plantId, { task, type: 'POSTPONED', occurredOn: today(), postponeToOn: addDaysYmd(1), reason });
   await refresh();
 }
 
@@ -569,9 +604,11 @@ async function onRepotDone(plantId: string) {
   // outstanding?". After a 400 the key is still in the store but `begin()` will NOT resume it (FIX C2), so
   // the reopen must take the FRESH path and re-read the prefill the next confirm will actually send.
   // On THIS renderer the symptom PlantDetail.vue suffered is currently unreachable — Today's card has no
-  // back-date input and `occurredOn` is a module-level constant here — so the change is a sweep, not a bug
-  // fix: the twin renderers have drifted on this flow five times already, and leaving one of them reading a
-  // predicate that disagrees with `begin()` is one feature away from mattering. What it does change today:
+  // back-date input and `today` is re-read live (function call, matching PlantDetail.vue's twin — code
+  // review AF-1 fixed the module-level-constant version of this file, which went stale across local
+  // midnight) — so the change is a sweep, not a bug fix: the twin renderers have drifted on this flow five
+  // times already, and leaving one of them reading a predicate that disagrees with `begin()` is one feature
+  // away from mattering. What it does change today:
   // a reopen after a 400 re-fetches the profile prefill, which is correct — a 400 committed nothing, so
   // there is no frozen envelope for the prefill to stay byte-identical to.
   const resuming = hasResumableDoneKeyFor(plantId);
@@ -641,13 +678,17 @@ async function onRepotDoneConfirm(payload: Omit<RepotDonePayload, 'evaluationId'
   });
   try {
     const result = await api.completeRepot(plantId, attempt.body.occurredOn, attempt.body.payload, attempt.key);
-    // Level-integration fix: record the write's own CareWriteOutcome the SAME way sendDone (line ~359) and
+    // Level-integration fix: record the write's own CareWriteOutcome the SAME way sendDone (line ~369) and
     // PlantDetail.vue's own onRepotDoneConfirm already do — a completed repot can carry
     // `otherEffectsApplied: true` (the substrate/fertilizer-floor side effects), and the spec (§3.2) requires
     // that never render as "nothing happened". This MUST run before `resolveDoneSuccess`/the completion
-    // watcher's `refresh()` below: `recordOutcome` only touches `outcomeNotes`/`appliedCompletions`, which
-    // `refresh()` (a Today-list re-fetch) never overwrites — so the ordering here doesn't race the watcher,
-    // but recording it first keeps the note visible from the earliest possible moment, same as sendDone.
+    // watcher's `refresh()` below: `recordOutcome` only touches `outcomeNotes`/`appliedCompletions` — the
+    // REFETCH itself never overwrites that STATE. What it CAN and does overwrite is the ROW that renders
+    // it: `refresh()` replaces `tasks.value` with the fresh due-today list, and a duplicate REPOT's row has
+    // already advanced out of it (AF-23, code review) — the state survives, the renderer does not, which is
+    // exactly why `handleDoneCompletion` below calls `reconcileOutcomeNotesAfterRefresh()` right after its
+    // own `refresh()`. Recording it first (here) still keeps the note visible from the earliest possible
+    // moment, same as sendDone; the reconcile is what keeps it visible AFTER the refresh too.
     recordOutcome(plantId, 'REPOT', result, attempt.body.occurredOn);
     // X1: same reasoning as onEvaluationSubmit's identical comment above — `resolveDoneSuccess` is the ONLY
     // place that clears the attempt AND publishes the completion signal (the Done flow has no verdict to
@@ -681,6 +722,9 @@ async function handleDoneCompletion(completion: RepotCompletion<void>) {
     doneFormOpen.value = false;
   }
   await refresh();
+  // AF-23 — same reconcile `sendDone` runs after its own `refresh()`: a REPOT completion's note is recorded
+  // (above, at the `recordOutcome` call this refresh follows) BEFORE this refresh can drop its row.
+  reconcileOutcomeNotesAfterRefresh();
 }
 
 subscribeDoneCompletions(
@@ -710,7 +754,7 @@ async function onRepotPostpone(plantId: string) {
     await api.sendFeedback(plantId, {
       task: 'REPOT',
       type: 'POSTPONED',
-      occurredOn: today,
+      occurredOn: today(),
       reason: 'needed-cannot-now',
       ...(evaluationId ? { payload: { evaluationId } } : {}),
     });
@@ -931,6 +975,31 @@ function openProgress(plantId: string) {
       </UiButton>
     </UiAlert>
 
+    <!-- AF-23 (code review) — a one-per-day outcome note whose OWN row no longer survives the refresh that
+         follows its submission (the row's `nextDueOn` already advanced out of Today's due-today list on
+         the FIRST completion; this duplicate one is what produced the note). Rendered here, independent of
+         `grouped`/`plantTasks`, so the sentence owner decision 9 promises survives the very refresh that
+         would otherwise take its only renderer down with it. Reuses the row's own note text verbatim —
+         no new copy. -->
+    <div v-if="standaloneOutcomeNotes.length" class="mp-today__standalone-notes">
+      <p
+        v-for="n in standaloneOutcomeNotes"
+        :key="n.key"
+        class="mp-today__standalone-note"
+        aria-live="polite"
+      >
+        <span>{{ $t(n.noteKey) }}</span>
+        <button
+          type="button"
+          class="mp-today__standalone-note-dismiss"
+          :aria-label="$t('common.close')"
+          @click="dismissStandaloneOutcomeNote(n.key)"
+        >
+          {{ $t('common.close') }}
+        </button>
+      </p>
+    </div>
+
     <UiCard v-if="!grouped.size" padded>
       <UiEmptyState>{{ $t('today.empty') }}</UiEmptyState>
     </UiCard>
@@ -1070,6 +1139,42 @@ function openProgress(plantId: string) {
 <style scoped>
 .mp-today__repot-error {
   margin-bottom: var(--space-4);
+}
+
+/* AF-23 — visually matches TaskRow.vue's own `.mp-taskrow__outcome-note` (small, muted text): this is the
+   SAME sentence, only rendered outside a row that no longer exists after refresh, so it deliberately does
+   not adopt UiAlert's colored-box treatment — that would introduce a caution/warning connotation the
+   inline version never carried. */
+.mp-today__standalone-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.mp-today__standalone-note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.mp-today__standalone-note-dismiss {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  cursor: pointer;
 }
 
 .mp-today__plant {

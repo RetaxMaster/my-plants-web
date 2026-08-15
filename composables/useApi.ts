@@ -495,8 +495,16 @@ export function useApi() {
     // Approve and decline take an EMPTY body by contract — a non-empty body is a 400. So no `body` key.
     // A 409 means the proposal is no longer PENDING (expired by a newer turn, or already resolved), and
     // the terminal status travels in the error payload so the UI can explain WHICH happened.
-    approveDoctorProposal: (plantId: string, sessionId: string, proposalId: string) =>
-      api<AgentProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/approve`, { method: 'POST' }),
+    //
+    // code review AF-12 — `idempotencyKey` is a STABLE key, minted ONCE per (session, proposal) at the
+    // submit boundary (AgentChat.vue's `approveProposal`) and reused across retries — same discipline as
+    // `completeRepot` above, never `api()`'s own per-call auto-mint (which would defeat the retry: a lost
+    // approve response could never replay the stored 201, including its outcome).
+    approveDoctorProposal: (plantId: string, sessionId: string, proposalId: string, idempotencyKey: string) =>
+      api<AgentProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/approve`, {
+        method: 'POST',
+        headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+      }),
     declineDoctorProposal: (plantId: string, sessionId: string, proposalId: string) =>
       api<AgentProposal>(`/plants/${plantId}/diagnose/sessions/${sessionId}/proposals/${proposalId}/decline`, { method: 'POST' }),
     // Dangerously Skip Permissions, persisted PER SESSION. Owner-writable only.
@@ -549,8 +557,13 @@ export function useApi() {
     // A 409 means the proposal is no longer PENDING (expired by a newer turn, or already resolved), and
     // the terminal status travels in the error payload so the UI can explain WHICH happened — same
     // behaviour as the doctor's equivalent call, since both go through the same generic `api()` wrapper.
-    approveGardenerProposal: (sessionId: string, proposalId: string) =>
-      api<AgentProposal>(`/gardener/sessions/${sessionId}/proposals/${proposalId}/approve`, { method: 'POST' }),
+    //
+    // code review AF-12 — same stable-key discipline as `approveDoctorProposal` above: see its comment.
+    approveGardenerProposal: (sessionId: string, proposalId: string, idempotencyKey: string) =>
+      api<AgentProposal>(`/gardener/sessions/${sessionId}/proposals/${proposalId}/approve`, {
+        method: 'POST',
+        headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+      }),
     declineGardenerProposal: (sessionId: string, proposalId: string) =>
       api<AgentProposal>(`/gardener/sessions/${sessionId}/proposals/${proposalId}/decline`, { method: 'POST' }),
     // Dangerously Skip Permissions, persisted PER SESSION. Owner-writable only.

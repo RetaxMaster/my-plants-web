@@ -25,7 +25,9 @@ describe('useDoctorChatProposals', () => {
   it('binds the plant id into every call', async () => {
     const p = useDoctorChatProposals('plant-1');
     await p.pending('sess-1');
-    await p.approve('sess-1', 'prop-1');
+    // AF-12: `approve` now forwards a THIRD argument, the caller-minted stable idempotency key — the
+    // adapter's job is still just binding the plantId, so it passes the key through unchanged.
+    await p.approve('sess-1', 'prop-1', 'idem-key-1');
     await p.decline('sess-1', 'prop-1');
     await p.getSettings('sess-1');
     await p.setSettings('sess-1', true);
@@ -38,7 +40,7 @@ describe('useDoctorChatProposals', () => {
       'updateDoctorSessionSettings',
     ]);
     expect(calls[0].args).toEqual(['plant-1', 'sess-1']);
-    expect(calls[1].args).toEqual(['plant-1', 'sess-1', 'prop-1']);
+    expect(calls[1].args).toEqual(['plant-1', 'sess-1', 'prop-1', 'idem-key-1']);
     expect(calls[2].args).toEqual(['plant-1', 'sess-1', 'prop-1']);
     expect(calls[3].args).toEqual(['plant-1', 'sess-1']);
     expect(calls[4].args).toEqual(['plant-1', 'sess-1', true]);

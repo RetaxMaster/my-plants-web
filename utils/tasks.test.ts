@@ -12,8 +12,32 @@ afterAll(() => {
   else process.env.TZ = REAL_TZ;
 });
 
-const morning = new Date(2026, 5, 18, 9, 0); // Jun 18, 09:00 local — UTC is still the 18th
-const evening = new Date(2026, 5, 18, 23, 0); // Jun 18, 23:00 local — UTC has already rolled to the 19th
+// code review AF-2 — BOTH halves below are required, and each one alone is not enough:
+//
+// 1. These two fixtures are built from an EXPLICIT UTC INSTANT (an ISO string ending `Z`), never from
+//    `new Date(y, m, d, h, mi)`. The local-component constructor reads the AMBIENT timezone AT
+//    CONSTRUCTION TIME — which, for a MODULE-LEVEL `const`, happens the instant this file is imported,
+//    BEFORE the `beforeAll` above ever runs. So under an ambient TZ that is not already
+//    America/Mexico_City (this laptop's default, but not CI's, not a colleague's, not this machine
+//    tomorrow), `evening` used to freeze the WRONG epoch before the pin below had a chance to matter —
+//    e.g. under `TZ=UTC` it froze 17:00 local instead of 23:00, so the "does the day turn over after
+//    18:00" case below stopped exercising the post-18:00 window AT ALL while staying green, and under
+//    `TZ=Asia/Tokyo` the date itself slides to the 17th and the file fails outright. An explicit UTC
+//    instant has no ambient dependency: it names one fixed point in time regardless of what TZ is active
+//    when this line runs.
+// 2. The `process.env.TZ` pin above is STILL required, on the READ side: `dueState` reads a Date's LOCAL
+//    calendar day via `getFullYear`/`getMonth`/`getDate`, and those are evaluated against whatever TZ is
+//    active at CALL time (inside each `it`, i.e. after `beforeAll`). Without the pin, the same fixed UTC
+//    instant would read back as a different local day on every machine — the fixture would be
+//    ambient-independent but the ASSERTION would not be.
+//
+// Proof this now holds under BOTH `TZ=UTC` and `TZ=Asia/Tokyo`, not just this laptop's `America/Chicago`-
+// style default: `TZ=UTC npx vitest run utils/tasks.test.ts` and `TZ=Asia/Tokyo npx vitest run
+// utils/tasks.test.ts` both pass, and both still exercise the post-18:00 window — `evening` always reads
+// as 23:00 America/Mexico_City once `dueState` runs, because the pin controls the READ regardless of the
+// ambient TZ the process started under.
+const morning = new Date('2026-06-18T15:00:00Z'); // Jun 18, 09:00 America/Mexico_City (UTC-6) — UTC still the 18th
+const evening = new Date('2026-06-19T05:00:00Z'); // Jun 18, 23:00 America/Mexico_City (UTC-6) — UTC already the 19th
 
 describe('task scheduling helpers (pure)', () => {
   it('classifies due dates relative to today', () => {

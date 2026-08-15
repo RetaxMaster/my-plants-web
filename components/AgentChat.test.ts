@@ -819,14 +819,20 @@ describe('AgentChat — the doctor approval surface', () => {
           ...PENDING,
           status: 'APPROVED' as const,
           outcome: {
-            // THE CASE THE API ACTUALLY MEASURED: a duplicate REPOT naming an older day — so
-            // `already-recorded-on-day` with its other effects still applied, AND the anchor kept. Rendering
-            // only one of the two tells the owner half of what happened.
+            // THE CASE THE API ACTUALLY MEASURED: a duplicate REPOT naming an older day. `substrate: kept`
+            // and `otherEffectsApplied` are NOT independent — `repot-complete.write-core.ts` computes the
+            // latter as `!substrateWillBeRefused`, and `kept` is returned exactly when the anchor comparison
+            // is `older`, i.e. exactly when the anchor WILL be refused. So a `kept` anchor always pairs with
+            // `otherEffectsApplied: false`; a `kept` anchor paired with `otherEffectsApplied: true` (the
+            // fixture this replaced) is a state the server can never produce (corrected, adversarial review,
+            // 2026-08-14 — the old pairing quietly exercised the DEAD `.otherEffectsApplied` branch of this
+            // outcome while the LIVE `.neutral` + anchor-kept pairing went uncovered on this surface).
+            // Rendering only one of the two sentences tells the owner half of what happened.
             perOperation: [{
               status: 'already-recorded-on-day' as const,
               task: 'REPOT' as const,
               occurredOn: REQUESTED_DAY,
-              otherEffectsApplied: true,
+              otherEffectsApplied: false,
               substrate: { status: 'kept' as const, refreshedOn: SURVIVING_ANCHOR },
             }],
             global: 'ALL_ALREADY_RECORDED' as const,
@@ -838,7 +844,7 @@ describe('AgentChat — the doctor approval surface', () => {
       w.findComponent(BannerStub).vm.$emit('approve');
       await flushPromises();
       const text = w.text();
-      expect(text).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+      expect(text).toContain('tasks.alreadyRecorded.neutral');
       expect(text).toContain('tasks.substrateAnchorKept');
       // ⚠️ THE SURVIVING ANCHOR, AND NOT THE DAY THE OPERATION ASKED FOR. This is the assertion that makes
       // the pair discriminating: a renderer that interpolated `occurredOn` would satisfy every check above.
@@ -938,6 +944,168 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.text()).not.toContain('tasks.outcomeSummary.alreadyRecorded');
   });
 
+  // ── AF-? fix (adversarial review, 2026-08-14) — A REFUSAL IS NOT AN APPLICATION ─────────────────────────
+  //
+  // `countOutcomeStates` used to test `outcome.substrate?.status === 'kept'` FIRST, before the `status`
+  // branch. That order was correct for the V1(b) case right above (an `applied` operation whose anchor was
+  // kept: something DID take effect — the care event — so the refused anchor rightly demotes it to
+  // `partial`, never lets it stay `applied`). It is WRONG for a case that arrived a ruling later: once a
+  // refused anchor also skips the profile write (Ruling 1, 2026-08-14), a duplicate REPOT naming an older
+  // day comes back `already-recorded-on-day` + `otherEffectsApplied: false` + `substrate: kept` — NOTHING
+  // applied, not the care event and not the profile. The kept-first order still counted that as `partial`,
+  // directly contradicting its own neutral note ("nothing was added").
+  //
+  // The rule this fix enforces: `partial` requires that SOMETHING took effect — either `applied` + `kept`
+  // (the event wrote, only the anchor was refused) or `already-recorded-on-day` + `otherEffectsApplied:
+  // true` (a duplicate whose OTHER effects still landed). A refusal alone can never PROMOTE an otherwise
+  // empty outcome into `partial`. The four tests below pin each of the four reachable combinations one at a
+  // time, so a future reordering that gets even one of them wrong fails exactly one test, not a blur of them.
+  describe('countOutcomeStates: a refused anchor promotes to partial only when something ELSE took effect', () => {
+    it('combination 1 — applied + kept anchor → partial (the event wrote, only the anchor was refused)', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              { status: 'applied' as const, substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' } },
+            ],
+            global: 'PARTIALLY_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.text()).toContain('tasks.outcomeSummary.partial|{"count":1}');
+      expect(w.text()).not.toContain('tasks.outcomeSummary.applied');
+      expect(w.text()).not.toContain('tasks.outcomeSummary.alreadyRecorded');
+    });
+
+    it('combination 2 — applied, no substrate at all → applied', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              { status: 'applied' as const },
+              // A sibling non-applied op forces the aggregate line to render at all (the gate is the
+              // server's `global !== 'ALL_APPLIED'`) — without it this combination alone would legitimately
+              // render no summary, and the count assertion below would never execute.
+              { status: 'already-recorded-on-day' as const, task: 'WATER' as const, occurredOn: todayYmd(), otherEffectsApplied: false },
+            ],
+            global: 'PARTIALLY_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.text()).toContain('tasks.outcomeSummary.applied|{"count":1}');
+      expect(w.text()).not.toContain('tasks.outcomeSummary.partial');
+      expect(w.text()).toContain('tasks.outcomeSummary.alreadyRecorded|{"count":1}');
+    });
+
+    it('combination 3 — already-recorded-on-day + otherEffectsApplied:true → partial (the duplicate whose OTHER effects still landed)', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              { status: 'already-recorded-on-day' as const, task: 'REPOT' as const, occurredOn: todayYmd(), otherEffectsApplied: true },
+            ],
+            global: 'ALL_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.text()).toContain('tasks.outcomeSummary.partial|{"count":1}');
+      expect(w.text()).not.toContain('tasks.outcomeSummary.applied');
+      expect(w.text()).not.toContain('tasks.outcomeSummary.alreadyRecorded');
+    });
+
+    // ⚠️ THE DEFECT CASE — must go RED under the old kept-first ordering. Nothing applied here: not the care
+    // event (suppressed as a duplicate) and not the profile (Ruling 1 skips it whenever the anchor is
+    // refused). The old order tested `substrate?.status === 'kept'` FIRST and counted this `partial`,
+    // directly contradicting its own `tasks.alreadyRecorded.neutral` note that says nothing was added. The
+    // fixed order only reaches the `applied` arm's kept-check when `status === 'applied'`, so this operation
+    // falls all the way to `alreadyRecorded`, where it belongs.
+    it('combination 4 (THE DEFECT) — already-recorded-on-day + otherEffectsApplied:false + kept anchor → alreadyRecorded, never partial', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              {
+                status: 'already-recorded-on-day' as const,
+                task: 'REPOT' as const,
+                occurredOn: '2026-01-30',
+                otherEffectsApplied: false,
+                substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' },
+              },
+            ],
+            global: 'ALL_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.text()).toContain('tasks.outcomeSummary.alreadyRecorded|{"count":1}');
+      expect(w.text()).not.toContain('tasks.outcomeSummary.applied');
+      expect(w.text()).not.toContain('tasks.outcomeSummary.partial');
+      // The neutral note (nothing added) and this alreadyRecorded count must AGREE — the exact
+      // contradiction the old ordering produced.
+      expect(w.text()).toContain('tasks.alreadyRecorded.neutral');
+    });
+
+    // All four combinations together, in one proposal — proves the bucketing agrees with itself across a
+    // mixed batch, not only in isolation.
+    it('all four combinations together sum to the right bucket counts', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              // combo 1: applied + kept → partial
+              { status: 'applied' as const, substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' } },
+              // combo 2: applied, no substrate → applied
+              { status: 'applied' as const },
+              // combo 3: already-recorded + otherEffectsApplied:true → partial
+              { status: 'already-recorded-on-day' as const, task: 'REPOT' as const, occurredOn: todayYmd(), otherEffectsApplied: true },
+              // combo 4 (the defect): already-recorded + otherEffectsApplied:false + kept → alreadyRecorded
+              {
+                status: 'already-recorded-on-day' as const,
+                task: 'REPOT' as const,
+                occurredOn: '2026-01-30',
+                otherEffectsApplied: false,
+                substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' },
+              },
+            ],
+            global: 'PARTIALLY_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.text()).toContain('tasks.outcomeSummary.applied|{"count":1}');
+      expect(w.text()).toContain('tasks.outcomeSummary.partial|{"count":2}');
+      expect(w.text()).toContain('tasks.outcomeSummary.alreadyRecorded|{"count":1}');
+    });
+  });
+
   // ── V2 fix (code review) — a 200 that is NOT `status: 'APPROVED'` must never read as a success ─────────
   //
   // Two reachable states were previously swallowed identically to a genuine success: `pendingProposal` was
@@ -974,7 +1142,20 @@ describe('AgentChat — the doctor approval surface', () => {
       expect(w.text()).toContain('diagnose.proposal.applyError');
     });
 
-    it('a retry after a PENDING response reuses the SAME idempotency key, never a fresh one', async () => {
+    // ── retireApproveKey (adversarial review, 2026-08-14) ──────────────────────────────────────────────
+    //
+    // ⚠️ THIS TEST REPLACES AN EARLIER ONE THAT ASSERTED THE OPPOSITE, AND THAT EARLIER ASSERTION WAS
+    // WRONG ABOUT THE REAL MECHANISM. It mocked `approve()` resolving PENDING and then, on the SAME key,
+    // resolving APPROVED — but the server's global idempotency interceptor caches every 2xx under its key
+    // and REPLAYS the stored response for any later request carrying that SAME key, without re-entering the
+    // handler at all. So a second request sent under the SAME key can never reach the handler again and
+    // come back APPROVED — it would just replay the stored PENDING forever. That sequence is impossible
+    // against the real interceptor, which is exactly why the fix retires the key on a non-APPROVED 200: the
+    // retry has to mint a NEW key so it is a genuinely new attempt the handler actually runs, not a replay.
+    //
+    // Both branches (FAILED and PENDING) call the identical `retireApproveKey`, so one test per branch is
+    // enough to prove each wires the SAME call, not two independently-correct copies.
+    it('a retry after a PENDING response sends a DIFFERENT idempotency key, never the retired one', async () => {
       const approve = vi.fn()
         .mockResolvedValueOnce({ ...PENDING, status: 'PENDING' as const, outcome: null })
         .mockResolvedValueOnce({ ...PENDING, status: 'APPROVED' as const });
@@ -983,11 +1164,57 @@ describe('AgentChat — the doctor approval surface', () => {
       await flushPromises();
       w.findComponent(BannerStub).vm.$emit('approve'); // first attempt: server-side double failure
       await flushPromises();
-      w.findComponent(BannerStub).vm.$emit('approve'); // retry: succeeds
+      w.findComponent(BannerStub).vm.$emit('approve'); // retry: a genuinely NEW attempt
       await flushPromises();
       expect(approve).toHaveBeenCalledTimes(2);
       const firstKey = approve.mock.calls[0]![2];
       const secondKey = approve.mock.calls[1]![2];
+      expect(typeof firstKey).toBe('string');
+      expect(secondKey).not.toBe(firstKey);
+    });
+
+    it('a retry after a FAILED response sends a DIFFERENT idempotency key, never the retired one', async () => {
+      const approve = vi.fn()
+        .mockResolvedValueOnce({ ...PENDING, status: 'FAILED' as const, outcome: null })
+        .mockResolvedValueOnce({ ...PENDING, status: 'APPROVED' as const });
+      const proposals = makeProposals({ approve });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve'); // first attempt: the apply rolled back
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve'); // retry: a genuinely NEW attempt
+      await flushPromises();
+      expect(approve).toHaveBeenCalledTimes(2);
+      const firstKey = approve.mock.calls[0]![2];
+      const secondKey = approve.mock.calls[1]![2];
+      expect(typeof firstKey).toBe('string');
+      expect(secondKey).not.toBe(firstKey);
+    });
+
+    // ── THE GUARANTEE THAT MUST NOT REGRESS ────────────────────────────────────────────────────────────
+    // A response that never ARRIVED (a rejected promise — a lost network reply) is a genuinely different
+    // case from one that arrived and states the attempt failed: the client does not know whether the server
+    // ever saw the first request, so the retry must reuse the SAME key — that is the case the idempotency
+    // mechanism exists for. `retireApproveKey` is called ONLY from the `result.status !== 'APPROVED'`
+    // branch of the resolved path, never from the `catch` block, so this must still hold. This is the SAME
+    // assertion the pre-existing 'reuses the SAME idempotency key across a retry' test above already makes
+    // (a rejected promise, not a resolved non-APPROVED status) — restated here, next to its now-inverted
+    // sibling, so the two cases sit side by side and cannot be mistaken for one another.
+    it('a retry after a genuine transport failure (a rejected promise) still reuses the SAME key', async () => {
+      const approve = vi.fn()
+        .mockRejectedValueOnce(new Error('network down'))
+        .mockResolvedValueOnce({ ...PENDING, status: 'APPROVED' as const });
+      const proposals = makeProposals({ approve });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve'); // first attempt: the response never arrived
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve'); // retry: same submission, unknown outcome
+      await flushPromises();
+      expect(approve).toHaveBeenCalledTimes(2);
+      const firstKey = approve.mock.calls[0]![2];
+      const secondKey = approve.mock.calls[1]![2];
+      expect(typeof firstKey).toBe('string');
       expect(secondKey).toBe(firstKey);
     });
   });

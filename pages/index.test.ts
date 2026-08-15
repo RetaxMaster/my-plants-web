@@ -2042,7 +2042,14 @@ describe('pages/index.vue — the substrate anchor stayed, and Today says so', (
         ok: true,
         outcome: {
           status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
-          otherEffectsApplied: true,
+          // `otherEffectsApplied: false` — NOT `true` (corrected, adversarial review, 2026-08-14). The two
+          // fields are not independent: `repot-complete.write-core.ts` computes `otherEffectsApplied` as
+          // `!substrateWillBeRefused`, and `substrate: kept` (below) is returned exactly when the anchor
+          // comparison is `older`, i.e. exactly when the anchor WILL be refused. A `kept` anchor paired with
+          // `otherEffectsApplied: true` is a state the real server can never produce; the old pairing here
+          // quietly exercised the DEAD `.otherEffectsApplied` branch while the LIVE `.neutral` + anchor-kept
+          // pairing went uncovered on this surface.
+          otherEffectsApplied: false,
         },
         substrate: { status: 'kept', refreshedOn: '2026-08-11' },
       });
@@ -2050,7 +2057,7 @@ describe('pages/index.vue — the substrate anchor stayed, and Today says so', (
       const note = w.find('.mp-taskrow__outcome-note').text();
       // BOTH facts, never one instead of the other, and the SURVIVING anchor's own date — never the
       // submitted `occurredOn` (`todayYmd()`), which this fixture deliberately sets to a different day.
-      expect(note).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+      expect(note).toContain('tasks.alreadyRecorded.neutral');
       expectAnchorSentence(note);
     } finally {
       vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
@@ -2085,7 +2092,9 @@ describe('pages/index.vue — the substrate anchor stayed, and Today says so', (
           ok: true,
           outcome: {
             status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
-            otherEffectsApplied: true,
+            // `otherEffectsApplied: false` — see the sibling test above for why `true` paired with a `kept`
+            // anchor is a state the real server can never produce (corrected, adversarial review, 2026-08-14).
+            otherEffectsApplied: false,
           },
           substrate: { status: 'kept', refreshedOn: '2026-08-11' },
         })),
@@ -2104,7 +2113,7 @@ describe('pages/index.vue — the substrate anchor stayed, and Today says so', (
       expectAnchorSentence(standalone);
       // POSITIVE CONTROL: the other half was promoted too, so this is a note carrying BOTH sentences rather
       // than a promotion that happened to drop one of them.
-      expect(standalone).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+      expect(standalone).toContain('tasks.alreadyRecorded.neutral');
     } finally {
       vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
     }

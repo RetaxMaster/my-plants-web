@@ -1061,7 +1061,15 @@ describe('PlantDetail — AF-20: a duplicate REPOT whose otherEffectsApplied is 
       ok: true,
       outcome: {
         status: 'already-recorded-on-day', task: 'REPOT', occurredOn: '2026-08-14',
-        otherEffectsApplied: true,
+        // `otherEffectsApplied: false` — NOT `true` (corrected; this same impossible pairing was also found,
+        // during the same adversarial review pass, in `pages/index.test.ts` and `AgentChat.test.ts`). The
+        // two fields are not independent: `repot-complete.write-core.ts` computes `otherEffectsApplied` as
+        // `!substrateWillBeRefused`, and `substrate: kept` (below) is returned exactly when the anchor
+        // comparison is `older`, i.e. exactly when the anchor WILL be refused. A `kept` anchor paired with
+        // `otherEffectsApplied: true` is a state the real server can never produce; the old pairing here
+        // quietly exercised the DEAD `.otherEffectsApplied` branch while the LIVE `.neutral` + anchor-kept
+        // pairing went uncovered on this surface.
+        otherEffectsApplied: false,
       },
       substrate: { status: 'kept', refreshedOn: '2026-08-11' },
     }));
@@ -1074,7 +1082,7 @@ describe('PlantDetail — AF-20: a duplicate REPOT whose otherEffectsApplied is 
 
     const note = w.find('.mp-taskrow__outcome-note').text();
     // BOTH, never one instead of the other.
-    expect(note).toContain(i18n.t('tasks.alreadyRecorded.otherEffectsApplied'));
+    expect(note).toContain(i18n.t('tasks.alreadyRecorded.neutral'));
     // The date is the SURVIVING anchor, interpolated — never concatenated, and never the day submitted.
     // `d` is stubbed to `String(v)` in this file, so the expected string is built through the SAME shared
     // `ymdToLocalDate` helper the component uses rather than a second parse of its own.

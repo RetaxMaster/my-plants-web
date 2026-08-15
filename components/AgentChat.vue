@@ -816,6 +816,29 @@ function approveKeyFor(sessionId: string, proposalId: string): string {
   return minted;
 }
 
+/**
+ * RETIRE the key after a response that TELLS US the attempt did not succeed — otherwise the retry this
+ * surface offers can never actually run.
+ *
+ * The server's global idempotency interceptor caches every 2xx under its key and REPLAYS it for any later
+ * request carrying the same one, without re-entering the handler. So when an approve comes back 2xx with a
+ * non-`APPROVED` status (a `FAILED` apply, or the documented double-failure that leaves the row `PENDING`),
+ * keeping the key would make every subsequent press replay that same stored non-success for ever. The owner
+ * would be looking at a live banner, a retry button, and a mechanism guaranteeing the retry is a no-op —
+ * escapable only by reloading the page to lose this in-memory Map.
+ *
+ * ⚠️ This does NOT weaken the idempotency guarantee, and the distinction is the whole justification. That
+ * guarantee exists for a response that was LOST — an outcome the client never learned, where a second
+ * request might duplicate a write that already committed. Here the response ARRIVED and states the attempt
+ * did not apply. The next press is therefore a genuinely NEW attempt, not a replay of an unknown one. It is
+ * also safe on the server's own terms: the applier atomically claims only a `PENDING` row, and a second
+ * approval of an already-applied proposal is a `409` by contract — so even a mistaken re-press cannot apply
+ * anything twice.
+ */
+function retireApproveKey(sessionId: string, proposalId: string): void {
+  approveKeys.delete(`${sessionId}:${proposalId}`);
+}
+
 const pendingProposal = ref<AgentProposal | null>(null);
 // The id the owner dismissed. Dismiss is NOT a decline (§5.3): it only closes the banner. The proposal
 // stays PENDING server-side and the server expires it when the next run starts — so we track WHICH id was
@@ -920,10 +943,24 @@ function countOutcomeStates(outcomes: readonly CareWriteOutcome[]) {
   let applied = 0;
   let partial = 0;
   let alreadyRecorded = 0;
+  // ⚠️ THE ANCHOR REFUSAL IS CHECKED *INSIDE* THE `applied` ARM, NEVER BEFORE IT — and the ordering is the
+  // whole correctness of this function. An earlier version tested `substrate?.status === 'kept'` FIRST,
+  // which was right for the case it was written for and wrong for the one that arrived a ruling later:
+  // once a refused anchor also skips the profile write, a duplicate REPOT naming an older day comes back
+  // `already-recorded-on-day` + `otherEffectsApplied: false` + `kept` — NOTHING applied, not the event and
+  // not the profile — and the kept-first order counted it as `parcial`, directly contradicting its own
+  // neutral note saying nothing was added. That is the exact self-contradiction (AF-8's class) this
+  // three-way count exists to retire, reintroduced by two individually-correct rulings meeting.
+  //
+  // `partial` means "part of this operation took effect and part was refused", so it requires something to
+  // HAVE taken effect: either the care event wrote and only the anchor was refused (`applied` + `kept`), or
+  // the event was a duplicate but real effects landed anyway (`otherEffectsApplied`). A refusal is not an
+  // application, so a refused anchor can never PROMOTE an otherwise-empty outcome into `parcial`.
   for (const outcome of outcomes) {
-    if (outcome.substrate?.status === 'kept') partial += 1;
-    else if (outcome.status === 'applied') applied += 1;
-    else if (outcome.otherEffectsApplied) partial += 1;
+    if (outcome.status === 'applied') {
+      if (outcome.substrate?.status === 'kept') partial += 1;
+      else applied += 1;
+    } else if (outcome.otherEffectsApplied) partial += 1;
     else alreadyRecorded += 1;
   }
   return { applied, partial, alreadyRecorded };
@@ -940,20 +977,11 @@ const approvedOutcomeSegments = computed(() => {
     .filter((segment) => segment.count > 0);
 });
 
-// V1 fix — resolves ONE `approvedOutcomeNoteKeys` entry through `t()`/`d()` at RENDER time (called from the
-// template below), so a locale switch after the approval re-renders both sentences in the new language
-// instead of freezing them in whatever was active when `approveProposal` ran. BOTH sentences render when
-// both are true — the SAME rule (and the SAME reason, the API's own finding E8) `pages/index.vue`'s and
-// `PlantDetail.vue`'s identical `outcomeNoteFor`/`noteTextFor` helpers already follow; this is the THIRD
-// renderer of the identical fact, so it must never come to disagree with the other two about which sentence
-// a given outcome earns. `d(..., 'short')` is how every other date this package renders is formatted.
-function outcomeNoteText(note: { noteKey: string | null; anchorDay: string | null }): string {
-  const parts = [
-    note.noteKey ? t(note.noteKey) : null,
-    note.anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: d(ymdToLocalDate(note.anchorDay), 'short') }) : null,
-  ].filter((part): part is string => !!part);
-  return parts.join(' ');
-}
+// (A private `outcomeNoteText` lived here and was DELETED as merge residue, 2026-08-14. It was this
+// surface's own fourth copy of the combining rule — order, separator and date format — left orphaned when
+// the merge repointed the live caller at the shared `careOutcomeNoteText`. Nothing called it, but a
+// ready-made private copy sitting beside the shared one is precisely how the three copies this
+// consolidation removed came to exist. `approvedOutcomeNoteText` above is the only combiner here.)
 
 // code review AF-21 — BOTH refs above are cleared here, in ONE watcher, rather than hand-clearing at each
 // call site that reassigns `currentSessionId` (a brand-new session at `:235`, a resumed one at `:248`).
@@ -1060,6 +1088,11 @@ async function approveProposal() {
     // for a FAILED row would return a DIFFERENT (or no) proposal and make the banner disappear anyway, which
     // is precisely the outcome this guard exists to prevent.
     if (result.status !== 'APPROVED') {
+      // The banner and the proposal STAY (the whole point: a 200 that is not APPROVED is not a success),
+      // and the key is retired so the retry this leaves on screen can actually reach the handler instead of
+      // replaying the stored non-success for ever — see `retireApproveKey` for why that does not weaken the
+      // idempotency guarantee.
+      retireApproveKey(currentSessionId.value, pendingProposal.value.id);
       proposalError.value = tns('proposal.applyError');
       return;
     }
@@ -1310,8 +1343,10 @@ defineExpose({
          exactly what makes it the right place for the substrate-anchor sentence: a companion API change may
          one day stop `global` from reading `ALL_APPLIED` when an anchor was kept, but this block renders
          whether or not that has landed, because it never reads `global` in the first place. Each entry's
-         text is resolved through `outcomeNoteText` (both the `already-recorded-on-day` sentence AND the
-         anchor-kept one, when both are true of the same operation), never `$t(noteKey)` directly. -->
+         text is resolved through `approvedOutcomeNoteText` — which delegates to the SHARED
+         `careOutcomeNoteText` the Today and plant-page renderers also call, so all three agree on order,
+         separator and date format — never `$t(noteKey)` directly. It renders the `already-recorded-on-day`
+         sentence, the anchor-kept one, or BOTH when both are true of the same operation. -->
     <p
       v-for="(note, idx) in approvedOutcomeNotes"
       :key="`outcome-note-${idx}`"

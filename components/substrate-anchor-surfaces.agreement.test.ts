@@ -181,11 +181,19 @@ vi.stubGlobal('useProfileMeta', () => ({
 // prove nothing about the REAL components — it would prove the two stubs happen to agree. So there is
 // exactly ONE localized `t` (echoes its interpolation params back, so a dropped/garbled param is visible in
 // the rendered string, the same technique `pages/index.test.ts`'s/`AgentChat.test.ts`'s own substrate-anchor
-// tests use) and ONE `d` (echoes its input back via `String(v)`, so the SAME `Date` object formatted by
-// three different call sites produces the SAME text), and every mount below is wired to it.
+// tests use) and ONE `d`, and every mount below is wired to it.
+//
+// ⚠️ `d` ECHOES ITS FORMAT TOKEN, NOT ONLY ITS VALUE — and that is not a detail. This stub first read
+// `(v) => String(v)`, which discards the second argument entirely; the format a surface asks for was then
+// INVISIBLE to the comparison. Measured, not reasoned: with that version, changing `PlantDetail.vue` alone
+// from `d(…, 'short')` to `d(…, 'long')` left this file GREEN — three surfaces rendering the same fact in
+// two different date formats is exactly the cross-surface inconsistency this file exists to catch, and the
+// file could not see it. Echoing the token makes a format drift a STRING drift, so it fails the equality
+// assertion like any other divergence. If you ever simplify this back to `String(v)`, you delete half the
+// test without changing a single assertion.
 const localizedT = (k: string, named?: Record<string, unknown>) =>
   (named ? `${k}|${JSON.stringify(named)}` : k);
-const sharedD = (v: unknown) => String(v);
+const sharedD = (v: unknown, format?: unknown) => `${String(v)}@${String(format ?? 'default')}`;
 vi.stubGlobal('useI18n', () => ({ t: localizedT, d: sharedD, locale: ref('en'), te: () => false }));
 const sharedMocks = { $t: localizedT, $d: sharedD };
 

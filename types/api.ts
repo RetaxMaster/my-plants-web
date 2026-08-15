@@ -34,13 +34,17 @@ import { RECOMMENDATIONS, HOLD_BASES, UNAVAILABLE_REASONS } from '@retaxmaster/m
 // included) rather than the shared five-task `OnePerDayTask` the write rule actually covers, so a copy is
 // not merely a style nit here: it is a real drift from the contract it was meant to mirror. Importing it
 // makes `utils/careOutcome.ts`'s "MIST can never reach this branch" true BY TYPE instead of true by comment.
+// `SubstrateAnchorOutcome` joins them for the SAME reason and with the same history as the rest of this
+// list: it was hand-declared here (and again in the API) only because the shared tarball could not be
+// repacked mid-wave, and a hand-copy of a two-arm status union is exactly the drift this file's other
+// imports exist to prevent. It now lives once, in the shared `care-outcome.ts`.
 import type {
   ProposalOperationType, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
-  WateringRelation, ProposalOutcomeStatus, CareWriteOutcome, CareWriteResult,
+  WateringRelation, ProposalOutcomeStatus, CareWriteOutcome, CareWriteResult, SubstrateAnchorOutcome,
 } from '@retaxmaster/my-plants-species-schema';
 export type {
   ProgressTagKey, RepotEvaluationSubmit, RepotEvidenceClass, InstrumentCalibration, ReadingVerdict,
-  WateringRelation, CareWriteOutcome, CareWriteResult,
+  WateringRelation, CareWriteOutcome, CareWriteResult, SubstrateAnchorOutcome,
 };
 // `FREQUENCY_BEARING_TASKS` is the shared contract's own vocabulary (six tasks, PROGRESS excluded) — a
 // VALUE import (not `import type`), because `TaskHistoryBlock` below derives its key set from
@@ -326,31 +330,16 @@ export interface RepotDonePayload {
 }
 
 /**
- * WHAT THE SUBSTRATE CLOCK DID — the second, INDEPENDENT outcome a REPOT completion answers with.
+ * WHAT THE SUBSTRATE CLOCK DID — `SubstrateAnchorOutcome` is IMPORTED from the shared contract (see the
+ * import block at the top of this file), never declared here.
  *
- * The substrate anchor (`plants.substrate_refreshed_on` — "when this pot was last filled") only ever moves
- * FORWARD (owner ruling, 2026-08-14; API finding E8). A completion dated strictly BEFORE the stored anchor
- * is still recorded as a real event, but the clock stays where the newer repot put it and no calibrated
- * reading is retracted — so the response has to say which of the two happened, or the owner cannot tell a
- * write from a refusal.
- *
- * ⚠️ INDEPENDENT OF `CareWriteOutcome`, never derived from it. A submission can be BOTH
- * `already-recorded-on-day` AND anchor-`kept` — that combination is exactly the case the API measured
- * (a duplicate that dragged the clock 197 days backwards). Read the two separately; never infer one from
- * the other.
- *
- * `refreshedOn` is a `YYYY-MM-DD` calendar day. On `kept` it is the SURVIVING, newer anchor — the date the
- * owner-facing notice interpolates.
- *
- * Declared here rather than imported from `@retaxmaster/my-plants-species-schema` (unlike `CareWriteOutcome`
- * a few types up) for ONE reason, and it is a scheduling one, not a design one: adding it to the shared
- * package repacks a tarball five repos pin by integrity hash, which cannot be done while other branches of
- * this wave are in flight. Its proper home is `care-outcome.ts`, beside `CareWriteResult`.
+ * It was briefly hand-declared in this file and hand-declared again in the API, for a scheduling reason
+ * (adding it to the shared package repacks a tarball five repos pin by integrity hash, which could not be
+ * done while other branches of that wave were in flight) rather than a design one. Both copies are gone;
+ * the type lives once in `care-outcome.ts`, beside `CareWriteResult`, and its full reasoning — why `kept`
+ * is not a failure, why `refreshedOn` is a calendar day, and why it is INDEPENDENT of `CareWriteOutcome`
+ * rather than derivable from it — lives at that declaration.
  */
-export interface SubstrateAnchorOutcome {
-  status: 'refreshed' | 'kept';
-  refreshedOn: string;
-}
 
 /** A REPOT completion's response: the shared care-write result PLUS the substrate clock's own outcome. */
 export type RepotDoneResult = CareWriteResult & { substrate?: SubstrateAnchorOutcome };

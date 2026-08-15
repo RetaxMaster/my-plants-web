@@ -1091,6 +1091,60 @@ describe('PlantDetail — AF-20: a duplicate REPOT whose otherEffectsApplied is 
     );
   });
 
+  // ---- F4 (nothing-left-open code review, 2026-08-14) ------------------------------------------------
+  //
+  // The SAME refused-and-duplicated completion also threw away the diameter and mix the owner had just
+  // typed: no profile write (Ruling 1) and no CareEvent (§8) means there is nowhere for them to live. The
+  // sentence is a complete explanation on its own, and it renders in the SAME notice zone as the other two
+  // — this page and Today are the parallel-copy pair this feature has already tripped over once.
+  it('renders the pot-details sentence alongside the other two when the server says they were discarded', async () => {
+    const completeRepotMock = vi.fn(async () => ({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: '2026-08-14',
+        otherEffectsApplied: false,
+        // The SERVER's own flag. This surface never re-derives it from the three members above — an owner
+        // who answered "I don't know" to both fields reaches this same shape with nothing discarded.
+        potDetailsDiscarded: true,
+      },
+      substrate: { status: 'kept', refreshedOn: '2026-08-11' },
+    }));
+    const w = await mountRepotOutcome(completeRepotMock);
+
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+
+    const note = w.find('.mp-taskrow__outcome-note').text();
+    expect(note).toContain(i18n.t('tasks.potDetailsDiscarded'));
+    // POSITIVE CONTROLS — all three facts travel together; this is finding E8's own 197-day case.
+    expect(note).toContain(i18n.t('tasks.alreadyRecorded.neutral'));
+    expect(note).toContain(
+      i18n.t('tasks.substrateAnchorKept', { date: String(ymdToLocalDate('2026-08-11')) }),
+    );
+  });
+
+  it('says NOTHING about the pot details when the server did not raise the flag', async () => {
+    const completeRepotMock = vi.fn(async () => ({
+      ok: true,
+      outcome: {
+        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: '2026-08-14',
+        otherEffectsApplied: false,
+      },
+      substrate: { status: 'kept', refreshedOn: '2026-08-11' },
+    }));
+    const w = await mountRepotOutcome(completeRepotMock);
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    await w.find('.confirm-btn').trigger('click');
+    await flushPromises();
+    const note = w.find('.mp-taskrow__outcome-note').text();
+    expect(note).not.toContain(i18n.t('tasks.potDetailsDiscarded'));
+    // POSITIVE CONTROL — the notice zone rendered, so the absence above is about the sentence.
+    expect(note).toContain(i18n.t('tasks.alreadyRecorded.neutral'));
+  });
+
   it('says NOTHING about the clock when the anchor really moved — a refreshed outcome is an ordinary success', async () => {
     const completeRepotMock = vi.fn(async () => ({
       ok: true,

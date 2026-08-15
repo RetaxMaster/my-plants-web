@@ -78,7 +78,8 @@
       "partial": "{count} parcial | {count} parciales",
       "alreadyRecorded": "{count} ya registrado | {count} ya registrados"
     },
-    "substrateAnchorKept": "El evento se guardó, pero el reloj de la tierra sigue en {date} (ya hay un registro más reciente)."
+    "substrateAnchorKept": "El evento se guardó, pero el reloj de la tierra sigue en {date} (ya hay un registro más reciente).",
+    "potDetailsDiscarded": "Los datos de la maceta no se aplicaron: describen un trasplante anterior, y tu planta ya tiene uno más reciente."
   },
   "taskInfo": {
     "aria": "Acerca de esta tarea",

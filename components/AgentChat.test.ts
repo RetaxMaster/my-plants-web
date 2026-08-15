@@ -813,6 +813,44 @@ describe('AgentChat — the doctor approval surface', () => {
       expect(text).not.toContain('tasks.outcomeSummary');
     });
 
+    // ---- F4 (nothing-left-open code review, 2026-08-14) ----------------------------------------------
+    //
+    // The agent's door reaches the discard too: an approved `care.done` REPOT can name a stale day that
+    // already has its event. The stored per-operation array is the ONLY thing the approving owner ever sees
+    // on this surface, so a sentence that renders on the two owner surfaces and not here is precisely the
+    // per-surface silence F13 consolidated the combiner to end.
+    it('renders the pot-details sentence for an approved REPOT whose typed values had nowhere to go', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              {
+                status: 'already-recorded-on-day' as const,
+                task: 'REPOT' as const,
+                occurredOn: REQUESTED_DAY,
+                otherEffectsApplied: false,
+                potDetailsDiscarded: true as const,
+                substrate: { status: 'kept' as const, refreshedOn: SURVIVING_ANCHOR },
+              },
+            ],
+            global: 'ALL_ALREADY_RECORDED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      const text = w.text();
+      expect(text).toContain('tasks.potDetailsDiscarded');
+      // POSITIVE CONTROLS — the other two halves still render, so this is a THIRD sentence in the same
+      // notice rather than one that displaced another.
+      expect(text).toContain('tasks.substrateAnchorKept');
+      expect(text).toContain(fakeShortDate(SURVIVING_ANCHOR));
+    });
+
     it('renders BOTH sentences for the duplicate repot that dragged the clock backwards', async () => {
       const proposals = makeProposals({
         approve: vi.fn(async () => ({

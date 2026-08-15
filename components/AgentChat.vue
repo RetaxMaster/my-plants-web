@@ -26,7 +26,7 @@ import { CHAT_ATTACHMENT_CAPS } from '../utils/chatSend.js';
 // surface can produce and was not stating, and `careOutcomeNoteText` is the ONE combiner all three
 // surfaces now share (see its own doc-comment for why a third private copy was the defect, not the fix).
 import {
-  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, substrateAnchorKeptDay,
+  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, potDetailsDiscardedNoteKey, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
 import { todayYmd, ymdToLocalDate } from '../utils/localDate.js';
 
@@ -875,13 +875,25 @@ const proposalError = ref<string | null>(null);
 // An entry survives the filter when EITHER half exists, never only when the first does: an `applied` REPOT
 // whose anchor was kept earns no `alreadyRecorded` sentence at all, and dropping it would silence exactly
 // the case this fix exists for.
-const approvedOutcomeNotes = ref<{ noteKey: string | null; anchorDay: string | null }[]>([]);
+const approvedOutcomeNotes = ref<
+  { noteKey: string | null; anchorDay: string | null; potDetailsKey: string | null }[]
+>([]);
 
 /** Called from the template so `t`/`d` re-resolve on every render (the locale-switch reason above). The
  *  combining rule itself — order, separator, and WHICH date — lives once in `utils/careOutcome.ts`, shared
  *  with the Today and plant-page renderers that answer this same question. */
-function approvedOutcomeNoteText(note: { noteKey: string | null; anchorDay: string | null }): string | null {
-  return careOutcomeNoteText(note.noteKey, note.anchorDay, t, (day) => d(ymdToLocalDate(day), 'short'));
+function approvedOutcomeNoteText(note: {
+  noteKey: string | null;
+  anchorDay: string | null;
+  potDetailsKey: string | null;
+}): string | null {
+  return careOutcomeNoteText(
+    note.noteKey,
+    note.anchorDay,
+    note.potDetailsKey,
+    t,
+    (day) => d(ymdToLocalDate(day), 'short'),
+  );
 }
 
 // THE AGGREGATE SUMMARY (owner ruling 2026-08-14, REVISED the same day by code-review finding AF-8).
@@ -1111,10 +1123,15 @@ async function approveProposal() {
         // operation, and any proposal stored before the field existed), which must stay SILENT rather than
         // be defaulted into a status.
         anchorDay: substrateAnchorKeptDay(outcome.substrate),
+        // F4 (2026-08-14) — the agent's own door reaches this outcome too: a `care.done` REPOT the owner
+        // approved can be a refused, duplicated day, and the stored per-operation array is the ONLY thing
+        // the approving owner ever sees. Read off the server's flag through the same shared reader the two
+        // owner surfaces use, so a third private answer can never exist.
+        potDetailsKey: potDetailsDiscardedNoteKey(outcome),
       }))
       // EITHER half is enough to earn a line — see the ref's own comment for why "only when the first
       // exists" would drop the exact case this reports.
-      .filter((note) => !!note.noteKey || !!note.anchorDay);
+      .filter((note) => !!note.noteKey || !!note.anchorDay || !!note.potDetailsKey);
     // Gated on the SERVER's derived `global`, never on a status recomputed here: the shared contract derives
     // that status once (`deriveProposalOutcomeStatus`) precisely so no surface holds a second answer that
     // could disagree with it. The counts below are only the numbers the segments print.

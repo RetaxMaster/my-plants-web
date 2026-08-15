@@ -12,7 +12,7 @@ import { orderTasksForCard, type TaskCode, type DueState } from '../utils/tasks.
 // Task 10 — the one-per-day outcome sentence, decided ONCE and shared with pages/index.vue (Task 8's own
 // rule): never a second, per-renderer copy of "which sentence does this outcome earn".
 import {
-  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, substrateAnchorKeptDay,
+  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, potDetailsDiscardedNoteKey, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle, speciesPrimaryName } from '../utils/displayName.js';
@@ -876,6 +876,11 @@ const outcomeNotes = ref<Partial<Record<TaskCode, string | null>>>({});
 // A SECOND record rather than a field on the first, because the two notes are independent facts with
 // independent lifetimes: a completion can be `already-recorded-on-day` AND leave the clock standing.
 const anchorKeptDays = ref<Partial<Record<TaskCode, string | null>>>({});
+// F4 (2026-08-14) — the THIRD independent fact this notice zone can carry: the pot details the owner typed
+// had nowhere to go (a refused day that was ALSO a same-day duplicate writes no CareEvent at all). Separate
+// for the same reason the second one is: all three can be true at once, which is exactly finding E8's own
+// 197-day case. The parallel-copy pair with pages/index.vue — both surfaces gain this together.
+const potDetailsDiscardedKeys = ref<Partial<Record<TaskCode, string | null>>>({});
 const appliedCompletions = ref<Partial<Record<TaskCode, number>>>({});
 
 // ⚠️ THE RESET IS KEYED TO AN *APPLIED* OUTCOME AND NOTHING ELSE (spec §2.4/§3.2). Bumping the counter on
@@ -894,6 +899,11 @@ function recordOutcome(task: TaskCode, result: RepotDoneResult, occurredOn?: str
   // Absent on every non-REPOT write, and on a REPOT whose clock really did move — `substrateAnchorKeptDay`
   // answers null for both, which is what makes this one line safe to run unconditionally.
   anchorKeptDays.value = { ...anchorKeptDays.value, [task]: substrateAnchorKeptDay(result.substrate) };
+  // Read off the SERVER's own flag through the shared reader — never re-derived here.
+  potDetailsDiscardedKeys.value = {
+    ...potDetailsDiscardedKeys.value,
+    [task]: potDetailsDiscardedNoteKey(result.outcome),
+  };
   if (result.outcome?.status === 'applied') {
     appliedCompletions.value = {
       ...appliedCompletions.value,
@@ -916,6 +926,7 @@ function outcomeNoteFor(task: TaskCode): string | null {
   return careOutcomeNoteText(
     outcomeNotes.value[task] ?? null,
     anchorKeptDays.value[task] ?? null,
+    potDetailsDiscardedKeys.value[task] ?? null,
     t,
     (day) => d(ymdToLocalDate(day), 'short'),
   );

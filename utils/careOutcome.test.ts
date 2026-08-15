@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay } from './careOutcome.js';
+import {
+  POT_DETAILS_DISCARDED_KEY,
+  SUBSTRATE_ANCHOR_KEPT_KEY,
+  careOutcomeNoteKey,
+  careOutcomeNoteText,
+  doneSubmitPath,
+  potDetailsDiscardedNoteKey,
+  substrateAnchorKeptDay,
+} from './careOutcome.js';
 import type { CareWriteOutcome, SubstrateAnchorOutcome } from '../types/api.js';
 
 const applied: CareWriteOutcome = { status: 'applied' };
@@ -106,5 +114,72 @@ describe('substrateAnchorKeptDay', () => {
 
   it('returns a RAW YYYY-MM-DD — formatting is the renderer\'s job, at render time, in the live locale', () => {
     expect(substrateAnchorKeptDay(kept)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ---- F4 (nothing-left-open code review, 2026-08-14) --------------------------------------------------
+//
+// A refused REPOT day that is ALSO a same-day duplicate writes no CareEvent, so the diameter and mix the
+// owner typed have nowhere to live and nothing on any surface said so. The server states the fact; these
+// readers only carry it.
+describe('potDetailsDiscardedNoteKey', () => {
+  const discarded: CareWriteOutcome = {
+    status: 'already-recorded-on-day',
+    task: 'REPOT',
+    occurredOn: '2026-08-12',
+    otherEffectsApplied: false,
+    potDetailsDiscarded: true,
+  };
+
+  it('earns the sentence when the server said the details were discarded', () => {
+    expect(potDetailsDiscardedNoteKey(discarded)).toBe(POT_DETAILS_DISCARDED_KEY);
+  });
+
+  it('says NOTHING when the flag is absent — even on the outcome shape that could be re-derived', () => {
+    // ⚠️ THIS IS THE POINT OF THE FLAG. The trio (already-recorded + otherEffectsApplied:false + REPOT) is
+    // exactly the branch that CAN discard, and this outcome is that branch with nothing supplied ("I don't
+    // know" for both fields). A surface re-deriving the sentence from the trio would state it here, about
+    // values the owner never typed.
+    expect(potDetailsDiscardedNoteKey(already('REPOT', false))).toBeNull();
+  });
+
+  it('says nothing for an applied outcome, or for an absent one (an older API mid rolling deploy)', () => {
+    expect(potDetailsDiscardedNoteKey(applied)).toBeNull();
+    expect(potDetailsDiscardedNoteKey(undefined)).toBeNull();
+  });
+});
+
+describe('careOutcomeNoteText — the one combiner, now over THREE independent facts', () => {
+  const t = (key: string, named?: Record<string, unknown>) =>
+    named ? `${key}(${JSON.stringify(named)})` : key;
+  const formatDay = (day: string) => `formatted:${day}`;
+
+  it('renders all three, in reading order, when all three are true — E8\'s own 197-day case', () => {
+    const text = careOutcomeNoteText(
+      'tasks.alreadyRecorded.neutral',
+      '2026-08-11',
+      POT_DETAILS_DISCARDED_KEY,
+      t,
+      formatDay,
+    );
+    expect(text).toBe(
+      `tasks.alreadyRecorded.neutral ${SUBSTRATE_ANCHOR_KEPT_KEY}({"date":"formatted:2026-08-11"}) ` +
+        POT_DETAILS_DISCARDED_KEY,
+    );
+  });
+
+  it('renders the pot-details sentence ALONE — it is a complete explanation, never a footnote', () => {
+    expect(careOutcomeNoteText(null, null, POT_DETAILS_DISCARDED_KEY, t, formatDay))
+      .toBe(POT_DETAILS_DISCARDED_KEY);
+  });
+
+  it('still renders nothing at all when no fact is true', () => {
+    expect(careOutcomeNoteText(null, null, null, t, formatDay)).toBeNull();
+  });
+
+  it('leaves the two pre-existing sentences byte-identical when the third is absent', () => {
+    expect(careOutcomeNoteText('tasks.alreadyRecorded.neutral', '2026-08-11', null, t, formatDay)).toBe(
+      `tasks.alreadyRecorded.neutral ${SUBSTRATE_ANCHOR_KEPT_KEY}({"date":"formatted:2026-08-11"})`,
+    );
   });
 });

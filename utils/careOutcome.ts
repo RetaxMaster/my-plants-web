@@ -107,6 +107,35 @@ export function substrateAnchorKeptDay(
 }
 
 /**
+ * ---- THE POT DETAILS THAT WENT NOWHERE (F4, nothing-left-open code review, 2026-08-14) ----------------
+ *
+ * A REPOT completion carries the NEW pot's diameter and soil mix. When the day it names is older than the
+ * stored anchor, the profile write is skipped — the event does not describe the pot's CURRENT fill — and
+ * when that submission is ALSO a same-day duplicate, the one-per-day rule writes no `CareEvent` either. In
+ * that one combination the values the owner typed have no home at all, and nothing on any surface said so.
+ *
+ * ⚠️ THIS IS NOT THE RARE BRANCH. It is finding E8's own measured 197-day case — a duplicate naming a stale
+ * day — which is the shape an owner actually produces. So the sentence is written to stand ALONE: it names
+ * its own subject (the pot details), its own reason (they describe an earlier repot) and the fact that
+ * makes it true (the plant already has a more recent one). It is never a footnote to the anchor sentence,
+ * even though it renders after it.
+ *
+ * ⚠️ READ STRAIGHT OFF THE SERVER'S OWN FLAG — never re-derived from `status`/`otherEffectsApplied`/`task`.
+ * That trio looks equivalent and is not: an owner may legitimately answer "I don't know" to BOTH fields, and
+ * only the writer knows whether anything was supplied. The shared contract's own doc-comment
+ * (`care-outcome.ts`) states why the flag exists rather than being inferred.
+ *
+ * `null` means "say nothing", exactly like the two readers above — including for an absent outcome, which is
+ * an older API mid rolling deploy and never an assertion about the pot details.
+ */
+export const POT_DETAILS_DISCARDED_KEY = 'tasks.potDetailsDiscarded';
+
+export function potDetailsDiscardedNoteKey(outcome: CareWriteOutcome | undefined): string | null {
+  if (!outcome || outcome.status !== 'already-recorded-on-day') return null;
+  return outcome.potDetailsDiscarded ? POT_DETAILS_DISCARDED_KEY : null;
+}
+
+/**
  * THE ONE PLACE THE TWO SENTENCES ARE COMBINED — for all THREE surfaces that can produce them.
  *
  * Both notes are independent facts and both can be true at once (see `substrateAnchorKeptDay` above for
@@ -137,12 +166,19 @@ export function substrateAnchorKeptDay(
 export function careOutcomeNoteText(
   noteKey: string | null,
   anchorDay: string | null,
+  potDetailsKey: string | null,
   t: (key: string, named?: Record<string, unknown>) => string,
   formatDay: (day: string) => string,
 ): string | null {
   const parts = [
     noteKey ? t(noteKey) : null,
     anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: formatDay(anchorDay) }) : null,
+    // F4 (2026-08-14) — THIRD and last, and that position is about reading order, not about importance.
+    // The first two sentences answer "what happened to the record and to the clock"; this one answers "and
+    // what happened to what I typed", which only makes sense once the owner knows a more recent repot
+    // exists. It is a complete sentence in its own right precisely so the order cannot demote it: it names
+    // its subject and its reason without depending on either sentence above.
+    potDetailsKey ? t(potDetailsKey) : null,
   ].filter((part): part is string => !!part);
   return parts.length ? parts.join(' ') : null;
 }

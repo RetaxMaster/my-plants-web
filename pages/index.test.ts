@@ -2118,4 +2118,84 @@ describe('pages/index.vue — the substrate anchor stayed, and Today says so', (
       vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
     }
   });
+
+  // ---- F4 (nothing-left-open code review, 2026-08-14) ------------------------------------------------
+  //
+  // A refused day that is ALSO a same-day duplicate writes no CareEvent, so the diameter and mix the owner
+  // typed are gone. That branch is a DUPLICATE, which means its row is guaranteed to have left "due today"
+  // by the refresh — so this promoted notice is the ONLY place the sentence can ever be read on Today. A
+  // version of this fix that rendered it on the row alone would have shipped copy nobody can reach.
+  it('promotes the POT-DETAILS sentence too, and dismissing it retires its own source entry', async () => {
+    vi.stubGlobal('useI18n', () => ({ t: localizedT, d: (v: unknown) => String(v), locale: ref('en') }));
+    try {
+      tasksFixture = repotTasks(RESOLVED);
+      const todaysTasksMock = vi.fn()
+        .mockResolvedValueOnce(repotTasks(RESOLVED))
+        // After A's completion: A's row is gone (a duplicate always is); B's REPOT stays due, so a LATER,
+        // unrelated completion can drive the same reconcile function again after the dismiss.
+        .mockResolvedValueOnce([
+          { plantId: 'B', task: 'REPOT' as const, nextDueOn: '2026-01-01', pendingEvaluation: { ...RESOLVED } },
+        ])
+        .mockResolvedValue([]);
+      vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+        const data = ref(await fn());
+        return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+      });
+      vi.stubGlobal('useApi', () => ({
+        todaysTasks: todaysTasksMock,
+        listPlants: async () => [],
+        listPlaces: async () => [],
+        getRepotSigns: getRepotSignsMock,
+        submitRepotEvaluation: submitRepotEvaluationMock,
+        getPlant: getPlantMock,
+        getOwnerInstruments: getOwnerInstrumentsMock,
+        getSoilReadings: getSoilReadingsMock,
+        sendFeedback: vi.fn(),
+        // A's completion is the discarded case; B's is an ordinary APPLIED write that produces no note of
+        // its own — so any note visible after B's completion can only be A's, resurrected.
+        completeRepot: vi.fn(async (plantId: string) => (
+          plantId === 'A'
+            ? {
+              ok: true,
+              outcome: {
+                status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
+                otherEffectsApplied: false,
+                // The server's own flag — the surface never re-derives it from the three members above.
+                potDetailsDiscarded: true,
+              },
+              substrate: { status: 'kept', refreshedOn: '2026-08-11' },
+            }
+            : { ok: true, outcome: { status: 'applied' }, substrate: { status: 'refreshed', refreshedOn: todayYmd() } }
+        )),
+      }));
+
+      const w = await mountPage();
+      await doneButtons(w)[0]!.trigger('click');
+      await flushPromises();
+      await w.find('.confirm-btn').trigger('click');
+      await flushPromises();
+
+      const standalone = w.find('.mp-today__standalone-note').text();
+      expect(standalone).toContain('tasks.potDetailsDiscarded');
+      // POSITIVE CONTROLS — all three facts travel together; this is E8's own 197-day case.
+      expect(standalone).toContain('tasks.alreadyRecorded.neutral');
+      expectAnchorSentence(standalone);
+
+      // V4's rule applies to the THIRD source map as well: dismissing must retire it, or the very next
+      // reconcile promotes the note straight back and the dismiss reads as a dead button.
+      await w.find('.mp-today__standalone-note-dismiss').trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-today__standalone-note').exists()).toBe(false);
+
+      // A LATER, UNRELATED completion (B's REPOT, an ordinary applied write) drives the SAME reconcile.
+      expect(doneButtons(w).length).toBe(1);
+      await doneButtons(w)[0]!.trigger('click');
+      await flushPromises();
+      await w.find('.confirm-btn').trigger('click');
+      await flushPromises();
+      expect(w.find('.mp-today__standalone-note').exists()).toBe(false);
+    } finally {
+      vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
+    }
+  });
 });

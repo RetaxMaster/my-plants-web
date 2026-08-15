@@ -3,7 +3,7 @@ import { groupByPlant, orderTasksForCard, dueState, type DueTask } from '../util
 // Task 10 — the one-per-day outcome sentence, decided ONCE and shared with PlantDetail.vue (Task 8's own
 // rule): never a second, per-renderer copy of "which sentence does this outcome earn".
 import {
-  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, substrateAnchorKeptDay,
+  careOutcomeNoteKey, careOutcomeNoteText, doneSubmitPath, potDetailsDiscardedNoteKey, substrateAnchorKeptDay,
 } from '../utils/careOutcome.js';
 import { todayYmd, addDaysYmd, ymdToLocalDate } from '../utils/localDate.js';
 import { plantTitle } from '../utils/displayName.js';
@@ -347,6 +347,13 @@ const outcomeNotes = ref<Record<string, string | null>>({});
 // can be `already-recorded-on-day` AND have left the clock standing, which is exactly the case the API
 // measured dragging the anchor 197 days backwards.
 const anchorKeptDays = ref<Record<string, string | null>>({});
+// F4 (2026-08-14) — the THIRD independent fact this one notice zone can carry: the pot details the owner
+// typed had nowhere to go (a refused day that was ALSO a same-day duplicate writes no CareEvent at all).
+// A third record for the same reason the second one is separate: it is independent of both — a refused
+// duplicate is `already-recorded-on-day` AND anchor-kept AND may have discarded what the owner typed, and
+// all three sentences are true at once in exactly finding E8's own 197-day case. Stores the i18n KEY, never
+// the translated string, like its two siblings.
+const potDetailsDiscardedKeys = ref<Record<string, string | null>>({});
 const appliedCompletions = ref<Record<string, number>>({});
 const outcomeKey = (plantId: string, task: DueTask['task']) => `${plantId}:${task}`;
 
@@ -366,6 +373,12 @@ function recordOutcome(plantId: string, task: DueTask['task'], result: RepotDone
   // Absent on every non-REPOT write, and on a REPOT whose clock really did move — `substrateAnchorKeptDay`
   // answers null for both, which is what makes this one line safe to run unconditionally.
   anchorKeptDays.value = { ...anchorKeptDays.value, [k]: substrateAnchorKeptDay(result.substrate) };
+  // Read off the SERVER's own flag through the shared reader — never re-derived from the outcome's other
+  // members here (see `potDetailsDiscardedNoteKey` for why that trio is not equivalent).
+  potDetailsDiscardedKeys.value = {
+    ...potDetailsDiscardedKeys.value,
+    [k]: potDetailsDiscardedNoteKey(result.outcome),
+  };
   if (result.outcome?.status === 'applied') {
     appliedCompletions.value = { ...appliedCompletions.value, [k]: (appliedCompletions.value[k] ?? 0) + 1 };
   }
@@ -375,7 +388,11 @@ function recordOutcome(plantId: string, task: DueTask['task'], result: RepotDone
 // switch after a submit re-renders the sentence in the new language instead of freezing it in the old one.
 function outcomeNoteFor(plantId: string, task: DueTask['task']): string | null {
   const k = outcomeKey(plantId, task);
-  return noteTextFor(outcomeNotes.value[k] ?? null, anchorKeptDays.value[k] ?? null);
+  return noteTextFor(
+    outcomeNotes.value[k] ?? null,
+    anchorKeptDays.value[k] ?? null,
+    potDetailsDiscardedKeys.value[k] ?? null,
+  );
 }
 
 // BOTH sentences, in the one notice zone, when both are true — see `anchorKeptDays` above for why that
@@ -388,8 +405,12 @@ function outcomeNoteFor(plantId: string, task: DueTask['task']): string | null {
 // AGENT proposed (`components/AgentChat.vue`). Two private copies were already one too many; three is the
 // parallel-per-surface class this project calls its highest-yield bug. This wrapper stays because the local
 // `t`/`d` bindings are what make it re-resolve at render time.
-function noteTextFor(noteKey: string | null, anchorDay: string | null): string | null {
-  return careOutcomeNoteText(noteKey, anchorDay, t, (day) => d(ymdToLocalDate(day), 'short'));
+function noteTextFor(
+  noteKey: string | null,
+  anchorDay: string | null,
+  potDetailsKey: string | null,
+): string | null {
+  return careOutcomeNoteText(noteKey, anchorDay, potDetailsKey, t, (day) => d(ymdToLocalDate(day), 'short'));
 }
 
 // code review AF-23 — a note recorded by `recordOutcome` is rendered as a PROP on the `UiTaskRow` that
@@ -414,7 +435,13 @@ function noteTextFor(noteKey: string | null, anchorDay: string | null): string |
 // PRECISELY the case whose row is gone by the next fetch. Promoting only the `alreadyRecorded` half would
 // drop the one sentence the owner needed, on the one path he was guaranteed to take. A note is promoted
 // when EITHER half exists — never only when the first does.
-const standaloneOutcomeNotes = ref<{ key: string; noteKey: string | null; anchorDay: string | null }[]>([]);
+// F4 (2026-08-14) — and it must carry the POT-DETAILS half for exactly the same reason, one step sharper:
+// the branch that discards the owner's typed values IS a same-day duplicate, so its row is guaranteed gone
+// by the next fetch and this promoted note is the ONLY place that sentence can ever be read on Today.
+// Promoting the other two halves and not this one would have shipped the copy while making it unreachable.
+const standaloneOutcomeNotes = ref<
+  { key: string; noteKey: string | null; anchorDay: string | null; potDetailsKey: string | null }[]
+>([]);
 
 function reconcileOutcomeNotesAfterRefresh() {
   const live = new Set((tasks.value ?? []).map((entry) => outcomeKey(entry.plantId, entry.task)));
@@ -422,15 +449,27 @@ function reconcileOutcomeNotesAfterRefresh() {
   const keptKeys = new Set(kept.map((n) => n.key));
   // The union of both maps' keys: a back-dated completion that was `applied` records NO `alreadyRecorded`
   // note at all, so iterating `outcomeNotes` alone would never see its anchor sentence.
-  const candidates = new Set([...Object.keys(outcomeNotes.value), ...Object.keys(anchorKeptDays.value)]);
+  const candidates = new Set([
+    ...Object.keys(outcomeNotes.value),
+    ...Object.keys(anchorKeptDays.value),
+    // F4 — the third map joins the union so the rule stays UNIFORM ("any half earns a promotion"), not
+    // because it can currently arrive alone: `potDetailsDiscarded` exists only on the
+    // `already-recorded-on-day` arm, and that arm ALWAYS earns a `careOutcomeNoteKey`, so today this key is
+    // guaranteed to be in `outcomeNotes` as well. That is a property of the shared contract, not of this
+    // file — stated rather than relied on, and deliberately not written as though this clause were
+    // load-bearing (a mutation that removes it does NOT go red, and pretending otherwise is the overstated
+    // guard this feature has now produced five times).
+    ...Object.keys(potDetailsDiscardedKeys.value),
+  ]);
   const added = [...candidates]
     .filter((key) => !live.has(key) && !keptKeys.has(key))
     .map((key) => ({
       key,
       noteKey: outcomeNotes.value[key] ?? null,
       anchorDay: anchorKeptDays.value[key] ?? null,
+      potDetailsKey: potDetailsDiscardedKeys.value[key] ?? null,
     }))
-    .filter((n) => !!n.noteKey || !!n.anchorDay);
+    .filter((n) => !!n.noteKey || !!n.anchorDay || !!n.potDetailsKey);
   standaloneOutcomeNotes.value = added.length || kept.length !== standaloneOutcomeNotes.value.length
     ? [...kept, ...added]
     : standaloneOutcomeNotes.value;
@@ -448,6 +487,11 @@ function dismissStandaloneOutcomeNote(key: string) {
   outcomeNotes.value = restNotes;
   const { [key]: _droppedAnchor, ...restAnchorDays } = anchorKeptDays.value;
   anchorKeptDays.value = restAnchorDays;
+  // F4 (2026-08-14) — the THIRD source map must be retired with the other two, or the V4 fix this function
+  // exists for is only two-thirds true: leaving this entry standing would let the very next refresh promote
+  // the note straight back, and the owner's dismiss would read as a button that does nothing.
+  const { [key]: _droppedPotDetails, ...restPotDetails } = potDetailsDiscardedKeys.value;
+  potDetailsDiscardedKeys.value = restPotDetails;
 }
 
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
@@ -1050,7 +1094,7 @@ function openProgress(plantId: string) {
         :key="n.key"
         class="mp-today__standalone-note"
       >
-        <span>{{ noteTextFor(n.noteKey, n.anchorDay) }}</span>
+        <span>{{ noteTextFor(n.noteKey, n.anchorDay, n.potDetailsKey) }}</span>
         <button
           type="button"
           class="mp-today__standalone-note-dismiss"

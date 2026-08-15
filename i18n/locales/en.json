@@ -78,7 +78,8 @@
       "partial": "{count} partial | {count} partial",
       "alreadyRecorded": "{count} already recorded | {count} already recorded"
     },
-    "substrateAnchorKept": "The event was saved, but the soil clock stays at {date} (there is a more recent record)."
+    "substrateAnchorKept": "The event was saved, but the soil clock stays at {date} (there is a more recent record).",
+    "potDetailsDiscarded": "The pot details were not applied: they describe an earlier repot, and your plant already has a more recent one."
   },
   "taskInfo": {
     "aria": "About this task",

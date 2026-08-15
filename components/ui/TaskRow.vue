@@ -387,7 +387,24 @@ const evaluateLabel = computed(() =>
   props.task === 'WATER' ? t('reading.surveyQuestion') : t('repotEval.cardAction'),
 );
 
-const onDone = () => emit('done', { task: props.task, occurredOn: doneDate.value || undefined });
+// V3 fix — REPOT's date box is READONLY (line 171 above), so `doneDate.value` is never something the
+// owner typed; it is only ever the SEED this component set at mount/reset time, which can go stale across
+// local midnight exactly the way AF-1 found `today` itself going stale. `repotDoneDateDefault()` re-reads
+// `todayYmd()` live, at the moment Done is actually pressed, so a tab left open across midnight anchors a
+// REPOT completion on the day it is submitted, not the day the row happened to mount. Every OTHER task
+// still reads `doneDate.value` as-is — that box is a live, owner-editable `v-model` (WATER's back-date),
+// and reading it live here would discard whatever the owner typed into it.
+// V3 fix — REPOT's date box is READONLY (line 171 above), so `doneDate.value` is never something the
+// owner typed; it is only ever the SEED this component set at mount/reset time, which can go stale across
+// local midnight exactly the way AF-1 found `today` itself going stale. `repotDoneDateDefault()` re-reads
+// `todayYmd()` live, at the moment Done is actually pressed, so a tab left open across midnight anchors a
+// REPOT completion on the day it is submitted, not the day the row happened to mount. Every OTHER task
+// still reads `doneDate.value` as-is — that box is a live, owner-editable `v-model` (WATER's back-date),
+// and reading it live here would discard whatever the owner typed into it.
+const onDone = () => emit('done', {
+  task: props.task,
+  occurredOn: (props.task === 'REPOT' ? repotDoneDateDefault() : doneDate.value) || undefined,
+});
 const onPostpone = () => emit('postpone', { task: props.task });
 const onLogProgress = () => emit('logProgress', { task: props.task });
 const onInfo = () => emit('info', { task: props.task });

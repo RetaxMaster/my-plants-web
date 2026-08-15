@@ -68,9 +68,16 @@ describe('useGardenerChatProposals', () => {
       'getGardenerSessionSettings',
       'updateGardenerSessionSettings',
     ]);
-    // Every call closes over the session/proposal ids alone (approve ALSO carries the idempotency key,
-    // AF-12) — never a plantId prepended, which is exactly what distinguishes this from
-    // useDoctorChatProposals's equivalent test.
-    expect(calls.every((c) => c.args.length <= 3)).toBe(true);
+    // V7 fix (code review) — a bare `args.length <= 3` guard is satisfied by a call carrying a `plantId`
+    // PREPENDED to the session/proposal ids (e.g. `['plant-1', 'S1', 'PR1']`, exactly `useDoctorChatProposals`'s
+    // own shape), which is precisely the plant-scoped leak this test's title claims to rule out. Asserting
+    // the EXACT argument list per call — the same technique `useDoctorChatProposals.test.ts`'s own "binds
+    // the plant id into every call" test uses — discriminates a genuine leak from a merely-short array: a
+    // `plantId` prepended here would fail every one of these five equalities, not just the length check.
+    expect(calls[0].args).toEqual(['S1']);
+    expect(calls[1].args).toEqual(['S1', 'PR1', 'idem-key-1']);
+    expect(calls[2].args).toEqual(['S1', 'PR1']);
+    expect(calls[3].args).toEqual(['S1']);
+    expect(calls[4].args).toEqual(['S1', false]);
   });
 });

@@ -124,7 +124,7 @@ import AgentChat from './AgentChat.vue';
 import type { ChatProposalsAdapter } from '../types/api';
 // Names "today" the SAME way the component itself does (`utils/localDate.js`'s `todayYmd()`) so a fixture
 // `occurredOn` lands on the same-day path deterministically, mirroring pages/index.test.ts's own convention.
-import { todayYmd } from '../utils/localDate.js';
+import { todayYmd, ymdToLocalDate } from '../utils/localDate.js';
 
 vi.stubGlobal('ref', ref);
 vi.stubGlobal('computed', computed);
@@ -144,10 +144,18 @@ const KNOWN_ERROR_CODES = new Set([
   'attachment_type_not_allowed', 'attachment_write_failed', 'attachments_unavailable', 'message_too_long',
   'payload_too_large', 'request_failed', 'send_network', 'send_no_response', 'send_stalled',
 ]);
+// `d` (V1 fix): AgentChat.vue now destructures it off `useI18n()` to format the substrate anchor's
+// surviving day (`d(ymdToLocalDate(day), 'short')`) — a bare `() => ''` here, mirroring the OTHER two
+// renderers' own test files' default stub (`pages/index.test.ts`, `PlantDetail.test.ts`), keeps every
+// EXISTING test in this file byte-identical (the date is simply blanked out, same as `t`'s identity
+// passthrough drops params it is never asked to observe). The two tests that actually need to OBSERVE the
+// formatted date override BOTH `t` and `d` locally, the same way `pages/index.test.ts`'s own
+// "a locale switch AFTER the submit" test does.
 vi.stubGlobal('useI18n', () => ({
   t: (k: string) => k,
   te: (k: string) => KNOWN_ERROR_CODES.has(k.split('.').pop() ?? ''),
   locale: ref('en'),
+  d: () => '',
 }));
 
 const PENDING = {
@@ -453,8 +461,20 @@ describe('AgentChat — the doctor approval surface', () => {
   it('reuses the SAME idempotency key across a retry of the same proposal, and mints a NEW one for a different proposal', async () => {
     const approve = vi.fn()
       .mockRejectedValueOnce(new Error('network down'))
-      .mockResolvedValueOnce({ ...PENDING, status: 'APPROVED' as const });
-    const proposals = makeProposals({ approve });
+      .mockResolvedValueOnce({ ...PENDING, status: 'APPROVED' as const })
+      // The SECOND proposal's own approval, below — a call this test previously never made (V5 fix, code
+      // review): the title promised this coverage and the body stopped one proposal short of proving it.
+      .mockResolvedValueOnce({ ...PENDING, id: 'prop-2', status: 'APPROVED' as const });
+    // A run-terminal refetch (the run-terminal `watch(streaming, …)` trigger below) brings in a genuinely
+    // DIFFERENT proposal for the SAME session — the shape a doctor filing a second write proposal produces.
+    // THREE queued reads, not two: the initial mount (#1), the FAILED first approve's own `catch` branch
+    // calling `refreshProposal()` (#2 — still 'prop-1', nothing about the proposal changed), and only THEN
+    // the run-terminal trigger below (#3 — the genuinely new 'prop-2').
+    const pending = vi.fn()
+      .mockResolvedValueOnce(PENDING) // #1: the initial mount
+      .mockResolvedValueOnce(PENDING) // #2: the failed approve's own refetch — still the SAME proposal
+      .mockResolvedValueOnce({ ...PENDING, id: 'prop-2' }); // #3: after the run-terminal trigger
+    const proposals = makeProposals({ approve, pending });
     const w = mountChat(proposals);
     await flushPromises();
 
@@ -468,6 +488,25 @@ describe('AgentChat — the doctor approval surface', () => {
     const secondKey = approve.mock.calls[1]![2];
     expect(typeof firstKey).toBe('string');
     expect(secondKey).toBe(firstKey);
+
+    // The run-terminal trigger refetches the pending proposal — now a DIFFERENT one ('prop-2').
+    chatStub.state.value = 'streaming';
+    await flushPromises();
+    chatStub.state.value = 'done';
+    await flushPromises();
+    expect(w.find('.stub-banner').exists()).toBe(true);
+
+    // THE MISSING ASSERTION — the dangerous half. If the key were ever derived from `sessionId` alone (not
+    // `${sessionId}:${proposalId}`), this second approval would send the FIRST proposal's key, the API's
+    // idempotency interceptor would replay the stored 201 without running the handler at all, and this
+    // write would be silently lost while rendering as an ordinary success.
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+
+    expect(approve).toHaveBeenCalledTimes(3);
+    expect(approve).toHaveBeenNthCalledWith(3, 'sess-1', 'prop-2', expect.any(String));
+    const thirdKey = approve.mock.calls[2]![2];
+    expect(thirdKey).not.toBe(firstKey);
   });
 
   // E2 fix: the response `approve()` just returned was discarded — the owner who pressed Approve never
@@ -710,6 +749,182 @@ describe('AgentChat — the doctor approval surface', () => {
     expect(w.text()).not.toContain('tasks.alreadyRecorded');
     // The summary is derived from the same `outcome` object: a null outcome must produce no line either.
     expect(w.text()).not.toContain('tasks.outcomeSummary');
+  });
+
+  // ── V1(a) fix (code review) — the substrate "kept" verdict, on the AGENT path ─────────────────────────
+  //
+  // `PlantDetail.vue` and `pages/index.vue` already render "the substrate clock stayed on <date>" (API
+  // finding E8) through `substrateAnchorKeptDay`/`SUBSTRATE_ANCHOR_KEPT_KEY`. This component was the one
+  // renderer of an APPROVED proposal's outcome that never consulted `outcome.substrate` at all, so an
+  // approved REPOT dated before the stored anchor read as an ordinary success here while the other two
+  // surfaces already told the owner the truth. This proves it now renders — through the SAME shared seam,
+  // never a second copy of the mapping — and that it does so with the SURVIVING anchor day, never the
+  // submitted `occurredOn` (this fixture deliberately sets them to different days so confusing the two is
+  // detectable), and that it renders even while `outcome.global` still reads `ALL_APPLIED` — the state a
+  // companion API change is expected to correct separately; this component must not depend on that landing.
+  describe('the substrate anchor stayed, and the AgentChat approval surface says so (V1)', () => {
+    // The module-level `useI18n` stub's `t` is an identity function and `d: () => ''` returns the same
+    // constant regardless of input — exactly the weakness V8 names for `pages/index.test.ts`'s twin. This
+    // override makes `t` append the named params it was called with and `d` echo its input back (the SAME
+    // technique `PlantDetail.test.ts`/`pages/index.test.ts` use), so the assertions below can tell a correct
+    // interpolation from a dropped one, a raw ISO string, or the wrong day.
+    const localizedT = (k: string, named?: Record<string, unknown>) =>
+      (named ? `${k}|${JSON.stringify(named)}` : k);
+    const DEFAULT_USE_I18N = () => ({
+      t: (k: string) => k,
+      te: (k: string) => KNOWN_ERROR_CODES.has(k.split('.').pop() ?? ''),
+      locale: ref('en'),
+      d: () => '',
+    });
+    function stubLocalizedI18n() {
+      vi.stubGlobal('useI18n', () => ({
+        t: localizedT,
+        te: (k: string) => KNOWN_ERROR_CODES.has(k.split('.').pop() ?? ''),
+        locale: ref('en'),
+        d: (v: unknown) => String(v),
+      }));
+    }
+    afterEach(() => {
+      vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
+    });
+
+    it('renders the anchor-kept sentence alongside the already-recorded note, with the SURVIVING anchor day, even while global is still ALL_APPLIED', async () => {
+      stubLocalizedI18n();
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              {
+                status: 'already-recorded-on-day' as const, task: 'REPOT' as const, occurredOn: todayYmd(),
+                otherEffectsApplied: true,
+                substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' },
+              },
+            ],
+            // Deliberately ALL_APPLIED — the companion contract change that would flip this has not landed.
+            // The note below must render regardless: this block is gated on the notes array, never on
+            // `global` (see the component's own comment).
+            global: 'ALL_APPLIED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      const text = w.text();
+      expect(text).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+      expect(text).toContain(
+        `tasks.substrateAnchorKept|${JSON.stringify({ date: String(ymdToLocalDate('2026-08-11')) })}`,
+      );
+    });
+
+    it('renders the anchor-kept sentence for an operation whose `status` is `applied` on its own (no `already-recorded` note at all)', async () => {
+      stubLocalizedI18n();
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({
+          ...PENDING,
+          status: 'APPROVED' as const,
+          outcome: {
+            perOperation: [
+              { status: 'applied' as const, substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' } },
+            ],
+            global: 'ALL_APPLIED' as const,
+          },
+        })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.text()).toContain(
+        `tasks.substrateAnchorKept|${JSON.stringify({ date: String(ymdToLocalDate('2026-08-11')) })}`,
+      );
+    });
+  });
+
+  // ── V1(b) fix (code review) — PRINCIPAL'S BINDING RULING on the three-way count ───────────────────────
+  //
+  // "An operation whose care event applied but whose ANCHOR was refused counts as `partial`, because it is
+  // structurally identical to the state that invented the word: part took effect, part was refused." Before
+  // this fix `countOutcomeStates` read `status` alone, so this exact operation (`status: 'applied'`, anchor
+  // `kept`) landed in the `applied` bucket — an outright misreport of the aggregate line.
+  it('counts an APPLIED operation whose substrate anchor was KEPT as partial, not applied', async () => {
+    const proposals = makeProposals({
+      approve: vi.fn(async () => ({
+        ...PENDING,
+        status: 'APPROVED' as const,
+        outcome: {
+          perOperation: [
+            { status: 'applied' as const },
+            { status: 'applied' as const, substrate: { status: 'kept' as const, refreshedOn: '2026-08-11' } },
+          ],
+          global: 'PARTIALLY_ALREADY_RECORDED' as const,
+        },
+      })),
+    });
+    const w = mountChat(proposals);
+    await flushPromises();
+    w.findComponent(BannerStub).vm.$emit('approve');
+    await flushPromises();
+    expect(w.text()).toContain('tasks.outcomeSummary.applied|{"count":1}');
+    expect(w.text()).toContain('tasks.outcomeSummary.partial|{"count":1}');
+    expect(w.text()).not.toContain('tasks.outcomeSummary.alreadyRecorded');
+  });
+
+  // ── V2 fix (code review) — a 200 that is NOT `status: 'APPROVED'` must never read as a success ─────────
+  //
+  // Two reachable states were previously swallowed identically to a genuine success: `pendingProposal` was
+  // nulled on EVERY resolved 200 without reading `result.status`. FAILED (the apply rolled back) and
+  // PENDING (the API's documented double-failure path — the apply transaction AND the failure-recording
+  // transaction both failed) must instead KEEP the banner open and surface the existing
+  // `proposal.applyError` copy, exactly like a thrown rejection already does.
+  describe('a 200 that is not APPROVED must not read as a success (V2)', () => {
+    it('keeps the banner and surfaces applyError when the response says FAILED', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({ ...PENDING, status: 'FAILED' as const, outcome: null })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      // The banner is STILL on screen — never torn down by a write that did not land.
+      expect(w.find('.stub-banner').exists()).toBe(true);
+      expect(w.text()).toContain('diagnose.proposal.applyError');
+      // No success sentence of any kind — nothing applied, nothing to report.
+      expect(w.text()).not.toContain('tasks.alreadyRecorded');
+      expect(w.text()).not.toContain('tasks.outcomeSummary');
+    });
+
+    it('keeps the banner and surfaces applyError when the response says PENDING (the double-failure path)', async () => {
+      const proposals = makeProposals({
+        approve: vi.fn(async () => ({ ...PENDING, status: 'PENDING' as const, outcome: null })),
+      });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve');
+      await flushPromises();
+      expect(w.find('.stub-banner').exists()).toBe(true);
+      expect(w.text()).toContain('diagnose.proposal.applyError');
+    });
+
+    it('a retry after a PENDING response reuses the SAME idempotency key, never a fresh one', async () => {
+      const approve = vi.fn()
+        .mockResolvedValueOnce({ ...PENDING, status: 'PENDING' as const, outcome: null })
+        .mockResolvedValueOnce({ ...PENDING, status: 'APPROVED' as const });
+      const proposals = makeProposals({ approve });
+      const w = mountChat(proposals);
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve'); // first attempt: server-side double failure
+      await flushPromises();
+      w.findComponent(BannerStub).vm.$emit('approve'); // retry: succeeds
+      await flushPromises();
+      expect(approve).toHaveBeenCalledTimes(2);
+      const firstKey = approve.mock.calls[0]![2];
+      const secondKey = approve.mock.calls[1]![2];
+      expect(secondKey).toBe(firstKey);
+    });
   });
 
   // Dismiss is NOT a decline (§5.3): it closes the banner and sends nothing.

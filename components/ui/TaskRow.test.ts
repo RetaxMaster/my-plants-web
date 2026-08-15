@@ -428,6 +428,28 @@ describe('UiTaskRow — the REPOT back-date is display-only, seeding the complet
     expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: todayYmd() }]);
   });
 
+  // V3 fix (code review) — REPOT's date box is READONLY (the test right above pins that), so `doneDate` is
+  // never something the owner typed; it was only ever the SEED `repotDoneDateDefault()` computed at
+  // mount/reset time, and it could go stale exactly the way AF-1 found Today's own `today` going stale: a
+  // tab left open across local midnight kept emitting the day the row happened to MOUNT on, not the day
+  // Done was actually pressed. That stale seed then won over `RepotDoneForm.vue`'s own live `todayYmd()`
+  // fallback (`props.seedOccurredOn || todayYmd()`), because a non-empty seed is always truthy. `onDone`
+  // now re-reads `todayYmd()` live for REPOT instead of trusting the frozen `doneDate` ref.
+  it('REPOT: a Done pressed after the tab crossed local midnight emits the NEW day, not the day the row mounted on', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 50)); // Jan 1, 23:59:50 local — the row mounts here
+      const w = mountRow({ pendingVerdict: 'REPOT' });
+      // No re-render/prop change happens — nothing that would trigger the `appliedCompletions` watcher's
+      // reset. The tab simply sits open, exactly the AF-1 scenario.
+      vi.setSystemTime(new Date(2026, 0, 2, 0, 0, 10)); // rolled past local midnight
+      await w.findAll('.stub-btn').find((b) => b.attributes('data-icon') === 'check')!.trigger('click');
+      expect(w.emitted('done')![0]).toEqual([{ task: 'REPOT', occurredOn: '2026-01-02' }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('every OTHER task keeps an editable back-date, unchanged', () => {
     const w = mountRow({ task: 'WATER', withDoneDate: true });
     const input = w.find('input[type="date"]');

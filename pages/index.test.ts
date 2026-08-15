@@ -23,7 +23,7 @@ import type { CareWriteResult, PlantSoilReadings, RepotDoneResult, RepotEvaluati
 import type { TodaysVerdict } from '../utils/waterSurvey.js';
 // Task 10: names "today" the same way the page itself does (`utils/localDate.js`'s `todayYmd()`), so the
 // fixture's `occurredOn` genuinely lands on the SAME-DAY path rather than an accidental back-dated one.
-import { todayYmd } from '../utils/localDate.js';
+import { todayYmd, ymdToLocalDate } from '../utils/localDate.js';
 // X2: the parent-level integration test near the end of this file mounts the REAL RepotDoneForm.vue (never a
 // re-implemented stub of its hydration watcher — see that describe block's own header comment for why).
 import RealRepotDoneForm from '../components/ui/RepotDoneForm.vue';
@@ -1929,6 +1929,77 @@ describe('pages/index.vue — AF-23: an outcome note survives the refresh that r
   });
 });
 
+// V4 fix (code review) — `dismissStandaloneOutcomeNote` used to remove the note ONLY from
+// `standaloneOutcomeNotes`, leaving its source entries sitting in `outcomeNotes`/`anchorKeptDays` (which
+// are only ever spread-OVERWRITTEN, never deleted from, by `recordOutcome`). The NEXT completion —
+// anywhere on the page, not necessarily the same plant/task — runs `reconcileOutcomeNotesAfterRefresh()`
+// again, which rebuilds its candidate set from exactly those two maps; finding the dismissed key still
+// there and no longer in `standaloneOutcomeNotes`' own `keptKeys`, it silently RE-PROMOTES the note the
+// owner already closed. There was previously no test in this file that even clicked the dismiss button.
+describe('pages/index.vue — V4: a dismissed standalone note must not resurrect on a later completion', () => {
+  it('stays gone after dismiss, even once an UNRELATED later completion runs the same reconcile function', async () => {
+    const todaysTasksMock = vi.fn()
+      .mockResolvedValueOnce([
+        { plantId: 'A', task: 'FERTILIZE', nextDueOn: '2026-01-01', pendingEvaluation: null },
+        { plantId: 'B', task: 'ROTATE', nextDueOn: '2026-01-01', pendingEvaluation: null },
+      ])
+      // After A's FERTILIZE completes: A's row is gone (already recorded that day); B's ROTATE stays due.
+      .mockResolvedValueOnce([{ plantId: 'B', task: 'ROTATE', nextDueOn: '2026-01-01', pendingEvaluation: null }])
+      // After B's ROTATE completes: irrelevant to this test's assertions.
+      .mockResolvedValue([]);
+    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+      const data = ref(await fn());
+      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+    });
+    // A's FERTILIZE is a duplicate (produces the standalone note); B's ROTATE is an ordinary APPLIED write
+    // (produces no note of its own) — so any note seen after B's completion can only be A's, resurrected.
+    const sendFeedback = vi.fn(async (_plantId: string, body: { task: string }) => (
+      body.task === 'FERTILIZE'
+        ? {
+          ok: true,
+          outcome: {
+            status: 'already-recorded-on-day', task: 'FERTILIZE', occurredOn: todayYmd(),
+            otherEffectsApplied: false,
+          },
+        }
+        : { ok: true, outcome: { status: 'applied' } }
+    ));
+    vi.stubGlobal('useApi', () => ({
+      todaysTasks: todaysTasksMock,
+      listPlants: async () => [],
+      listPlaces: async () => [],
+      getRepotSigns: getRepotSignsMock,
+      submitRepotEvaluation: submitRepotEvaluationMock,
+      getPlant: getPlantMock,
+      completeRepot: completeRepotMock,
+      getOwnerInstruments: getOwnerInstrumentsMock,
+      getSoilReadings: getSoilReadingsMock,
+      sendFeedback,
+    }));
+
+    const w = await mountPage();
+    expect(doneButtons(w).length).toBe(2);
+
+    // Complete A's FERTILIZE — its row is gone after the refresh, and the note is promoted to standalone.
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+    expect(w.find('.mp-today__standalone-note').text()).toContain('tasks.alreadyRecorded.fertilizeSameDay');
+
+    // The owner dismisses it.
+    await w.find('.mp-today__standalone-note-dismiss').trigger('click');
+    await flushPromises();
+    expect(w.find('.mp-today__standalone-note').exists()).toBe(false);
+
+    // A LATER, UNRELATED completion (B's ROTATE) drives the SAME reconcile function again.
+    expect(doneButtons(w).length).toBe(1);
+    await doneButtons(w)[0]!.trigger('click');
+    await flushPromises();
+
+    // The dismissed note must stay gone — running the reconcile function again must never resurrect it.
+    expect(w.find('.mp-today__standalone-note').exists()).toBe(false);
+  });
+});
+
 // ---- THE SUBSTRATE CLOCK REFUSED TO MOVE (owner ruling, 2026-08-14; API finding E8) -------------------
 //
 // A repot completion dated strictly BEFORE the plant's stored substrate anchor is recorded as an event but
@@ -1939,73 +2010,103 @@ describe('pages/index.vue — AF-23: an outcome note survives the refresh that r
 // DUPLICATE repot naming an older day, and a duplicate is precisely the row that is gone by the next fetch.
 // So the standalone notice is the surface the owner actually reads this sentence on, every time.
 describe('pages/index.vue — the substrate anchor stayed, and Today says so', () => {
-  it('renders the anchor-kept sentence on the row, alongside the already-recorded one', async () => {
-    tasksFixture = repotTasks(RESOLVED);
-    const w = await mountPage();
-    await doneButtons(w)[0]!.trigger('click');
-    await flushPromises();
-    await w.find('.confirm-btn').trigger('click');
-    await flushPromises();
-    completeRepotDeferreds.A!.resolve({
-      ok: true,
-      outcome: {
-        status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
-        otherEffectsApplied: true,
-      },
-      substrate: { status: 'kept', refreshedOn: '2026-08-11' },
-    });
-    await flushPromises();
-    const note = w.find('.mp-taskrow__outcome-note').text();
-    // BOTH facts, never one instead of the other. (`t` is the identity stub in this file, so the assertion
-    // is on the KEYS; `PlantDetail.test.ts` pins the interpolated date against real messages.)
-    expect(note).toContain('tasks.alreadyRecorded.otherEffectsApplied');
-    expect(note).toContain('tasks.substrateAnchorKept');
-  });
+  // V8 fix (code review) — the module-level `useI18n` stub's `d: () => ''` returns the SAME constant no
+  // matter what it is handed, so both tests below stayed green through three distinct regressions: the
+  // interpolation being dropped entirely, a raw (unformatted) ISO string reaching `$t`, or the SUBMITTED
+  // day (`occurredOn`, `todayYmd()`) reaching the sentence instead of the surviving anchor
+  // (`refreshedOn`, `'2026-08-11'` below — deliberately a different day from `todayYmd()`, so confusing
+  // the two is detectable at all). `d: (v) => String(v)` echoes its input back — the SAME technique
+  // `PlantDetail.test.ts` uses — so the rendered text now carries a value that traces back to exactly
+  // which day was passed in, and `t` appends the named params it was called with (mirroring every other
+  // param-observing `$t`/`t` mock already in this codebase) so the interpolation itself can't be silently
+  // dropped either.
+  const localizedT = (k: string, named?: Record<string, unknown>) =>
+    (named ? `${k}|${JSON.stringify(named)}` : k);
+  const DEFAULT_USE_I18N = () => ({ t: (k: string) => k, d: () => '', locale: ref('en') });
+  function expectAnchorSentence(text: string) {
+    expect(text).toContain(
+      `tasks.substrateAnchorKept|${JSON.stringify({ date: String(ymdToLocalDate('2026-08-11')) })}`,
+    );
+  }
 
-  it('promotes the anchor sentence into the page-level notice when the row is gone after the refresh', async () => {
-    tasksFixture = repotTasks(RESOLVED);
-    const todaysTasksMock = vi.fn()
-      .mockResolvedValueOnce(repotTasks(RESOLVED))
-      // The refresh that follows the completion: the REPOT row has moved out of "due today".
-      .mockResolvedValueOnce([]);
-    vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
-      const data = ref(await fn());
-      return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
-    });
-    vi.stubGlobal('useApi', () => ({
-      todaysTasks: todaysTasksMock,
-      listPlants: async () => [],
-      listPlaces: async () => [],
-      getRepotSigns: getRepotSignsMock,
-      submitRepotEvaluation: submitRepotEvaluationMock,
-      getPlant: getPlantMock,
-      getOwnerInstruments: getOwnerInstrumentsMock,
-      getSoilReadings: getSoilReadingsMock,
-      sendFeedback: vi.fn(),
-      // Resolved immediately — this case is about what survives the refresh, not about the in-flight race
-      // the deferred harness above exists for.
-      completeRepot: vi.fn(async () => ({
+  it('renders the anchor-kept sentence on the row, alongside the already-recorded one', async () => {
+    vi.stubGlobal('useI18n', () => ({ t: localizedT, d: (v: unknown) => String(v), locale: ref('en') }));
+    try {
+      tasksFixture = repotTasks(RESOLVED);
+      const w = await mountPage();
+      await doneButtons(w)[0]!.trigger('click');
+      await flushPromises();
+      await w.find('.confirm-btn').trigger('click');
+      await flushPromises();
+      completeRepotDeferreds.A!.resolve({
         ok: true,
         outcome: {
           status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
           otherEffectsApplied: true,
         },
         substrate: { status: 'kept', refreshedOn: '2026-08-11' },
-      })),
-    }));
+      });
+      await flushPromises();
+      const note = w.find('.mp-taskrow__outcome-note').text();
+      // BOTH facts, never one instead of the other, and the SURVIVING anchor's own date — never the
+      // submitted `occurredOn` (`todayYmd()`), which this fixture deliberately sets to a different day.
+      expect(note).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+      expectAnchorSentence(note);
+    } finally {
+      vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
+    }
+  });
 
-    const w = await mountPage();
-    await doneButtons(w)[0]!.trigger('click');
-    await flushPromises();
-    await w.find('.confirm-btn').trigger('click');
-    await flushPromises();
+  it('promotes the anchor sentence into the page-level notice when the row is gone after the refresh', async () => {
+    vi.stubGlobal('useI18n', () => ({ t: localizedT, d: (v: unknown) => String(v), locale: ref('en') }));
+    try {
+      tasksFixture = repotTasks(RESOLVED);
+      const todaysTasksMock = vi.fn()
+        .mockResolvedValueOnce(repotTasks(RESOLVED))
+        // The refresh that follows the completion: the REPOT row has moved out of "due today".
+        .mockResolvedValueOnce([]);
+      vi.stubGlobal('useAsyncData', async (_key: string, fn: () => Promise<unknown>) => {
+        const data = ref(await fn());
+        return { data, refresh: vi.fn(async () => { data.value = await fn(); }) };
+      });
+      vi.stubGlobal('useApi', () => ({
+        todaysTasks: todaysTasksMock,
+        listPlants: async () => [],
+        listPlaces: async () => [],
+        getRepotSigns: getRepotSignsMock,
+        submitRepotEvaluation: submitRepotEvaluationMock,
+        getPlant: getPlantMock,
+        getOwnerInstruments: getOwnerInstrumentsMock,
+        getSoilReadings: getSoilReadingsMock,
+        sendFeedback: vi.fn(),
+        // Resolved immediately — this case is about what survives the refresh, not about the in-flight race
+        // the deferred harness above exists for.
+        completeRepot: vi.fn(async () => ({
+          ok: true,
+          outcome: {
+            status: 'already-recorded-on-day', task: 'REPOT', occurredOn: todayYmd(),
+            otherEffectsApplied: true,
+          },
+          substrate: { status: 'kept', refreshedOn: '2026-08-11' },
+        })),
+      }));
 
-    // The row is genuinely gone — the same shape AF-23 pins.
-    expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
-    const standalone = w.find('.mp-today__standalone-note').text();
-    expect(standalone).toContain('tasks.substrateAnchorKept');
-    // POSITIVE CONTROL: the other half was promoted too, so this is a note carrying BOTH sentences rather
-    // than a promotion that happened to drop one of them.
-    expect(standalone).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+      const w = await mountPage();
+      await doneButtons(w)[0]!.trigger('click');
+      await flushPromises();
+      await w.find('.confirm-btn').trigger('click');
+      await flushPromises();
+
+      // The row is genuinely gone — the same shape AF-23 pins.
+      expect(w.find('.mp-taskrow__outcome-note').exists()).toBe(false);
+      const standalone = w.find('.mp-today__standalone-note').text();
+      // The SURVIVING anchor's own date — never the submitted `occurredOn`.
+      expectAnchorSentence(standalone);
+      // POSITIVE CONTROL: the other half was promoted too, so this is a note carrying BOTH sentences rather
+      // than a promotion that happened to drop one of them.
+      expect(standalone).toContain('tasks.alreadyRecorded.otherEffectsApplied');
+    } finally {
+      vi.stubGlobal('useI18n', DEFAULT_USE_I18N);
+    }
   });
 });

@@ -22,8 +22,17 @@ import { CHAT_ATTACHMENT_CAPS } from '../utils/chatSend.js';
 // E2 fix — the SAME one-per-day outcome helper the Today/plant pages already use (pages/index.vue,
 // components/PlantDetail.vue), reused here rather than re-derived: a second mapping from `CareWriteOutcome`
 // to an i18n key is exactly the parallel-copy bug class this project calls out.
-import { careOutcomeNoteKey, doneSubmitPath } from '../utils/careOutcome.js';
-import { todayYmd } from '../utils/localDate.js';
+//
+// V1 fix (code review) — the SAME substrate-anchor seam too (`substrateAnchorKeptDay`/
+// `SUBSTRATE_ANCHOR_KEPT_KEY`), for the identical reason: Today and PlantDetail already render the
+// "the substrate clock stayed on <date>" sentence through this exact pair; this was the one renderer of an
+// approved-proposal outcome that consulted `outcome.status` alone and never looked at `outcome.substrate`,
+// so an approved `substrate.refresh`/REPOT dated before the stored anchor read as an ordinary, silent
+// success on this surface while the other two already told the owner the truth.
+import {
+  careOutcomeNoteKey, doneSubmitPath, substrateAnchorKeptDay, SUBSTRATE_ANCHOR_KEPT_KEY,
+} from '../utils/careOutcome.js';
+import { todayYmd, ymdToLocalDate } from '../utils/localDate.js';
 
 const props = defineProps<{
   // Our internal cuid session id; null for a brand-new chat not yet created.
@@ -66,7 +75,7 @@ const emit = defineEmits<{
   (e: 'changed'): void;
 }>();
 
-const { t, te, locale } = useI18n();
+const { t, te, locale, d } = useI18n();
 const sessions = props.sessions;
 const runs = props.runs;
 const socketUrl = props.socketUrl;
@@ -822,12 +831,20 @@ const proposalError = ref<string | null>(null);
 // `approveProposal` below awaited it and threw it away. Populated the moment approval succeeds, at the
 // SAME point `pendingProposal` is torn down, so it renders where the banner used to be.
 //
-// STORES i18n KEYS, never translated strings — the SAME reason `outcomeNotes` does in pages/index.vue and
-// PlantDetail.vue (F11 fix, 2026-08-14): freezing the translated string at write time would leave this note
-// stuck in the old language after a locale switch. `$t(key)` in the template resolves it at render.
+// STORES i18n KEYS (and the RAW substrate anchor day, never a formatted string), never translated
+// strings/dates — the SAME reason `outcomeNotes`/`anchorKeptDays` do in pages/index.vue and PlantDetail.vue
+// (F11 fix, 2026-08-14; V1 fix): freezing either at write time would leave the note stuck in the old
+// language/format after a locale switch. `outcomeNoteText` below (template-called) resolves both at render.
+//
+// V1 fix — `anchorDay` is the SECOND, INDEPENDENT fact `substrateAnchorKeptDay` answers (never a
+// replacement for `noteKey`: both can be true of the SAME operation — a same-day duplicate REPOT naming an
+// older day is `already-recorded-on-day` AND anchor-`kept` at once, the exact combination the API's finding
+// E8 measured). An entry is kept whenever EITHER half is non-null, so a `status: 'applied'` operation whose
+// anchor was nonetheless kept still earns its own line here, even though `careOutcomeNoteKey` itself has
+// nothing to say about an `applied` outcome.
 //
 // The per-operation notes only. The proposal's AGGREGATE breakdown is `approvedOutcomeCounts` below.
-const approvedOutcomeNoteKeys = ref<string[]>([]);
+const approvedOutcomeNoteKeys = ref<{ noteKey: string | null; anchorDay: string | null }[]>([]);
 
 // THE AGGREGATE SUMMARY (owner ruling 2026-08-14, REVISED the same day by code-review finding AF-8).
 // The per-operation notes say what happened to each operation; nothing said how much of the proposal as a
@@ -876,13 +893,21 @@ const OUTCOME_SUMMARY_KEYS = {
  * on the contract member `otherEffectsApplied`, never on `task === 'REPOT'`: REPOT is the only task that
  * carries side effects today, but the member exists precisely so no surface has to hardcode which task that
  * is. `utils/careOutcome.ts` branches the same way for the same reason.
+ *
+ * V1(b) fix — PRINCIPAL'S BINDING RULING: an operation whose care event applied but whose ANCHOR was
+ * refused (`outcome.substrate?.status === 'kept'`) counts as `partial`, never `applied`, because it is
+ * structurally identical to the state that invented the word: part of the write took effect (the event, the
+ * profile, the recompute), part was refused (the calibrated clock did not move). Checked FIRST, before the
+ * `status` branch, so an `already-recorded-on-day` outcome that ALSO kept the anchor still lands in exactly
+ * one bucket — never counted twice, and never demoted back to `alreadyRecorded` by the branch below it.
  */
 function countOutcomeStates(outcomes: readonly CareWriteOutcome[]) {
   let applied = 0;
   let partial = 0;
   let alreadyRecorded = 0;
   for (const outcome of outcomes) {
-    if (outcome.status === 'applied') applied += 1;
+    if (outcome.substrate?.status === 'kept') partial += 1;
+    else if (outcome.status === 'applied') applied += 1;
     else if (outcome.otherEffectsApplied) partial += 1;
     else alreadyRecorded += 1;
   }
@@ -899,6 +924,21 @@ const approvedOutcomeSegments = computed(() => {
     .map((kind) => ({ kind, key: OUTCOME_SUMMARY_KEYS[kind], count: counts[kind] }))
     .filter((segment) => segment.count > 0);
 });
+
+// V1 fix — resolves ONE `approvedOutcomeNoteKeys` entry through `t()`/`d()` at RENDER time (called from the
+// template below), so a locale switch after the approval re-renders both sentences in the new language
+// instead of freezing them in whatever was active when `approveProposal` ran. BOTH sentences render when
+// both are true — the SAME rule (and the SAME reason, the API's own finding E8) `pages/index.vue`'s and
+// `PlantDetail.vue`'s identical `outcomeNoteFor`/`noteTextFor` helpers already follow; this is the THIRD
+// renderer of the identical fact, so it must never come to disagree with the other two about which sentence
+// a given outcome earns. `d(..., 'short')` is how every other date this package renders is formatted.
+function outcomeNoteText(note: { noteKey: string | null; anchorDay: string | null }): string {
+  const parts = [
+    note.noteKey ? t(note.noteKey) : null,
+    note.anchorDay ? t(SUBSTRATE_ANCHOR_KEPT_KEY, { date: d(ymdToLocalDate(note.anchorDay), 'short') }) : null,
+  ].filter((part): part is string => !!part);
+  return parts.join(' ');
+}
 
 // code review AF-21 — BOTH refs above are cleared here, in ONE watcher, rather than hand-clearing at each
 // call site that reassigns `currentSessionId` (a brand-new session at `:235`, a resumed one at `:248`).
@@ -990,16 +1030,41 @@ async function approveProposal() {
     // brand-new approval it has never seen.
     const idempotencyKey = approveKeyFor(currentSessionId.value, pendingProposal.value.id);
     const result = await props.proposals.approve(currentSessionId.value, pendingProposal.value.id, idempotencyKey);
+    // V2 fix (code review) — a 200 response is NOT necessarily a successful apply. Two reachable states
+    // must be treated as a failure, exactly like the `catch` branch below already does, rather than as the
+    // ordinary success path beneath this guard:
+    //   FAILED  — the apply rolled back; `outcome` is null (per its own doc above), so there would be
+    //             nothing to render even if this guard did not exist — but `pendingProposal` was still being
+    //             nulled unconditionally, so the banner vanished as though the write had landed.
+    //   PENDING — the API's documented double-failure path (the apply transaction AND the failure-recording
+    //             transaction both failed), so the server is honestly reporting the proposal as still
+    //             pending. Nulling `pendingProposal` here would ALSO permanently strand the session: this
+    //             proposal keeps holding the one outstanding idempotency key `approveKeyFor` hands out per
+    //             (session, proposal), so with the banner gone the agent could never file a replacement.
+    // The proposal is deliberately left exactly as it was (never re-fetched here) — a `pending()` refetch
+    // for a FAILED row would return a DIFFERENT (or no) proposal and make the banner disappear anyway, which
+    // is precisely the outcome this guard exists to prevent.
+    if (result.status !== 'APPROVED') {
+      proposalError.value = tns('proposal.applyError');
+      return;
+    }
     const today = todayYmd();
     const perOperation = result.outcome?.perOperation ?? [];
     approvedOutcomeNoteKeys.value = perOperation
-      .map((outcome) =>
-        careOutcomeNoteKey(
+      .map((outcome) => ({
+        noteKey: careOutcomeNoteKey(
           outcome,
           doneSubmitPath(outcome.status === 'already-recorded-on-day' ? outcome.occurredOn : undefined, today),
         ),
-      )
-      .filter((key): key is string => key !== null);
+        // V1 fix — the substrate clock's own outcome, the SAME shared seam `pages/index.vue`'s
+        // `recordOutcome` and `PlantDetail.vue`'s twin already read. Independent of `noteKey` above: an
+        // operation can be `already-recorded-on-day` AND anchor-`kept` at once (API finding E8), or
+        // `applied` and STILL anchor-`kept` (an ordinary REPOT write whose day happened to be older than
+        // the stored anchor) — `careOutcomeNoteKey` has nothing to say about that second case at all, which
+        // is why this is a second, independently-filtered field rather than folded into the first.
+        anchorDay: substrateAnchorKeptDay(outcome.substrate),
+      }))
+      .filter((note) => note.noteKey !== null || note.anchorDay !== null);
     // Gated on the SERVER's derived `global`, never on a status recomputed here: the shared contract derives
     // that status once (`deriveProposalOutcomeStatus`) precisely so no surface holds a second answer that
     // could disagree with it. The counts below are only the numbers the segments print.
@@ -1222,17 +1287,24 @@ defineExpose({
          `careOutcomeNoteKey` helper (see `approveProposal`) — no new copy, no new surface. `ALL_APPLIED`
          renders nothing here because `careOutcomeNoteKey` already answers `null` for an `applied`
          per-operation outcome (constraint 5), and a `null` proposal outcome never reaches this array at all
-         (constraint 4). -->
+         (constraint 4).
+
+         V1 fix — this block is gated on the NOTES array, never on `global`/the summary above, which is
+         exactly what makes it the right place for the substrate-anchor sentence: a companion API change may
+         one day stop `global` from reading `ALL_APPLIED` when an anchor was kept, but this block renders
+         whether or not that has landed, because it never reads `global` in the first place. Each entry's
+         text is resolved through `outcomeNoteText` (both the `already-recorded-on-day` sentence AND the
+         anchor-kept one, when both are true of the same operation), never `$t(noteKey)` directly. -->
     <p
-      v-for="(noteKey, idx) in approvedOutcomeNoteKeys"
+      v-for="(note, idx) in approvedOutcomeNoteKeys"
       :key="`outcome-note-${idx}`"
       class="mp-kchat__note"
       role="status"
     >
-      {{ $t(noteKey) }}
+      {{ outcomeNoteText(note) }}
       <!-- Close clears the summary too. The summary can only ever appear alongside at least one note
-           (every `already-recorded-on-day` outcome earns a key), so this one button owns the whole block —
-           a second close on the summary would be a second control for one dismissal. -->
+           (every `already-recorded-on-day`/anchor-kept outcome earns an entry), so this one button owns the
+           whole block — a second close on the summary would be a second control for one dismissal. -->
       <button
         v-if="idx === approvedOutcomeNoteKeys.length - 1"
         type="button"

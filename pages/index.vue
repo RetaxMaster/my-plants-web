@@ -434,8 +434,18 @@ function reconcileOutcomeNotesAfterRefresh() {
     : standaloneOutcomeNotes.value;
 }
 
+// V4 fix — a dismiss must retire the note's SOURCE entries too, not only its promoted standalone copy.
+// `outcomeNotes`/`anchorKeptDays` are only ever spread-overwritten (never deleted from) by `recordOutcome`,
+// so leaving this key in either one means the NEXT completion's `reconcileOutcomeNotesAfterRefresh()`
+// still finds it, has no way to know the owner already dismissed it, and re-promotes the very note he just
+// closed. Once a note has been promoted to standalone and dismissed, nothing else reads these two maps for
+// this key, so deleting both entries here is safe.
 function dismissStandaloneOutcomeNote(key: string) {
   standaloneOutcomeNotes.value = standaloneOutcomeNotes.value.filter((n) => n.key !== key);
+  const { [key]: _droppedNote, ...restNotes } = outcomeNotes.value;
+  outcomeNotes.value = restNotes;
+  const { [key]: _droppedAnchor, ...restAnchorDays } = anchorKeptDays.value;
+  anchorKeptDays.value = restAnchorDays;
 }
 
 async function sendDone(plantId: string, task: DueTask['task'], occurredOn?: string, reason?: string) {
@@ -641,12 +651,18 @@ async function onRepotDone(plantId: string) {
   // FIX D1 — the SAME predicate `beginDoneAttempt` uses (`hasResumableKeyFor`), never the weaker "is a key
   // outstanding?". After a 400 the key is still in the store but `begin()` will NOT resume it (FIX C2), so
   // the reopen must take the FRESH path and re-read the prefill the next confirm will actually send.
-  // On THIS renderer the symptom PlantDetail.vue suffered is currently unreachable — Today's card has no
-  // back-date input and `today` is re-read live (function call, matching PlantDetail.vue's twin — code
-  // review AF-1 fixed the module-level-constant version of this file, which went stale across local
-  // midnight) — so the change is a sweep, not a bug fix: the twin renderers have drifted on this flow five
-  // times already, and leaving one of them reading a predicate that disagrees with `begin()` is one feature
-  // away from mattering. What it does change today:
+  // On THIS renderer the symptom PlantDetail.vue suffered is unreachable for `sendDone`/`sendPostpone` —
+  // Today's non-REPOT rows have no back-date input and `today` is re-read live (function call, matching
+  // PlantDetail.vue's twin — code review AF-1 fixed the module-level-constant version of this file, which
+  // went stale across local midnight). ⚠️ IT WAS NOT UNREACHABLE FOR THE REPOT MODAL PATH BELOW (V3 fix):
+  // that path never consults `today()` at all — it used to seed `RepotDoneForm.vue`'s date field from
+  // `TaskRow.vue`'s own readonly `doneDate` ref, frozen at that row's mount, which could go stale across
+  // local midnight exactly like AF-1's `today` did. Fixed at the root in `TaskRow.vue`'s `onDone` (re-reads
+  // `todayYmd()` live for REPOT), not here — this comment previously overstated the guard, which is exactly
+  // the kind of claim that hides a live defect from the next reader. So the change immediately below is a
+  // sweep for the resumable-key predicate, not a bug fix on its own: the twin renderers have drifted on this
+  // flow five times already, and leaving one of them reading a predicate that disagrees with `begin()` is
+  // one feature away from mattering. What it does change today:
   // a reopen after a 400 re-fetches the profile prefill, which is correct — a 400 committed nothing, so
   // there is no frozen envelope for the prefill to stay byte-identical to.
   const resuming = hasResumableDoneKeyFor(plantId);
@@ -1018,13 +1034,19 @@ function openProgress(plantId: string) {
          the FIRST completion; this duplicate one is what produced the note). Rendered here, independent of
          `grouped`/`plantTasks`, so the sentence owner decision 9 promises survives the very refresh that
          would otherwise take its only renderer down with it. Reuses the row's own note text verbatim —
-         no new copy. -->
-    <div v-if="standaloneOutcomeNotes.length" class="mp-today__standalone-notes">
+         no new copy.
+
+         V9 fix — the region itself is now ALWAYS in the DOM, `aria-live="polite"` declared on it from the
+         very first render; only its CONTENT (the `v-for` below) is conditional. A live region that appears
+         in the SAME tick as the text inside it is generally not announced at all — screen readers announce
+         a CHANGE to an already-present region, not the region's own arrival plus its content together. The
+         previous `v-if` on this div created exactly that case: a note pressed and its region mounted in one
+         tick, so the very first — and often only — note an owner sees never gets announced. -->
+    <div class="mp-today__standalone-notes" aria-live="polite">
       <p
         v-for="n in standaloneOutcomeNotes"
         :key="n.key"
         class="mp-today__standalone-note"
-        aria-live="polite"
       >
         <span>{{ noteTextFor(n.noteKey, n.anchorDay) }}</span>
         <button
@@ -1188,6 +1210,12 @@ function openProgress(plantId: string) {
   flex-direction: column;
   gap: var(--space-2);
   margin-bottom: var(--space-4);
+}
+
+/* V9 — the region is now always rendered (see the template comment above), so an empty one must take up
+   no visual space, exactly as the removed `v-if` used to guarantee. */
+.mp-today__standalone-notes:empty {
+  margin-bottom: 0;
 }
 
 .mp-today__standalone-note {

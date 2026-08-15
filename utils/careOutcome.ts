@@ -35,8 +35,12 @@ export function doneSubmitPath(occurredOn: string | undefined, today: string): D
  *
  * ⚠️ `otherEffectsApplied: true` EARNS ITS OWN SENTENCE, KEYED ON THE CONTRACT MEMBER, NEVER ON THE TASK
  * (F2 fix, 2026-08-14). The API states outright (`repot-complete.write-core.ts`) that on a duplicate REPOT
- * "the care-event write" is the ONLY thing suppressed — the profile update, the substrate refresh
- * (`substrate_refreshed_on` re-anchored) and the care-plan recompute all still run. The neutral fallthrough
+ * "the care-event write" is the ONLY thing unconditionally suppressed — the profile update and the
+ * care-plan recompute still run. The substrate refresh is NOT among them under newest-wins (owner ruling,
+ * 2026-08-14; API finding E8, see `substrateAnchorKeptDay` below): `substrate_refreshed_on` re-anchors only
+ * when the completion's day is newer than what is already stored, and stays put — `kept`, not re-anchored —
+ * on exactly the duplicate-naming-an-older-day case this paragraph used to claim always moved it. The
+ * neutral fallthrough
  * below says "nothing was added", which is exactly the phrasing the shared contract's own doc-comment
  * (`care-outcome.ts`) forbids for that case. Branching on `outcome.otherEffectsApplied` — rather than on
  * `outcome.task === 'REPOT'` — is deliberate: REPOT is the only task that carries side effects TODAY, but a
